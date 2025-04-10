@@ -32,19 +32,19 @@ export default async function AccountPage() {
 
   return (
     <section className='rounded-lg bg-black px-4 py-16'>
-      <h1 className='mb-8 text-center'>Account</h1>
+      <h1 className='mb-8 text-center'>アカウント</h1>
 
       <div className='flex flex-col gap-4'>
         <Card
-          title='Your Plan'
+          title='あなたのプラン'
           footer={
             subscription ? (
               <Button size='sm' variant='secondary' asChild>
-                <Link href='/manage-subscription'>Manage your subscription</Link>
+                <Link href='/manage-subscription'>サブスクリプションを管理</Link>
               </Button>
             ) : (
               <Button size='sm' variant='secondary' asChild>
-                <Link href='/pricing'>Start a subscription</Link>
+                <Link href='/pricing'>サブスクリプションを開始</Link>
               </Button>
             )
           }
@@ -52,7 +52,7 @@ export default async function AccountPage() {
           {userProduct && userPrice ? (
             <PricingCard product={userProduct} price={userPrice} />
           ) : (
-            <p>You don&apos;t have an active subscription</p>
+            <p>アクティブなサブスクリプションがありません</p>
           )}
         </Card>
       </div>

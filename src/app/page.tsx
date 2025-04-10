@@ -22,12 +22,12 @@ function HeroSection() {
         <div className='relative z-10 flex flex-col gap-5 lg:max-w-xl lg:pl-8'>
           <div className='w-fit rounded-full bg-gradient-to-r from-[#616571] via-[#7782A9] to-[#826674] px-4 py-1 '>
             <span className='font-alt text-sm font-semibold text-black mix-blend-soft-light'>
-              Generate banners with DALL·E
+              DALL·Eでバナーを生成
             </span>
           </div>
-          <h1>Instantly craft stunning Twitter banners.</h1>
+          <h1>美しいTwitterバナーを瞬時に作成。</h1>
           <Button asChild variant='sexy'>
-            <Link href='/signup'>Get started for free</Link>
+            <Link href='/signup'>無料ではじめる</Link>
           </Button>
         </div>
       </Container>
@@ -53,7 +53,7 @@ function ExamplesSection() {
           src='/example1.png'
           width={600}
           height={200}
-          alt='Example of a generated banner'
+          alt='生成されたバナーの例'
           quality={100}
         />
         <Image
@@ -61,7 +61,7 @@ function ExamplesSection() {
           src='/example2.png'
           width={600}
           height={200}
-          alt='Example of a generated banner'
+          alt='生成されたバナーの例'
           quality={100}
         />
         <Image
@@ -69,7 +69,7 @@ function ExamplesSection() {
           src='/example3.png'
           width={600}
           height={200}
-          alt='Example of a generated banner'
+          alt='生成されたバナーの例'
           quality={100}
         />
       </div>
@@ -79,7 +79,7 @@ function ExamplesSection() {
           src='/example4.png'
           width={600}
           height={200}
-          alt='Example of a generated banner'
+          alt='生成されたバナーの例'
           quality={100}
         />
         <Image
@@ -87,7 +87,7 @@ function ExamplesSection() {
           src='/example5.png'
           width={600}
           height={200}
-          alt='Example of a generated banner'
+          alt='生成されたバナーの例'
           quality={100}
         />
         <Image
@@ -95,7 +95,7 @@ function ExamplesSection() {
           src='/example6.png'
           width={600}
           height={200}
-          alt='Example of a generated banner'
+          alt='生成されたバナーの例'
           quality={100}
         />
       </div>
@@ -105,7 +105,7 @@ function ExamplesSection() {
           src='/example7.png'
           width={600}
           height={200}
-          alt='Example of a generated banner'
+          alt='生成されたバナーの例'
           quality={100}
         />
         <Image
@@ -113,7 +113,7 @@ function ExamplesSection() {
           src='/example8.png'
           width={600}
           height={200}
-          alt='Example of a generated banner'
+          alt='生成されたバナーの例'
           quality={100}
         />
         <Image
@@ -121,7 +121,7 @@ function ExamplesSection() {
           src='/example9.png'
           width={600}
           height={200}
-          alt='Example of a generated banner'
+          alt='生成されたバナーの例'
           quality={100}
         />
       </div>

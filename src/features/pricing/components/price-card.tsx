@@ -68,19 +68,19 @@ export function PricingCard({
                 ? '$' + monthPrice / 100
                 : 'Custom'}
             </span>
-            <span>{yearPrice && isBillingIntervalYearly ? '/year' : monthPrice ? '/month' : null}</span>
+            <span>{yearPrice && isBillingIntervalYearly ? '/年' : monthPrice ? '/月' : null}</span>
           </div>
         </div>
 
         {!Boolean(price) && product.prices.length > 1 && <PricingSwitch onChange={handleBillingIntervalChange} />}
 
         <div className='m-auto flex w-fit flex-1 flex-col gap-2 px-8 py-4'>
-          {metadata.generatedImages === 'enterprise' && <CheckItem text={`Unlimited banner images`} />}
+          {metadata.generatedImages === 'enterprise' && <CheckItem text={`無制限のバナー画像`} />}
           {metadata.generatedImages !== 'enterprise' && (
-            <CheckItem text={`Generate ${metadata.generatedImages} banner images`} />
+            <CheckItem text={`${metadata.generatedImages}個のバナー画像を生成`} />
           )}
-          {<CheckItem text={`${metadata.imageEditor} image editing features`} />}
-          {<CheckItem text={`${metadata.supportLevel} support`} />}
+          {<CheckItem text={`${metadata.imageEditor}の画像編集機能`} />}
+          {<CheckItem text={`${metadata.supportLevel}サポート`} />}
         </div>
 
         {createCheckoutAction && (
@@ -91,12 +91,12 @@ export function PricingCard({
                 className='w-full'
                 onClick={() => createCheckoutAction({ price: currentPrice })}
               >
-                Get Started
+                はじめる
               </Button>
             )}
             {!currentPrice && (
               <Button variant={buttonVariantMap[metadata.priceCardVariant]} className='w-full' asChild>
-                <Link href='/contact'>Contact Us</Link>
+                <Link href='/contact'>お問い合わせ</Link>
               </Button>
             )}
           </div>
@@ -139,8 +139,8 @@ function PricingSwitch({ onChange }: { onChange: (value: BillingInterval) => voi
       onValueChange={(newBillingInterval) => onChange(newBillingInterval as BillingInterval)}
     >
       <TabsList className='m-auto'>
-        <TabsTrigger value='month'>Monthly</TabsTrigger>
-        <TabsTrigger value='year'>Yearly</TabsTrigger>
+        <TabsTrigger value='month'>月額</TabsTrigger>
+        <TabsTrigger value='year'>年額</TabsTrigger>
       </TabsList>
     </Tabs>
   );
