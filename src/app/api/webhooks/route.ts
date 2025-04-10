@@ -1,5 +1,11 @@
 import Stripe from 'stripe';
 
+// Stripeの型定義を拡張
+interface StripeSubscriptionWithPeriod extends Stripe.Subscription {
+  current_period_start: number;
+  current_period_end: number;
+}
+
 import { upsertUserSubscription } from '@/features/account/controllers/upsert-user-subscription';
 import { upsertPrice } from '@/features/pricing/controllers/upsert-price';
 import { upsertProduct } from '@/features/pricing/controllers/upsert-product';
@@ -44,23 +50,37 @@ export async function POST(req: Request) {
         case 'customer.subscription.created':
         case 'customer.subscription.updated':
         case 'customer.subscription.deleted':
-          const subscription = event.data.object as Stripe.Subscription;
-          await upsertUserSubscription({
+          const subscription = event.data.object as unknown as StripeSubscriptionWithPeriod;
+          console.log(`Processing subscription ${subscription.id} for customer ${subscription.customer}`);
+          
+          const subscriptionResult = await upsertUserSubscription({
             subscriptionId: subscription.id,
             customerId: subscription.customer as string,
             isCreateAction: false,
           });
+          
+          if (!subscriptionResult?.success) {
+            console.error('Failed to upsert subscription:', subscriptionResult?.error);
+            throw new Error(`Failed to upsert subscription: ${JSON.stringify(subscriptionResult?.error)}`);
+          }
           break;
         case 'checkout.session.completed':
           const checkoutSession = event.data.object as Stripe.Checkout.Session;
 
           if (checkoutSession.mode === 'subscription') {
             const subscriptionId = checkoutSession.subscription;
-            await upsertUserSubscription({
+            console.log(`Processing checkout session ${checkoutSession.id} with subscription ${subscriptionId}`);
+            
+            const checkoutResult = await upsertUserSubscription({
               subscriptionId: subscriptionId as string,
               customerId: checkoutSession.customer as string,
               isCreateAction: true,
             });
+            
+            if (!checkoutResult?.success) {
+              console.error('Failed to upsert subscription from checkout:', checkoutResult?.error);
+              throw new Error(`Failed to upsert subscription from checkout: ${JSON.stringify(checkoutResult?.error)}`);
+            }
           }
           break;
         default:
