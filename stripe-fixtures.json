@@ -8,12 +8,15 @@
       "path": "/v1/products",
       "method": "post",
       "params": {
-        "name": "Basic",
-        "description": "Perfect product for small businesses.",
+        "name": "ベーシック",
+        "description": "中小企業やブロガーに最適なプラン",
         "metadata": {
           "price_card_variant": "basic",
-          "generated_images": 10,
-          "image_editor": "basic",
+          "generated_articles": 10,
+          "article_length": "中（約1,500語）",
+          "seo_optimization": "基本",
+          "chat_edits": "標準",
+          "export_formats": "HTML, Markdown",
           "support_level": "email"
         }
       }
@@ -24,9 +27,9 @@
       "method": "post",
       "params": {
         "product": "${basic:id}",
-        "currency": "usd",
+        "currency": "jpy",
         "billing_scheme": "per_unit",
-        "unit_amount": 500,
+        "unit_amount": 2980,
         "recurring": {
           "interval": "month",
           "interval_count": 1
@@ -39,9 +42,9 @@
       "method": "post",
       "params": {
         "product": "${basic:id}",
-        "currency": "usd",
+        "currency": "jpy",
         "billing_scheme": "per_unit",
-        "unit_amount": 5000,
+        "unit_amount": 29800,
         "recurring": {
           "interval": "year",
           "interval_count": 1
@@ -53,12 +56,15 @@
       "path": "/v1/products",
       "method": "post",
       "params": {
-        "name": "Pro",
-        "description": "Perfect product for growing or large businesses.",
+        "name": "プロフェッショナル",
+        "description": "コンテンツマーケティング担当者や成長中のビジネスに最適",
         "metadata": {
           "price_card_variant": "pro",
-          "generated_images": 100,
-          "image_editor": "pro",
+          "generated_articles": 30,
+          "article_length": "長（約3,000語）",
+          "seo_optimization": "高度",
+          "chat_edits": "優先",
+          "export_formats": "HTML, Markdown, WordPress",
           "support_level": "live"
         }
       }
@@ -69,9 +75,9 @@
       "method": "post",
       "params": {
         "product": "${pro:id}",
-        "currency": "usd",
+        "currency": "jpy",
         "billing_scheme": "per_unit",
-        "unit_amount": 1000,
+        "unit_amount": 7980,
         "recurring": {
           "interval": "month",
           "interval_count": 1
@@ -84,9 +90,9 @@
       "method": "post",
       "params": {
         "product": "${pro:id}",
-        "currency": "usd",
+        "currency": "jpy",
         "billing_scheme": "per_unit",
-        "unit_amount": 10000,
+        "unit_amount": 79800,
         "recurring": {
           "interval": "year",
           "interval_count": 1
@@ -98,12 +104,18 @@
       "path": "/v1/products",
       "method": "post",
       "params": {
-        "name": "Enterprise",
-        "description": "Perfect product for enterprises.",
+        "name": "エンタープライズ",
+        "description": "大規模な企業やコンテンツ制作チーム向け",
         "metadata": {
           "price_card_variant": "enterprise",
-          "image_editor": "pro",
-          "support_level": "live"
+          "generated_articles": "無制限",
+          "article_length": "無制限",
+          "seo_optimization": "最高級",
+          "chat_edits": "最優先",
+          "export_formats": "すべて対応",
+          "api_access": "対応",
+          "custom_branding": "対応",
+          "support_level": "専任担当者"
         }
       }
     }

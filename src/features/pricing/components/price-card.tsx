@@ -63,10 +63,10 @@ export function PricingCard({
           <div className='flex justify-center gap-0.5 text-zinc-400'>
             <span className='font-semibold'>
               {yearPrice && isBillingIntervalYearly
-                ? '$' + yearPrice / 100
+                ? '¥' + yearPrice
                 : monthPrice
-                ? '$' + monthPrice / 100
-                : 'Custom'}
+                ? '¥' + monthPrice
+                : 'カスタム'}
             </span>
             <span>{yearPrice && isBillingIntervalYearly ? '/年' : monthPrice ? '/月' : null}</span>
           </div>
@@ -75,12 +75,37 @@ export function PricingCard({
         {!Boolean(price) && product.prices.length > 1 && <PricingSwitch onChange={handleBillingIntervalChange} />}
 
         <div className='m-auto flex w-fit flex-1 flex-col gap-2 px-8 py-4'>
-          {metadata.generatedImages === 'enterprise' && <CheckItem text={`無制限のバナー画像`} />}
-          {metadata.generatedImages !== 'enterprise' && (
-            <CheckItem text={`${metadata.generatedImages}個のバナー画像を生成`} />
+          {/* 記事数 */}
+          {typeof metadata.generatedArticles === 'string' && (
+            <CheckItem text={`${metadata.generatedArticles === '無制限' ? '無制限の記事' : `${metadata.generatedArticles}記事/月`}`} />
           )}
-          {<CheckItem text={`${metadata.imageEditor}の画像編集機能`} />}
-          {<CheckItem text={`${metadata.supportLevel}サポート`} />}
+          {typeof metadata.generatedArticles === 'number' && metadata.generatedArticles > 0 && (
+            <CheckItem text={`${metadata.generatedArticles}記事/月`} />
+          )}
+          
+          {/* 記事の長さ */}
+          {metadata.articleLength && <CheckItem text={`${metadata.articleLength}`} />}
+          
+          {/* 画像編集機能(後方互換性) */}
+          {metadata.imageEditor && <CheckItem text={`${metadata.imageEditor === 'basic' ? '基本' : '高度'}な編集機能`} />}
+          
+          {/* SEO最適化 */}
+          {metadata.seoOptimization && <CheckItem text={`SEO最適化: ${metadata.seoOptimization}`} />}
+          
+          {/* チャット編集 */}
+          {metadata.chatEdits && <CheckItem text={`編集モード: ${metadata.chatEdits}`} />}
+          
+          {/* エクスポート形式 */}
+          {metadata.exportFormats && <CheckItem text={`エクスポート: ${metadata.exportFormats}`} />}
+          
+          {/* API連携 */}
+          {metadata.apiAccess && <CheckItem text={`API連携: ${metadata.apiAccess}`} />}
+          
+          {/* カスタムブランディング */}
+          {metadata.customBranding && <CheckItem text={`カスタムブランディング: ${metadata.customBranding}`} />}
+          
+          {/* サポートレベル（必須） */}
+          {metadata.supportLevel && <CheckItem text={`${metadata.supportLevel}サポート`} />}
         </div>
 
         {createCheckoutAction && (
