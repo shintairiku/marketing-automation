@@ -12,10 +12,14 @@ import {
   IoDocumentOutline,
   IoCheckmarkCircleOutline,
   IoTimeOutline,
-  IoChevronDownOutline
+  IoChevronDownOutline,
+  IoEyeOutline,
+  IoCalendarOutline,
+  IoDownloadOutline
 } from 'react-icons/io5';
 
 import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { 
   DropdownMenu, 
@@ -100,13 +104,14 @@ const generateMockArticles = (): GeneratedArticle[] => {
   ];
 };
 
-export default function ArticlesPage() {
+export default function ImprovedArticlesPage() {
   const [articles, setArticles] = useState<GeneratedArticle[]>(generateMockArticles());
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'published' | 'draft'>('all');
   const [sortBy, setSortBy] = useState<'updated' | 'created' | 'title'>('updated');
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [articleToDelete, setArticleToDelete] = useState<string | null>(null);
+  const [viewMode, setViewMode] = useState<'table' | 'grid'>('table');
 
   // 検索、フィルタリング、ソート
   const filteredArticles = articles
@@ -152,14 +157,14 @@ export default function ArticlesPage() {
   const getStatusBadge = (status: string) => {
     if (status === 'published') {
       return (
-        <span className="inline-flex items-center rounded-full bg-green-100 px-2.5 py-0.5 text-xs font-medium text-green-800">
+        <span className="inline-flex items-center rounded-full bg-green-500/20 px-2.5 py-0.5 text-xs font-medium text-green-400">
           <IoCheckmarkCircleOutline className="mr-1" />
           公開済み
         </span>
       );
     }
     return (
-      <span className="inline-flex items-center rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-medium text-amber-800">
+      <span className="inline-flex items-center rounded-full bg-amber-500/20 px-2.5 py-0.5 text-xs font-medium text-amber-400">
         <IoTimeOutline className="mr-1" />
         下書き
       </span>
@@ -168,8 +173,12 @@ export default function ArticlesPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold">記事一覧</h1>
+      {/* ヘッダー */}
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold mb-1">記事一覧</h1>
+          <p className="text-gray-400">あなたが作成したすべての記事を管理します</p>
+        </div>
         <Button variant="sexy" asChild>
           <Link href="/generate">
             <IoAdd className="mr-2" size={18} /> 新規作成
@@ -177,164 +186,290 @@ export default function ArticlesPage() {
         </Button>
       </div>
 
-      <div className="rounded-md border border-zinc-800 bg-zinc-900 p-4">
-        <div className="flex flex-col gap-4 sm:flex-row">
-          <div className="relative flex-1">
-            <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3">
-              <IoSearchOutline className="text-gray-400" />
+      {/* フィルター・検索エリア */}
+      <Card>
+        <CardContent className="p-4">
+          <div className="flex flex-col gap-4 sm:flex-row">
+            <div className="relative flex-1">
+              <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3">
+                <IoSearchOutline className="text-gray-400" />
+              </div>
+              <Input
+                type="text"
+                placeholder="タイトルや内容で検索..."
+                className="pl-10"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+              />
             </div>
-            <Input
-              type="text"
-              placeholder="タイトルや内容で検索..."
-              className="pl-10"
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-            />
-          </div>
-          <div className="flex gap-2">
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="outline" className="flex items-center gap-1">
-                  <IoFilterOutline className="mr-1" size={16} />
-                  {statusFilter === 'all' 
-                    ? 'すべて' 
-                    : statusFilter === 'published' 
-                      ? '公開済み' 
-                      : '下書き'}
-                  <IoChevronDownOutline size={14} />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuItem onClick={() => setStatusFilter('all')}>
-                  すべて
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setStatusFilter('published')}>
-                  公開済み
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setStatusFilter('draft')}>
-                  下書き
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
+            <div className="flex gap-2">
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" className="flex items-center gap-1">
+                    <IoFilterOutline className="mr-1" size={16} />
+                    {statusFilter === 'all' 
+                      ? 'すべて' 
+                      : statusFilter === 'published' 
+                        ? '公開済み' 
+                        : '下書き'}
+                    <IoChevronDownOutline size={14} />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem onClick={() => setStatusFilter('all')}>
+                    すべて
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => setStatusFilter('published')}>
+                    公開済み
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => setStatusFilter('draft')}>
+                    下書き
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
 
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="outline" className="flex items-center gap-1">
-                  並び替え
-                  <IoChevronDownOutline size={14} />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuItem onClick={() => setSortBy('updated')}>
-                  更新日（新しい順）
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setSortBy('created')}>
-                  作成日（新しい順）
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setSortBy('title')}>
-                  タイトル（A-Z）
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </div>
-        </div>
-      </div>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" className="flex items-center gap-1">
+                    並び替え
+                    <IoChevronDownOutline size={14} />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem onClick={() => setSortBy('updated')}>
+                    更新日（新しい順）
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => setSortBy('created')}>
+                    作成日（新しい順）
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => setSortBy('title')}>
+                    タイトル（A-Z）
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
 
-      <div className="rounded-md border border-zinc-800 bg-zinc-900">
-        {filteredArticles.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-16">
+              <div className="flex rounded-md border border-zinc-800 overflow-hidden">
+                <Button 
+                  variant={viewMode === 'table' ? 'default' : 'ghost'} 
+                  size="sm" 
+                  onClick={() => setViewMode('table')}
+                  className="rounded-none border-0"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+                    <line x1="3" y1="9" x2="21" y2="9"></line>
+                    <line x1="3" y1="15" x2="21" y2="15"></line>
+                    <line x1="9" y1="3" x2="9" y2="21"></line>
+                    <line x1="15" y1="3" x2="15" y2="21"></line>
+                  </svg>
+                </Button>
+                <Button 
+                  variant={viewMode === 'grid' ? 'default' : 'ghost'} 
+                  size="sm"
+                  onClick={() => setViewMode('grid')}
+                  className="rounded-none border-0"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <rect x="3" y="3" width="7" height="7"></rect>
+                    <rect x="14" y="3" width="7" height="7"></rect>
+                    <rect x="14" y="14" width="7" height="7"></rect>
+                    <rect x="3" y="14" width="7" height="7"></rect>
+                  </svg>
+                </Button>
+              </div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* 記事一覧表示エリア */}
+      {filteredArticles.length === 0 ? (
+        <Card className="py-16">
+          <CardContent className="flex flex-col items-center justify-center">
             <IoDocumentOutline size={48} className="mb-4 text-gray-500" />
-            <p className="text-gray-500">記事が見つかりません</p>
+            <h3 className="text-xl font-medium mb-2">記事が見つかりません</h3>
+            <p className="text-gray-500 text-center max-w-md">
+              {searchTerm 
+                ? '検索条件に一致する記事がありません。検索語を変更するか、フィルターをクリアしてみてください。' 
+                : '記事がまだありません。「新規作成」ボタンから最初の記事を作成しましょう。'}
+            </p>
             {searchTerm && (
-              <p className="mt-2 text-sm text-gray-600">
-                検索条件を変更するか、新しい記事を作成してください
-              </p>
+              <Button 
+                variant="outline" 
+                className="mt-4" 
+                onClick={() => {
+                  setSearchTerm('');
+                  setStatusFilter('all');
+                }}
+              >
+                フィルターをクリア
+              </Button>
             )}
-            <Button 
-              variant="outline" 
-              className="mt-4" 
-              onClick={() => {
-                setSearchTerm('');
-                setStatusFilter('all');
-              }}
-            >
-              フィルターをクリア
-            </Button>
-          </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-zinc-800">
-              <thead className="bg-zinc-900">
-                <tr>
-                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-400">
-                    タイトル
-                  </th>
-                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-400">
-                    ステータス
-                  </th>
-                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-400">
-                    更新日
-                  </th>
-                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-400">
-                    作成日
-                  </th>
-                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-400">
-                    <span className="sr-only">アクション</span>
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-zinc-800 bg-zinc-900">
-                {filteredArticles.map((article) => (
-                  <tr 
-                    key={article.id} 
-                    className="group cursor-pointer hover:bg-zinc-800/50"
-                    onClick={() => window.location.href = `/edit?id=${article.id}`}
-                  >
-                    <td className="whitespace-normal px-6 py-4">
-                      <div className="flex items-start">
-                        <div className="mr-3 flex-shrink-0 pt-1">
-                          <div className="flex h-8 w-8 items-center justify-center rounded-md border border-zinc-700 bg-zinc-800 text-gray-400">
-                            <IoDocumentOutline size={18} />
+          </CardContent>
+        </Card>
+      ) : viewMode === 'table' ? (
+        <Card>
+          <CardContent className="p-0">
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr className="border-b border-zinc-800">
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-400">
+                      タイトル
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-400">
+                      ステータス
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-400">
+                      更新日
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-400">
+                      作成日
+                    </th>
+                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-400">
+                      <span className="sr-only">アクション</span>
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-zinc-800">
+                  {filteredArticles.map((article) => (
+                    <tr 
+                      key={article.id} 
+                      className="group cursor-pointer hover:bg-zinc-800/30"
+                      onClick={() => window.location.href = `/edit?id=${article.id}`}
+                    >
+                      <td className="whitespace-normal px-6 py-4">
+                        <div className="flex items-start">
+                          <div className="mr-3 flex-shrink-0 pt-1">
+                            <div className="flex h-10 w-10 items-center justify-center rounded-md border border-zinc-700 bg-zinc-800 text-gray-400 group-hover:border-indigo-500 group-hover:bg-indigo-500/10 group-hover:text-indigo-400 transition-colors">
+                              <IoDocumentOutline size={20} />
+                            </div>
+                          </div>
+                          <div className="max-w-md">
+                            <div className="font-medium text-white group-hover:text-indigo-400 transition-colors">{article.title}</div>
+                            <div className="mt-1 hidden text-sm text-gray-400 line-clamp-1 sm:block">{article.metaDescription}</div>
                           </div>
                         </div>
-                        <div className="max-w-md">
-                          <div className="font-medium text-white">{article.title}</div>
-                          <div className="mt-1 hidden text-sm text-gray-400 line-clamp-1 sm:block">{article.metaDescription}</div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">{getStatusBadge(article.status)}</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-400">
+                        <div className="flex items-center">
+                          <IoCalendarOutline className="mr-1" size={14} />
+                          {formatDate(article.updatedAt)}
                         </div>
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">{getStatusBadge(article.status)}</td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-400">{formatDate(article.updatedAt)}</td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-400">{formatDate(article.createdAt)}</td>
-                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium" onClick={(e) => e.stopPropagation()}>
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
-                            <IoEllipsisVertical size={16} />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          <DropdownMenuItem asChild>
-                            <Link href={`/edit?id=${article.id}`} className="flex w-full items-center">
-                              <IoPencilOutline className="mr-2" size={14} /> 編集
-                            </Link>
-                          </DropdownMenuItem>
-                          <DropdownMenuItem className="text-red-500 focus:text-red-500" onClick={() => {
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-400">{formatDate(article.createdAt)}</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium" onClick={(e) => e.stopPropagation()}>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
+                              <IoEllipsisVertical size={16} />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            <DropdownMenuItem asChild>
+                              <Link href={`/edit?id=${article.id}`} className="flex w-full items-center">
+                                <IoPencilOutline className="mr-2" size={14} /> 編集
+                              </Link>
+                            </DropdownMenuItem>
+                            <DropdownMenuItem asChild>
+                              <Link href={`/view?id=${article.id}`} className="flex w-full items-center">
+                                <IoEyeOutline className="mr-2" size={14} /> プレビュー
+                              </Link>
+                            </DropdownMenuItem>
+                            <DropdownMenuItem asChild>
+                              <Link href={`#`} className="flex w-full items-center">
+                                <IoDownloadOutline className="mr-2" size={14} /> エクスポート
+                              </Link>
+                            </DropdownMenuItem>
+                            <DropdownMenuItem className="text-red-500 focus:text-red-500" onClick={() => {
+                              setArticleToDelete(article.id);
+                              setIsDeleteDialogOpen(true);
+                            }}>
+                              <IoTrashOutline className="mr-2" size={14} /> 削除
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </CardContent>
+          <CardFooter className="border-t border-zinc-800 py-3 px-6">
+            <p className="text-sm text-gray-400">全 {filteredArticles.length} 件の記事</p>
+          </CardFooter>
+        </Card>
+      ) : (
+        // グリッドビュー
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+          {filteredArticles.map((article) => (
+            <Card 
+              key={article.id} 
+              className="overflow-hidden hover:border-indigo-500/50 transition-colors cursor-pointer group"
+              onClick={() => window.location.href = `/edit?id=${article.id}`}
+            >
+              <CardHeader className="p-0">
+                <div className="h-3 bg-gradient-to-r from-indigo-500 to-pink-500"></div>
+              </CardHeader>
+              <CardContent className="p-6">
+                <div className="flex justify-between items-start mb-4">
+                  <div className="flex items-center justify-center h-10 w-10 rounded-md border border-zinc-700 bg-zinc-800 text-gray-400 group-hover:border-indigo-500 group-hover:bg-indigo-500/10 group-hover:text-indigo-400 transition-colors">
+                    <IoDocumentOutline size={20} />
+                  </div>
+                  <div className="flex items-center" onClick={(e) => e.stopPropagation()}>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
+                          <IoEllipsisVertical size={16} />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem asChild>
+                          <Link href={`/edit?id=${article.id}`} className="flex w-full items-center">
+                            <IoPencilOutline className="mr-2" size={14} /> 編集
+                          </Link>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem asChild>
+                          <Link href={`/view?id=${article.id}`} className="flex w-full items-center">
+                            <IoEyeOutline className="mr-2" size={14} /> プレビュー
+                          </Link>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem asChild>
+                          <Link href={`#`} className="flex w-full items-center">
+                            <IoDownloadOutline className="mr-2" size={14} /> エクスポート
+                          </Link>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem 
+                          className="text-red-500 focus:text-red-500" 
+                          onClick={() => {
                             setArticleToDelete(article.id);
                             setIsDeleteDialogOpen(true);
-                          }}>
-                            <IoTrashOutline className="mr-2" size={14} /> 削除
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
+                          }}
+                        >
+                          <IoTrashOutline className="mr-2" size={14} /> 削除
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </div>
+                </div>
+                
+                <h3 className="text-lg font-medium mb-2 group-hover:text-indigo-400 transition-colors line-clamp-2">{article.title}</h3>
+                <p className="text-sm text-gray-400 mb-4 line-clamp-2">{article.metaDescription}</p>
+                
+                <div className="flex justify-between items-center">
+                  {getStatusBadge(article.status)}
+                  <div className="text-xs text-gray-400 flex items-center">
+                    <IoCalendarOutline className="mr-1" size={12} />
+                    {formatDate(article.updatedAt)}
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
 
       {/* 削除確認ダイアログ */}
       <Dialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>

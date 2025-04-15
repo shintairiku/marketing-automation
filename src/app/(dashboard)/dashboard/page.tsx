@@ -2,18 +2,36 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { redirect } from 'next/navigation';
-import { IoAdd, IoDocument, IoEllipsisVertical, IoPencil, IoTrash } from 'react-icons/io5';
+import { 
+  IoAdd, 
+  IoDocument, 
+  IoEllipsisVertical, 
+  IoPencil, 
+  IoTrash,
+  IoBarChart,
+  IoCheckmarkCircleOutline,
+  IoTimeOutline,
+  IoCalendarOutline,
+  IoEyeOutline,
+  IoTrendingUp,
+  IoTrendingDown
+} from 'react-icons/io5';
 
-import { Container } from '@/components/container';
 import { Button } from '@/components/ui/button';
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+} from '@/components/ui/card';
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { getSession } from '@/features/account/controllers/get-session';
 import { GeneratedArticle } from '@/features/article-generation/types';
 
 // ダミーデータを生成
@@ -58,15 +76,25 @@ const generateMockArticles = (): GeneratedArticle[] => {
   ];
 };
 
-export default function DashboardPage() {
+export default function ImprovedDashboardPage() {
   const [articles] = useState<GeneratedArticle[]>(generateMockArticles());
 
   // 記事の状態によってバッジの色とテキストを変更
   const getStatusBadge = (status: string) => {
     if (status === 'published') {
-      return <span className="rounded-full bg-green-500/20 px-2 py-1 text-xs text-green-400">公開済</span>;
+      return (
+        <span className="inline-flex items-center rounded-full bg-green-500/20 px-2.5 py-1 text-xs font-medium text-green-400">
+          <IoCheckmarkCircleOutline className="mr-1" />
+          公開済
+        </span>
+      );
     }
-    return <span className="rounded-full bg-amber-500/20 px-2 py-1 text-xs text-amber-400">下書き</span>;
+    return (
+      <span className="inline-flex items-center rounded-full bg-amber-500/20 px-2.5 py-1 text-xs font-medium text-amber-400">
+        <IoTimeOutline className="mr-1" />
+        下書き
+      </span>
+    );
   };
 
   // 日付をフォーマット
@@ -79,105 +107,211 @@ export default function DashboardPage() {
   };
 
   return (
-    <Container className="py-10">
-      <div className="mx-auto max-w-4xl">
-        <div className="mb-8 flex items-center justify-between">
-          <h1 className="text-2xl font-bold">ダッシュボード</h1>
-          <Button variant="sexy" asChild>
-            <Link href="/generate">
-              <IoAdd className="mr-2" size={18} /> 新しい記事を生成
-            </Link>
-          </Button>
+    <div className="space-y-8">
+      {/* ウェルカムセクション */}
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+        <div>
+          <h1 className="text-3xl font-bold mb-1">こんにちは、ユーザーさん</h1>
+          <p className="text-gray-400">効果的なSEO記事を作成して、あなたのビジネスを成長させましょう。</p>
         </div>
+        <Button variant="sexy" asChild>
+          <Link href="/generate">
+            <IoAdd className="mr-2" size={18} /> 新しい記事を生成
+          </Link>
+        </Button>
+      </div>
 
-        <div className="mb-6 rounded-md border border-gray-700 bg-black p-6">
-          <h2 className="mb-4 text-lg font-semibold">使用状況</h2>
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-            <div className="rounded-md bg-gray-800/50 p-4">
-              <p className="text-sm text-gray-400">今月の生成記事数</p>
-              <p className="mt-1 text-2xl font-bold">5 / 10</p>
-              <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-gray-700">
-                <div className="h-full w-1/2 bg-indigo-500"></div>
+      {/* 使用状況サマリー */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm text-gray-400">今月の生成記事数</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="flex items-end justify-between">
+              <div className="text-2xl font-bold">5 / 10</div>
+              <IoDocument className="text-indigo-400" size={24} />
+            </div>
+            <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-gray-700">
+              <div className="h-full w-1/2 bg-indigo-500"></div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm text-gray-400">公開済み記事</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="flex items-end justify-between">
+              <div className="text-2xl font-bold">2</div>
+              <IoCheckmarkCircleOutline className="text-green-400" size={24} />
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm text-gray-400">下書き</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="flex items-end justify-between">
+              <div className="text-2xl font-bold">3</div>
+              <IoTimeOutline className="text-amber-400" size={24} />
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm text-gray-400">アクセス状況</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="flex items-end justify-between">
+              <div className="text-2xl font-bold">257</div>
+              <div className="flex items-center text-green-400">
+                <IoTrendingUp size={24} />
+                <span className="text-xs ml-1">+12%</span>
               </div>
             </div>
-            <div className="rounded-md bg-gray-800/50 p-4">
-              <p className="text-sm text-gray-400">公開済み記事</p>
-              <p className="mt-1 text-2xl font-bold">2</p>
-            </div>
-            <div className="rounded-md bg-gray-800/50 p-4">
-              <p className="text-sm text-gray-400">下書き</p>
-              <p className="mt-1 text-2xl font-bold">3</p>
-            </div>
-          </div>
-        </div>
-
-        <div className="mb-6 rounded-md border border-gray-700 bg-black p-6">
-          <h2 className="mb-4 text-lg font-semibold">最近の記事</h2>
-          <div className="overflow-hidden sm:rounded-md">
-            <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-gray-700">
-                <thead>
-                  <tr>
-                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium uppercase text-gray-400">
-                      タイトル
-                    </th>
-                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium uppercase text-gray-400">
-                      ステータス
-                    </th>
-                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium uppercase text-gray-400">
-                      更新日
-                    </th>
-                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium uppercase text-gray-400">
-                      作成日
-                    </th>
-                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium uppercase text-gray-400">
-                      <span className="sr-only">アクション</span>
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-700">
-                  {articles.map((article) => (
-                    <tr key={article.id} className="hover:bg-gray-800/30">
-                      <td className="whitespace-nowrap px-6 py-4">
-                        <div className="flex items-center">
-                          <IoDocument className="mr-2 text-gray-400" size={18} />
-                          <span className="font-medium">{article.title}</span>
-                        </div>
-                      </td>
-                      <td className="whitespace-nowrap px-6 py-4">{getStatusBadge(article.status)}</td>
-                      <td className="whitespace-nowrap px-6 py-4 text-sm text-gray-300">
-                        {formatDate(article.updatedAt)}
-                      </td>
-                      <td className="whitespace-nowrap px-6 py-4 text-sm text-gray-300">
-                        {formatDate(article.createdAt)}
-                      </td>
-                      <td className="whitespace-nowrap px-6 py-4 text-right text-sm">
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
-                              <IoEllipsisVertical size={16} />
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end">
-                            <DropdownMenuItem>
-                              <Link href="/edit" className="flex w-full items-center">
-                                <IoPencil className="mr-2" size={14} /> 編集
-                              </Link>
-                            </DropdownMenuItem>
-                            <DropdownMenuItem className="text-red-500 focus:text-red-500">
-                              <IoTrash className="mr-2" size={14} /> 削除
-                            </DropdownMenuItem>
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </div>
+          </CardContent>
+        </Card>
       </div>
-    </Container>
+
+      {/* アクティビティグラフ */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <CardTitle>記事パフォーマンス</CardTitle>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="sm">今週</Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem>今日</DropdownMenuItem>
+                <DropdownMenuItem>今週</DropdownMenuItem>
+                <DropdownMenuItem>今月</DropdownMenuItem>
+                <DropdownMenuItem>過去3ヶ月</DropdownMenuItem>
+                <DropdownMenuItem>過去1年</DropdownMenuItem>
+                <DropdownMenuItem>すべての期間</DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+          <CardDescription>公開記事のアクセス数とエンゲージメント</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {/* グラフの代わりにプレースホルダー */}
+          <div className="h-[300px] w-full rounded-md bg-zinc-900 flex items-center justify-center">
+            <div className="text-center">
+              <IoBarChart size={60} className="mx-auto text-indigo-500/40" />
+              <p className="mt-4 text-gray-400">グラフコンポーネントがここに表示されます</p>
+              <p className="mt-2 text-sm text-gray-500">実際の実装ではチャートライブラリを使用してください</p>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* 最近の記事 */}
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+          <CardTitle>最近の記事</CardTitle>
+          <Button variant="outline" asChild>
+            <Link href="/dashboard/articles">すべて表示</Link>
+          </Button>
+        </CardHeader>
+        <CardContent>
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead>
+                <tr className="border-b border-zinc-800">
+                  <th className="pb-2 text-left text-xs font-normal text-gray-400">タイトル</th>
+                  <th className="pb-2 text-left text-xs font-normal text-gray-400">ステータス</th>
+                  <th className="pb-2 text-left text-xs font-normal text-gray-400">更新日</th>
+                  <th className="pb-2 text-left text-xs font-normal text-gray-400">作成日</th>
+                  <th className="pb-2 text-right text-xs font-normal text-gray-400">アクション</th>
+                </tr>
+              </thead>
+              <tbody>
+                {articles.map((article) => (
+                  <tr key={article.id} className="border-b border-zinc-800/50 hover:bg-zinc-900/30">
+                    <td className="py-3">
+                      <div className="flex items-center">
+                        <div className="flex h-8 w-8 items-center justify-center rounded-md border border-zinc-700 bg-zinc-800 text-gray-400 mr-3">
+                          <IoDocument size={18} />
+                        </div>
+                        <Link 
+                          href={`/edit?id=${article.id}`}
+                          className="line-clamp-1 font-medium hover:text-indigo-400 hover:underline"
+                        >
+                          {article.title}
+                        </Link>
+                      </div>
+                    </td>
+                    <td className="py-3">{getStatusBadge(article.status)}</td>
+                    <td className="py-3 text-sm text-gray-400">
+                      <div className="flex items-center">
+                        <IoCalendarOutline className="mr-1" size={14} />
+                        {formatDate(article.updatedAt)}
+                      </div>
+                    </td>
+                    <td className="py-3 text-sm text-gray-400">{formatDate(article.createdAt)}</td>
+                    <td className="py-3 text-right">
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
+                            <IoEllipsisVertical size={16} />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuItem asChild>
+                            <Link href={`/edit?id=${article.id}`} className="flex w-full items-center">
+                              <IoPencil className="mr-2" size={14} /> 編集
+                            </Link>
+                          </DropdownMenuItem>
+                          <DropdownMenuItem asChild>
+                            <Link href={`/view?id=${article.id}`} className="flex w-full items-center">
+                              <IoEyeOutline className="mr-2" size={14} /> プレビュー
+                            </Link>
+                          </DropdownMenuItem>
+                          <DropdownMenuItem className="text-red-500 focus:text-red-500">
+                            <IoTrash className="mr-2" size={14} /> 削除
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </CardContent>
+        <CardFooter className="border-t border-zinc-800 pt-4">
+          <p className="text-sm text-gray-400">過去30日間で合計5件の記事が作成されました。</p>
+        </CardFooter>
+      </Card>
+
+      {/* ヒントカード */}
+      <Card className="bg-gradient-to-br from-indigo-900/20 to-pink-900/20 border-indigo-800/30">
+        <CardHeader>
+          <CardTitle>SEO記事作成のヒント</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-4">
+            <p className="text-gray-300">より効果的なSEO記事を作成するためのヒント：</p>
+            <ul className="list-disc pl-5 space-y-1 text-gray-300">
+              <li>ターゲットキーワードを明確にし、記事のタイトルと最初の段落に含めましょう</li>
+              <li>読者のニーズに合わせた充実したコンテンツを作成しましょう</li>
+              <li>適切な見出し（H2、H3）を使用して、記事の構造を明確にしましょう</li>
+              <li>適切な内部リンクを追加して、サイト内のナビゲーションを改善しましょう</li>
+            </ul>
+          </div>
+        </CardContent>
+        <CardFooter>
+          <Button variant="outline" asChild>
+            <Link href="/help/seo-tips">詳細なヒントを見る</Link>
+          </Button>
+        </CardFooter>
+      </Card>
+    </div>
   );
 }

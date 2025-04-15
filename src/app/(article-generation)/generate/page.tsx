@@ -2,11 +2,20 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { 
+  IoArrowBack, 
+  IoHelpCircleOutline, 
+  IoInformationCircle,
+  IoCheckmarkCircle, 
+  IoDocumentText,
+  IoSparkles
+} from 'react-icons/io5';
 
-import { Container } from '@/components/container';
 import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { toast } from '@/components/ui/use-toast';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ArticleGenerationForm } from '@/features/article-generation/components/article-generation-form';
 import { ArticleOutlineEditor } from '@/features/article-generation/components/article-outline-editor';
 import { ArticleOutlineSelector } from '@/features/article-generation/components/article-outline-selector';
@@ -16,9 +25,10 @@ import { ArticleGenerationFormData, ArticleOutline, ArticleSection, GeneratedArt
 // 画面の状態を管理するための列挙型
 type GenerationStep = 'form' | 'outline-selection' | 'preview';
 
-export default function GenerateArticlePage() {
+export default function ImprovedGenerateArticlePage() {
   const router = useRouter();
   const [currentStep, setCurrentStep] = useState<GenerationStep>('form');
+  const [activeTab, setActiveTab] = useState('outline-selection');
   const [isLoading, setIsLoading] = useState(false);
   const [generationData, setGenerationData] = useState<ArticleGenerationFormData | null>(null);
   const [outlines, setOutlines] = useState<ArticleOutline[]>([]);
@@ -26,6 +36,7 @@ export default function GenerateArticlePage() {
   const [generatedArticle, setGeneratedArticle] = useState<GeneratedArticle | null>(null);
   const [isEditorOpen, setIsEditorOpen] = useState(false);
   const [editingOutline, setEditingOutline] = useState<ArticleOutline | null>(null);
+  const [showTips, setShowTips] = useState(false);
 
   // ダミーデータ生成関数
   const generateDummyOutlines = (formData: ArticleGenerationFormData): ArticleOutline[] => {
@@ -55,6 +66,19 @@ export default function GenerateArticlePage() {
           { id: '2-5', level: 'h3', title: '事例2: スタートアップの革新的アプローチ' },
           { id: '2-6', level: 'h2', title: `${formData.mainKeywords}導入のステップバイステップガイド` },
           { id: '2-7', level: 'h2', title: '将来の展望と結論' },
+        ],
+      },
+      {
+        id: '3',
+        title: `初心者のための${formData.mainKeywords}入門：基礎から応用まで`,
+        sections: [
+          { id: '3-1', level: 'h2', title: `${formData.mainKeywords}を学ぶ前に知っておくべきこと` },
+          { id: '3-2', level: 'h2', title: `${formData.mainKeywords}の基本原則と考え方` },
+          { id: '3-3', level: 'h2', title: `簡単に始められる${formData.mainKeywords}の実践方法` },
+          { id: '3-4', level: 'h3', title: 'ステップ1: 基礎を固める' },
+          { id: '3-5', level: 'h3', title: 'ステップ2: 実践的なアプローチ' },
+          { id: '3-6', level: 'h2', title: `${formData.mainKeywords}についてよくある質問と回答` },
+          { id: '3-7', level: 'h2', title: `${formData.mainKeywords}の次のステップ：中級レベルへ` },
         ],
       },
     ];
@@ -92,6 +116,7 @@ export default function GenerateArticlePage() {
       const dummyOutlines = generateDummyOutlines(formData);
       setOutlines(dummyOutlines);
       setCurrentStep('outline-selection');
+      setActiveTab('outline-selection');
     } catch (error) {
       toast({
         variant: 'destructive',
@@ -147,68 +172,228 @@ export default function GenerateArticlePage() {
     }
   };
 
-  return (
-    <Container className="py-10">
-      <div className="mx-auto max-w-4xl">
-        {currentStep === 'form' && (
-          <div className="space-y-6">
-            <h1 className="text-2xl font-bold">記事生成</h1>
-            <p className="text-gray-400">
-              以下のフォームに記事生成に必要な情報を入力してください。AIが最適化された記事構成を提案します。
-            </p>
-            <div className="rounded-lg border border-gray-700 bg-black p-6">
-              <ArticleGenerationForm onSubmit={handleFormSubmit} isLoading={isLoading} />
+  // 進捗表示
+  const renderProgressIndicator = () => {
+    return (
+      <div className="mb-6">
+        <div className="flex items-center justify-between mb-2">
+          <div className="flex items-center">
+            <div className={`flex h-8 w-8 items-center justify-center rounded-full border ${
+              currentStep === 'form' ? 'border-indigo-500 bg-indigo-500' : 'border-gray-600 bg-gray-800'
+            } text-white`}>
+              1
+            </div>
+            <div className={`h-0.5 w-12 ${
+              currentStep === 'form' ? 'bg-gray-600' : 'bg-indigo-500'
+            }`}></div>
+            <div className={`flex h-8 w-8 items-center justify-center rounded-full border ${
+              currentStep === 'outline-selection' ? 'border-indigo-500 bg-indigo-500' : 
+                currentStep === 'preview' ? 'border-indigo-500 bg-indigo-500' : 'border-gray-600 bg-gray-800'
+            } text-white`}>
+              2
+            </div>
+            <div className={`h-0.5 w-12 ${
+              currentStep === 'preview' ? 'bg-indigo-500' : 'bg-gray-600'
+            }`}></div>
+            <div className={`flex h-8 w-8 items-center justify-center rounded-full border ${
+              currentStep === 'preview' ? 'border-indigo-500 bg-indigo-500' : 'border-gray-600 bg-gray-800'
+            } text-white`}>
+              3
             </div>
           </div>
+          <div>
+            <Button variant="ghost" size="sm" onClick={() => setShowTips(!showTips)}>
+              <IoHelpCircleOutline className="mr-1" size={16} />
+              ヒントを{showTips ? '隠す' : '表示'}
+            </Button>
+          </div>
+        </div>
+        <div className="flex justify-between text-xs text-gray-400 px-1">
+          <span>情報入力</span>
+          <span>構成選択</span>
+          <span>記事プレビュー</span>
+        </div>
+      </div>
+    );
+  };
+
+  return (
+    <div className="space-y-6">
+      {/* ヘッダー */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center">
+          <Button 
+            variant="ghost" 
+            size="sm" 
+            onClick={() => router.push('/dashboard')}
+            className="mr-3"
+          >
+            <IoArrowBack size={18} />
+          </Button>
+          <div>
+            <h1 className="text-2xl font-bold">{currentStep === 'form' ? '記事生成' : 
+                                                  currentStep === 'outline-selection' ? '記事構成選択' : 
+                                                  '記事プレビュー'}</h1>
+            <p className="text-sm text-gray-400">
+              {currentStep === 'form' ? '記事情報を入力してAIに最適な構成を提案してもらいましょう' : 
+                currentStep === 'outline-selection' ? '提案された構成から最適なものを選択するか、編集してください' : 
+                '生成された記事をプレビューし、必要に応じて編集できます'}
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* 進捗インジケーター */}
+      {renderProgressIndicator()}
+
+      {/* ヒント表示エリア */}
+      {showTips && (
+        <Card className="bg-indigo-950/20 border-indigo-800/50">
+          <CardContent className="p-4">
+            <div className="flex items-start">
+              <IoInformationCircle className="text-indigo-400 mt-1 mr-2 flex-shrink-0" size={20} />
+              <div>
+                <h3 className="font-medium text-indigo-300">
+                  {currentStep === 'form' ? '入力のヒント' : 
+                  currentStep === 'outline-selection' ? '構成選択のヒント' : 
+                  'プレビューのヒント'}
+                </h3>
+                <p className="text-sm text-indigo-200/70 mt-1">
+                  {currentStep === 'form' ? 
+                    'できるだけ具体的なキーワードと記事の概要を入力すると、より質の高い構成が生成されます。ターゲット読者層や文体も指定すると、さらに最適化されます。' : 
+                  currentStep === 'outline-selection' ? 
+                    'AIが提案した構成から最適なものを選びましょう。必要に応じて「編集」ボタンで構成を調整できます。見出しの構造（H2, H3）を適切に設定すると、記事の階層構造が明確になります。' : 
+                    'プレビューで記事内容を確認し、「チャットで編集」機能を使うと、AIアシスタントと会話形式で記事を調整できます。特定のセクションの追加説明や文章の調整など、自然言語での指示が可能です。'}
+                </p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* メインコンテンツエリア */}
+      <Card className="bg-zinc-900/50 border-zinc-800">
+        {currentStep === 'form' && (
+          <CardContent className="p-6">
+            <ArticleGenerationForm onSubmit={handleFormSubmit} isLoading={isLoading} />
+          </CardContent>
         )}
 
         {currentStep === 'outline-selection' && (
-          <div className="space-y-6">
-            <div className="flex items-center justify-between">
-              <h1 className="text-2xl font-bold">記事構成案を選択</h1>
-              <Button variant="outline" onClick={() => setCurrentStep('form')}>
-                入力内容を修正
-              </Button>
-            </div>
-            <p className="text-gray-400">
-              AIが生成した構成案から最適なものを選択してください。また、必要に応じて編集もできます。
-            </p>
-            <div className="rounded-lg border border-gray-700 bg-black p-6">
-              <ArticleOutlineSelector
-                outlines={outlines}
-                onSelect={handleOutlineSelect}
-                onEdit={handleOutlineEdit}
-                isLoading={isLoading}
-              />
-            </div>
-          </div>
+          <CardContent className="p-0">
+            <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+              <TabsList className="w-full rounded-none border-b border-zinc-800">
+                <TabsTrigger value="outline-selection" className="flex-1 rounded-none">
+                  <IoSparkles className="mr-2" size={16} />
+                  提案された構成
+                </TabsTrigger>
+                <TabsTrigger value="input-review" className="flex-1 rounded-none">
+                  <IoDocumentText className="mr-2" size={16} />
+                  入力内容確認
+                </TabsTrigger>
+              </TabsList>
+              
+              <TabsContent value="outline-selection" className="p-6">
+                <ArticleOutlineSelector
+                  outlines={outlines}
+                  onSelect={handleOutlineSelect}
+                  onEdit={handleOutlineEdit}
+                  isLoading={isLoading}
+                />
+              </TabsContent>
+              
+              <TabsContent value="input-review" className="p-6">
+                {generationData && (
+                  <div className="space-y-6">
+                    <div>
+                      <h3 className="text-lg font-semibold mb-2">入力内容確認</h3>
+                      <p className="text-gray-400 mb-4">以下の入力情報に基づいて記事構成が生成されました。内容を修正する場合は「入力内容を修正」ボタンをクリックしてください。</p>
+                      
+                      <div className="space-y-4 rounded-md border border-zinc-800 p-4">
+                        <div>
+                          <p className="text-sm font-medium text-gray-400">メインキーワード</p>
+                          <p className="mt-1">{generationData.mainKeywords}</p>
+                        </div>
+                        
+                        <div>
+                          <p className="text-sm font-medium text-gray-400">記事テーマ・概要</p>
+                          <p className="mt-1">{generationData.articleTheme}</p>
+                        </div>
+                        
+                        {generationData.targetAudience && (
+                          <div>
+                            <p className="text-sm font-medium text-gray-400">ターゲット読者層</p>
+                            <p className="mt-1">{generationData.targetAudience}</p>
+                          </div>
+                        )}
+                        
+                        {generationData.tone && (
+                          <div>
+                            <p className="text-sm font-medium text-gray-400">文体</p>
+                            <p className="mt-1">
+                              {generationData.tone === 'formal' ? 'フォーマル（丁寧語）' :
+                               generationData.tone === 'professional' ? 'プロフェッショナル（専門的）' :
+                               generationData.tone === 'casual' ? 'カジュアル（親しみやすい）' : 'フレンドリー（砕けた表現）'}
+                            </p>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                    
+                    <div className="flex justify-end">
+                      <Button 
+                        variant="outline" 
+                        onClick={() => setCurrentStep('form')}
+                      >
+                        入力内容を修正
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </TabsContent>
+            </Tabs>
+          </CardContent>
         )}
 
         {currentStep === 'preview' && generatedArticle && (
-          <div className="space-y-6">
-            <div className="flex items-center justify-between">
-              <h1 className="text-2xl font-bold">生成された記事</h1>
+          <CardContent className="p-6">
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-xl font-semibold">生成された記事</h2>
               <div className="flex gap-2">
-                <Button variant="outline" onClick={() => setCurrentStep('outline-selection')}>
+                <Button 
+                  variant="outline" 
+                  onClick={() => setCurrentStep('outline-selection')}
+                >
                   構成を変更
                 </Button>
-                <Button variant="outline" onClick={() => setCurrentStep('form')}>
+                <Button 
+                  variant="ghost" 
+                  onClick={() => setCurrentStep('form')}
+                >
                   最初からやり直す
                 </Button>
               </div>
             </div>
-            <p className="text-gray-400">
-              生成された記事プレビューです。このまま保存するか、チャットベースの編集機能で内容を調整できます。
-            </p>
-            <div className="rounded-lg border border-gray-700 bg-black p-6">
-              <ArticlePreview article={generatedArticle} onStartChat={handleStartChat} />
+            
+            <div className="flex items-center justify-center rounded-md border border-green-500/20 bg-green-900/10 p-3 mb-6">
+              <IoCheckmarkCircle className="text-green-500 mr-2" size={20} />
+              <p className="text-green-300">記事が正常に生成されました！内容を確認し、必要に応じて編集できます。</p>
             </div>
-          </div>
+            
+            <ArticlePreview article={generatedArticle} onStartChat={handleStartChat} />
+            
+            <div className="mt-6 flex justify-end">
+              <Button variant="sexy" onClick={handleStartChat}>
+                チャットで編集を開始
+              </Button>
+            </div>
+          </CardContent>
         )}
-      </div>
+      </Card>
 
+      {/* 構成編集モーダル */}
       <Dialog open={isEditorOpen} onOpenChange={setIsEditorOpen}>
-        <DialogContent className="max-w-2xl sm:max-w-[600px]">
+        <DialogContent className="max-w-2xl">
           <DialogTitle>記事構成を編集</DialogTitle>
           {editingOutline && (
             <ArticleOutlineEditor
@@ -219,6 +404,6 @@ export default function GenerateArticlePage() {
           )}
         </DialogContent>
       </Dialog>
-    </Container>
+    </div>
   );
 }
