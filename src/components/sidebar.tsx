@@ -9,7 +9,8 @@ import {
   IoAdd, 
   IoSettings, 
   IoHelp,
-  IoStatsChart
+  IoStatsChart,
+  IoPerson
 } from 'react-icons/io5';
 
 import { cn } from '@/utils/cn';
@@ -29,10 +30,10 @@ export function Sidebar({ className }: SidebarProps) {
       active: pathname === '/dashboard',
     },
     {
-      href: '/articles',
+      href: '/dashboard/articles',
       label: '記事一覧',
       icon: <IoDocumentText size={20} />,
-      active: pathname === '/articles' || pathname.startsWith('/articles/'),
+      active: pathname === '/dashboard/articles' || pathname.startsWith('/dashboard/articles/'),
     },
     {
       href: '/generate',
@@ -51,6 +52,12 @@ export function Sidebar({ className }: SidebarProps) {
       label: '設定',
       icon: <IoSettings size={20} />,
       active: pathname === '/settings',
+    },
+    {
+      href: '/account',
+      label: 'アカウント',
+      icon: <IoPerson size={20} />,
+      active: pathname === '/account',
     },
     {
       href: '/help',
@@ -102,7 +109,9 @@ export function Sidebar({ className }: SidebarProps) {
           </div>
           <div className="mt-1 flex justify-between text-xs text-gray-400">
             <span>5/10記事</span>
-            <span>プロプランに変更</span>
+            <Link href="/pricing" className="hover:text-indigo-400 hover:underline">
+              プロプランに変更
+            </Link>
           </div>
         </div>
       </div>

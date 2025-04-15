@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { IoMenu } from 'react-icons/io5';
+import { IoMenu, IoSpeedometer } from 'react-icons/io5';
 
 import { AccountMenu } from '@/components/account-menu';
 import { Logo } from '@/components/logo';
@@ -15,7 +15,14 @@ export async function Navigation() {
   return (
     <div className='relative flex items-center gap-6'>
       {session ? (
-        <AccountMenu signOut={signOut} />
+        <>
+          <Button variant='outline' size='sm' className='hidden mr-2 flex-shrink-0 md:flex' asChild>
+            <Link href='/dashboard'>
+              <IoSpeedometer size={16} className="mr-2" /> ダッシュボード
+            </Link>
+          </Button>
+          <AccountMenu signOut={signOut} />
+        </>
       ) : (
         <>
           <Button variant='sexy' className='hidden flex-shrink-0 lg:flex' asChild>

@@ -1,8 +1,9 @@
 'use client';
 
 import { PropsWithChildren } from 'react';
+import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { IoMenu } from 'react-icons/io5';
+import { IoMenu, IoHome, IoSpeedometer } from 'react-icons/io5';
 
 import { AccountMenu } from '@/components/account-menu';
 import { Button } from '@/components/ui/button';
@@ -51,6 +52,16 @@ export default function DashboardLayout({ children }: PropsWithChildren) {
 
             {/* 右側コントロール */}
             <div className="flex items-center gap-4">
+              <Button variant="outline" size="sm" asChild className="hidden sm:flex">
+                <Link href="/dashboard">
+                  <IoSpeedometer size={16} className="mr-2" /> ダッシュボード
+                </Link>
+              </Button>
+              <Button variant="outline" size="sm" asChild className="hidden sm:flex">
+                <Link href="/generate">
+                  <IoHome size={16} className="mr-2" /> 記事を生成
+                </Link>
+              </Button>
               <AccountMenu signOut={signOut} />
             </div>
           </header>
@@ -68,15 +79,16 @@ export default function DashboardLayout({ children }: PropsWithChildren) {
 // パスに基づいてページタイトルを取得する関数
 function getPageTitle(pathname: string): string {
   if (pathname === '/dashboard') return 'ダッシュボード';
-  if (pathname === '/articles') return '記事一覧';
+  if (pathname === '/dashboard/articles') return '記事一覧';
   if (pathname === '/generate') return '新規記事生成';
   if (pathname === '/edit') return '記事編集';
   if (pathname === '/analytics') return '分析';
   if (pathname === '/settings') return '設定';
   if (pathname === '/help') return 'ヘルプ・サポート';
+  if (pathname === '/account') return 'アカウント';
   
   // articleのパスにマッチするかチェック
-  if (pathname.startsWith('/articles/')) return '記事詳細';
+  if (pathname.startsWith('/dashboard/articles/')) return '記事詳細';
   
   return 'SEO記事くん';
 }
