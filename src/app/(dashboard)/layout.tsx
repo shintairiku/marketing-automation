@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button';
 import { Sidebar } from '@/components/sidebar';
 import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet';
 import { cn } from '@/utils/cn';
+import { signOut } from '@/app/(auth)/auth-actions';
 
 export default function DashboardLayout({ children }: PropsWithChildren) {
   const pathname = usePathname();
@@ -50,7 +51,7 @@ export default function DashboardLayout({ children }: PropsWithChildren) {
 
             {/* 右側コントロール */}
             <div className="flex items-center gap-4">
-              <AccountMenu />
+              <AccountMenu signOut={signOut} />
             </div>
           </header>
         )}
