@@ -1,6 +1,6 @@
 # SEO記事 - セットアップガイド
 
-このガイドでは、SEO記事くんアプリケーションをローカル環境で構築・実行するための手順を説明する。
+このガイドでは、新大陸アプリケーションをローカル環境で構築・実行するための手順を説明する。
 
 ## 目次
 
@@ -343,7 +343,7 @@ export default function FAQPage() {
             <div>
               <h3 className="font-medium mb-2">Q: AI生成記事はSEOに効果がありますか？</h3>
               <p className="text-gray-400">
-                A: はい、SEO記事くんが生成する記事は最新のSEOベストプラクティスに基づいて最適化されています。
+                A: はい、新大陸が生成する記事は最新のSEOベストプラクティスに基づいて最適化されています。
               </p>
             </div>
             {/* 他のQ&A */}
@@ -507,7 +507,7 @@ export async function POST(req: Request) {
 
 ## 認証フローの仕組み
 
-SEO記事くんの認証はSupabase Authを使用しています。認証フローは主に以下のファイルで管理されています：
+新大陸の認証はSupabase Authを使用しています。認証フローは主に以下のファイルで管理されています：
 
 - `src/app/(auth)/auth-actions.ts` - サインイン、サインアウトなどのアクション
 - `src/app/(auth)/auth-ui.tsx` - 認証UI

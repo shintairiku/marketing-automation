@@ -4,37 +4,35 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { 
   IoAdd, 
-  IoSearchOutline, 
-  IoFilterOutline, 
-  IoEllipsisVertical,
-  IoTrashOutline,
-  IoPencilOutline,
-  IoDocumentOutline,
-  IoCheckmarkCircleOutline,
-  IoTimeOutline,
-  IoChevronDownOutline,
-  IoEyeOutline,
   IoCalendarOutline,
-  IoDownloadOutline
-} from 'react-icons/io5';
+  IoCheckmarkCircleOutline,
+  IoChevronDownOutline,
+  IoDocumentOutline,
+  IoDownloadOutline,
+  IoEllipsisVertical,
+  IoEyeOutline,
+  IoFilterOutline, 
+  IoPencilOutline,
+  IoSearchOutline, 
+  IoTimeOutline,
+  IoTrashOutline} from 'react-icons/io5';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
+import { 
+  Dialog, 
+  DialogContent, 
+  DialogDescription, 
+  DialogFooter,
+  DialogHeader, 
+  DialogTitle} from '@/components/ui/dialog';
 import { 
   DropdownMenu, 
   DropdownMenuContent, 
   DropdownMenuItem, 
   DropdownMenuTrigger 
 } from '@/components/ui/dropdown-menu';
-import { 
-  Dialog, 
-  DialogContent, 
-  DialogHeader, 
-  DialogTitle, 
-  DialogDescription, 
-  DialogFooter
-} from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
 import { toast } from '@/components/ui/use-toast';
 import { GeneratedArticle } from '@/features/article-generation/types';
 

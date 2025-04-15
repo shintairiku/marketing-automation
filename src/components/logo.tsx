@@ -1,9 +1,9 @@
-import Link from 'next/link';
+import { cn } from '@/utils/cn';
 
-export function Logo() {
+export function Logo({ className }: { className?: string }) {
   return (
-    <Link href='/' className='flex w-fit items-center gap-2'>
-      <span className='font-alt text-xl text-white'>SEO記事くん</span>
-    </Link>
+    <div className={cn('flex items-center gap-2', className)}>
+      <span className='font-alt text-xl text-white'>新大陸</span>
+    </div>
   );
 }

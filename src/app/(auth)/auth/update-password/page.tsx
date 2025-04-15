@@ -1,14 +1,14 @@
 'use client';
 
 import { FormEvent, useState } from 'react';
+import Image from 'next/image';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import Image from 'next/image';
 
+import { updateUserPassword } from '@/app/(auth)/auth-actions';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { toast } from '@/components/ui/use-toast';
-import { updateUserPassword } from '@/app/(auth)/auth-actions';
 
 export default function UpdatePasswordPage() {
   const [isLoading, setIsLoading] = useState(false);

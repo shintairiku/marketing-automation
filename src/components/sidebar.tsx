@@ -4,14 +4,13 @@ import { ReactNode } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { 
-  IoHome, 
-  IoDocumentText, 
   IoAdd, 
-  IoSettings, 
+  IoDocumentText, 
   IoHelp,
-  IoStatsChart,
-  IoPerson
-} from 'react-icons/io5';
+  IoHome, 
+  IoPerson,
+  IoSettings, 
+  IoStatsChart} from 'react-icons/io5';
 
 import { cn } from '@/utils/cn';
 
@@ -74,7 +73,7 @@ export function Sidebar({ className }: SidebarProps) {
           <div className="flex h-8 w-8 items-center justify-center rounded-md bg-indigo-600">
             <span className="font-alt text-lg font-bold text-white">S</span>
           </div>
-          <span className="font-alt text-xl font-semibold text-white">SEO記事くん</span>
+          <span className="font-alt text-xl font-semibold text-white">新大陸</span>
         </Link>
       </div>
 

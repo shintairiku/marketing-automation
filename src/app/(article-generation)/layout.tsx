@@ -3,9 +3,7 @@ import { redirect } from 'next/navigation';
 
 import { getSession } from '@/features/account/controllers/get-session';
 
-import { DashboardClient } from './dashboard-client';
-
-export default async function DashboardLayout({ children }: PropsWithChildren) {
+export default async function ArticleGenerationLayout({ children }: PropsWithChildren) {
   // ユーザーセッションを取得
   const session = await getSession();
 
@@ -14,5 +12,5 @@ export default async function DashboardLayout({ children }: PropsWithChildren) {
     redirect('/login');
   }
 
-  return <DashboardClient>{children}</DashboardClient>;
+  return <>{children}</>;
 }

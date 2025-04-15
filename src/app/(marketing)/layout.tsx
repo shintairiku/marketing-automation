@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { IoLogoFacebook, IoLogoInstagram, IoLogoTwitter } from 'react-icons/io5';
 
 import { Logo } from '@/components/logo';
+
 import { Navigation } from '../navigation';
 
 export default function MarketingLayout({ children }: PropsWithChildren) {
@@ -80,7 +81,7 @@ function Footer() {
       </div>
       <div className='border-t border-zinc-800 py-6 text-center'>
         <span className='text-neutral4 text-xs'>
-          Copyright {new Date().getFullYear()} © SEO記事くん
+          Copyright {new Date().getFullYear()} © 新大陸
         </span>
       </div>
     </footer>

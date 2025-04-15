@@ -4,18 +4,17 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { 
   IoAdd, 
+  IoBarChart,
+  IoCalendarOutline,
+  IoCheckmarkCircleOutline,
   IoDocument, 
   IoEllipsisVertical, 
-  IoPencil, 
-  IoTrash,
-  IoBarChart,
-  IoCheckmarkCircleOutline,
-  IoTimeOutline,
-  IoCalendarOutline,
   IoEyeOutline,
-  IoTrendingUp,
-  IoTrendingDown
-} from 'react-icons/io5';
+  IoPencil, 
+  IoTimeOutline,
+  IoTrash,
+  IoTrendingDown,
+  IoTrendingUp} from 'react-icons/io5';
 
 import { Button } from '@/components/ui/button';
 import {

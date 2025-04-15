@@ -87,7 +87,7 @@ function FeaturesSection() {
         <div className='text-center mb-16'>
           <h2 className='text-3xl font-bold mb-4'>すべての機能</h2>
           <p className='text-xl text-gray-400 max-w-2xl mx-auto'>
-            SEO記事くんは、記事作成のプロセスを効率化し、高品質なコンテンツを簡単に生成できる機能を提供します。
+            新大陸は、記事作成のプロセスを効率化し、高品質なコンテンツを簡単に生成できる機能を提供します。
           </p>
         </div>
 
@@ -167,7 +167,7 @@ function HowItWorksSection() {
 function TestimonialsSection() {
   const testimonials = [
     {
-      quote: "SEO記事くんを導入してから、記事作成の効率が格段に上がりました。以前は1記事に4-5時間かかっていましたが、今は30分程度で高品質な記事を作成できています。",
+      quote: "新大陸を導入してから、記事作成の効率が格段に上がりました。以前は1記事に4-5時間かかっていましたが、今は30分程度で高品質な記事を作成できています。",
       author: "田中 誠",
       position: "マーケティングディレクター",
       company: "テックスタートアップ株式会社",
@@ -192,14 +192,14 @@ function TestimonialsSection() {
         <div className='text-center mb-16'>
           <h2 className='text-3xl font-bold mb-4'>お客様の声</h2>
           <p className='text-xl text-gray-400 max-w-2xl mx-auto'>
-            多くの企業や個人の方々にSEO記事くんをご利用いただいています。
+            多くの企業や個人の方々に新大陸をご利用いただいています。
           </p>
         </div>
 
         <div className='grid grid-cols-1 md:grid-cols-3 gap-8'>
           {testimonials.map((testimonial, index) => (
             <div key={index} className='bg-zinc-900/50 rounded-lg p-6 border border-zinc-800'>
-              <div className='mb-4 text-3xl text-indigo-500'>"</div>
+              <div className='mb-4 text-3xl text-indigo-500'>&quot;</div>
               <p className='mb-6 text-gray-300'>{testimonial.quote}</p>
               <div>
                 <p className='font-semibold'>{testimonial.author}</p>
@@ -217,7 +217,7 @@ function FAQSection() {
   const faqs = [
     {
       question: "AI生成記事はSEOに効果がありますか？",
-      answer: "はい、SEO記事くんが生成する記事は最新のSEOベストプラクティスに基づいて最適化されています。キーワード分析、競合分析、検索意図の理解を踏まえた記事構成と内容を提案するため、効果的なSEO記事作成を支援します。",
+      answer: "はい、新大陸が生成する記事は最新のSEOベストプラクティスに基づいて最適化されています。キーワード分析、競合分析、検索意図の理解を踏まえた記事構成と内容を提案するため、効果的なSEO記事作成を支援します。",
     },
     {
       question: "どのような文体や形式で記事を生成できますか？",
@@ -247,7 +247,7 @@ function FAQSection() {
         <div className='text-center mb-16'>
           <h2 className='text-3xl font-bold mb-4'>よくある質問</h2>
           <p className='text-xl text-gray-400 max-w-2xl mx-auto'>
-            SEO記事くんについてよくいただく質問にお答えします。
+            新大陸についてよくいただく質問にお答えします。
           </p>
         </div>
 
@@ -269,7 +269,7 @@ function CTASection() {
     <section className='py-16 lg:py-24'>
       <Container>
         <div className='rounded-lg bg-indigo-600/20 p-12 border border-indigo-500/30 text-center max-w-4xl mx-auto'>
-          <h2 className='text-3xl font-bold mb-4'>今すぐSEO記事くんを試してみませんか？</h2>
+          <h2 className='text-3xl font-bold mb-4'>今すぐ新大陸を試してみませんか？</h2>
           <p className='text-xl text-gray-300 mb-8 max-w-2xl mx-auto'>
             会員登録後、すぐに無料で記事生成を始められます。クレジットカードは必要ありません。
           </p>

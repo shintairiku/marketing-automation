@@ -1,13 +1,13 @@
 'use client';
 
 import { FormEvent, useState } from 'react';
-import Link from 'next/link';
 import Image from 'next/image';
+import Link from 'next/link';
 
+import { resetPassword } from '@/app/(auth)/auth-actions';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { toast } from '@/components/ui/use-toast';
-import { resetPassword } from '@/app/(auth)/auth-actions';
 
 export default function ForgotPasswordPage() {
   const [email, setEmail] = useState('');
