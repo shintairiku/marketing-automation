@@ -3,7 +3,7 @@ import { redirect } from 'next/navigation';
 import { getSession } from '@/features/account/controllers/get-session';
 import { getSubscription } from '@/features/account/controllers/get-subscription';
 
-import { signInWithEmail, signInWithOAuth } from '../auth-actions';
+import { signInWithOAuth, signUpWithEmailAndPassword } from '../auth-actions';
 import { AuthUI } from '../auth-ui';
 
 export default async function SignUp() {
@@ -20,7 +20,11 @@ export default async function SignUp() {
 
   return (
     <section className='py-xl m-auto flex h-full max-w-lg items-center'>
-      <AuthUI mode='signup' signInWithOAuth={signInWithOAuth} signInWithEmail={signInWithEmail} />
+      <AuthUI 
+        mode='signup' 
+        signInWithOAuth={signInWithOAuth} 
+        signUpWithEmailAndPassword={signUpWithEmailAndPassword} 
+      />
     </section>
   );
 }
