@@ -32,7 +32,7 @@ export async function Navigation() {
             <SheetTrigger className='block lg:hidden'>
               <IoMenu size={28} />
             </SheetTrigger>
-            <SheetContent className='w-full bg-black'>
+            <SheetContent className="w-full bg-background">
               <SheetHeader>
                 <Logo />
                 <SheetDescription className='py-8'>
