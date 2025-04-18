@@ -95,7 +95,7 @@ export function ArticleOutlineEditor({ outline, onSave, onCancel }: ArticleOutli
               <select
                 value={section.level}
                 onChange={(e) => handleSectionLevelChange(section.id, e.target.value as 'h2' | 'h3' | 'h4')}
-                className="flex h-9 w-24 rounded-md bg-black px-3 py-1 text-sm transition-colors border border-zinc-800"
+                className="flex h-9 w-24 rounded-md bg-background px-3 py-1 text-sm transition-colors border border-border"
               >
                 <option value="h2">H2</option>
                 <option value="h3">H3</option>

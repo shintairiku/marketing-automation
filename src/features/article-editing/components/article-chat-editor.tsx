@@ -120,7 +120,7 @@ export function ArticleChatEditor({ article, onArticleUpdate }: ArticleChatEdito
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex-1 overflow-y-auto rounded-t-md border border-gray-700 bg-black p-4">
+      <div className="flex-1 overflow-y-auto rounded-t-md border border-border bg-background p-4">
         <div className="space-y-4">
           {messages.map((message) => (
             <div
@@ -132,14 +132,14 @@ export function ArticleChatEditor({ article, onArticleUpdate }: ArticleChatEdito
               <div
                 className={`max-w-3/4 rounded-lg px-4 py-2 ${
                   message.role === 'user'
-                    ? 'bg-indigo-900 text-white'
+                    ? 'bg-primary text-primary-foreground'
                     : message.role === 'system'
-                    ? 'bg-gray-800 text-gray-300'
-                    : 'bg-gray-700 text-white'
+                    ? 'bg-muted text-muted-foreground'
+                    : 'bg-muted text-muted-foreground'
                 }`}
               >
                 <div className="whitespace-pre-wrap">{message.content}</div>
-                <div className="mt-1 text-right text-xs text-gray-400">
+                <div className="mt-1 text-right text-xs text-muted-foreground">
                   {new Date(message.timestamp).toLocaleTimeString()}
                 </div>
               </div>
@@ -149,7 +149,7 @@ export function ArticleChatEditor({ article, onArticleUpdate }: ArticleChatEdito
         </div>
       </div>
 
-      <div className="border-t border-gray-700 bg-black p-4">
+      <div className="border-t border-border bg-background p-4">
         <form onSubmit={handleSendMessage} className="flex items-end gap-2">
           <Textarea
             value={inputMessage}

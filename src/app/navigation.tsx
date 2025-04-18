@@ -4,7 +4,7 @@ import { IoMenu, IoSpeedometer } from 'react-icons/io5';
 import { AccountMenu } from '@/components/account-menu';
 import { Logo } from '@/components/logo';
 import { Button } from '@/components/ui/button';
-import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTrigger } from '@/components/ui/sheet';
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
 import { getSession } from '@/features/account/controllers/get-session';
 
 import { signOut } from './(auth)/auth-actions';
@@ -34,6 +34,7 @@ export async function Navigation() {
             </SheetTrigger>
             <SheetContent className="w-full bg-background">
               <SheetHeader>
+                <SheetTitle>メニュー</SheetTitle>
                 <Logo />
                 <SheetDescription className='py-8'>
                   <Button variant='sexy' className='flex-shrink-0' asChild>

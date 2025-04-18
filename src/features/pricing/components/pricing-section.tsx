@@ -11,7 +11,7 @@ export async function PricingSection({ isPricingPage }: { isPricingPage?: boolea
   const HeadingLevel = isPricingPage ? 'h1' : 'h2';
 
   return (
-    <section className='relative rounded-lg bg-black py-8'>
+    <section className='relative rounded-lg bg-background py-8'>
       <div className='relative z-10 m-auto flex max-w-[1200px] flex-col items-center gap-8 px-4 pt-8 lg:pt-[140px]'>
         <HeadingLevel className='max-w-4xl bg-gradient-to-br from-white to-neutral-200 bg-clip-text text-center text-4xl font-bold text-transparent lg:text-6xl'>
           あらゆる用途に対応する明確な料金プラン。

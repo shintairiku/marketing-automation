@@ -21,7 +21,7 @@ export default async function HomePage() {
 function HeroSection() {
   return (
     <section className='relative overflow-hidden lg:overflow-visible'>
-      <Container className='relative rounded-lg bg-black py-20 lg:py-[140px]'>
+      <Container className='relative rounded-lg bg-background py-20 lg:py-[140px]'>
         <div className='relative z-10 flex flex-col gap-5 lg:max-w-2xl lg:pl-8'>
           <div className='w-fit rounded-full bg-gradient-to-r from-[#616571] via-[#7782A9] to-[#826674] px-4 py-1 '>
             <span className='font-alt text-sm font-semibold text-black mix-blend-soft-light'>
@@ -29,7 +29,7 @@ function HeroSection() {
             </span>
           </div>
           <h1>高品質なSEO記事を<br/>わずか数分で自動生成</h1>
-          <p className='text-lg text-gray-300 mb-2'>
+          <p className='text-lg text-muted-foreground mb-2'>
             キーワードを入力するだけで、AIが検索上位表示を狙えるSEO最適化された記事を自動作成。
             チャットベースの編集機能で簡単カスタマイズ。
           </p>
@@ -86,14 +86,14 @@ function FeaturesSection() {
       <Container>
         <div className='text-center mb-16'>
           <h2 className='text-3xl font-bold mb-4'>すべての機能</h2>
-          <p className='text-xl text-gray-400 max-w-2xl mx-auto'>
+          <p className='text-xl text-muted-foreground max-w-2xl mx-auto'>
             新大陸は、記事作成のプロセスを効率化し、高品質なコンテンツを簡単に生成できる機能を提供します。
           </p>
         </div>
 
         <div className='grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8'>
           {features.map((feature, index) => (
-            <div key={index} className='bg-zinc-900/50 rounded-lg p-6 border border-zinc-800 transition-all hover:border-indigo-500/50 hover:bg-zinc-900/80'>
+            <div key={index} className='bg-muted/50 rounded-lg p-6 border border-border transition-all hover:border-indigo-500/50 hover:bg-muted/80'>
               <div className='w-12 h-12 bg-indigo-600/20 rounded-md flex items-center justify-center mb-4'>
                 <div className='w-6 h-6 text-indigo-500'>
                   {/* 実際のアイコンは、実装時に追加 */}
@@ -103,7 +103,7 @@ function FeaturesSection() {
                 </div>
               </div>
               <h3 className='text-xl font-semibold mb-2'>{feature.title}</h3>
-              <p className='text-gray-400'>{feature.description}</p>
+              <p className='text-muted-foreground'>{feature.description}</p>
             </div>
           ))}
         </div>
@@ -137,11 +137,11 @@ function HowItWorksSection() {
   ];
 
   return (
-    <section className='py-16 lg:py-24 bg-zinc-900/30'>
+    <section className='py-16 lg:py-24 bg-muted/30'>
       <Container>
         <div className='text-center mb-16'>
           <h2 className='text-3xl font-bold mb-4'>使い方</h2>
-          <p className='text-xl text-gray-400 max-w-2xl mx-auto'>
+          <p className='text-xl text-muted-foreground max-w-2xl mx-auto'>
             4つの簡単なステップで、SEO最適化された高品質な記事を数分で作成できます。
           </p>
         </div>
@@ -151,7 +151,7 @@ function HowItWorksSection() {
             <div key={index} className='relative'>
               <div className='mb-4 text-4xl font-bold text-indigo-500/40'>{step.number}</div>
               <h3 className='text-xl font-semibold mb-2'>{step.title}</h3>
-              <p className='text-gray-400'>{step.description}</p>
+              <p className='text-muted-foreground'>{step.description}</p>
               
               {index < steps.length - 1 && (
                 <div className='hidden lg:block absolute top-8 right-0 w-[calc(100%-50px)] h-[2px] bg-gradient-to-r from-indigo-500/50 to-transparent'></div>
@@ -191,19 +191,19 @@ function TestimonialsSection() {
       <Container>
         <div className='text-center mb-16'>
           <h2 className='text-3xl font-bold mb-4'>お客様の声</h2>
-          <p className='text-xl text-gray-400 max-w-2xl mx-auto'>
+          <p className='text-xl text-muted-foreground max-w-2xl mx-auto'>
             多くの企業や個人の方々に新大陸をご利用いただいています。
           </p>
         </div>
 
         <div className='grid grid-cols-1 md:grid-cols-3 gap-8'>
           {testimonials.map((testimonial, index) => (
-            <div key={index} className='bg-zinc-900/50 rounded-lg p-6 border border-zinc-800'>
+            <div key={index} className='bg-muted/50 rounded-lg p-6 border border-border'>
               <div className='mb-4 text-3xl text-indigo-500'>&quot;</div>
-              <p className='mb-6 text-gray-300'>{testimonial.quote}</p>
+              <p className='mb-6 text-muted-foreground'>{testimonial.quote}</p>
               <div>
                 <p className='font-semibold'>{testimonial.author}</p>
-                <p className='text-sm text-gray-400'>{testimonial.position}, {testimonial.company}</p>
+                <p className='text-sm text-muted-foreground'>{testimonial.position}, {testimonial.company}</p>
               </div>
             </div>
           ))}
@@ -242,20 +242,20 @@ function FAQSection() {
   ];
 
   return (
-    <section className='py-16 lg:py-24 bg-zinc-900/30'>
+    <section className='py-16 lg:py-24 bg-muted/30'>
       <Container>
         <div className='text-center mb-16'>
           <h2 className='text-3xl font-bold mb-4'>よくある質問</h2>
-          <p className='text-xl text-gray-400 max-w-2xl mx-auto'>
+          <p className='text-xl text-muted-foreground max-w-2xl mx-auto'>
             新大陸についてよくいただく質問にお答えします。
           </p>
         </div>
 
         <div className='grid grid-cols-1 md:grid-cols-2 gap-8 max-w-5xl mx-auto'>
           {faqs.map((faq, index) => (
-            <div key={index} className='rounded-lg p-6 border border-zinc-800'>
+            <div key={index} className='rounded-lg p-6 border border-border'>
               <h3 className='text-lg font-semibold mb-2'>{faq.question}</h3>
-              <p className='text-gray-400'>{faq.answer}</p>
+              <p className='text-muted-foreground'>{faq.answer}</p>
             </div>
           ))}
         </div>
@@ -270,7 +270,7 @@ function CTASection() {
       <Container>
         <div className='rounded-lg bg-indigo-600/20 p-12 border border-indigo-500/30 text-center max-w-4xl mx-auto'>
           <h2 className='text-3xl font-bold mb-4'>今すぐ新大陸を試してみませんか？</h2>
-          <p className='text-xl text-gray-300 mb-8 max-w-2xl mx-auto'>
+          <p className='text-xl text-muted-foreground mb-8 max-w-2xl mx-auto'>
             会員登録後、すぐに無料で記事生成を始められます。クレジットカードは必要ありません。
           </p>
           <div className='flex flex-col sm:flex-row gap-4 justify-center'>

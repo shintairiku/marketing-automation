@@ -104,8 +104,8 @@ export function ArticlePreview({ article, onStartChat }: ArticlePreviewProps) {
         <h1 className="mb-6 text-2xl font-bold">{article.title}</h1>
 
         {showMetaDescription && (
-          <div className="mb-6 rounded-md border border-gray-700 bg-gray-800/30 p-3">
-            <p className="text-sm text-gray-300">
+          <div className="mb-6 rounded-md border border-border bg-muted/30 p-3">
+            <p className="text-sm text-muted-foreground">
               <span className="font-semibold">メタディスクリプション:</span> {article.metaDescription}
             </p>
           </div>
@@ -120,7 +120,7 @@ export function ArticlePreview({ article, onStartChat }: ArticlePreviewProps) {
             {section.content && (
               <div className="mt-3 space-y-4">
                 {section.content.split('\n\n').map((paragraph, idx) => (
-                  <p key={idx} className="text-gray-300">
+                  <p key={idx} className="text-muted-foreground">
                     {paragraph}
                   </p>
                 ))}
@@ -210,7 +210,7 @@ export function ArticlePreview({ article, onStartChat }: ArticlePreviewProps) {
         </div>
       </div>
 
-      <div className="min-h-[600px] rounded-md border border-gray-700 bg-black p-6">
+      <div className="min-h-[600px] rounded-md border border-border bg-background p-6">
         {activeTab === 'preview' && renderPreview()}
         {activeTab === 'html' && renderHtml()}
         {activeTab === 'markdown' && renderMarkdown()}

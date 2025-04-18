@@ -67,13 +67,13 @@ export function Sidebar({ className }: SidebarProps) {
   ];
 
   return (
-    <div className={cn('h-full w-64 border-r border-zinc-800 bg-black p-4', className)}>
+    <div className={cn('h-full w-64 border-r border-border bg-background p-4', className)}>
       <div className="mb-8 py-2">
         <Link href="/dashboard" className="flex items-center gap-2">
           <div className="flex h-8 w-8 items-center justify-center rounded-md bg-indigo-600">
-            <span className="font-alt text-lg font-bold text-white">S</span>
+            <span className="font-alt text-lg font-bold text-foreground">S</span>
           </div>
-          <span className="font-alt text-xl font-semibold text-white">新大陸</span>
+          <span className="font-alt text-xl font-semibold text-foreground">新大陸</span>
         </Link>
       </div>
 
@@ -86,27 +86,27 @@ export function Sidebar({ className }: SidebarProps) {
               'flex items-center gap-3 rounded-md px-3 py-2 transition-colors',
               link.active
                 ? 'bg-indigo-600/20 text-indigo-400'
-                : 'text-gray-400 hover:bg-zinc-900 hover:text-white'
+                : 'text-muted-foreground hover:bg-muted hover:text-foreground'
             )}
           >
-            <span className={link.active ? 'text-indigo-400' : 'text-gray-400'}>{link.icon}</span>
+            <span className={link.active ? 'text-indigo-400' : 'text-muted-foreground'}>{link.icon}</span>
             <span>{link.label}</span>
           </Link>
         ))}
       </nav>
 
       <div className="mt-auto">
-        <div className="mt-10 rounded-md border border-zinc-800 bg-zinc-900/50 p-4">
+        <div className="mt-10 rounded-md border border-border bg-muted/50 p-4">
           <div className="mb-2 flex items-center gap-2">
             <div className="flex h-6 w-6 items-center justify-center rounded-full bg-indigo-600/30">
               <span className="text-xs font-semibold text-indigo-400">5</span>
             </div>
-            <span className="text-sm font-medium text-white">記事作成枠数</span>
+            <span className="text-sm font-medium text-foreground">記事作成枠数</span>
           </div>
-          <div className="h-2 w-full overflow-hidden rounded-full bg-zinc-800">
+          <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
             <div className="h-full w-1/2 bg-indigo-600"></div>
           </div>
-          <div className="mt-1 flex justify-between text-xs text-gray-400">
+          <div className="mt-1 flex justify-between text-xs text-muted-foreground">
             <span>5/10記事</span>
             <Link href="/pricing" className="hover:text-indigo-400 hover:underline">
               プロプランに変更

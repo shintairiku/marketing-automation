@@ -6,7 +6,6 @@ import { IoPersonCircleOutline } from 'react-icons/io5';
 
 import {
   DropdownMenu,
-  DropdownMenuArrow,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
@@ -46,7 +45,6 @@ export function AccountMenu({ signOut }: { signOut: () => Promise<ActionResponse
           <Link href='/account'>Account</Link>
         </DropdownMenuItem>
         <DropdownMenuItem onClick={handleLogoutClick}>Log Out</DropdownMenuItem>
-        <DropdownMenuArrow className='me-4 fill-white' />
       </DropdownMenuContent>
     </DropdownMenu>
   );

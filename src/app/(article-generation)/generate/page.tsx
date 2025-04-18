@@ -13,7 +13,7 @@ import {
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
-import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { toast } from '@/components/ui/use-toast';
 import { ArticleGenerationForm } from '@/features/article-generation/components/article-generation-form';
@@ -179,25 +179,25 @@ export default function ImprovedGenerateArticlePage() {
         <div className="flex items-center justify-between mb-2">
           <div className="flex items-center">
             <div className={`flex h-8 w-8 items-center justify-center rounded-full border ${
-              currentStep === 'form' ? 'border-indigo-500 bg-indigo-500' : 'border-gray-600 bg-gray-800'
-            } text-white`}>
+              currentStep === 'form' ? 'border-indigo-500 bg-indigo-500' : 'border-border bg-muted'
+            } text-foreground`}>
               1
             </div>
             <div className={`h-0.5 w-12 ${
-              currentStep === 'form' ? 'bg-gray-600' : 'bg-indigo-500'
+              currentStep === 'form' ? 'bg-muted' : 'bg-indigo-500'
             }`}></div>
             <div className={`flex h-8 w-8 items-center justify-center rounded-full border ${
-              currentStep === 'outline-selection' ? 'border-indigo-500 bg-indigo-500' : 
-                currentStep === 'preview' ? 'border-indigo-500 bg-indigo-500' : 'border-gray-600 bg-gray-800'
-            } text-white`}>
+                currentStep === 'outline-selection' ? 'border-indigo-500 bg-indigo-500' : 
+                currentStep === 'preview' ? 'border-indigo-500 bg-indigo-500' : 'border-border bg-muted'
+            } text-foreground`}>
               2
             </div>
             <div className={`h-0.5 w-12 ${
-              currentStep === 'preview' ? 'bg-indigo-500' : 'bg-gray-600'
+              currentStep === 'preview' ? 'bg-indigo-500' : 'bg-muted'
             }`}></div>
             <div className={`flex h-8 w-8 items-center justify-center rounded-full border ${
-              currentStep === 'preview' ? 'border-indigo-500 bg-indigo-500' : 'border-gray-600 bg-gray-800'
-            } text-white`}>
+              currentStep === 'preview' ? 'border-indigo-500 bg-indigo-500' : 'border-border bg-muted'
+            } text-foreground`}>
               3
             </div>
           </div>
@@ -208,7 +208,7 @@ export default function ImprovedGenerateArticlePage() {
             </Button>
           </div>
         </div>
-        <div className="flex justify-between text-xs text-gray-400 px-1">
+        <div className="flex justify-between text-xs text-muted-foreground px-1">
           <span>情報入力</span>
           <span>構成選択</span>
           <span>記事プレビュー</span>
@@ -234,7 +234,7 @@ export default function ImprovedGenerateArticlePage() {
             <h1 className="text-2xl font-bold">{currentStep === 'form' ? '記事生成' : 
                                                   currentStep === 'outline-selection' ? '記事構成選択' : 
                                                   '記事プレビュー'}</h1>
-            <p className="text-sm text-gray-400">
+            <p className="text-sm text-muted-foreground">
               {currentStep === 'form' ? '記事情報を入力してAIに最適な構成を提案してもらいましょう' : 
                 currentStep === 'outline-selection' ? '提案された構成から最適なものを選択するか、編集してください' : 
                 '生成された記事をプレビューし、必要に応じて編集できます'}
@@ -272,7 +272,7 @@ export default function ImprovedGenerateArticlePage() {
       )}
 
       {/* メインコンテンツエリア */}
-      <Card className="bg-zinc-900/50 border-zinc-800">
+      <Card className="bg-muted/50 border-border">
         {currentStep === 'form' && (
           <CardContent className="p-6">
             <ArticleGenerationForm onSubmit={handleFormSubmit} isLoading={isLoading} />
@@ -282,7 +282,7 @@ export default function ImprovedGenerateArticlePage() {
         {currentStep === 'outline-selection' && (
           <CardContent className="p-0">
             <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-              <TabsList className="w-full rounded-none border-b border-zinc-800">
+              <TabsList className="w-full rounded-none border-b border-border">
                 <TabsTrigger value="outline-selection" className="flex-1 rounded-none">
                   <IoSparkles className="mr-2" size={16} />
                   提案された構成
@@ -307,29 +307,29 @@ export default function ImprovedGenerateArticlePage() {
                   <div className="space-y-6">
                     <div>
                       <h3 className="text-lg font-semibold mb-2">入力内容確認</h3>
-                      <p className="text-gray-400 mb-4">以下の入力情報に基づいて記事構成が生成されました。内容を修正する場合は「入力内容を修正」ボタンをクリックしてください。</p>
+                      <p className="text-muted-foreground mb-4">以下の入力情報に基づいて記事構成が生成されました。内容を修正する場合は「入力内容を修正」ボタンをクリックしてください。</p>
                       
-                      <div className="space-y-4 rounded-md border border-zinc-800 p-4">
+                      <div className="space-y-4 rounded-md border border-border p-4">
                         <div>
-                          <p className="text-sm font-medium text-gray-400">メインキーワード</p>
+                          <p className="text-sm font-medium text-muted-foreground">メインキーワード</p>
                           <p className="mt-1">{generationData.mainKeywords}</p>
                         </div>
                         
                         <div>
-                          <p className="text-sm font-medium text-gray-400">記事テーマ・概要</p>
+                          <p className="text-sm font-medium text-muted-foreground">記事テーマ・概要</p>
                           <p className="mt-1">{generationData.articleTheme}</p>
                         </div>
                         
                         {generationData.targetAudience && (
                           <div>
-                            <p className="text-sm font-medium text-gray-400">ターゲット読者層</p>
+                            <p className="text-sm font-medium text-muted-foreground">ターゲット読者層</p>
                             <p className="mt-1">{generationData.targetAudience}</p>
                           </div>
                         )}
                         
                         {generationData.tone && (
                           <div>
-                            <p className="text-sm font-medium text-gray-400">文体</p>
+                            <p className="text-sm font-medium text-muted-foreground">文体</p>
                             <p className="mt-1">
                               {generationData.tone === 'formal' ? 'フォーマル（丁寧語）' :
                                generationData.tone === 'professional' ? 'プロフェッショナル（専門的）' :
@@ -394,7 +394,9 @@ export default function ImprovedGenerateArticlePage() {
       {/* 構成編集モーダル */}
       <Dialog open={isEditorOpen} onOpenChange={setIsEditorOpen}>
         <DialogContent className="max-w-2xl">
-          <DialogTitle>記事構成を編集</DialogTitle>
+          <DialogHeader>
+            <DialogTitle>記事構成を編集</DialogTitle>
+          </DialogHeader>
           {editingOutline && (
             <ArticleOutlineEditor
               outline={editingOutline}

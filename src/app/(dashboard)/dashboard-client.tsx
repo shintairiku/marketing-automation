@@ -21,7 +21,7 @@ import { signOut } from '@/app/(auth)/auth-actions';
 import { AccountMenu } from '@/components/account-menu';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet';
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
 import { cn } from '@/utils/cn';
 
 export function DashboardClient({ children }: PropsWithChildren) {
@@ -37,7 +37,7 @@ export function DashboardClient({ children }: PropsWithChildren) {
   };
 
   return (
-    <div className="flex h-screen w-full overflow-hidden bg-zinc-950">
+    <div className="flex h-screen w-full overflow-hidden bg-background">
       {/* デスクトップ - サイドバー */}
       {showSidebar && (
         <div className={cn(
@@ -52,7 +52,7 @@ export function DashboardClient({ children }: PropsWithChildren) {
       <div className="flex h-full flex-1 flex-col overflow-hidden">
         {/* ヘッダー */}
         {showSidebar && (
-          <header className="flex h-16 shrink-0 items-center justify-between border-b border-zinc-800 bg-black px-4">
+          <header className="flex h-16 shrink-0 items-center justify-between border-b border-border bg-background px-4">
             {/* モバイル - サイドバートグル */}
             <div className="flex items-center gap-2">
               <Sheet>
@@ -63,12 +63,15 @@ export function DashboardClient({ children }: PropsWithChildren) {
                   </Button>
                 </SheetTrigger>
                 <SheetContent side="left" className="p-0">
+                  <SheetHeader className="sr-only">
+                    <SheetTitle>ナビゲーションメニュー</SheetTitle>
+                  </SheetHeader>
                   <ImprovedSidebar className="h-full w-full border-0" collapsed={false} />
                 </SheetContent>
               </Sheet>
 
               {/* ページタイトル */}
-              <h1 className="lg:text-xl text-lg font-semibold text-white">
+              <h1 className="lg:text-xl text-lg font-semibold text-foreground">
                 {getPageTitle(pathname)}
               </h1>
             </div>
@@ -77,7 +80,7 @@ export function DashboardClient({ children }: PropsWithChildren) {
             <div className="flex items-center gap-4">
               {/* 検索フォーム - デスクトップのみ */}
               <div className={cn(
-                "hidden md:flex items-center bg-zinc-900 rounded-md border border-zinc-800 px-3 transition-all",
+                "hidden md:flex items-center bg-muted rounded-md border border-border px-3 transition-all",
                 isSearchExpanded ? "w-64" : "w-auto"
               )}>
                 <Input
@@ -87,7 +90,7 @@ export function DashboardClient({ children }: PropsWithChildren) {
                   onFocus={() => setIsSearchExpanded(true)}
                   onBlur={() => setIsSearchExpanded(false)}
                 />
-                <IoSearchOutline className="text-gray-400" />
+                <IoSearchOutline className="text-muted-foreground" />
               </div>
 
               {/* 生成ボタン */}
@@ -110,7 +113,7 @@ export function DashboardClient({ children }: PropsWithChildren) {
         )}
 
         {/* スクロール可能なコンテンツエリア */}
-        <main className={cn('flex-1 overflow-auto bg-zinc-950 p-6', !showSidebar && 'pt-0')}>
+        <main className={cn('flex-1 overflow-auto bg-background p-6', !showSidebar && 'pt-0')}>
           <div className="mx-auto max-w-7xl">
             {children}
           </div>
@@ -177,13 +180,13 @@ export function ImprovedSidebar({
   ];
 
   return (
-    <div className={cn('h-full border-r border-zinc-800 bg-black', className)}>
-      <div className="flex h-16 items-center justify-between border-b border-zinc-800 px-4">
+    <div className={cn('h-full border-r border-border bg-background', className)}>
+      <div className="flex h-16 items-center justify-between border-b border-border px-4">
         <Link href="/dashboard" className="flex items-center gap-2">
           <div className="flex h-8 w-8 items-center justify-center rounded-md bg-indigo-600">
-            <span className="font-alt text-lg font-bold text-white">S</span>
+            <span className="font-alt text-lg font-bold text-foreground">S</span>
           </div>
-          {!collapsed && <span className="font-alt text-xl font-semibold text-white">新大陸</span>}
+          {!collapsed && <span className="font-alt text-xl font-semibold text-foreground">新大陸</span>}
         </Link>
         
         {/* コラプスボタン - デスクトップのみ */}
@@ -209,10 +212,10 @@ export function ImprovedSidebar({
                 'flex items-center gap-3 rounded-md px-3 py-2 transition-colors',
                 link.active
                   ? 'bg-indigo-600/20 text-indigo-400'
-                  : 'text-gray-400 hover:bg-zinc-900 hover:text-white'
+                  : 'text-muted-foreground hover:bg-muted hover:text-foreground'
               )}
             >
-              <span className={link.active ? 'text-indigo-400' : 'text-gray-400'}>
+              <span className={link.active ? 'text-indigo-400' : 'text-muted-foreground'}>
                 {link.icon}
               </span>
               {!collapsed && <span>{link.label}</span>}
@@ -222,20 +225,20 @@ export function ImprovedSidebar({
 
         <div className="mt-auto">
           <div className={cn(
-            "rounded-lg border border-zinc-800 bg-zinc-900/50 p-4",
+            "rounded-lg border border-border bg-muted/50 p-4",
             collapsed && "p-2"
           )}>
             <div className="mb-2 flex items-center gap-2">
               <div className="flex h-6 w-6 items-center justify-center rounded-full bg-indigo-600/30">
                 <span className="text-xs font-semibold text-indigo-400">5</span>
               </div>
-              {!collapsed && <span className="text-sm font-medium text-white">記事作成枠数</span>}
+              {!collapsed && <span className="text-sm font-medium text-foreground">記事作成枠数</span>}
             </div>
-            <div className="h-2 w-full overflow-hidden rounded-full bg-zinc-800">
+            <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
               <div className="h-full w-1/2 bg-indigo-600"></div>
             </div>
             {!collapsed && (
-              <div className="mt-1 flex justify-between text-xs text-gray-400">
+              <div className="mt-1 flex justify-between text-xs text-muted-foreground">
                 <span>5/10記事</span>
                 <Link href="/pricing" className="hover:text-indigo-400 hover:underline">
                   プロプランに変更

@@ -100,7 +100,7 @@ export function ArticleGenerationForm({ onSubmit, isLoading = false }: ArticleGe
               <select
                 id="tone"
                 name="tone"
-                className="flex h-9 w-full rounded-md bg-black px-3 py-1 text-sm transition-colors placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-50 border border-zinc-800"
+                className="flex h-9 w-full rounded-md bg-background px-3 py-1 text-sm transition-colors placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-50 border border-border"
                 value={formData.tone}
                 onChange={handleChange}
                 disabled={isLoading}

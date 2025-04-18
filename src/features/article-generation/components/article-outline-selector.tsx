@@ -29,7 +29,7 @@ export function ArticleOutlineSelector({
   return (
     <div className="w-full space-y-6">
       <h2 className="text-xl font-semibold">記事構成案を選択</h2>
-      <p className="text-sm text-gray-400">
+      <p className="text-sm text-muted-foreground">
         以下の候補から最適な記事構成を選択してください。必要に応じて編集も可能です。
       </p>
 
@@ -37,10 +37,10 @@ export function ArticleOutlineSelector({
         {outlines.map((outline) => (
           <div
             key={outline.id}
-            className={`rounded-lg border p-4 transition-all hover:border-indigo-500 cursor-pointer ${
+            className={`rounded-lg border p-4 transition-all hover:border-primary cursor-pointer ${
               selectedOutlineId === outline.id
-                ? 'border-indigo-500 bg-indigo-500/10'
-                : 'border-gray-700'
+                ? 'border-primary bg-primary/10'
+                : 'border-border'
             }`}
             onClick={() => handleSelect(outline)}
           >
@@ -55,10 +55,10 @@ export function ArticleOutlineSelector({
               {outline.sections.map((section) => (
                 <div key={section.id} className="pl-3 text-sm">
                   {section.level === 'h2' && (
-                    <div className="font-medium text-gray-300">{section.title}</div>
+                    <div className="font-medium text-muted-foreground">{section.title}</div>
                   )}
                   {section.level === 'h3' && (
-                    <div className="pl-4 text-gray-400">・{section.title}</div>
+                    <div className="pl-4 text-muted-foreground">・{section.title}</div>
                   )}
                   {section.level === 'h4' && (
                     <div className="pl-8 text-gray-500">- {section.title}</div>

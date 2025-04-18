@@ -175,7 +175,7 @@ export default function ImprovedArticlesPage() {
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold mb-1">記事一覧</h1>
-          <p className="text-gray-400">あなたが作成したすべての記事を管理します</p>
+          <p className="text-muted-foreground">あなたが作成したすべての記事を管理します</p>
         </div>
         <Button variant="sexy" asChild>
           <Link href="/generate">
@@ -190,7 +190,7 @@ export default function ImprovedArticlesPage() {
           <div className="flex flex-col gap-4 sm:flex-row">
             <div className="relative flex-1">
               <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3">
-                <IoSearchOutline className="text-gray-400" />
+                <IoSearchOutline className="text-muted-foreground" />
               </div>
               <Input
                 type="text"
@@ -246,7 +246,7 @@ export default function ImprovedArticlesPage() {
                 </DropdownMenuContent>
               </DropdownMenu>
 
-              <div className="flex rounded-md border border-zinc-800 overflow-hidden">
+              <div className="flex rounded-md border border-border overflow-hidden">
                 <Button 
                   variant={viewMode === 'table' ? 'default' : 'ghost'} 
                   size="sm" 
@@ -311,52 +311,52 @@ export default function ImprovedArticlesPage() {
             <div className="overflow-x-auto">
               <table className="w-full">
                 <thead>
-                  <tr className="border-b border-zinc-800">
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-400">
+                  <tr className="border-b border-border">
+                    <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground">
                       タイトル
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-400">
+                    <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground">
                       ステータス
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-400">
+                    <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground">
                       更新日
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-400">
+                    <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground">
                       作成日
                     </th>
-                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-400">
+                    <th className="px-6 py-3 text-right text-xs font-medium text-muted-foreground">
                       <span className="sr-only">アクション</span>
                     </th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-zinc-800">
+                <tbody className="divide-y divide-border">
                   {filteredArticles.map((article) => (
                     <tr 
                       key={article.id} 
-                      className="group cursor-pointer hover:bg-zinc-800/30"
+                      className="group cursor-pointer hover:bg-muted/50"
                       onClick={() => window.location.href = `/edit?id=${article.id}`}
                     >
                       <td className="whitespace-normal px-6 py-4">
                         <div className="flex items-start">
                           <div className="mr-3 flex-shrink-0 pt-1">
-                            <div className="flex h-10 w-10 items-center justify-center rounded-md border border-zinc-700 bg-zinc-800 text-gray-400 group-hover:border-indigo-500 group-hover:bg-indigo-500/10 group-hover:text-indigo-400 transition-colors">
+                            <div className="flex h-10 w-10 items-center justify-center rounded-md border border-border bg-muted text-muted-foreground group-hover:border-indigo-500 group-hover:bg-indigo-500/10 group-hover:text-indigo-400 transition-colors">
                               <IoDocumentOutline size={20} />
                             </div>
                           </div>
                           <div className="max-w-md">
-                            <div className="font-medium text-white group-hover:text-indigo-400 transition-colors">{article.title}</div>
-                            <div className="mt-1 hidden text-sm text-gray-400 line-clamp-1 sm:block">{article.metaDescription}</div>
+                            <div className="font-medium text-foreground group-hover:text-indigo-400 transition-colors">{article.title}</div>
+                            <div className="mt-1 hidden text-sm text-muted-foreground line-clamp-1 sm:block">{article.metaDescription}</div>
                           </div>
                         </div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">{getStatusBadge(article.status)}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-400">
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-muted-foreground">
                         <div className="flex items-center">
                           <IoCalendarOutline className="mr-1" size={14} />
                           {formatDate(article.updatedAt)}
                         </div>
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-400">{formatDate(article.createdAt)}</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-muted-foreground">{formatDate(article.createdAt)}</td>
                       <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium" onClick={(e) => e.stopPropagation()}>
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
@@ -395,8 +395,8 @@ export default function ImprovedArticlesPage() {
               </table>
             </div>
           </CardContent>
-          <CardFooter className="border-t border-zinc-800 py-3 px-6">
-            <p className="text-sm text-gray-400">全 {filteredArticles.length} 件の記事</p>
+          <CardFooter className="border-t border-border py-3 px-6">
+            <p className="text-sm text-muted-foreground">全 {filteredArticles.length} 件の記事</p>
           </CardFooter>
         </Card>
       ) : (
@@ -413,7 +413,7 @@ export default function ImprovedArticlesPage() {
               </CardHeader>
               <CardContent className="p-6">
                 <div className="flex justify-between items-start mb-4">
-                  <div className="flex items-center justify-center h-10 w-10 rounded-md border border-zinc-700 bg-zinc-800 text-gray-400 group-hover:border-indigo-500 group-hover:bg-indigo-500/10 group-hover:text-indigo-400 transition-colors">
+                  <div className="flex items-center justify-center h-10 w-10 rounded-md border border-border bg-muted text-muted-foreground group-hover:border-indigo-500 group-hover:bg-indigo-500/10 group-hover:text-indigo-400 transition-colors">
                     <IoDocumentOutline size={20} />
                   </div>
                   <div className="flex items-center" onClick={(e) => e.stopPropagation()}>
@@ -454,11 +454,11 @@ export default function ImprovedArticlesPage() {
                 </div>
                 
                 <h3 className="text-lg font-medium mb-2 group-hover:text-indigo-400 transition-colors line-clamp-2">{article.title}</h3>
-                <p className="text-sm text-gray-400 mb-4 line-clamp-2">{article.metaDescription}</p>
+                <p className="text-sm text-muted-foreground mb-4 line-clamp-2">{article.metaDescription}</p>
                 
                 <div className="flex justify-between items-center">
                   {getStatusBadge(article.status)}
-                  <div className="text-xs text-gray-400 flex items-center">
+                  <div className="text-xs text-muted-foreground flex items-center">
                     <IoCalendarOutline className="mr-1" size={12} />
                     {formatDate(article.updatedAt)}
                   </div>

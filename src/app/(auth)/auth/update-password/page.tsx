@@ -65,7 +65,7 @@ export default function UpdatePasswordPage() {
 
   return (
     <section className='py-xl m-auto flex h-full max-w-lg items-center'>
-      <div className='mt-16 flex w-full flex-col gap-8 rounded-lg bg-black p-10 px-4 text-center'>
+      <div className='mt-16 flex w-full flex-col gap-8 rounded-lg bg-background p-10 px-4 text-center'>
         <div className='flex flex-col gap-4'>
           <Image src='/logo.png' width={80} height={80} alt='' className='m-auto' />
           <h1 className='text-lg'>新しいパスワードを設定</h1>

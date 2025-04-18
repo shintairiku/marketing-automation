@@ -79,7 +79,7 @@ function Footer() {
           </div>
         </div>
       </div>
-      <div className='border-t border-zinc-800 py-6 text-center'>
+      <div className='border-t border-border py-6 text-center'>
         <span className='text-neutral4 text-xs'>
           Copyright {new Date().getFullYear()} © 新大陸
         </span>

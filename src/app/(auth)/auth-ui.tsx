@@ -86,7 +86,7 @@ export function AuthUI({
   }
 
   return (
-    <section className='mt-16 flex w-full flex-col gap-8 rounded-lg bg-black p-10 px-4 text-center'>
+    <section className='mt-16 flex w-full flex-col gap-8 rounded-lg bg-background p-10 px-4 text-center'>
       <div className='flex flex-col gap-4'>
         <Image src='/logo.png' width={80} height={80} alt='' className='m-auto' />
         <h1 className='text-lg'>{titleMap[mode]}</h1>
@@ -151,7 +151,7 @@ export function AuthUI({
           <div className='absolute inset-0 flex items-center'>
             <div className='w-full border-t border-gray-700'></div>
           </div>
-          <div className='relative bg-black px-4 text-xs text-gray-400'>または</div>
+          <div className='relative bg-background px-4 text-xs text-muted-foreground'>または</div>
         </div>
         
         {/* Googleでの認証ボタン */}

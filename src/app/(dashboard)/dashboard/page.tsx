@@ -111,7 +111,7 @@ export default function ImprovedDashboardPage() {
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-3xl font-bold mb-1">こんにちは、ユーザーさん</h1>
-          <p className="text-gray-400">効果的なSEO記事を作成して、あなたのビジネスを成長させましょう。</p>
+          <p className="text-muted-foreground">効果的なSEO記事を作成して、あなたのビジネスを成長させましょう。</p>
         </div>
         <Button variant="sexy" asChild>
           <Link href="/generate">
@@ -124,14 +124,14 @@ export default function ImprovedDashboardPage() {
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm text-gray-400">今月の生成記事数</CardTitle>
+            <CardTitle className="text-sm text-muted-foreground">今月の生成記事数</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="flex items-end justify-between">
               <div className="text-2xl font-bold">5 / 10</div>
               <IoDocument className="text-indigo-400" size={24} />
             </div>
-            <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-gray-700">
+              <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-muted">
               <div className="h-full w-1/2 bg-indigo-500"></div>
             </div>
           </CardContent>
@@ -139,7 +139,7 @@ export default function ImprovedDashboardPage() {
 
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm text-gray-400">公開済み記事</CardTitle>
+            <CardTitle className="text-sm text-muted-foreground">公開済み記事</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="flex items-end justify-between">
@@ -151,7 +151,7 @@ export default function ImprovedDashboardPage() {
 
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm text-gray-400">下書き</CardTitle>
+            <CardTitle className="text-sm text-muted-foreground">下書き</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="flex items-end justify-between">
@@ -163,7 +163,7 @@ export default function ImprovedDashboardPage() {
 
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm text-gray-400">アクセス状況</CardTitle>
+            <CardTitle className="text-sm text-muted-foreground">アクセス状況</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="flex items-end justify-between">
@@ -200,10 +200,10 @@ export default function ImprovedDashboardPage() {
         </CardHeader>
         <CardContent>
           {/* グラフの代わりにプレースホルダー */}
-          <div className="h-[300px] w-full rounded-md bg-zinc-900 flex items-center justify-center">
+          <div className="h-[300px] w-full rounded-md bg-muted flex items-center justify-center">
             <div className="text-center">
               <IoBarChart size={60} className="mx-auto text-indigo-500/40" />
-              <p className="mt-4 text-gray-400">グラフコンポーネントがここに表示されます</p>
+              <p className="mt-4 text-muted-foreground">グラフコンポーネントがここに表示されます</p>
               <p className="mt-2 text-sm text-gray-500">実際の実装ではチャートライブラリを使用してください</p>
             </div>
           </div>
@@ -222,20 +222,20 @@ export default function ImprovedDashboardPage() {
           <div className="overflow-x-auto">
             <table className="w-full">
               <thead>
-                <tr className="border-b border-zinc-800">
-                  <th className="pb-2 text-left text-xs font-normal text-gray-400">タイトル</th>
-                  <th className="pb-2 text-left text-xs font-normal text-gray-400">ステータス</th>
-                  <th className="pb-2 text-left text-xs font-normal text-gray-400">更新日</th>
-                  <th className="pb-2 text-left text-xs font-normal text-gray-400">作成日</th>
-                  <th className="pb-2 text-right text-xs font-normal text-gray-400">アクション</th>
+                <tr className="border-b border-border">
+                  <th className="pb-2 text-left text-xs font-normal text-muted-foreground">タイトル</th>
+                  <th className="pb-2 text-left text-xs font-normal text-muted-foreground">ステータス</th>
+                  <th className="pb-2 text-left text-xs font-normal text-muted-foreground">更新日</th>
+                  <th className="pb-2 text-left text-xs font-normal text-muted-foreground">作成日</th>
+                  <th className="pb-2 text-right text-xs font-normal text-muted-foreground">アクション</th>
                 </tr>
               </thead>
               <tbody>
                 {articles.map((article) => (
-                  <tr key={article.id} className="border-b border-zinc-800/50 hover:bg-zinc-900/30">
+                  <tr key={article.id} className="border-b border-border/50 hover:bg-muted/30">
                     <td className="py-3">
                       <div className="flex items-center">
-                        <div className="flex h-8 w-8 items-center justify-center rounded-md border border-zinc-700 bg-zinc-800 text-gray-400 mr-3">
+                        <div className="flex h-8 w-8 items-center justify-center rounded-md border border-border bg-muted text-muted-foreground mr-3">
                           <IoDocument size={18} />
                         </div>
                         <Link 
@@ -247,13 +247,13 @@ export default function ImprovedDashboardPage() {
                       </div>
                     </td>
                     <td className="py-3">{getStatusBadge(article.status)}</td>
-                    <td className="py-3 text-sm text-gray-400">
+                    <td className="py-3 text-sm text-muted-foreground">
                       <div className="flex items-center">
                         <IoCalendarOutline className="mr-1" size={14} />
                         {formatDate(article.updatedAt)}
                       </div>
                     </td>
-                    <td className="py-3 text-sm text-gray-400">{formatDate(article.createdAt)}</td>
+                    <td className="py-3 text-sm text-muted-foreground">{formatDate(article.createdAt)}</td>
                     <td className="py-3 text-right">
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
@@ -284,8 +284,8 @@ export default function ImprovedDashboardPage() {
             </table>
           </div>
         </CardContent>
-        <CardFooter className="border-t border-zinc-800 pt-4">
-          <p className="text-sm text-gray-400">過去30日間で合計5件の記事が作成されました。</p>
+        <CardFooter className="border-t border-border pt-4">
+          <p className="text-sm text-muted-foreground">過去30日間で合計5件の記事が作成されました。</p>
         </CardFooter>
       </Card>
 
@@ -296,8 +296,8 @@ export default function ImprovedDashboardPage() {
         </CardHeader>
         <CardContent>
           <div className="space-y-4">
-            <p className="text-gray-300">より効果的なSEO記事を作成するためのヒント：</p>
-            <ul className="list-disc pl-5 space-y-1 text-gray-300">
+            <p className="text-muted-foreground">より効果的なSEO記事を作成するためのヒント：</p>
+            <ul className="list-disc pl-5 space-y-1 text-muted-foreground">
               <li>ターゲットキーワードを明確にし、記事のタイトルと最初の段落に含めましょう</li>
               <li>読者のニーズに合わせた充実したコンテンツを作成しましょう</li>
               <li>適切な見出し（H2、H3）を使用して、記事の構造を明確にしましょう</li>
