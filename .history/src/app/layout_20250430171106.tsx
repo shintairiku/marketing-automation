@@ -1,5 +1,6 @@
 
 
+import { useState } from 'react';
 import type { Metadata } from 'next';
 import { Montserrat, Montserrat_Alternates } from 'next/font/google';
 
@@ -10,6 +11,13 @@ import { Analytics } from '@vercel/analytics/react';
 import '@/styles/globals.css';
 
 export const dynamic = 'force-dynamic';
+
+// 山下変更領域------------------------
+import { GeistSans } from 'geist/font'
+import { GeistMono } from 'geist/font/mono'
+import Header from '@/components/display/header';
+import Sidebar from '@/components/display/sidebar';
+
 
 
 
