@@ -37,3 +37,5 @@ next-env.d.ts
 
 # supabase
 /supabase/.temp/
+
+.history/
