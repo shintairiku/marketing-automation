@@ -1,5 +1,6 @@
 
 
+import { useState } from 'react';
 import type { Metadata } from 'next';
 import { Montserrat, Montserrat_Alternates } from 'next/font/google';
 
@@ -10,6 +11,13 @@ import { Analytics } from '@vercel/analytics/react';
 import '@/styles/globals.css';
 
 export const dynamic = 'force-dynamic';
+
+// 山下変更領域------------------------
+import { GeistSans } from 'geist/font'
+import { GeistMono } from 'geist/font/mono'
+import Header from '@/components/display/header';
+import Sidebar from '@/components/display/sidebar';
+
 
 
 
@@ -35,12 +43,26 @@ export default function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const [isExpanded, setIsExpanded] = useState(true);
+  // return (
+  //   <html lang='ja'>
+  //     <body className={cn('font-sans antialiased', montserrat.variable, montserratAlternates.variable)}>
+  //       {children}
+  //       <Toaster />
+  //       <Analytics />
+  //     </body>
+  //   </html>
+  // );
   return (
-    <html lang='ja'>
-      <body className={cn('font-sans antialiased', montserrat.variable, montserratAlternates.variable)}>
-        {children}
-        <Toaster />
-        <Analytics />
+    <html lang="en">
+      <body className={`${GeistSans.variable} ${GeistMono.variable} antialiased`}>
+        <div className="flex flex-col h-screen">
+          <Header />
+          <div className="flex flex-1">
+            <Sidebar isExpanded={isExpanded} setIsExpanded={setIsExpanded} />
+            <main className="flex-1 py-5 px-10">{children}</main>
+          </div>
+        </div>
       </body>
     </html>
   );
