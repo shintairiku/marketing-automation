@@ -1,9 +1,10 @@
 "use client"
 
-import { useState, useEffect } from "react"
-import { Clock, Settings, BarChart3, Database } from "lucide-react"
-import { cn } from "@/utils/tailwind-utils"
+import { useEffect,useState } from "react"
+import { BarChart3, Clock, Database,Settings } from "lucide-react"
+
 import SidebarCategory from "@/components/display/sidebarCategory"
+import { cn } from "@/utils/tailwind-utils"
 
 interface SidebarProps {
   isExpanded: boolean

@@ -1,7 +1,8 @@
 "use client"
 
-import type { ReactNode } from "react"
 import { ChevronDown, Link } from "lucide-react"
+import type { ReactNode } from "react"
+
 import { cn } from "@/utils/tailwind-utils"
 
 interface SidebarCategoryProps {

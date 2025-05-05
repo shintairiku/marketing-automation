@@ -1,7 +1,8 @@
 "use client"
 
-import CommonTitle from "@/components/seo/commonTitle"
 import { useState } from "react";
+
+import CommonTitle from "@/components/seo/commonTitle"
 
 // まだバック繋いでないので仮データ(後で消す)
 const headlineDummyData = {

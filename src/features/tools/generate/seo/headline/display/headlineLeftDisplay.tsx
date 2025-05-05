@@ -1,7 +1,8 @@
 "use client"
 
-import CommonTitle from "@/components/seo/commonTitle"
 import { useState } from "react";
+
+import CommonTitle from "@/components/seo/commonTitle"
 // まだバック繋いでないので仮データ(後で消す)
 const themeDummyTitles = [
     "芝生の育て方完全ガイド｜初心者でも失敗しない手順とコツ",

@@ -1,7 +1,8 @@
 "use client"
 
-import CommonTitle from "@/components/seo/commonTitle"
 import { useState } from "react";
+
+import CommonTitle from "@/components/seo/commonTitle"
 
 
 const themeNumberOptions = [1, 4, 8, 16, 32, 64];
