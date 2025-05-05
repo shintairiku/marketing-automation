@@ -1,0 +1,68 @@
+    # supabase/kong.yml
+    _format_version: "3.0"
+
+    services:
+      - name: gotrue
+        url: http://gotrue:9999
+        routes:
+          - name: gotrue-route
+            paths:
+              - /auth/v1
+      - name: realtime
+        url: http://realtime:4000/socket
+        routes:
+          - name: realtime-route
+            paths:
+              - /realtime/v1/socket
+      - name: storage
+        url: http://storage:5000
+        routes:
+          - name: storage-route
+            paths:
+              - /storage/v1
+      - name: meta
+        url: http://meta:8080
+        routes:
+          - name: meta-route
+            paths:
+              - /rest/v1
+              - /graphql/v1
+      - name: functions
+        url: http://functions:9000
+        routes:
+          - name: functions-route
+            paths:
+              - /functions/v1
+
+    plugins:
+      - name: cors
+        config:
+          origins:
+            - "*" # 開発用。本番では適切に制限してください
+          methods:
+            - GET
+            - POST
+            - PUT
+            - PATCH
+            - DELETE
+            - OPTIONS
+          headers:
+            - Authorization
+            - apikey
+            - content-type
+            - x-client-info
+            - x-supabase-api-version
+          exposed_headers:
+            - content-range
+            - x-supabase-api-version
+          max_age: 3600
+      - name: key-auth
+        config:
+          key_names:
+            - apikey
+          key_in_header: true
+          key_in_query: true
+          key_in_body: false
+          hide_credentials: true
+          anonymous: service_role # Allow anonymous access with service_role key
+    
