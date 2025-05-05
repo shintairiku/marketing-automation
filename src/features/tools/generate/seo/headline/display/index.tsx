@@ -1,9 +1,10 @@
-import SeoHeaderTab from "@/components/seo/seoHeaderTab"
-import HeadlineLeftDisplay from "./headlineLeftDisplay"
-import HeadlineRightDisplay from "./headlineRightDisplay"
+import SeoGenerateButton from "@/components/seo/button/seoGenerateButton"
 import SeoNextButton from "@/components/seo/button/seoNextButton"
 import SeoRetryGenerateButton from "@/components/seo/button/seoRetryGenerateButton"
-import SeoGenerateButton from "@/components/seo/button/seoGenerateButton"
+import SeoHeaderTab from "@/components/seo/seoHeaderTab"
+
+import HeadlineLeftDisplay from "./headlineLeftDisplay"
+import HeadlineRightDisplay from "./headlineRightDisplay"
 // indexページは「配置」することを意識
 // 細かいUIは呼び出して使う
 

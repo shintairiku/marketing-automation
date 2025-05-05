@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { GeistSans } from 'geist/font'
 import { GeistMono } from 'geist/font/mono'
+
 import Header from '@/components/display/header';
 import Sidebar from '@/components/display/sidebar';
 

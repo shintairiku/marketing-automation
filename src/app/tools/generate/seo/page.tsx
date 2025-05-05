@@ -1,16 +1,17 @@
 
 "use client"
 
-import ThemeIndex from "@/features/tools/generate/seo/theme/display/index"
-import HeadlineIndex from "@/features/tools/generate/seo/headline/display/index"
-import DescriptionIndex from "@/features/tools/generate/seo/description/display/index"
-import EditIndex from "@/features/tools/generate/seo/edit/display/index"
-import PostIndex from "@/features/tools/generate/seo/post/display/index"
-import SeoHeaderTab from "@/components/seo/seoHeaderTab"
+import { useState } from "react"
+
 import Header from "@/components/display/header"
 import Sidebar from "@/components/display/sidebar"
+import SeoHeaderTab from "@/components/seo/seoHeaderTab"
+import DescriptionIndex from "@/features/tools/generate/seo/description/display/index"
+import EditIndex from "@/features/tools/generate/seo/edit/display/index"
+import HeadlineIndex from "@/features/tools/generate/seo/headline/display/index"
+import PostIndex from "@/features/tools/generate/seo/post/display/index"
+import ThemeIndex from "@/features/tools/generate/seo/theme/display/index"
 import { SEO_STEPS, type StepInfo } from "@/features/tools/generate/seo/types/seoStep"
-import { useState } from "react"
 
 export default function SeoPage() {
     const [currentStep, setCurrentStep] = useState<StepInfo>(SEO_STEPS[0]);
