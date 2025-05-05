@@ -1,0 +1,178 @@
+# docker-compose.yml for Next.js with Bun and Local Supabase
+
+# version: '3.8' # この行は削除しても構いません
+
+services:
+  # ... (app, dev, studio, gotrue, realtime, storage, meta, functions, kong サービスは変更なし) ...
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production
+    container_name: nextjs_prod
+    ports:
+      - "3000:3000"
+    env_file:
+      - .env.local # 本番環境では実際のクラウド Supabase の値を設定した .env ファイルを使用するか、環境変数で直接指定します
+    restart: unless-stopped
+    networks:
+      - app_network
+
+  dev:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: development
+    container_name: nextjs_dev
+    ports:
+      - "3000:3000"
+    env_file:
+      - .env.local # ローカル Supabase の値を設定した .env.local を使用
+    volumes:
+      - .:/app
+      - /app/node_modules
+      - /app/.next
+    depends_on:
+      db:
+        condition: service_healthy # db サービスが healthy 状態になるまで待機
+    networks:
+      - app_network
+
+  studio:
+    image: public.ecr.aws/supabase/studio:latest
+    container_name: supabase_studio_nextjs
+    ports:
+      - "54323:54323"
+    env_file:
+      - ./supabase/.env
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - app_network
+    restart: unless-stopped
+
+  gotrue:
+    image: public.ecr.aws/supabase/gotrue:latest
+    container_name: supabase_auth_nextjs
+    env_file:
+      - ./supabase/.env
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - app_network
+    restart: unless-stopped
+    command:
+      - "--config=/app/config.toml"
+    volumes:
+      - ./supabase/config.toml:/app/config.toml
+
+  realtime:
+    image: public.ecr.aws/supabase/realtime:latest
+    container_name: supabase_realtime_nextjs
+    env_file:
+      - ./supabase/.env
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - app_network
+    restart: unless-stopped
+
+  storage:
+    image: public.ecr.aws/supabase/storage-api:latest
+    container_name: supabase_storage_nextjs
+    env_file:
+      - ./supabase/.env
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - app_network
+    restart: unless-stopped
+
+  meta:
+    image: public.ecr.aws/supabase/postgres-meta:latest
+    container_name: supabase_meta_nextjs
+    env_file:
+      - ./supabase/.env
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - app_network
+    restart: unless-stopped
+
+  functions:
+    image: public.ecr.aws/supabase/edge-runtime:latest
+    container_name: supabase_functions_nextjs
+    env_file:
+      - ./supabase/.env
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - app_network
+    restart: unless-stopped
+
+  kong:
+    image: public.ecr.aws/supabase/kong:latest
+    container_name: supabase_kong_nextjs
+    ports:
+      - "54321:8000"
+    environment:
+      KONG_DATABASE: "off"
+      KONG_DECLARATIVE_CONFIG: "/var/lib/kong/kong.yml"
+      KONG_PROXY_LISTEN: "0.0.0.0:8000"
+      KONG_ADMIN_LISTEN: "0.0.0.0:8001"
+      KONG_STATUS_LISTEN: "0.0.0.0:8100"
+      KONG_NGINX_WORKER_PROCESSES: "1"
+      KONG_PLUGINS: "request-transformer,cors,key-auth"
+    volumes:
+      - ./supabase/kong.yml:/var/lib/kong/kong.yml
+    depends_on:
+      gotrue:
+        condition: service_started
+      meta:
+        condition: service_started
+      storage:
+        condition: service_started
+      realtime:
+        condition: service_started
+      functions:
+        condition: service_started
+    networks:
+      - app_network
+    restart: unless-stopped
+
+  # PostgreSQL データベース
+  db:
+    image: public.ecr.aws/supabase/postgres:15.6.1.139
+    container_name: supabase_db_nextjs
+    ports:
+      - "54322:5432"
+    volumes:
+      - supabase_db_data:/var/lib/postgresql/data # DB データを永続化
+    env_file:
+      - ./supabase/.env
+    healthcheck:
+      # test: ["CMD-SHELL", "pg_isready -U supabase -h localhost -p 5432 -d postgres"] # <- 修正前
+      # 修正後: PGPASSWORD を使ってパスワード認証でヘルスチェックを行う
+      test: ["CMD-SHELL", "PGPASSWORD=$$POSTGRES_PASSWORD pg_isready -U supabase -h localhost -p 5432 -d postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - app_network
+    restart: unless-stopped
+
+# ネットワーク定義
+networks:
+  app_network:
+    driver: bridge
+
+# 名前付きボリューム定義 (DB データ永続化用)
+volumes:
+  supabase_db_data:
+
