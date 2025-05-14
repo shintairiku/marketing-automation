@@ -1,0 +1,640 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebSocket Article Generator Test (v3)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* カスタムスタイル */
+        #messages div { margin-bottom: 8px; padding: 8px; border-radius: 4px; word-wrap: break-word; }
+        .server-msg { background-color: #e0f2fe; border-left: 4px solid #3b82f6; } /* Server messages: light blue */
+        .client-msg { background-color: #dcfce7; text-align: right; border-right: 4px solid #16a34a; } /* Client messages: light green */
+        .error-msg { background-color: #fee2e2; border-left: 4px solid #ef4444; color: #b91c1c; } /* Error messages: light red */
+        .info-msg { background-color: #f3f4f6; border-left: 4px solid #6b7280; color: #4b5563; font-style: italic; font-size: 0.9em;} /* Info messages: light gray */
+        .user-input-req-msg { background-color: #fef9c3; border-left: 4px solid #f59e0b; } /* User input request log: light yellow */
+
+        /* Final article preview area */
+        #final-article-preview { border: 1px solid #ccc; padding: 15px; margin-top: 15px; max-height: 500px; overflow-y: auto; background-color: #f9f9f9; }
+        /* Code block styling within messages */
+        pre { white-space: pre-wrap; word-wrap: break-word; background-color: #f4f4f5; padding: 10px; border-radius: 5px; margin-top: 5px; font-family: monospace; font-size: 0.9em; max-height: 300px; overflow-y: auto;}
+        code { font-family: monospace; }
+        /* Label styling */
+        label { font-weight: 500; }
+        /* Disabled button styling */
+        button:disabled { opacity: 0.5; cursor: not-allowed; }
+        /* Tab styling */
+        .tab-button { padding: 8px 16px; cursor: pointer; border: 1px solid #ccc; border-bottom: none; background-color: #f0f0f0; border-radius: 4px 4px 0 0; margin-right: 2px;}
+        .tab-button.active { background-color: white; border-bottom: 1px solid white; position: relative; top: 1px;}
+        .tab-content { border: 1px solid #ccc; padding: 15px; border-radius: 0 4px 4px 4px; }
+        /* User interaction panel styling */
+        #user-interaction { border: 2px solid #f59e0b; background-color: #fefce8; }
+    </style>
+</head>
+<body class="bg-gray-100 p-4 md:p-8 font-sans">
+    <div class="container mx-auto bg-white p-6 rounded-lg shadow-md max-w-4xl">
+        <h1 class="text-2xl font-bold mb-6 text-center">WebSocket Article Generator Test</h1>
+
+        <div class="mb-6 p-4 border rounded-md bg-gray-50">
+            <h2 class="text-lg font-semibold mb-3">1. 接続 (Connection)</h2>
+            <div class="mb-3">
+                <label for="ws_url" class="block text-sm font-medium text-gray-700">WebSocket URL:</label>
+                <input type="text" id="ws_url" value="ws://localhost:8008/articles/ws/generate" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm">
+            </div>
+            <div>
+                <button id="connectBtn" class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded mr-2 transition duration-150 ease-in-out">接続 (Connect)</button>
+                <button id="disconnectBtn" class="bg-red-500 hover:bg-red-700 text-white font-bold py-2 px-4 rounded transition duration-150 ease-in-out" disabled>切断 (Disconnect)</button>
+                <span id="connectionStatus" class="ml-4 text-sm font-medium text-gray-500">未接続 (Disconnected)</span>
+            </div>
+        </div>
+
+        <div class="mb-6 p-4 border rounded-md bg-gray-50">
+            <h2 class="text-lg font-semibold mb-3">2. 初期リクエスト (Initial Request)</h2>
+            <div class="mb-1 border-b border-gray-200">
+                <nav class="-mb-px flex" aria-label="Tabs">
+                    <button id="tab-form" class="tab-button active" onclick="switchTab('form')">フォーム入力 (Form Input)</button>
+                    <button id="tab-json" class="tab-button" onclick="switchTab('json')">JSON入力 (Raw JSON)</button>
+                </nav>
+            </div>
+
+            <div id="content-form" class="tab-content">
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                    <div>
+                        <label for="initial_keywords" class="block text-sm font-medium text-gray-700">キーワード (カンマ区切り):</label>
+                        <input type="text" id="initial_keywords" value="札幌, 注文住宅, 自然素材, 子育て" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm">
+                    </div>
+                    <div>
+                        <label for="target_persona" class="block text-sm font-medium text-gray-700">ターゲットペルソナ:</label>
+                        <input type="text" id="target_persona" value="札幌近郊で自然素材を使った家づくりに関心がある、小さな子供を持つ30代夫婦" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm">
+                    </div>
+                    <div>
+                        <label for="target_length" class="block text-sm font-medium text-gray-700">目標文字数 (任意):</label>
+                        <input type="number" id="target_length" value="3000" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm">
+                    </div>
+                    <div>
+                        <label for="num_theme_proposals" class="block text-sm font-medium text-gray-700">テーマ提案数:</label>
+                        <input type="number" id="num_theme_proposals" value="3" min="1" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm">
+                    </div>
+                     <div>
+                        <label for="num_research_queries" class="block text-sm font-medium text-gray-700">リサーチクエリ数:</label>
+                        <input type="number" id="num_research_queries" value="5" min="1" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm">
+                    </div>
+                </div>
+                 <div class="mb-4">
+                    <label for="company_name" class="block text-sm font-medium text-gray-700">会社名 (任意):</label>
+                    <input type="text" id="company_name" value="株式会社ナチュラルホームズ札幌" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm">
+                </div>
+                 <div class="mb-4">
+                    <label for="company_description" class="block text-sm font-medium text-gray-700">会社概要 (任意):</label>
+                    <textarea id="company_description" rows="2" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm">札幌を拠点に、自然素材を活かした健康で快適な注文住宅を提供しています。</textarea>
+                </div>
+                 <div class="mb-4">
+                    <label for="company_style_guide" class="block text-sm font-medium text-gray-700">スタイルガイド (任意):</label>
+                    <textarea id="company_style_guide" rows="3" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm">専門用語を避け、温かみのある丁寧語（ですます調）で。子育て世代の読者に寄り添い、安心感を与えるようなトーンを心がける。</textarea>
+                </div>
+                <button id="sendFormRequestBtn" class="bg-green-500 hover:bg-green-700 text-white font-bold py-2 px-4 rounded transition duration-150 ease-in-out" disabled>リクエスト送信 (Send Request from Form)</button>
+            </div>
+
+            <div id="content-json" class="tab-content hidden">
+                <label for="initial_request_json" class="block text-sm font-medium text-gray-700">初期リクエスト (Raw JSON):</label>
+                <textarea id="initial_request_json" rows="10" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm font-mono">{
+"initial_keywords": ["札幌", "注文住宅", "自然素材", "子育て"],
+"target_persona": "札幌近郊で自然素材を使った家づくりに関心がある、小さな子供を持つ30代夫婦",
+"target_length": 3000,
+"num_theme_proposals": 3,
+"num_research_queries": 5,
+"company_name": "株式会社ナチュラルホームズ札幌",
+"company_description": "札幌を拠点に、自然素材を活かした健康で快適な注文住宅を提供しています。",
+"company_style_guide": "専門用語を避け、温かみのある丁寧語（ですます調）で。子育て世代の読者に寄り添い、安心感を与えるようなトーンを心がける。"
+}</textarea>
+                <button id="sendJsonRequestBtn" class="mt-2 bg-green-500 hover:bg-green-700 text-white font-bold py-2 px-4 rounded transition duration-150 ease-in-out" disabled>JSONリクエスト送信 (Send Raw JSON Request)</button>
+            </div>
+        </div>
+
+        <div class="mb-6 p-4 border rounded-md bg-gray-50">
+             <h2 class="text-lg font-semibold mb-3">3. 処理ログとインタラクション (Process Log & Interaction)</h2>
+             <div id="messages" class="h-96 overflow-y-auto border border-gray-300 p-4 rounded-md bg-white mb-4 shadow-inner">
+                </div>
+
+            <div id="user-interaction" class="hidden mt-4 p-4 rounded-md shadow">
+                <h3 class="text-lg font-semibold text-yellow-800 mb-2 flex items-center">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 mr-2 text-yellow-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    ユーザー入力が必要です (User Input Required)
+                </h3>
+                <div id="user-prompt" class="text-yellow-700 mb-3"></div>
+                <div id="interaction-options" class="space-y-3">
+                    </div>
+            </div>
+        </div>
+
+        <!-- Streaming Preview Section START -->
+        <div id="streaming-preview-container" class="hidden mt-6 p-4 border rounded-md bg-gray-50">
+            <h2 class="text-lg font-semibold mb-3">リアルタイムプレビュー (Streaming Preview)</h2>
+            <div id="streaming-preview" class="prose max-w-none border border-gray-300 p-4 rounded-md bg-white shadow-inner min-h-[200px] max-h-[400px] overflow-y-auto">
+                <!-- Streaming content will appear here -->
+            </div>
+        </div>
+        <!-- Streaming Preview Section END -->
+
+        <div id="final-article-container" class="hidden mt-6 p-4 border rounded-md bg-gray-50">
+            <h2 class="text-lg font-semibold mb-3">4. 完成記事 (Final Article)</h2>
+            <button id="copyHtmlBtn" class="bg-purple-500 hover:bg-purple-700 text-white font-bold py-2 px-4 rounded mb-3 transition duration-150 ease-in-out">HTMLをコピー (Copy HTML)</button>
+             <div id="final-article-preview" class="prose max-w-none">
+                 </div>
+        </div>
+
+    </div>
+
+    <script>
+        // --- DOM Element References ---
+        const wsUrlInput = document.getElementById('ws_url');
+        const connectBtn = document.getElementById('connectBtn');
+        const disconnectBtn = document.getElementById('disconnectBtn');
+        const connectionStatusSpan = document.getElementById('connectionStatus');
+
+        const initialKeywordsInput = document.getElementById('initial_keywords');
+        const targetPersonaInput = document.getElementById('target_persona');
+        const targetLengthInput = document.getElementById('target_length');
+        const numThemeProposalsInput = document.getElementById('num_theme_proposals');
+        const numResearchQueriesInput = document.getElementById('num_research_queries');
+        const companyNameInput = document.getElementById('company_name');
+        const companyDescriptionInput = document.getElementById('company_description');
+        const companyStyleGuideInput = document.getElementById('company_style_guide');
+        const sendFormRequestBtn = document.getElementById('sendFormRequestBtn');
+
+        const initialRequestJsonText = document.getElementById('initial_request_json');
+        const sendJsonRequestBtn = document.getElementById('sendJsonRequestBtn');
+
+        const messagesDiv = document.getElementById('messages');
+        const userInteractionDiv = document.getElementById('user-interaction');
+        const userPromptDiv = document.getElementById('user-prompt');
+        const interactionOptionsDiv = document.getElementById('interaction-options');
+        const finalArticleContainer = document.getElementById('final-article-container');
+        const finalArticlePreviewDiv = document.getElementById('final-article-preview');
+        const copyHtmlBtn = document.getElementById('copyHtmlBtn');
+
+        const streamingPreviewContainer = document.getElementById('streaming-preview-container');
+        const streamingPreviewDiv = document.getElementById('streaming-preview');
+
+        const tabForm = document.getElementById('tab-form');
+        const tabJson = document.getElementById('tab-json');
+        const contentForm = document.getElementById('content-form');
+        const contentJson = document.getElementById('content-json');
+
+        // --- State Variables ---
+        let websocket = null; // Holds the WebSocket object
+        let currentExpectedResponseType = null; // Stores the expected response_type for the next client message
+        let finalHtmlContent = ''; // Stores the final generated HTML
+        let messageCounter = 0; // Counter for unique message IDs
+
+        // --- Tab Switching Logic ---
+        function switchTab(tabName) {
+            if (tabName === 'form') {
+                tabForm.classList.add('active');
+                tabJson.classList.remove('active');
+                contentForm.classList.remove('hidden');
+                contentJson.classList.add('hidden');
+            } else {
+                tabForm.classList.remove('active');
+                tabJson.classList.add('active');
+                contentForm.classList.add('hidden');
+                contentJson.classList.remove('hidden');
+            }
+        }
+
+        // --- Logging Function ---
+        function logMessage(message, type = 'info', isJson = false) {
+            const div = document.createElement('div');
+            messageCounter++;
+            div.id = `msg-${messageCounter}`;
+
+            let typeClass = 'info-msg';
+            let prefix = '[INFO]';
+            if (type === 'server') { typeClass = 'server-msg'; prefix = '[SERVER]'; }
+            else if (type === 'client') { typeClass = 'client-msg'; prefix = '[CLIENT]'; }
+            else if (type === 'error') { typeClass = 'error-msg'; prefix = '[ERROR]'; }
+            else if (type === 'user-input-req') { typeClass = 'user-input-req-msg'; prefix = '[INPUT REQ]'; }
+
+            div.className = typeClass;
+
+            // Format JSON nicely if applicable
+            if (isJson) {
+                 try {
+                    // Ensure message is an object before stringifying
+                    const objToLog = (typeof message === 'string') ? JSON.parse(message) : message;
+                    div.innerHTML = `<strong>${prefix}</strong> <pre><code>${JSON.stringify(objToLog, null, 2)}</code></pre>`;
+                } catch (e) {
+                     // If parsing fails (e.g., already a string), log as plain text
+                     div.innerHTML = `<strong>${prefix}</strong> (JSON Parse Error or String) ${String(message).replace(/</g, "&lt;").replace(/>/g, "&gt;")}`;
+                }
+            } else {
+                // Log plain text message (with basic HTML escaping)
+                div.innerHTML = `<strong>${prefix}</strong> ${String(message).replace(/</g, "&lt;").replace(/>/g, "&gt;")}`;
+            }
+
+            messagesDiv.appendChild(div);
+            // Scroll to the bottom of the message log with a slight delay
+            setTimeout(() => {
+                 messagesDiv.scrollTop = messagesDiv.scrollHeight;
+            }, 50);
+        }
+
+        // --- UI Update Functions ---
+        function updateConnectionStatus(status, color = 'text-gray-500') {
+            connectionStatusSpan.textContent = status;
+            connectionStatusSpan.className = `ml-4 text-sm font-medium ${color}`;
+        }
+
+        function enableButtonsOnConnect(connected) {
+            connectBtn.disabled = connected;
+            disconnectBtn.disabled = !connected;
+            // Only enable send buttons if connected
+            sendFormRequestBtn.disabled = !connected;
+            sendJsonRequestBtn.disabled = !connected;
+            // Input fields are handled by disableInitialInput
+        }
+
+        // Disable/Enable initial request input fields and buttons during processing
+        function disableInteractionElements(disabled) {
+            // Disable initial request form/JSON inputs and send buttons
+            initialKeywordsInput.disabled = disabled;
+            targetPersonaInput.disabled = disabled;
+            targetLengthInput.disabled = disabled;
+            numThemeProposalsInput.disabled = disabled;
+            numResearchQueriesInput.disabled = disabled;
+            companyNameInput.disabled = disabled;
+            companyDescriptionInput.disabled = disabled;
+            companyStyleGuideInput.disabled = disabled;
+            initialRequestJsonText.disabled = disabled;
+            // Disable send buttons if processing or not connected
+            const isConnected = websocket && websocket.readyState === WebSocket.OPEN;
+            sendFormRequestBtn.disabled = disabled || !isConnected;
+            sendJsonRequestBtn.disabled = disabled || !isConnected;
+
+            // Disable user interaction buttons (theme selection, approval) if processing
+            const interactionButtons = interactionOptionsDiv.querySelectorAll('button');
+            interactionButtons.forEach(button => button.disabled = disabled);
+        }
+
+        // --- WebSocket Logic ---
+        connectBtn.onclick = () => {
+            const url = wsUrlInput.value;
+            if (!url) {
+                logMessage('WebSocket URLを入力してください。(Please enter a WebSocket URL.)', 'error');
+                return;
+            }
+            if (websocket && websocket.readyState === WebSocket.OPEN) {
+                logMessage('すでに接続されています。(Already connected.)');
+                return;
+            }
+
+            logMessage(`${url} に接続中... (Connecting to ${url}...)`);
+            updateConnectionStatus('接続中... (Connecting...)', 'text-yellow-500');
+            websocket = new WebSocket(url);
+
+            websocket.onopen = (event) => {
+                logMessage('WebSocket 接続完了！ (WebSocket Connected!)');
+                updateConnectionStatus('接続済み (Connected)', 'text-green-600');
+                enableButtonsOnConnect(true);
+                disableInteractionElements(false); // Enable inputs on connect
+                // Clear previous logs and results on new connection
+                messagesDiv.innerHTML = '';
+                hideInteraction();
+                finalArticleContainer.classList.add('hidden');
+                finalArticlePreviewDiv.innerHTML = '';
+                streamingPreviewContainer.classList.add('hidden');
+                streamingPreviewDiv.innerHTML = '';
+                finalHtmlContent = '';
+            };
+
+            websocket.onmessage = (event) => {
+                let data;
+                try {
+                    data = JSON.parse(event.data);
+                    logMessage(data, 'server', true); // Log raw JSON
+                } catch (e) {
+                    logMessage(`メッセージの解析エラー: ${e}`, 'error');
+                    logMessage(`生データ: ${event.data}`, 'info');
+                    console.error("Error parsing message:", e, "Raw data:", event.data);
+                    return; // Stop processing if JSON is invalid
+                }
+
+                // Process server event messages
+                if (data.type === 'server_event' && data.payload) {
+                    const payload = data.payload;
+                    handleServerPayload(payload);
+                } else {
+                    logMessage(`不明なメッセージタイプを受信: ${data.type}`, 'info');
+                }
+            };
+
+            websocket.onerror = (event) => {
+                logMessage('WebSocket エラー発生。コンソールを確認してください。(WebSocket Error. Check console.)', 'error');
+                console.error("WebSocket Error: ", event);
+                updateConnectionStatus('エラー (Error)', 'text-red-600');
+                enableButtonsOnConnect(false);
+                disableInteractionElements(false); // Re-enable inputs on error
+                hideInteraction();
+            };
+
+            websocket.onclose = (event) => {
+                logMessage(`WebSocket 切断: Code=${event.code}, Reason=${event.reason || 'N/A'}`, 'info');
+                websocket = null;
+                updateConnectionStatus('未接続 (Disconnected)', 'text-gray-500');
+                enableButtonsOnConnect(false);
+                disableInteractionElements(false); // Re-enable inputs on close
+                hideInteraction();
+            };
+        };
+
+        // --- Centralized Server Payload Handler ---
+        function handleServerPayload(payload) {
+            // 1. Check for User Input Request FIRST
+            if (payload.request_type && payload.data) {
+                logMessage(`サーバーがユーザー入力を要求: ${payload.request_type}`, 'user-input-req');
+                displayInteraction(payload.request_type, payload.data);
+                disableInteractionElements(false); // Ensure interaction buttons are enabled
+            }
+            // 2. Check for Error
+            else if (payload.error_message) {
+                logMessage(`エラー (${payload.step || 'unknown'}): ${payload.error_message}`, 'error');
+                disableInteractionElements(false); // Re-enable inputs on error
+                hideInteraction(); // Hide interaction panel on error
+            }
+            // 3. Check for Final Result
+            else if (payload.final_html_content) {
+                logMessage('記事生成完了！ (Article generation complete!)', 'info');
+                displayFinalArticle(payload.title, payload.final_html_content);
+                disableInteractionElements(false); // Re-enable inputs on completion
+            }
+            // 4. Check for Status Updates (but not errors or final results)
+            else if (payload.step && payload.message) {
+                 logMessage(`ステータス: ${payload.step} - ${payload.message}`, 'info');
+                 // Keep interaction elements disabled during general status updates
+                 if (payload.step !== 'finished') { // Re-enable only if finished without error/final result (e.g., cancelled)
+                     disableInteractionElements(true);
+                 } else {
+                     disableInteractionElements(false);
+                 }
+            }
+            // 5. Check for Section Generation (Chunk or Complete)
+            else if (payload.html_content_chunk !== undefined) {
+                displayStreamingChunk(payload.section_index, payload.heading, payload.html_content_chunk, payload.is_complete);
+                if (payload.is_complete) {
+                    logMessage(`セクション ${payload.section_index + 1} (${payload.heading}) 生成完了。(Section generation complete.)`, 'info');
+                }
+                disableInteractionElements(true); // Keep disabled during writing
+            }
+            // 6. Check for Research Progress
+            else if (payload.query_index !== undefined && payload.total_queries !== undefined) {
+                 logMessage(`リサーチ中: クエリ ${payload.query_index + 1}/${payload.total_queries} - "${payload.query}"`, 'info');
+                 disableInteractionElements(true); // Keep disabled during research
+            }
+             // 7. Check for Research Complete (Report generated)
+            else if (payload.report && payload.report.overall_summary !== undefined) {
+                 logMessage(`リサーチ完了。レポート生成。(Research complete. Report generated.)`, 'info');
+                 disableInteractionElements(true); // Keep disabled before outline generation/approval
+            }
+            // 8. Handle other informational payloads (like plan/outline details IF NOT part of user_input_request)
+            // Note: These might often be included within the 'user_input_request' data instead.
+            else if (payload.plan && payload.plan.queries !== undefined) {
+                 logMessage(`リサーチ計画情報受信。(Research plan info received.)`, 'info');
+                 // Usually part of approval request, so interaction elements likely disabled here anyway.
+                 disableInteractionElements(true);
+            } else if (payload.outline && payload.outline.sections !== undefined) {
+                 logMessage(`アウトライン情報受信。(Outline info received.)`, 'info');
+                 // Usually part of approval request.
+                 disableInteractionElements(true);
+            }
+            // 9. Log Unknown Payloads
+            else {
+                logMessage(`不明または情報提供ペイロード受信。(Unknown or informational payload received.)`, 'info');
+                console.log("Unknown or info payload:", payload);
+                // Assume processing is ongoing unless proven otherwise
+                disableInteractionElements(true);
+            }
+        }
+
+        function displayStreamingChunk(sectionIndex, heading, chunk, isComplete) {
+            streamingPreviewContainer.classList.remove('hidden');
+            let sectionDiv = document.getElementById(`streaming-section-${sectionIndex}`);
+            if (!sectionDiv) {
+                sectionDiv = document.createElement('div');
+                sectionDiv.id = `streaming-section-${sectionIndex}`;
+                sectionDiv.className = 'mb-4 p-4 border rounded-md bg-gray-100';
+                sectionDiv.innerHTML = `<h3 class="text-lg font-semibold mb-2">${heading}</h3>`;
+                streamingPreviewDiv.appendChild(sectionDiv);
+            }
+            sectionDiv.innerHTML += chunk;
+            if (isComplete) {
+                sectionDiv.innerHTML += '<p class="text-green-600 mt-2">セクション完了 (Section Complete)</p>';
+            }
+        }
+
+        disconnectBtn.onclick = () => {
+             if (websocket && websocket.readyState === WebSocket.OPEN) {
+                websocket.close();
+                logMessage('切断中... (Disconnecting...)');
+            } else {
+                logMessage('接続されていません。(Not connected.)');
+            }
+        };
+
+        // --- Initial Request Sending Logic ---
+        function sendInitialRequest(requestData) {
+             if (websocket && websocket.readyState === WebSocket.OPEN) {
+                try {
+                    const messageStr = JSON.stringify(requestData);
+                    websocket.send(messageStr);
+                    logMessage(requestData, 'client', true); // Log sent JSON
+                    disableInteractionElements(true); // Disable inputs *during* processing
+                    // Clear previous results when starting new generation
+                    finalArticleContainer.classList.add('hidden');
+                    finalArticlePreviewDiv.innerHTML = '';
+                    streamingPreviewContainer.classList.add('hidden');
+                    streamingPreviewDiv.innerHTML = '';
+                    finalHtmlContent = '';
+                    hideInteraction(); // Hide any leftover interaction panel
+                } catch (e) {
+                    logMessage(`初期リクエストの送信失敗: ${e}`, 'error');
+                    disableInteractionElements(false); // Re-enable if sending failed
+                }
+            } else {
+                logMessage('WebSocketが接続されていません。(WebSocket is not connected.)', 'error');
+            }
+        }
+
+        sendFormRequestBtn.onclick = () => {
+            const keywords = initialKeywordsInput.value.split(',').map(k => k.trim()).filter(k => k);
+            const targetLength = targetLengthInput.value ? parseInt(targetLengthInput.value, 10) : null;
+            const requestData = {
+                initial_keywords: keywords,
+                target_persona: targetPersonaInput.value || null,
+                target_length: isNaN(targetLength) ? null : targetLength,
+                num_theme_proposals: parseInt(numThemeProposalsInput.value, 10) || 3,
+                num_research_queries: parseInt(numResearchQueriesInput.value, 10) || 5,
+                company_name: companyNameInput.value || null,
+                company_description: companyDescriptionInput.value || null,
+                company_style_guide: companyStyleGuideInput.value || null,
+            };
+            sendInitialRequest(requestData);
+        };
+
+        sendJsonRequestBtn.onclick = () => {
+             try {
+                const requestData = JSON.parse(initialRequestJsonText.value);
+                sendInitialRequest(requestData);
+            } catch (e) {
+                logMessage(`Raw Request内のJSONが無効です: ${e}`, 'error');
+            }
+        };
+
+        // --- User Interaction Handling ---
+        function displayInteraction(requestType, data) {
+            currentExpectedResponseType = requestType; // Store the type for sending the response
+            userInteractionDiv.classList.remove('hidden');
+            interactionOptionsDiv.innerHTML = ''; // Clear previous options
+            messagesDiv.scrollTop = messagesDiv.scrollHeight; // Scroll log to show interaction panel
+            disableInteractionElements(false); // Make sure buttons inside are enabled
+
+            // --- Handle 'select_theme' request ---
+            if (requestType === 'select_theme') {
+                userPromptDiv.innerHTML = '<strong>テーマを選択してください: (Please select a theme:)</strong>';
+                if (data && data.themes && Array.isArray(data.themes)) {
+                    data.themes.forEach((theme, index) => {
+                        const button = document.createElement('button');
+                        button.innerHTML = `
+                            <strong class="text-blue-700">${index + 1}. ${theme.title}</strong>
+                            <p class="text-sm text-gray-600 mt-1">説明: ${theme.description}</p>
+                            <p class="text-xs text-gray-500 mt-1">キーワード: ${theme.keywords.join(', ')}</p>
+                        `;
+                        button.className = 'block w-full text-left bg-white hover:bg-gray-100 text-gray-800 py-3 px-4 border border-gray-300 rounded shadow-sm mb-2 transition duration-150 ease-in-out focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500';
+                        
+                        // ここを修正: インデックスを整数値として確実に送信する
+                        button.onclick = () => {
+                            const selectedIndex = parseInt(index, 10);
+                            sendClientResponse(requestType, { selected_index: selectedIndex });
+                        };
+                        
+                        interactionOptionsDiv.appendChild(button);
+                    });
+                } else {
+                    userPromptDiv.innerHTML += '<p class="text-red-600">テーマデータが受信されませんでした。(No theme data received.)</p>';
+                    console.error("Invalid data for select_theme:", data);
+                }
+            }
+            // --- Handle 'approve_plan' or 'approve_outline' request ---
+            else if (requestType === 'approve_plan' || requestType === 'approve_outline') {
+                 const planOrOutline = data.plan || data.outline;
+                 const typeName = requestType === 'approve_plan' ? 'リサーチ計画 (research plan)' : 'アウトライン (outline)';
+                 userPromptDiv.innerHTML = `<strong>以下の${typeName}を確認し、承認または拒否してください: (Please review the following ${typeName} and approve/reject:)</strong> <pre><code>${JSON.stringify(planOrOutline, null, 2)}</code></pre>`;
+
+                 const buttonContainer = document.createElement('div');
+                 buttonContainer.className = 'flex justify-end space-x-3 mt-3';
+
+                 const approveBtn = document.createElement('button');
+                 approveBtn.textContent = '承認 (Approve)';
+                 approveBtn.className = 'bg-green-500 hover:bg-green-700 text-white font-bold py-2 px-4 rounded transition duration-150 ease-in-out';
+                 approveBtn.onclick = () => sendClientResponse(requestType, { approved: true });
+                 buttonContainer.appendChild(approveBtn);
+
+                 const rejectBtn = document.createElement('button');
+                 rejectBtn.textContent = '拒否 (Reject)';
+                 rejectBtn.className = 'bg-red-500 hover:bg-red-700 text-white font-bold py-2 px-4 rounded transition duration-150 ease-in-out';
+                 rejectBtn.onclick = () => sendClientResponse(requestType, { approved: false });
+                 buttonContainer.appendChild(rejectBtn);
+
+                 interactionOptionsDiv.appendChild(buttonContainer);
+            }
+            // --- Handle unknown request types ---
+            else {
+                userPromptDiv.textContent = `不明な入力リクエストタイプ: ${requestType}`;
+                console.error("Unknown user input request type:", requestType, "Data:", data);
+            }
+        }
+
+        // Hide the user interaction panel
+        function hideInteraction() {
+            userInteractionDiv.classList.add('hidden');
+            userPromptDiv.innerHTML = '';
+            interactionOptionsDiv.innerHTML = '';
+            currentExpectedResponseType = null; // Reset the expected response type
+        }
+
+        // Display the final generated article
+        function displayFinalArticle(title, htmlContent) {
+            finalHtmlContent = htmlContent; // Store for copying
+            finalArticleContainer.classList.remove('hidden');
+            // Basic sanitization (remove script tags) - consider a proper library for production
+            const sanitizedHtml = htmlContent.replace(/<script.*?>.*?<\/script>/gi, '');
+            finalArticlePreviewDiv.innerHTML = `<h3 class="text-xl font-semibold mb-3">${title}</h3>${sanitizedHtml}`;
+            // Scroll to the final article section
+             finalArticleContainer.scrollIntoView({ behavior: 'smooth' });
+        }
+
+        // --- Send Client Response Back to Server ---
+        function sendClientResponse(responseType, payload) {
+            if (websocket && websocket.readyState === WebSocket.OPEN) {
+                // Ensure the responseType matches the one we were expecting
+                if (responseType !== currentExpectedResponseType) {
+                    logMessage(`応答タイプ (${responseType}) が期待 (${currentExpectedResponseType}) と一致しません。(Response type mismatch)`, 'error');
+                    console.warn("Mismatch between responseType and currentExpectedResponseType", responseType, currentExpectedResponseType);
+                    return; // Do not send if type doesn't match
+                }
+
+                // デバッグのために追加: ペイロードのログを取る
+                console.log(`Sending response for ${responseType}:`, payload);
+
+                // selected_indexが数値であることを確認
+                if (responseType === 'select_theme' && payload && typeof payload.selected_index !== 'undefined') {
+                    // 値が既に数値型なら何もしない、そうでなければ整数に変換
+                    if (typeof payload.selected_index !== 'number') {
+                        payload.selected_index = parseInt(payload.selected_index, 10);
+                    }
+                    // NaNチェック
+                    if (isNaN(payload.selected_index)) {
+                        logMessage(`選択されたインデックスが無効です: ${payload.selected_index}`, 'error');
+                        return;
+                    }
+                }
+
+                const message = {
+                    type: "client_response", // Message type identifier
+                    response_type: responseType, // The type of request this is responding to
+                    payload: payload // The actual response data
+                };
+                const messageStr = JSON.stringify(message);
+                websocket.send(messageStr);
+                logMessage(message, 'client', true); // Log sent JSON
+                hideInteraction(); // Hide interaction panel after sending response
+                disableInteractionElements(true); // Disable inputs again while server processes response
+            } else {
+                logMessage('WebSocket が接続されていません。(WebSocket is not connected.)', 'error');
+            }
+        }
+
+        // --- Copy Final HTML to Clipboard ---
+        copyHtmlBtn.onclick = () => {
+             if (finalHtmlContent) {
+                navigator.clipboard.writeText(finalHtmlContent)
+                    .then(() => {
+                        logMessage('完成記事のHTMLをクリップボードにコピーしました！(Final HTML copied to clipboard!)', 'info');
+                    })
+                    .catch(err => {
+                        logMessage('HTMLのコピーに失敗しました。(Failed to copy HTML.)', 'error');
+                        console.error('Clipboard copy failed: ', err);
+                    });
+            } else {
+                 logMessage('コピーするHTMLコンテンツがありません。(No HTML content to copy.)', 'info');
+            }
+        };
+
+        // --- Initial Setup ---
+        switchTab('form'); // Start with the form tab active
+        disableInteractionElements(true); // Keep inputs disabled until connected
+
+    </script>
+</body>
+</html>
