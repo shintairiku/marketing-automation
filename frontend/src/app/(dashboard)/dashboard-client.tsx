@@ -3,34 +3,34 @@
 import { PropsWithChildren, useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { 
-  IoAdd, 
-  IoClose, 
-  IoDocumentText, 
+import {
+  IoAdd,
+  IoClose,
+  IoDocumentText,
   IoHelp,
-  IoHome, 
-  IoMenu, 
+  IoHome,
+  IoMenu,
   IoNotifications,
   IoPerson,
   IoSearchOutline,
-  IoSettings, 
+  IoSettings,
   IoSpeedometer,
-  IoStatsChart} from 'react-icons/io5';
+  IoStatsChart
+} from 'react-icons/io5';
 
-import { signOut } from '@/app/(auth)/auth-actions';
-import { AccountMenu } from '@/components/account-menu';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
 import { cn } from '@/utils/cn';
+import { SignedIn, UserButton, useUser } from '@clerk/nextjs';
 
 export function DashboardClient({ children }: PropsWithChildren) {
   const pathname = usePathname();
+  const { isSignedIn } = useUser();
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isSearchExpanded, setIsSearchExpanded] = useState(false);
 
-  // 現在のページがログインや登録ページでない場合にのみサイドバーを表示
-  const showSidebar = !['/login', '/signup'].includes(pathname);
+  const showSidebarAndHeader = isSignedIn && !['/sign-in', '/sign-up', '/user-profile'].includes(pathname);
 
   const toggleSidebar = () => {
     setIsSidebarCollapsed(!isSidebarCollapsed);
@@ -39,7 +39,7 @@ export function DashboardClient({ children }: PropsWithChildren) {
   return (
     <div className="flex h-screen w-full overflow-hidden bg-background">
       {/* デスクトップ - サイドバー */}
-      {showSidebar && (
+      {showSidebarAndHeader && (
         <div className={cn(
           "hidden lg:block transition-all duration-300 ease-in-out",
           isSidebarCollapsed ? "w-20" : "w-64"
@@ -51,7 +51,7 @@ export function DashboardClient({ children }: PropsWithChildren) {
       {/* メインコンテンツエリア */}
       <div className="flex h-full flex-1 flex-col overflow-hidden">
         {/* ヘッダー */}
-        {showSidebar && (
+        {showSidebarAndHeader && (
           <header className="flex h-16 shrink-0 items-center justify-between border-b border-border bg-background px-4">
             {/* モバイル - サイドバートグル */}
             <div className="flex items-center gap-2">
@@ -105,15 +105,17 @@ export function DashboardClient({ children }: PropsWithChildren) {
                 <IoNotifications size={22} />
                 <span className="absolute top-0 right-0 flex h-2 w-2 rounded-full bg-indigo-500"></span>
               </Button>
-              
-              {/* アカウントメニュー */}
-              <AccountMenu signOut={signOut} />
+
+              {/* アカウントメニュー (Clerk UserButton) */}
+              <SignedIn>
+                <UserButton afterSignOutUrl="/" />
+              </SignedIn>
             </div>
           </header>
         )}
 
         {/* スクロール可能なコンテンツエリア */}
-        <main className={cn('flex-1 overflow-auto bg-background p-6', !showSidebar && 'pt-0')}>
+        <main className={cn('flex-1 overflow-auto bg-background p-6', !showSidebarAndHeader && 'pt-0')}>
           <div className="mx-auto max-w-7xl">
             {children}
           </div>
@@ -123,11 +125,11 @@ export function DashboardClient({ children }: PropsWithChildren) {
   );
 }
 
-export function ImprovedSidebar({ 
+export function ImprovedSidebar({
   className,
   collapsed = false,
   onToggle
-}: { 
+}: {
   className?: string;
   collapsed?: boolean;
   onToggle?: () => void;
@@ -154,22 +156,16 @@ export function ImprovedSidebar({
       active: pathname === '/generate',
     },
     {
-      href: '/analytics',
-      label: '分析',
-      icon: <IoStatsChart size={20} />,
-      active: pathname === '/analytics',
+      href: '/user-profile',
+      label: 'アカウント設定',
+      icon: <IoPerson size={20} />,
+      active: pathname.startsWith('/user-profile'),
     },
     {
       href: '/settings',
-      label: '設定',
+      label: 'アプリ設定',
       icon: <IoSettings size={20} />,
       active: pathname === '/settings',
-    },
-    {
-      href: '/account',
-      label: 'アカウント',
-      icon: <IoPerson size={20} />,
-      active: pathname === '/account',
     },
     {
       href: '/help',
@@ -188,16 +184,16 @@ export function ImprovedSidebar({
           </div>
           {!collapsed && <span className="font-alt text-xl font-semibold text-foreground">新大陸</span>}
         </Link>
-        
+
         {/* コラプスボタン - デスクトップのみ */}
         {onToggle && (
-          <Button 
-            variant="ghost" 
-            size="icon" 
-            onClick={onToggle} 
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={onToggle}
             className="hidden lg:flex"
           >
-            {collapsed ? <IoMenu size={20} /> : <IoClose size={20} />}
+            {collapsed ? <IoMenu size={20} /> : <IoClose size={20} />} 
           </Button>
         )}
       </div>
@@ -259,12 +255,12 @@ function getPageTitle(pathname: string): string {
   if (pathname === '/generate') return '新規記事生成';
   if (pathname === '/edit') return '記事編集';
   if (pathname === '/analytics') return '分析';
-  if (pathname === '/settings') return '設定';
+  if (pathname === '/settings') return 'アプリ設定';
   if (pathname === '/help') return 'ヘルプ・サポート';
-  if (pathname === '/account') return 'アカウント';
-  
-  // articleのパスにマッチするかチェック
+  if (pathname === '/account') return 'アカウント概要';
+  if (pathname.startsWith('/user-profile')) return 'アカウント設定';
+
   if (pathname.startsWith('/dashboard/articles/')) return '記事詳細';
-  
+
   return '新大陸';
 }

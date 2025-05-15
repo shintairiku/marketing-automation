@@ -3,27 +3,30 @@
 import { redirect } from 'next/navigation';
 
 import { getOrCreateCustomer } from '@/features/account/controllers/get-or-create-customer';
-import { getSession } from '@/features/account/controllers/get-session';
 import { Price } from '@/features/pricing/types';
 import { stripeAdmin } from '@/libs/stripe/stripe-admin';
 import { getURL } from '@/utils/get-url';
+import { auth } from '@clerk/nextjs/server';
 
 export async function createCheckoutAction({ price }: { price: Price }) {
-  // 1. Get the user from session
-  const session = await getSession();
+  // 1. Get the user from Clerk
+  const authData = await auth();
+  const userId = authData.userId;
+  const userEmail = authData.sessionClaims?.email as string | undefined;
 
-  if (!session?.user) {
-    return redirect(`${getURL()}/signup`);
+  if (!userId) {
+    return redirect(`${getURL()}/sign-in`);
   }
 
-  if (!session.user.email) {
-    throw Error('Could not get email');
+  if (!userEmail) {
+    console.error('User email not found in Clerk session claims. Ensure email is available in session claims.');
+    throw Error('Could not get email. Please ensure your email is set in your user profile and available in session claims.');
   }
 
   // 2. Retrieve or create the customer in Stripe
   const customer = await getOrCreateCustomer({
-    userId: session.user.id,
-    email: session.user.email,
+    userId: userId,
+    email: userEmail,
   });
 
   // 3. Create a checkout session in Stripe
