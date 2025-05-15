@@ -1,0 +1,17 @@
+[project]
+name = "saas-api"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi",
+    "uvicorn[standard]",
+    "openai",
+    "openai-agents",
+    "python-dotenv",
+    "rich",
+    "sse-starlette",
+    "pydantic-settings",
+    "griffe"
+]

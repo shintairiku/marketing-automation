@@ -1,0 +1,83 @@
+version: '3.8'
+
+services:
+  # Frontend Next.js Application (Development)
+  frontend_dev:
+    build:
+      context: ./frontend # Context updated to frontend directory
+      dockerfile: Dockerfile # Dockerfile inside frontend directory
+      target: development
+      args: # Pass build arguments for development
+        NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL}
+        NEXT_PUBLIC_SUPABASE_ANON_KEY: ${NEXT_PUBLIC_SUPABASE_ANON_KEY}
+    container_name: frontend_dev
+    ports:
+      - "3000:3000"
+    env_file:
+      - ./frontend/.env.local # Environment file for frontend development
+    volumes:
+      - ./frontend:/app # Mount frontend source code
+      - /app/node_modules
+      - /app/.next
+    networks:
+      - app_network
+    restart: unless-stopped
+
+  # Frontend Next.js Application (Production)
+  frontend_prod:
+    build:
+      context: ./frontend # Context updated to frontend directory
+      dockerfile: Dockerfile # Dockerfile inside frontend directory
+      target: production
+      args: # Pass build arguments for production
+        NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL}
+        NEXT_PUBLIC_SUPABASE_ANON_KEY: ${NEXT_PUBLIC_SUPABASE_ANON_KEY}
+        STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY}
+        SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY}
+    container_name: frontend_prod
+    ports:
+      - "3001:3000"
+    env_file:
+      - ./frontend/.env.local # For production, consider .env or direct env vars
+    networks:
+      - app_network
+    restart: unless-stopped
+
+  # Backend Python/FastAPI Application
+  backend:
+    build:
+      context: ./backend # Context for backend
+      dockerfile: Dockerfile # Dockerfile inside backend directory
+    container_name: backend_api
+    ports:
+      - "8008:8000" # Host port 8008, container port 8000 for FastAPI
+    env_file:
+      - ./backend/.env # Environment file for backend
+    volumes:
+      - ./backend:/app # Mount backend source code for development
+    networks:
+      - app_network
+    restart: unless-stopped
+    # For development, you might want to add a command for auto-reload:
+    # command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+
+  # Stripe CLI Service (Development)
+  stripe-cli:
+    image: stripe/stripe-cli
+    container_name: stripe_cli
+    command: "listen --api-key ${STRIPE_SECRET_KEY} --forward-to frontend_dev:3000/api/webhooks" # Forward to frontend_dev
+    env_file:
+      - .env.local # Uses project root .env.local for Stripe keys
+    networks:
+      - app_network
+    depends_on:
+      - frontend_dev # Depends on the frontend_dev service
+    restart: unless-stopped
+
+# ネットワーク定義
+networks:
+  app_network:
+    driver: bridge
+
+# ボリューム定義 (ローカルSupabaseは使用しないため、DBデータ用ボリュームは不要)
+volumes: {} 
