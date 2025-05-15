@@ -1,18 +1,15 @@
-
-
 import type { Metadata } from 'next';
 import { Montserrat, Montserrat_Alternates } from 'next/font/google';
 
 import { Toaster } from '@/components/ui/toaster';
 import { cn } from '@/utils/cn';
+import { jaJP } from "@clerk/localizations";
+import { ClerkProvider } from '@clerk/nextjs';
 import { Analytics } from '@vercel/analytics/react';
 
 import '@/styles/globals.css';
 
 export const dynamic = 'force-dynamic';
-
-
-
 
 const montserrat = Montserrat({
   variable: '--font-montserrat',
@@ -30,18 +27,20 @@ export const metadata: Metadata = {
   description: 'AIを活用したSEO記事自動生成サービス。高品質なSEO記事を数分で作成。チャットベースの編集機能で簡単修正。',
 };
 
-export default function RootLayout({ 
+export default function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
   return (
-    <html lang='ja'>
-      <body className={cn('font-sans antialiased', montserrat.variable, montserratAlternates.variable)}>
-        {children}
-        <Toaster />
-        <Analytics />
-      </body>
-    </html>
+    <ClerkProvider localization={jaJP}>
+      <html lang='ja'>
+        <body className={cn('font-sans antialiased', montserrat.variable, montserratAlternates.variable)}>
+          {children}
+          <Toaster />
+          <Analytics />
+        </body>
+      </html>
+    </ClerkProvider>
   );
 }
