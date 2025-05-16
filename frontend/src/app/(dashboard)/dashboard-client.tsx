@@ -1,254 +1,112 @@
 'use client';
 
 import { PropsWithChildren, useState } from 'react';
-import Link from 'next/link';
+// import Link from 'next/link'; // Link はヘッダー内で使われなくなったため削除
 import { usePathname } from 'next/navigation';
 import {
-  IoAdd,
-  IoClose,
-  IoDocumentText,
-  IoHelp,
-  IoHome,
-  IoMenu,
-  IoNotifications,
-  IoPerson,
-  IoSearchOutline,
-  IoSettings,
-  IoSpeedometer,
-  IoStatsChart
+  // IoAdd, // IoAdd はヘッダー内で使われなくなったため削除
+  // IoClose, // IoClose はヘッダー・サイドバー内で使われなくなったため削除
+  // IoDocumentText,
+  // IoHelp,
+  // IoHome,
+  IoMenu, // モバイルのシートトリガー用に残す
+  // IoNotifications, // IoNotifications はヘッダー内で使われなくなったため削除
+  // IoPerson,
+  // IoSearchOutline, // IoSearchOutline はヘッダー内で使われなくなったため削除
+  // IoSettings,
+  // IoSpeedometer,
+  // IoStatsChart
 } from 'react-icons/io5';
 
+import Header from '@/components/display/header'; // 新しいヘッダーをインポート
+// import { SignedIn, UserButton, useUser } from '@clerk/nextjs'; // Clerk関連は新しいヘッダーにないので一旦コメントアウト（必要なら復活）
+import Sidebar from '@/components/display/sidebar';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
+// import { Input } from '@/components/ui/input'; // Input はヘッダー内で使われなくなったため削除
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
 import { cn } from '@/utils/cn';
-import { SignedIn, UserButton, useUser } from '@clerk/nextjs';
+import { useUser } from '@clerk/nextjs'; // useUser は showSidebarAndHeader で使用するため残す
 
 export function DashboardClient({ children }: PropsWithChildren) {
   const pathname = usePathname();
   const { isSignedIn } = useUser();
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
-  const [isSearchExpanded, setIsSearchExpanded] = useState(false);
+  // const [isSearchExpanded, setIsSearchExpanded] = useState(false); // isSearchExpanded は使われなくなったため削除
 
-  const showSidebarAndHeader = isSignedIn && !['/sign-in', '/sign-up', '/user-profile'].includes(pathname);
+  // showSidebarAndHeader はサイドバーの表示制御のみに
+  const showSidebar = isSignedIn && !['/sign-in', '/sign-up', '/user-profile'].includes(pathname);
 
+  // toggleSidebar はデスクトップホバー用（Sidebar内部で処理）と、将来的なピン留めボタン用に残す
   const toggleSidebar = () => {
     setIsSidebarCollapsed(!isSidebarCollapsed);
   };
 
   return (
-    <div className="flex h-screen w-full overflow-hidden bg-background">
-      {/* デスクトップ - サイドバー */}
-      {showSidebarAndHeader && (
-        <div className={cn(
-          "hidden lg:block transition-all duration-300 ease-in-out",
-          isSidebarCollapsed ? "w-20" : "w-64"
-        )}>
-          <ImprovedSidebar collapsed={isSidebarCollapsed} onToggle={toggleSidebar} />
-        </div>
-      )}
+    <div className="flex h-screen w-full flex-col overflow-hidden bg-background">
+      {/* 新しい共通ヘッダーを配置 */}
+      {showSidebar && <Header />}
 
-      {/* メインコンテンツエリア */}
-      <div className="flex h-full flex-1 flex-col overflow-hidden">
-        {/* ヘッダー */}
-        {showSidebarAndHeader && (
-          <header className="flex h-16 shrink-0 items-center justify-between border-b border-border bg-background px-4">
-            {/* モバイル - サイドバートグル */}
-            <div className="flex items-center gap-2">
-              <Sheet>
-                <SheetTrigger asChild>
-                  <Button variant="ghost" size="icon" className="lg:hidden">
-                    <IoMenu size={24} />
-                    <span className="sr-only">メニュー</span>
-                  </Button>
-                </SheetTrigger>
-                <SheetContent side="left" className="p-0">
-                  <SheetHeader className="sr-only">
-                    <SheetTitle>ナビゲーションメニュー</SheetTitle>
-                  </SheetHeader>
-                  <ImprovedSidebar className="h-full w-full border-0" collapsed={false} />
-                </SheetContent>
-              </Sheet>
-
-              {/* ページタイトル */}
-              <h1 className="lg:text-xl text-lg font-semibold text-foreground">
-                {getPageTitle(pathname)}
-              </h1>
-            </div>
-
-            {/* 右側コントロールエリア */}
-            <div className="flex items-center gap-4">
-              {/* 検索フォーム - デスクトップのみ */}
-              <div className={cn(
-                "hidden md:flex items-center bg-muted rounded-md border border-border px-3 transition-all",
-                isSearchExpanded ? "w-64" : "w-auto"
-              )}>
-                <Input
-                  type="text"
-                  placeholder="検索..."
-                  className="border-0 bg-transparent"
-                  onFocus={() => setIsSearchExpanded(true)}
-                  onBlur={() => setIsSearchExpanded(false)}
-                />
-                <IoSearchOutline className="text-muted-foreground" />
-              </div>
-
-              {/* 生成ボタン */}
-              <Button variant="sexy" size="sm" asChild>
-                <Link href="/generate">
-                  <IoAdd size={16} className="mr-2" /> 記事生成
-                </Link>
-              </Button>
-
-              {/* 通知ボタン */}
-              <Button variant="ghost" size="icon" className="relative">
-                <IoNotifications size={22} />
-                <span className="absolute top-0 right-0 flex h-2 w-2 rounded-full bg-indigo-500"></span>
-              </Button>
-
-              {/* アカウントメニュー (Clerk UserButton) */}
-              <SignedIn>
-                <UserButton afterSignOutUrl="/" />
-              </SignedIn>
-            </div>
-          </header>
-        )}
-
-        {/* スクロール可能なコンテンツエリア */}
-        <main className={cn('flex-1 overflow-auto bg-background p-6', !showSidebarAndHeader && 'pt-0')}>
-          <div className="mx-auto max-w-7xl">
-            {children}
-          </div>
-        </main>
-      </div>
-    </div>
-  );
-}
-
-export function ImprovedSidebar({
-  className,
-  collapsed = false,
-  onToggle
-}: {
-  className?: string;
-  collapsed?: boolean;
-  onToggle?: () => void;
-}) {
-  const pathname = usePathname();
-
-  const links = [
-    {
-      href: '/dashboard',
-      label: 'ダッシュボード',
-      icon: <IoSpeedometer size={20} />,
-      active: pathname === '/dashboard',
-    },
-    {
-      href: '/dashboard/articles',
-      label: '記事一覧',
-      icon: <IoDocumentText size={20} />,
-      active: pathname === '/dashboard/articles' || pathname.startsWith('/dashboard/articles/'),
-    },
-    {
-      href: '/generate',
-      label: '新規記事生成',
-      icon: <IoAdd size={20} />,
-      active: pathname === '/generate',
-    },
-    {
-      href: '/user-profile',
-      label: 'アカウント設定',
-      icon: <IoPerson size={20} />,
-      active: pathname.startsWith('/user-profile'),
-    },
-    {
-      href: '/settings',
-      label: 'アプリ設定',
-      icon: <IoSettings size={20} />,
-      active: pathname === '/settings',
-    },
-    {
-      href: '/help',
-      label: 'ヘルプ・サポート',
-      icon: <IoHelp size={20} />,
-      active: pathname === '/help',
-    },
-  ];
-
-  return (
-    <div className={cn('h-full border-r border-border bg-background', className)}>
-      <div className="flex h-16 items-center justify-between border-b border-border px-4">
-        <Link href="/dashboard" className="flex items-center gap-2">
-          <div className="flex h-8 w-8 items-center justify-center rounded-md bg-indigo-600">
-            <span className="font-alt text-lg font-bold text-foreground">S</span>
-          </div>
-          {!collapsed && <span className="font-alt text-xl font-semibold text-foreground">新大陸</span>}
-        </Link>
-
-        {/* コラプスボタン - デスクトップのみ */}
-        {onToggle && (
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={onToggle}
-            className="hidden lg:flex"
-          >
-            {collapsed ? <IoMenu size={20} /> : <IoClose size={20} />} 
-          </Button>
-        )}
-      </div>
-
-      <div className="h-[calc(100%-4rem)] flex flex-col justify-between p-4">
-        <nav className="space-y-1">
-          {links.map((link) => (
-            <Link
-              key={link.href}
-              href={link.href}
-              className={cn(
-                'flex items-center gap-3 rounded-md px-3 py-2 transition-colors',
-                link.active
-                  ? 'bg-indigo-600/20 text-indigo-400'
-                  : 'text-muted-foreground hover:bg-muted hover:text-foreground'
-              )}
-            >
-              <span className={link.active ? 'text-indigo-400' : 'text-muted-foreground'}>
-                {link.icon}
-              </span>
-              {!collapsed && <span>{link.label}</span>}
-            </Link>
-          ))}
-        </nav>
-
-        <div className="mt-auto">
+      <div className="flex flex-1 overflow-hidden">
+        {/* デスクトップ - サイドバー */}
+        {showSidebar && (
           <div className={cn(
-            "rounded-lg border border-border bg-muted/50 p-4",
-            collapsed && "p-2"
+            "hidden lg:block transition-all duration-300 ease-in-out",
           )}>
-            <div className="mb-2 flex items-center gap-2">
-              <div className="flex h-6 w-6 items-center justify-center rounded-full bg-indigo-600/30">
-                <span className="text-xs font-semibold text-indigo-400">5</span>
-              </div>
-              {!collapsed && <span className="text-sm font-medium text-foreground">記事作成枠数</span>}
-            </div>
-            <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
-              <div className="h-full w-1/2 bg-indigo-600"></div>
-            </div>
-            {!collapsed && (
-              <div className="mt-1 flex justify-between text-xs text-muted-foreground">
-                <span>5/10記事</span>
-                <Link href="/pricing" className="hover:text-indigo-400 hover:underline">
-                  プロプランに変更
-                </Link>
-              </div>
-            )}
+            <Sidebar 
+              isExpanded={!isSidebarCollapsed} 
+              setIsExpanded={(expanded) => setIsSidebarCollapsed(!expanded)} 
+            />
           </div>
+        )}
+
+        {/* メインコンテンツエリア */}
+        <div className="flex h-full flex-1 flex-col overflow-hidden">
+          {/* 旧ヘッダーは削除 */}
+          
+          {/* モバイル用サイドバートグルをヘッダーに含めるか検討したが、現状のHeaderコンポーネントにはないので、
+              dashboard-client に残す場合は、Headerコンポーネントとデザイン調整が必要。
+              一旦、モバイルのSheetTriggerはメインコンテンツエリアの直前に配置する。
+              理想的にはHeaderコンポーネントがモバイルトグルも持つべき。
+           */}
+          {showSidebar && (
+             <div className="lg:hidden p-4 border-b border-border bg-background flex items-center">
+                <Sheet>
+                    <SheetTrigger asChild>
+                    <Button variant="ghost" size="icon">
+                        <IoMenu size={24} />
+                        <span className="sr-only">メニュー</span>
+                    </Button>
+                    </SheetTrigger>
+                    <SheetContent side="left" className="p-0">
+                    <SheetHeader className="sr-only">
+                        <SheetTitle>ナビゲーションメニュー</SheetTitle>
+                    </SheetHeader>
+                    <Sidebar 
+                        className="h-full w-full border-0" 
+                        isExpanded={true} 
+                        setIsExpanded={() => { /* モバイルシート内では操作不要 */ }} 
+                    />
+                    </SheetContent>
+                </Sheet>
+                {/* モバイル時のページタイトルなどもここに表示するか、Headerコンポーネント側でレスポンシブ対応するか検討 */}
+             </div>
+          )}
+
+          {/* スクロール可能なコンテンツエリア */}
+          <main className={cn('flex-1 overflow-auto bg-background p-6', !showSidebar && 'pt-0')}>
+            <div className="mx-auto max-w-7xl">
+              {children}
+            </div>
+          </main>
         </div>
       </div>
     </div>
   );
 }
 
-// パスに基づいてページタイトルを取得する関数
+// パスに基づいてページタイトルを取得する関数 (旧ヘッダーで使っていたもの)
+// 新しいヘッダーまたは別の場所で必要なら再利用
+/*
 function getPageTitle(pathname: string): string {
   if (pathname === '/dashboard') return 'ダッシュボード';
   if (pathname === '/dashboard/articles') return '記事一覧';
@@ -264,3 +122,4 @@ function getPageTitle(pathname: string): string {
 
   return '新大陸';
 }
+*/
