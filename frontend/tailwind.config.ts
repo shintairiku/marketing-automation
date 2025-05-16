@@ -48,6 +48,12 @@ const config: Config = {
           DEFAULT: 'hsl(var(--card))',
           foreground: 'hsl(var(--card-foreground))',
         },
+        'custom-orange': '#E5581C',
+        'custom-orange-light': '#FFF2ED',
+        'sidebar-bg': '#F9F9F9',
+        'sidebar-icon-muted': '#757575',
+        'sidebar-text-muted': '#616161',
+        'sidebar-border': '#E0E0E0',
       },
       borderRadius: {
         lg: `var(--radius)`,
