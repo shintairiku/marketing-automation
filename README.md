@@ -149,7 +149,7 @@ OPENAI_API_KEY=your_openai_api_key # バックエンドのOpenAI連携用
 必要な `.env` ファイルを設定した後、以下のコマンドで開発に必要なサービスを起動します。
 
 ```bash
-docker-compose up -d frontend_dev backend stripe-cli
+docker-compose up --build frontend_dev backend stripe-cli
 ```
 `-d` オプションはデタッチモードで起動し、バックグラウンドで実行します。初回の起動時はイメージのビルドに時間がかかることがあります。
 
