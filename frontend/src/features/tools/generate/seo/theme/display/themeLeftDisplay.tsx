@@ -1,20 +1,22 @@
 "use client"
 
-import { useState } from "react";
+import { useState, type ChangeEvent } from "react";
 
 import CommonTitle from "@/components/seo/commonTitle";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { Slider } from "@/components/ui/slider";
 
 const themeNumberOptions = [1, 3, 5];
+const researchQueryOptions = [1, 3, 5];
 const personaOptions = ["学生", "主婦", "サラリーマン", "フリーランス", "ビジネスマン", "その他"];
 
 export default function ThemeLeftDisplay() {
     const [keywords, setKeywords] = useState("");
-    const [targetLength, setTargetLength] = useState<number | string>("");
+    const [targetLength, setTargetLength] = useState<number>(2000);
     const [numThemeProposals, setNumThemeProposals] = useState(themeNumberOptions[1]);
-    const [numResearchQueries, setNumResearchQueries] = useState<number | string>(5);
+    const [numResearchQueries, setNumResearchQueries] = useState(researchQueryOptions[1]);
     const [personaSelected, setPersonaSelected] = useState(personaOptions[0]);
     const [companyName, setCompanyName] = useState("");
     const [companyDescription, setCompanyDescription] = useState("");
@@ -28,7 +30,7 @@ export default function ThemeLeftDisplay() {
                 <Input 
                     type="text" 
                     value={keywords}
-                    onChange={(e) => setKeywords(e.target.value)}
+                    onChange={(e: ChangeEvent<HTMLInputElement>) => setKeywords(e.target.value)}
                     className="w-full h-10 bg-[#f9f9f9] rounded-md p-2 mt-3"
                     placeholder="SEOで狙いたいキーワードをカンマ区切りで入力 (例: 札幌, 注文住宅, 自然素材)" 
                 />
@@ -54,30 +56,41 @@ export default function ThemeLeftDisplay() {
 
                 {/* リサーチクエリ数 */}
                 <div>
-                    <Label htmlFor="numResearchQueries" className="text-base font-semibold">リサーチクエリ数</Label>
-                    <Input 
-                        id="numResearchQueries"
-                        type="number" 
-                        value={numResearchQueries}
-                        onChange={(e) => setNumResearchQueries(e.target.value === '' ? '' : parseInt(e.target.value, 10))}
-                        className="w-full h-10 bg-[#f9f9f9] rounded-md p-2 mt-1"
-                        placeholder="例: 5"
-                        min={1}
-                    />
+                    <CommonTitle title="リサーチクエリ数" />
+                    <div className="flex items-center justify-between w-full mt-3 relative">
+                        <div className="absolute left-1/2 top-1/2 -translate-y-1/2 -translate-x-1/2 w-full h-1 bg-gray-200 z-0" />
+                        {researchQueryOptions.map((num) => (
+                            <button 
+                                key={num} 
+                                className={`flex items-center justify-center w-10 h-10 rounded-full font-bold text-lg transition ${numResearchQueries === num ? "bg-pink-100 text-black" : "bg-gray-50 text-black"} shadow-sm z-10 `}
+                                onClick={() => setNumResearchQueries(num)}
+                            >
+                                {num}
+                            </button>
+                        ))}
+                    </div>
                 </div>
             </div>
 
             {/* 目標文字数 */}
             <div>
-                <Label htmlFor="targetLength" className="text-base font-semibold">目標文字数 (任意)</Label>
-                <Input 
-                    id="targetLength"
-                    type="number" 
-                    value={targetLength}
-                    onChange={(e) => setTargetLength(e.target.value === '' ? '' : parseInt(e.target.value, 10))}
-                    className="w-full h-10 bg-[#f9f9f9] rounded-md p-2 mt-1"
-                    placeholder="例: 3000"
-                />
+                <div className="flex justify-between items-center">
+                    {/* <Label htmlFor="targetLength" className="text-base font-semibold">目標文字数 (任意)</Label> */}
+                    <CommonTitle title="目標文字数 (任意)" />
+                    <span className="text-sm text-gray-600">{targetLength}文字</span>
+                </div>
+                <div className="mt-3">
+                    <Slider
+                        id="targetLength"
+                        min={500}
+                        max={5000}
+                        step={100}
+                        value={[targetLength]}
+                        onValueChange={(value) => setTargetLength(value[0])}
+                        // className="w-full [&_[role=track]]:bg-pink-100"
+                        className="w-full"
+                    />
+                </div>
             </div>
             
             {/* ペルソナの選択 */}
@@ -105,7 +118,7 @@ export default function ThemeLeftDisplay() {
                         id="companyName" 
                         type="text" 
                         value={companyName}
-                        onChange={(e) => setCompanyName(e.target.value)}
+                        onChange={(e: ChangeEvent<HTMLInputElement>) => setCompanyName(e.target.value)}
                         className="w-full h-10 bg-[#f9f9f9] rounded-md p-2 mt-1"
                         placeholder="例: 株式会社ナチュラルホームズ札幌"
                     />
@@ -115,7 +128,7 @@ export default function ThemeLeftDisplay() {
                     <Textarea 
                         id="companyDescription"
                         value={companyDescription}
-                        onChange={(e) => setCompanyDescription(e.target.value)}
+                        onChange={(e: ChangeEvent<HTMLTextAreaElement>) => setCompanyDescription(e.target.value)}
                         className="w-full min-h-[80px] bg-[#f9f9f9] rounded-md p-2 mt-1"
                         placeholder="例: 札幌を拠点に、自然素材を活かした健康で快適な注文住宅を提供しています。"
                     />
@@ -125,7 +138,7 @@ export default function ThemeLeftDisplay() {
                     <Textarea 
                         id="companyStyleGuide"
                         value={companyStyleGuide}
-                        onChange={(e) => setCompanyStyleGuide(e.target.value)}
+                        onChange={(e: ChangeEvent<HTMLTextAreaElement>) => setCompanyStyleGuide(e.target.value)}
                         className="w-full min-h-[80px] bg-[#f9f9f9] rounded-md p-2 mt-1"
                         placeholder="例: 専門用語を避け、温かみのある丁寧語（ですます調）で。"
                     />
