@@ -1,12 +1,12 @@
 "use client"
 
-import { useState, type ChangeEvent } from "react";
+import { type ChangeEvent,useState } from "react";
 
 import CommonTitle from "@/components/seo/commonTitle";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
 import { Slider } from "@/components/ui/slider";
+import { Textarea } from "@/components/ui/textarea";
 
 const themeNumberOptions = [1, 3, 5];
 const researchQueryOptions = [1, 3, 5];
