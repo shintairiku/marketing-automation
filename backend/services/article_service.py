@@ -344,8 +344,18 @@ class ArticleGenerationService:
 
                 elif context.current_step == "research_synthesizing":
                     current_agent = research_synthesizer_agent
-                    agent_input = "収集された詳細なリサーチ結果を分析し、記事執筆のための詳細な要約レポートを作成してください。"
-                    console.print(f"🤖 {current_agent.name} に詳細リサーチ結果の要約を依頼します...")
+                    phase_num = context.current_research_plan_index + 1
+                    
+                    # 最終の統合なのかを確認
+                    is_final_synthesis = len(context.intermediate_research_reports) > 0 and context.current_research_plan_index > 0
+                    
+                    if is_final_synthesis:
+                        agent_input = "全段階のリサーチ結果を統合し、最終的な包括的レポートを作成してください。"
+                        console.print(f"🤖 {current_agent.name} に最終リサーチ統合を依頼します...")
+                    else:
+                        agent_input = f"第{phase_num}段階のリサーチ結果を分析し、中間レポートを作成してください。"
+                        console.print(f"🤖 {current_agent.name} に第{phase_num}段階リサーチ結果の要約を依頼します...")
+                    
                     agent_output = await self._run_agent(current_agent, agent_input, context, run_config)
 
                     if isinstance(agent_output, ResearchReport):
