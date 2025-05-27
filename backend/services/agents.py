@@ -6,7 +6,7 @@ from agents import Agent, RunContextWrapper, ModelSettings
 # from .models import AgentOutput, ResearchQueryResult, ResearchReport, Outline, RevisedArticle
 # from .tools import web_search_tool, analyze_competitors, get_company_data
 # from .context import ArticleContext
-from services.models import AgentOutput, ResearchQueryResult, ResearchReport, Outline, RevisedArticle, ThemeProposal, ResearchPlan, ClarificationNeeded, StatusUpdate, ArticleSection
+from services.models import AgentOutput, ResearchQueryResult, ResearchReport, Outline, RevisedArticle, ThemeProposal, ResearchPlan, ClarificationNeeded, StatusUpdate, ArticleSection, ResearchGapAnalysis
 from services.tools import web_search_tool, analyze_competitors, get_company_data, available_tools
 from services.context import ArticleContext
 from core.config import settings # 設定をインポート
@@ -403,6 +403,47 @@ editor_agent = Agent[ArticleContext](
     model=settings.editing_model,
     tools=[web_search_tool],
     output_type=RevisedArticle, # 修正: RevisedArticleを返す
+)
+
+# 8. リサーチギャップ分析エージェント
+def create_research_gap_analyzer_instructions(base_prompt: str) -> Callable[[RunContextWrapper[ArticleContext], Agent[ArticleContext]], Awaitable[str]]:
+    async def dynamic_instructions_func(ctx: RunContextWrapper[ArticleContext], agent: Agent[ArticleContext]) -> str:
+        if not ctx.context.intermediate_research_reports:
+            raise ValueError("リサーチレポートが必要です。")
+        
+        latest_report = ctx.context.intermediate_research_reports[-1]
+        theme = ctx.context.selected_theme
+        current_phase = ctx.context.current_research_plan_index + 1
+        
+        full_prompt = f"""{base_prompt}
+
+--- 記事テーマ ---
+タイトル: {theme.title if theme else 'N/A'}
+説明: {theme.description if theme else 'N/A'}
+キーワード: {', '.join(theme.keywords) if theme else 'N/A'}
+
+--- 現在のリサーチ結果 (第{current_phase}段階) ---
+サマリー: {latest_report.overall_summary}
+キーポイント: {latest_report.key_points}
+
+追加リサーチが必要な場合は具体的なギャップを特定し、不要な場合はneeds_second_phase=falseとしてください。
+応答は `ResearchGapAnalysis` JSON形式で。
+"""
+        return full_prompt
+    return dynamic_instructions_func
+
+RESEARCH_GAP_ANALYZER_BASE_PROMPT = """
+あなたはリサーチギャップ分析の専門家です。
+リサーチ結果を分析し、記事テーマを完全にカバーするために不足している情報を特定します。
+情報の質、網羅性、新しさ、信頼性の観点から分析し、追加調査が必要な分野を明確に指摘します。
+"""
+
+research_gap_analyzer_agent = Agent[ArticleContext](
+    name="ResearchGapAnalyzerAgent",
+    instructions=create_research_gap_analyzer_instructions(RESEARCH_GAP_ANALYZER_BASE_PROMPT),
+    model=settings.research_model,
+    tools=[],
+    output_type=ResearchGapAnalysis,
 )
 
 # LiteLLMエージェント生成関数 (APIでは直接使わないかもしれないが、念のため残す)
