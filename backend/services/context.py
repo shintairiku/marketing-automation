@@ -71,6 +71,22 @@ class ArticleContext:
     def get_full_draft(self) -> str:
         return "\n".join(self.generated_sections_html)
 
+    # --- 後方互換性のためのプロパティ ---
+    @property 
+    def research_plan(self) -> Optional[ResearchPlan]:
+        """現在のリサーチステージに応じて、最新のリサーチ計画を返す"""
+        if self.research_plans and self.current_research_plan_index < len(self.research_plans):
+            return self.research_plans[self.current_research_plan_index]
+        return None
+    
+    @property
+    def research_query_results(self) -> List[ResearchQueryResult]:
+        """現在のリサーチステージに応じて、最新のリサーチ結果を返す"""
+        if (self.research_results_by_phase and 
+            self.current_research_plan_index < len(self.research_results_by_phase)):
+            return self.research_results_by_phase[self.current_research_plan_index]
+        return []
+
     def add_query_result(self, result: ResearchQueryResult):
         """現在のリサーチステージに応じて、リサーチ結果を追加する"""
         # 現在のリサーチステージに応じたリサーチ結果リストを確保
