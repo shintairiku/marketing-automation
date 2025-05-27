@@ -37,7 +37,12 @@ def create_research_planner_instructions(base_prompt: str) -> Callable[[RunConte
             # APIコンテキストではClarificationNeededではなくエラーを発生させるべき
             raise ValueError("リサーチ計画を作成するためのテーマが選択されていません。")
 
-        full_prompt = f"""{base_prompt}
+        current_phase = len(ctx.context.research_plans) + 1
+        is_first_phase = current_phase == 1
+        
+        if is_first_phase:
+            # 第1段階：広範囲リサーチ
+            full_prompt = f"""{base_prompt}
 
 --- リサーチ対象テーマ ---
 タイトル: {ctx.context.selected_theme.title}
@@ -49,6 +54,46 @@ def create_research_planner_instructions(base_prompt: str) -> Callable[[RunConte
 **重要:**
 - 上記テーマについて深く掘り下げるための、具体的で多様な検索クエリを **{ctx.context.num_research_queries}個** 生成してください。
 - 各クエリには、そのクエリで何を明らかにしたいか（focus）を明確に記述してください。
+- あなたの応答は必ず `ResearchPlan` 型のJSON形式で出力してください。
+"""
+        else:
+            # 第2段階以降：ギャップ分析に基づく focused リサーチ
+            if not ctx.context.last_agent_output or not hasattr(ctx.context.last_agent_output, 'identified_gaps'):
+                raise ValueError("ギャップ分析結果が必要です。")
+            
+            gap_analysis = ctx.context.last_agent_output
+            
+            # 既に調査済みの内容をまとめる
+            previous_summaries = []
+            for i, report in enumerate(ctx.context.intermediate_research_reports):
+                previous_summaries.append(f"第{i+1}段階: {report.overall_summary[:500]}...")
+            
+            gaps_str = "\n".join([
+                f"- {gap.gap_description} \n  推奨クエリ: {', '.join(gap.suggested_queries)}"
+                for gap in gap_analysis.identified_gaps
+            ])
+            
+            full_prompt = f"""{base_prompt}
+
+--- 記事テーマ ---
+タイトル: {ctx.context.selected_theme.title}
+説明: {ctx.context.selected_theme.description}
+
+--- 特定されたリサーチギャップ ---
+{gaps_str}
+
+--- ギャップ分析サマリー ---
+{gap_analysis.analysis_summary}
+
+--- 既に調査済みの内容（重複回避のため） ---
+{chr(10).join(previous_summaries) if previous_summaries else 'N/A'}
+---
+
+**重要:**
+- 上記のギャップ分析に基づき、第{current_phase}段階リサーチ計画を作成してください。
+- 過去の段階で既に調査された内容と重複しないよう注意してください。
+- 特定されたギャップから、**最大{ctx.context.num_research_queries // 2}個**の focused な検索クエリを生成してください。
+- 各クエリは具体的で、特定のギャップを埋めることを明確に目的としてください。
 - あなたの応答は必ず `ResearchPlan` 型のJSON形式で出力してください。
 """
         return full_prompt
