@@ -297,13 +297,15 @@ class ArticleGenerationService:
                         elif isinstance(user_response, dict):
                             approved = bool(user_response.get("approved"))
                         if approved:
-                            console.print("[green]クライアントがリサーチ計画を承認しました。[/green]")
+                            console.print(f"[green]クライアントが第{phase_num}段階リサーチ計画を承認しました。[/green]")
                             context.current_step = "researching" # リサーチ開始
                             context.current_research_query_index = 0
-                            context.research_query_results = []
-                            await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message="Research plan approved, starting research."))
+                            # このフェーズの結果リストを初期化
+                            while len(context.research_results_by_phase) <= context.current_research_plan_index:
+                                context.research_results_by_phase.append([])
+                            await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message=f"Phase {phase_num} research plan approved, starting research."))
                         else:
-                            raise ValueError("リサーチ計画が承認されませんでした。")
+                            raise ValueError(f"第{phase_num}段階リサーチ計画が承認されませんでした。")
                     elif isinstance(agent_output, ClarificationNeeded):
                          raise ValueError(f"リサーチ計画生成で確認が必要になりました: {agent_output.message}")
                     else:
