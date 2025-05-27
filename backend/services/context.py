@@ -21,6 +21,7 @@ class ArticleContext:
     num_theme_proposals: int = 3
     vector_store_id: Optional[str] = None # File Search用
     num_research_queries: int = 5 # リサーチクエリ数の上限
+    max_research_phases: int = 3
     company_name: Optional[str] = None
     company_description: Optional[str] = None
     company_style_guide: Optional[str] = None # 文体、トンマナなど
@@ -35,6 +36,7 @@ class ArticleContext:
         "research_plan_generated", # ユーザー承認待ち
         "researching",
         "research_synthesizing",
+        "research_gap_analysis",
         "research_report_generated", # 承認は任意
         "outline_generation",
         "outline_generated", # ユーザー承認待ち
