@@ -359,15 +359,30 @@ class ArticleGenerationService:
                     agent_output = await self._run_agent(current_agent, agent_input, context, run_config)
 
                     if isinstance(agent_output, ResearchReport):
-                        context.research_report = agent_output
-                        context.current_step = "research_report_generated" # 次のステップへ直接移行 (承認は任意)
-                        console.print("[green]リサーチレポートを生成しました。[/green]")
-                        # WebSocketでレポートを送信 (承認は求めず、情報提供のみ)
-                        report_data = agent_output.model_dump()
-                        await self._send_server_event(context, ResearchCompletePayload(report=report_data))
-                        # すぐにアウトライン生成へ
-                        context.current_step = "outline_generation"
-                        await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message="Research report generated, generating outline."))
+                        if is_final_synthesis:
+                            # Final synthesis - set as main research report
+                            context.research_report = agent_output
+                            context.current_step = "research_report_generated"
+                            console.print("[green]最終リサーチレポートを生成しました。[/green]")
+                            # WebSocketでレポートを送信
+                            report_data = agent_output.model_dump()
+                            await self._send_server_event(context, ResearchCompletePayload(report=report_data))
+                            # アウトライン生成へ
+                            context.current_step = "outline_generation"
+                            await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message="Final research report generated, generating outline."))
+                        else:
+                            # Intermediate report - continue to gap analysis
+                            context.intermediate_research_reports.append(agent_output)
+                            
+                            if context.current_research_plan_index == 0:  # First phase completed
+                                context.current_step = "research_gap_analysis"
+                                console.print("[green]第一段階リサーチ完了。ギャップ分析に移ります。[/green]")
+                                await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message="First phase research completed, analyzing gaps."))
+                            else:  # Additional phase completed - check if we need more or can synthesize
+                                current_phase = context.current_research_plan_index + 1
+                                console.print(f"[green]第{current_phase}段階リサーチ完了。ギャップ再分析に移ります。[/green]")
+                                context.current_step = "research_gap_analysis"
+                                await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message=f"Phase {current_phase} research completed, re-analyzing gaps."))
                     else:
                         raise TypeError(f"予期しないAgent出力タイプ: {type(agent_output)}")
 
