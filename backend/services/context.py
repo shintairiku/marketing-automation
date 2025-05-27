@@ -72,7 +72,12 @@ class ArticleContext:
         return "\n".join(self.generated_sections_html)
 
     def add_query_result(self, result: ResearchQueryResult):
-        self.research_query_results.append(result)
+        """現在のリサーチステージに応じて、リサーチ結果を追加する"""
+        # 現在のリサーチステージに応じたリサーチ結果リストを確保
+        while len(self.research_results_by_phase) <= self.current_research_plan_index:
+            self.research_results_by_phase.append([])
+        
+        self.research_results_by_phase[self.current_research_plan_index].append(result)
 
     def clear_section_writer_history(self):
         self.section_writer_history = []
