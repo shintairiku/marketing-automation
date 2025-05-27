@@ -269,10 +269,13 @@ class ArticleGenerationService:
                     # エージェント実行なし
 
                 elif context.current_step == "research_planning":
-                    current_agent = research_planner_agent
                     if not context.selected_theme: raise ValueError("テーマが選択されていません。")
-                    agent_input = f"選択されたテーマ「{context.selected_theme.title}」についてのリサーチ計画を作成してください。"
-                    console.print(f"🤖 {current_agent.name} にリサーチ計画作成を依頼します...")
+                    
+                    phase_num = len(context.research_plans) + 1
+                    current_agent = research_planner_agent
+                    agent_input = f"選択されたテーマ「{context.selected_theme.title}」についての第{phase_num}段階リサーチ計画を作成してください。"
+                    
+                    console.print(f"🤖 {current_agent.name} に第{phase_num}段階リサーチ計画作成を依頼します...")
                     agent_output = await self._run_agent(current_agent, agent_input, context, run_config)
 
                     if isinstance(agent_output, ResearchPlan):
