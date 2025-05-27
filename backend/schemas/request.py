@@ -9,6 +9,7 @@ class GenerateArticleRequest(BaseModel):
     target_length: Optional[int] = Field(None, description="目標文字数（目安）", examples=[3000])
     num_theme_proposals: int = Field(3, description="生成するテーマ案の数", ge=1)
     num_research_queries: int = Field(5, description="リサーチで使用する検索クエリ数", ge=1)
+    max_research_phases: int = Field(3, description="リサーチの最大段階数", ge=1, le=10)
     company_name: Optional[str] = Field(None, description="クライアント企業名（指定があれば）", examples=["株式会社ナチュラルホームズ札幌"])
     company_description: Optional[str] = Field(None, description="クライアント企業概要（指定があれば）")
     company_style_guide: Optional[str] = Field(None, description="クライアント企業の文体・トンマナガイド（指定があれば）")
@@ -22,6 +23,7 @@ class GenerateArticleRequest(BaseModel):
                 "target_length": 3000,
                 "num_theme_proposals": 3,
                 "num_research_queries": 5,
+                "max_research_phases": 3,
                 "company_name": "株式会社ナチュラルホームズ札幌",
                 "company_description": "札幌を拠点に、自然素材を活かした健康で快適な注文住宅を提供しています。",
                 "company_style_guide": "専門用語を避け、温かみのある丁寧語（ですます調）で。子育て世代の読者に寄り添い、安心感を与えるようなトーンを心がける。"
