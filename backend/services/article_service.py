@@ -279,9 +279,10 @@ class ArticleGenerationService:
                     agent_output = await self._run_agent(current_agent, agent_input, context, run_config)
 
                     if isinstance(agent_output, ResearchPlan):
-                        context.research_plan = agent_output
+                        context.research_plans.append(agent_output)
+                        context.current_research_plan_index = len(context.research_plans) - 1 
                         context.current_step = "research_plan_generated" # ユーザー承認待ちステップへ
-                        console.print("[cyan]リサーチ計画を生成しました。クライアントの承認を待ちます...[/cyan]")
+                        console.print(f"[cyan]第{phase_num}段階リサーチ計画を生成しました。クライアントの承認を待ちます...[/cyan]")
                         # WebSocketで計画を送信し、承認を要求
                         plan_data = agent_output.model_dump()
                         user_response = await self._request_user_input(
