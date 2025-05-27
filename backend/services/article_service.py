@@ -59,6 +59,7 @@ class ArticleGenerationService:
                 target_length=request.target_length,
                 num_theme_proposals=request.num_theme_proposals,
                 num_research_queries=request.num_research_queries,
+                max_research_phases=request.max_research_phases,
                 company_name=request.company_name,
                 company_description=request.company_description,
                 company_style_guide=request.company_style_guide,
