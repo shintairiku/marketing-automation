@@ -24,11 +24,12 @@ from schemas.response import (
 from services.context import ArticleContext
 from services.models import (
     AgentOutput, ThemeProposal, ResearchPlan, ResearchQueryResult, ResearchReport, Outline, OutlineSection,
-    RevisedArticle, ClarificationNeeded, StatusUpdate, ArticleSection, KeyPoint
+    RevisedArticle, ClarificationNeeded, StatusUpdate, ArticleSection, KeyPoint, ResearchGapAnalysis
 )
 from services.agents import (
     theme_agent, research_planner_agent, researcher_agent, research_synthesizer_agent,
-    outline_agent, section_writer_agent, editor_agent
+    outline_agent, section_writer_agent, editor_agent,
+    research_gap_analyzer_agent
 )
 
 console = Console() # ログ出力用
