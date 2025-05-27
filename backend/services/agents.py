@@ -127,8 +127,66 @@ def create_researcher_instructions(base_prompt: str) -> Callable[[RunContextWrap
 
 def create_research_synthesizer_instructions(base_prompt: str) -> Callable[[RunContextWrapper[ArticleContext], Agent[ArticleContext]], Awaitable[str]]:
     async def dynamic_instructions_func(ctx: RunContextWrapper[ArticleContext], agent: Agent[ArticleContext]) -> str:
-        if not ctx.context.research_query_results:
-            raise ValueError("要約するためのリサーチ結果がありません。")
+        current_phase = ctx.context.current_research_plan_index + 1
+        is_final_synthesis = len(ctx.context.intermediate_research_reports) > 0 and ctx.context.current_research_plan_index > 0
+        
+        if is_final_synthesis:
+            # 最終統合：複数段階の結果を統合
+            if len(ctx.context.research_results_by_phase) < 1:
+                raise ValueError("リサーチ結果がありません。")
+            
+            # 全てのリサーチ結果の統合
+            all_results = []
+            for phase_idx, phase_results in enumerate(ctx.context.research_results_by_phase):
+                all_results.extend([(result, f"Phase{phase_idx+1}") for result in phase_results])
+            
+            results_str = ""
+            all_sources_set = set()
+            for (result, phase) in all_results:
+                results_str += f"--- {phase} クエリ結果: {result.query} ---\n"
+                results_str += f"要約: {result.summary}\n"
+                results_str += "詳細な発見:\n"
+                for finding in result.detailed_findings:
+                    results_str += f"- 抜粋: {finding.snippet_text}\n"
+                    results_str += f"  出典: [{finding.source_title or finding.source_url}]({finding.source_url})\n"
+                    all_sources_set.add(finding.source_url)
+                results_str += "\n"
+
+            intermediate_reports_str = ""
+            if ctx.context.intermediate_research_reports:
+                for i, report in enumerate(ctx.context.intermediate_research_reports):
+                    intermediate_reports_str += f"=== Phase {i+1} Report ===\n"
+                    intermediate_reports_str += f"要約: {report.overall_summary}\n"
+                    intermediate_reports_str += f"キーポイント数: {len(report.key_points)}\n\n"
+
+            full_prompt = f"""{base_prompt}
+
+--- リサーチ対象テーマ ---
+{ctx.context.selected_theme.title if ctx.context.selected_theme else 'N/A'}
+
+--- 段階別中間レポート ---
+{intermediate_reports_str}
+
+--- 全段階の詳細リサーチ結果 ---
+{results_str[:20000]}
+{ "... (以下省略)" if len(results_str) > 20000 else "" }
+---
+
+**重要:**
+- 上記の**複数段階のリサーチ結果**を統合し、最終的な包括的リサーチレポートを作成してください。
+- 各段階の結果を適切に統合し、重複を排除しつつ、補完関係を活かしてください。
+- 以下の要素を含む**最高品質のリサーチレポート**を作成してください:
+    - `overall_summary`: 全段階のリサーチから得られた総合的な洞察
+    - `key_points`: 記事に必須の重要ポイント（全段階の統合版）
+    - `interesting_angles`: より多角的で魅力的な切り口（段階的調査により発見された独自視点含む）
+    - `all_sources`: 全ての情報源URL（重複削除済み、信頼性・重要度順）
+- 段階的リサーチの価値を最大限活用し、単一段階では得られない深い洞察を含めてください。
+- あなたの応答は必ず `ResearchReport` 型のJSON形式で出力してください。
+"""
+        else:
+            # 中間レポート：単一段階の結果を要約
+            if not ctx.context.research_query_results:
+                raise ValueError("要約するためのリサーチ結果がありません。")
 
         results_str = ""
         all_sources_set = set() # 重複削除用
