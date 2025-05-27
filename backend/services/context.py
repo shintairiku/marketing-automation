@@ -46,10 +46,12 @@ class ArticleContext:
         "error"
     ] = "start"
     selected_theme: Optional[ThemeIdea] = None
-    research_plan: Optional[ResearchPlan] = None
-    current_research_query_index: int = 0
-    research_query_results: List[ResearchQueryResult] = field(default_factory=list)
-    research_report: Optional[ResearchReport] = None
+    research_plans: List[ResearchPlan] = field(default_factory=list)
+    current_research_plan_index: int = 0  
+    current_research_query_index: int = 0 
+    research_results_by_phase: List[List[ResearchQueryResult]] = field(default_factory=list)
+    intermediate_research_reports: List[ResearchReport] = field(default_factory=list)
+    research_report: Optional[ResearchReport] = None  # Final combined report
     generated_outline: Optional[Outline] = None
     current_section_index: int = 0
     generated_sections_html: List[str] = field(default_factory=list)
