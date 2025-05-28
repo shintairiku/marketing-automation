@@ -6,7 +6,7 @@ from agents import Agent, RunContextWrapper, ModelSettings
 # from .models import AgentOutput, ResearchQueryResult, ResearchReport, Outline, RevisedArticle
 # from .tools import web_search_tool, analyze_competitors, get_company_data
 # from .context import ArticleContext
-from services.models import AgentOutput, ResearchQueryResult, ResearchReport, Outline, RevisedArticle, ThemeProposal, ResearchPlan, ClarificationNeeded, StatusUpdate, ArticleSection
+from services.models import AgentOutput, ResearchQueryResult, ResearchReport, Outline, RevisedArticle, ThemeProposal, ResearchPlan, ClarificationNeeded, StatusUpdate, ArticleSection, ResearchGapAnalysis
 from services.tools import web_search_tool, analyze_competitors, get_company_data, available_tools
 from services.context import ArticleContext
 from core.config import settings # 設定をインポート
@@ -37,7 +37,12 @@ def create_research_planner_instructions(base_prompt: str) -> Callable[[RunConte
             # APIコンテキストではClarificationNeededではなくエラーを発生させるべき
             raise ValueError("リサーチ計画を作成するためのテーマが選択されていません。")
 
-        full_prompt = f"""{base_prompt}
+        current_phase = len(ctx.context.research_plans) + 1
+        is_first_phase = current_phase == 1
+        
+        if is_first_phase:
+            # 第1段階：広範囲リサーチ
+            full_prompt = f"""{base_prompt}
 
 --- リサーチ対象テーマ ---
 タイトル: {ctx.context.selected_theme.title}
@@ -49,6 +54,46 @@ def create_research_planner_instructions(base_prompt: str) -> Callable[[RunConte
 **重要:**
 - 上記テーマについて深く掘り下げるための、具体的で多様な検索クエリを **{ctx.context.num_research_queries}個** 生成してください。
 - 各クエリには、そのクエリで何を明らかにしたいか（focus）を明確に記述してください。
+- あなたの応答は必ず `ResearchPlan` 型のJSON形式で出力してください。
+"""
+        else:
+            # 第2段階以降：ギャップ分析に基づく focused リサーチ
+            if not ctx.context.last_agent_output or not hasattr(ctx.context.last_agent_output, 'identified_gaps'):
+                raise ValueError("ギャップ分析結果が必要です。")
+            
+            gap_analysis = ctx.context.last_agent_output
+            
+            # 既に調査済みの内容をまとめる
+            previous_summaries = []
+            for i, report in enumerate(ctx.context.intermediate_research_reports):
+                previous_summaries.append(f"第{i+1}段階: {report.overall_summary[:500]}...")
+            
+            gaps_str = "\n".join([
+                f"- {gap.gap_description} \n  推奨クエリ: {', '.join(gap.suggested_queries)}"
+                for gap in gap_analysis.identified_gaps
+            ])
+            
+            full_prompt = f"""{base_prompt}
+
+--- 記事テーマ ---
+タイトル: {ctx.context.selected_theme.title}
+説明: {ctx.context.selected_theme.description}
+
+--- 特定されたリサーチギャップ ---
+{gaps_str}
+
+--- ギャップ分析サマリー ---
+{gap_analysis.analysis_summary}
+
+--- 既に調査済みの内容（重複回避のため） ---
+{chr(10).join(previous_summaries) if previous_summaries else 'N/A'}
+---
+
+**重要:**
+- 上記のギャップ分析に基づき、第{current_phase}段階リサーチ計画を作成してください。
+- 過去の段階で既に調査された内容と重複しないよう注意してください。
+- 特定されたギャップから、**最大{ctx.context.num_research_queries // 2}個**の focused な検索クエリを生成してください。
+- 各クエリは具体的で、特定のギャップを埋めることを明確に目的としてください。
 - あなたの応答は必ず `ResearchPlan` 型のJSON形式で出力してください。
 """
         return full_prompt
@@ -72,7 +117,7 @@ def create_researcher_instructions(base_prompt: str) -> Callable[[RunContextWrap
 **重要:**
 - 上記の検索クエリを使用して `web_search` ツールを実行してください。
 - 検索結果を**深く分析**し、記事テーマとクエリの焦点に関連する**具体的な情報、データ、主張、引用**などを**詳細に抽出**してください。
-- 抽出した各情報について、**最も信頼性が高く具体的な出典元URLとそのタイトル**を特定し、`SourceSnippet` 形式でリスト化してください。単なる検索結果一覧のURLではなく、情報が実際に記載されているページのURLを重視してください。公式HPや信頼できる情報源を優先してください。
+- 抽出した各情報について、**最も信頼性が高く具体的な出典元URLとそのタイトル**を特定し、`SourceSnippet` 形式でリスト化してください。**`detailed_findings`は最重要な3-5個まで**とし、各`snippet_text`は**150文字以内**で簡潔にまとめてください。単なる検索結果一覧のURLではなく、情報が実際に記載されているページのURLを重視してください。公式HPや信頼できる情報源を優先してください。
 - 検索結果全体の**簡潔な要約 (summary)** も生成してください。
 - あなたの応答は必ず `ResearchQueryResult` 型のJSON形式で出力してください。他のテキストは一切含めないでください。
 - **`save_research_snippet` ツールは使用しないでください。**
@@ -82,37 +127,93 @@ def create_researcher_instructions(base_prompt: str) -> Callable[[RunContextWrap
 
 def create_research_synthesizer_instructions(base_prompt: str) -> Callable[[RunContextWrapper[ArticleContext], Agent[ArticleContext]], Awaitable[str]]:
     async def dynamic_instructions_func(ctx: RunContextWrapper[ArticleContext], agent: Agent[ArticleContext]) -> str:
-        if not ctx.context.research_query_results:
-            raise ValueError("要約するためのリサーチ結果がありません。")
+        current_phase = ctx.context.current_research_plan_index + 1
+        is_final_synthesis = len(ctx.context.intermediate_research_reports) > 0 and ctx.context.current_research_plan_index > 0
+        
+        if is_final_synthesis:
+            # 最終統合：複数段階の結果を統合
+            if len(ctx.context.research_results_by_phase) < 1:
+                raise ValueError("リサーチ結果がありません。")
+            
+            # 全てのリサーチ結果の統合
+            all_results = []
+            for phase_idx, phase_results in enumerate(ctx.context.research_results_by_phase):
+                all_results.extend([(result, f"Phase{phase_idx+1}") for result in phase_results])
+            
+            results_str = ""
+            all_sources_set = set()
+            for (result, phase) in all_results:
+                results_str += f"--- {phase} クエリ結果: {result.query} ---\n"
+                results_str += f"要約: {result.summary}\n"
+                results_str += "詳細な発見:\n"
+                for finding in result.detailed_findings:
+                    results_str += f"- 抜粋: {finding.snippet_text}\n"
+                    results_str += f"  出典: [{finding.source_title or finding.source_url}]({finding.source_url})\n"
+                    all_sources_set.add(finding.source_url)
+                results_str += "\n"
 
-        results_str = ""
-        all_sources_set = set() # 重複削除用
-        for i, result in enumerate(ctx.context.research_query_results):
-            results_str += f"--- クエリ結果 {i+1} ({result.query}) ---\n"
-            results_str += f"要約: {result.summary}\n"
-            results_str += "詳細な発見:\n"
-            for finding in result.detailed_findings:
-                results_str += f"- 抜粋: {finding.snippet_text}\n"
-                results_str += f"  出典: [{finding.source_title or finding.source_url}]({finding.source_url})\n"
-                all_sources_set.add(finding.source_url) # URLをセットに追加
-            results_str += "\n"
+            intermediate_reports_str = ""
+            if ctx.context.intermediate_research_reports:
+                for i, report in enumerate(ctx.context.intermediate_research_reports):
+                    intermediate_reports_str += f"=== Phase {i+1} Report ===\n"
+                    intermediate_reports_str += f"要約: {report.overall_summary}\n"
+                    intermediate_reports_str += f"キーポイント数: {len(report.key_points)}\n\n"
 
-        all_sources_list = sorted(list(all_sources_set)) # 重複削除してリスト化
-
-        full_prompt = f"""{base_prompt}
+            full_prompt = f"""{base_prompt}
 
 --- リサーチ対象テーマ ---
 {ctx.context.selected_theme.title if ctx.context.selected_theme else 'N/A'}
 
---- 収集されたリサーチ結果 (詳細) ---
+--- 段階別中間レポート ---
+{intermediate_reports_str}
+
+--- 全段階の詳細リサーチ結果 ---
+{results_str[:20000]}
+{ "... (以下省略)" if len(results_str) > 20000 else "" }
+---
+
+**重要:**
+- 上記の**複数段階のリサーチ結果**を統合し、最終的な包括的リサーチレポートを作成してください。
+- 各段階の結果を適切に統合し、重複を排除しつつ、補完関係を活かしてください。
+- 以下の要素を含む**最高品質のリサーチレポート**を作成してください:
+    - `overall_summary`: 全段階のリサーチから得られた総合的な洞察
+    - `key_points`: 記事に必須の重要ポイント（全段階の統合版）
+    - `interesting_angles`: より多角的で魅力的な切り口（段階的調査により発見された独自視点含む）
+    - `all_sources`: 全ての情報源URL（重複削除済み、信頼性・重要度順）
+- 段階的リサーチの価値を最大限活用し、単一段階では得られない深い洞察を含めてください。
+- あなたの応答は必ず `ResearchReport` 型のJSON形式で出力してください。
+"""
+        else:
+            # 中間レポート：単一段階の結果を要約
+            if not ctx.context.research_query_results:
+                raise ValueError("要約するためのリサーチ結果がありません。")
+
+            results_str = ""
+            all_sources_set = set() # 重複削除用
+            for i, result in enumerate(ctx.context.research_query_results):
+                results_str += f"--- クエリ結果 {i+1} ({result.query}) ---\n"
+                results_str += f"要約: {result.summary}\n"
+                results_str += "詳細な発見:\n"
+                for finding in result.detailed_findings:
+                    results_str += f"- 抜粋: {finding.snippet_text}\n"
+                    results_str += f"  出典: [{finding.source_title or finding.source_url}]({finding.source_url})\n"
+                    all_sources_set.add(finding.source_url) # URLをセットに追加
+                results_str += "\n"
+
+            full_prompt = f"""{base_prompt}
+
+--- リサーチ対象テーマ ---
+{ctx.context.selected_theme.title if ctx.context.selected_theme else 'N/A'}
+
+--- 第{current_phase}段階リサーチ結果 (詳細) ---
 {results_str[:15000]}
 { "... (以下省略)" if len(results_str) > 15000 else "" }
 ---
 
 **重要:**
-- 上記の詳細なリサーチ結果全体を分析し、記事執筆に役立つように情報を統合・要約してください。
+- 上記の第{current_phase}段階リサーチ結果を分析し、中間レポートを作成してください。
 - 以下の要素を含む**実用的で詳細なリサーチレポート**を作成してください:
-    - `overall_summary`: リサーチ全体から得られた主要な洞察やポイントの要約。
+    - `overall_summary`: この段階のリサーチから得られた主要な洞察やポイントの要約。
     - `key_points`: 記事に含めるべき重要なポイントや事実をリスト形式で記述し、各ポイントについて**それを裏付ける情報源URL (`supporting_sources`)** を `KeyPoint` 形式で明確に紐付けてください。
     - `interesting_angles`: 記事を面白くするための切り口や視点のアイデアのリスト形式。
     - `all_sources`: 参照した全ての情報源URLのリスト（重複削除済み、可能であれば重要度順）。
@@ -403,6 +504,47 @@ editor_agent = Agent[ArticleContext](
     model=settings.editing_model,
     tools=[web_search_tool],
     output_type=RevisedArticle, # 修正: RevisedArticleを返す
+)
+
+# 8. リサーチギャップ分析エージェント
+def create_research_gap_analyzer_instructions(base_prompt: str) -> Callable[[RunContextWrapper[ArticleContext], Agent[ArticleContext]], Awaitable[str]]:
+    async def dynamic_instructions_func(ctx: RunContextWrapper[ArticleContext], agent: Agent[ArticleContext]) -> str:
+        if not ctx.context.intermediate_research_reports:
+            raise ValueError("リサーチレポートが必要です。")
+        
+        latest_report = ctx.context.intermediate_research_reports[-1]
+        theme = ctx.context.selected_theme
+        current_phase = ctx.context.current_research_plan_index + 1
+        
+        full_prompt = f"""{base_prompt}
+
+--- 記事テーマ ---
+タイトル: {theme.title if theme else 'N/A'}
+説明: {theme.description if theme else 'N/A'}
+キーワード: {', '.join(theme.keywords) if theme else 'N/A'}
+
+--- 現在のリサーチ結果 (第{current_phase}段階) ---
+サマリー: {latest_report.overall_summary}
+キーポイント: {latest_report.key_points}
+
+追加リサーチが必要な場合は具体的なギャップを特定し、不要な場合はneeds_second_phase=falseとしてください。
+応答は `ResearchGapAnalysis` JSON形式で。
+"""
+        return full_prompt
+    return dynamic_instructions_func
+
+RESEARCH_GAP_ANALYZER_BASE_PROMPT = """
+あなたはリサーチギャップ分析の専門家です。
+リサーチ結果を分析し、記事テーマを完全にカバーするために不足している情報を特定します。
+情報の質、網羅性、新しさ、信頼性の観点から分析し、追加調査が必要な分野を明確に指摘します。
+"""
+
+research_gap_analyzer_agent = Agent[ArticleContext](
+    name="ResearchGapAnalyzerAgent",
+    instructions=create_research_gap_analyzer_instructions(RESEARCH_GAP_ANALYZER_BASE_PROMPT),
+    model=settings.research_model,
+    tools=[],
+    output_type=ResearchGapAnalysis,
 )
 
 # LiteLLMエージェント生成関数 (APIでは直接使わないかもしれないが、念のため残す)

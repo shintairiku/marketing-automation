@@ -79,6 +79,10 @@
                         <label for="num_research_queries" class="block text-sm font-medium text-gray-700">リサーチクエリ数:</label>
                         <input type="number" id="num_research_queries" value="5" min="1" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm">
                     </div>
+                    <div>
+                        <label for="max_research_phases" class="block text-sm font-medium text-gray-700">最大リサーチ段階数:</label>
+                        <input type="number" id="max_research_phases" value="3" min="1" max="10" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm">
+                    </div>
                 </div>
                  <div class="mb-4">
                     <label for="company_name" class="block text-sm font-medium text-gray-700">会社名 (任意):</label>
@@ -103,6 +107,7 @@
 "target_length": 3000,
 "num_theme_proposals": 3,
 "num_research_queries": 5,
+"max_research_phases": 3,
 "company_name": "株式会社ナチュラルホームズ札幌",
 "company_description": "札幌を拠点に、自然素材を活かした健康で快適な注文住宅を提供しています。",
 "company_style_guide": "専門用語を避け、温かみのある丁寧語（ですます調）で。子育て世代の読者に寄り添い、安心感を与えるようなトーンを心がける。"
@@ -159,6 +164,7 @@
         const targetLengthInput = document.getElementById('target_length');
         const numThemeProposalsInput = document.getElementById('num_theme_proposals');
         const numResearchQueriesInput = document.getElementById('num_research_queries');
+        const maxResearchPhasesInput = document.getElementById('max_research_phases');
         const companyNameInput = document.getElementById('company_name');
         const companyDescriptionInput = document.getElementById('company_description');
         const companyStyleGuideInput = document.getElementById('company_style_guide');
@@ -264,6 +270,7 @@
             targetLengthInput.disabled = disabled;
             numThemeProposalsInput.disabled = disabled;
             numResearchQueriesInput.disabled = disabled;
+            maxResearchPhasesInput.disabled = disabled;
             companyNameInput.disabled = disabled;
             companyDescriptionInput.disabled = disabled;
             companyStyleGuideInput.disabled = disabled;
@@ -475,6 +482,7 @@
                 target_length: isNaN(targetLength) ? null : targetLength,
                 num_theme_proposals: parseInt(numThemeProposalsInput.value, 10) || 3,
                 num_research_queries: parseInt(numResearchQueriesInput.value, 10) || 5,
+                max_research_phases: parseInt(maxResearchPhasesInput.value, 10) || 3,
                 company_name: companyNameInput.value || null,
                 company_description: companyDescriptionInput.value || null,
                 company_style_guide: companyStyleGuideInput.value || null,

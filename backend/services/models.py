@@ -90,9 +90,22 @@ class ResearchReport(BaseModel):
     interesting_angles: List[str] = Field(description="記事を面白くするための切り口や視点のアイデア")
     all_sources: List[str] = Field(description="参照した全ての情報源URLのリスト（重複削除済み、重要度順推奨）")
 
+# --- 二段階リサーチモデル ---
+class ResearchGap(BaseModel):
+    """追加調査が必要なリサーチのギャップを特定"""
+    gap_description: str = Field(description="情報ギャップの説明")
+    suggested_queries: List[str] = Field(description="このギャップを埋めるための提案された検索クエリ")
+
+class ResearchGapAnalysis(BaseModel):
+    """前段階のギャップ分析"""
+    status: Literal["research_gap_analysis"] = Field(description="出力タイプ: リサーチギャップ分析")
+    needs_second_phase: bool = Field(description="第二段階のリサーチが必要かどうか")
+    identified_gaps: List[ResearchGap] = Field(description="特定されたリサーチギャップのリスト")
+    analysis_summary: str = Field(description="ギャップ分析の要約")
+
 # エージェントが出力しうる型のUnion (ArticleSection を削除)
 AgentOutput = Union[
     ThemeProposal, Outline, RevisedArticle, ClarificationNeeded, StatusUpdate,
-    ResearchPlan, ResearchQueryResult, ResearchReport
+    ResearchPlan, ResearchQueryResult, ResearchReport, ResearchGapAnalysis
 ]
 

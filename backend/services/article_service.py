@@ -24,11 +24,12 @@ from schemas.response import (
 from services.context import ArticleContext
 from services.models import (
     AgentOutput, ThemeProposal, ResearchPlan, ResearchQueryResult, ResearchReport, Outline, OutlineSection,
-    RevisedArticle, ClarificationNeeded, StatusUpdate, ArticleSection, KeyPoint
+    RevisedArticle, ClarificationNeeded, StatusUpdate, ArticleSection, KeyPoint, ResearchGapAnalysis
 )
 from services.agents import (
     theme_agent, research_planner_agent, researcher_agent, research_synthesizer_agent,
-    outline_agent, section_writer_agent, editor_agent
+    outline_agent, section_writer_agent, editor_agent,
+    research_gap_analyzer_agent
 )
 
 console = Console() # ログ出力用
@@ -58,6 +59,7 @@ class ArticleGenerationService:
                 target_length=request.target_length,
                 num_theme_proposals=request.num_theme_proposals,
                 num_research_queries=request.num_research_queries,
+                max_research_phases=request.max_research_phases,
                 company_name=request.company_name,
                 company_description=request.company_description,
                 company_style_guide=request.company_style_guide,
@@ -267,16 +269,20 @@ class ArticleGenerationService:
                     # エージェント実行なし
 
                 elif context.current_step == "research_planning":
-                    current_agent = research_planner_agent
                     if not context.selected_theme: raise ValueError("テーマが選択されていません。")
-                    agent_input = f"選択されたテーマ「{context.selected_theme.title}」についてのリサーチ計画を作成してください。"
-                    console.print(f"🤖 {current_agent.name} にリサーチ計画作成を依頼します...")
+                    
+                    phase_num = len(context.research_plans) + 1
+                    current_agent = research_planner_agent
+                    agent_input = f"選択されたテーマ「{context.selected_theme.title}」についての第{phase_num}段階リサーチ計画を作成してください。"
+                    
+                    console.print(f"🤖 {current_agent.name} に第{phase_num}段階リサーチ計画作成を依頼します...")
                     agent_output = await self._run_agent(current_agent, agent_input, context, run_config)
 
                     if isinstance(agent_output, ResearchPlan):
-                        context.research_plan = agent_output
+                        context.research_plans.append(agent_output)
+                        context.current_research_plan_index = len(context.research_plans) - 1 
                         context.current_step = "research_plan_generated" # ユーザー承認待ちステップへ
-                        console.print("[cyan]リサーチ計画を生成しました。クライアントの承認を待ちます...[/cyan]")
+                        console.print(f"[cyan]第{phase_num}段階リサーチ計画を生成しました。クライアントの承認を待ちます...[/cyan]")
                         # WebSocketで計画を送信し、承認を要求
                         plan_data = agent_output.model_dump()
                         user_response = await self._request_user_input(
@@ -291,13 +297,15 @@ class ArticleGenerationService:
                         elif isinstance(user_response, dict):
                             approved = bool(user_response.get("approved"))
                         if approved:
-                            console.print("[green]クライアントがリサーチ計画を承認しました。[/green]")
+                            console.print(f"[green]クライアントが第{phase_num}段階リサーチ計画を承認しました。[/green]")
                             context.current_step = "researching" # リサーチ開始
                             context.current_research_query_index = 0
-                            context.research_query_results = []
-                            await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message="Research plan approved, starting research."))
+                            # このフェーズの結果リストを初期化
+                            while len(context.research_results_by_phase) <= context.current_research_plan_index:
+                                context.research_results_by_phase.append([])
+                            await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message=f"Phase {phase_num} research plan approved, starting research."))
                         else:
-                            raise ValueError("リサーチ計画が承認されませんでした。")
+                            raise ValueError(f"第{phase_num}段階リサーチ計画が承認されませんでした。")
                     elif isinstance(agent_output, ClarificationNeeded):
                          raise ValueError(f"リサーチ計画生成で確認が必要になりました: {agent_output.message}")
                     else:
@@ -336,20 +344,97 @@ class ArticleGenerationService:
 
                 elif context.current_step == "research_synthesizing":
                     current_agent = research_synthesizer_agent
-                    agent_input = "収集された詳細なリサーチ結果を分析し、記事執筆のための詳細な要約レポートを作成してください。"
-                    console.print(f"🤖 {current_agent.name} に詳細リサーチ結果の要約を依頼します...")
+                    phase_num = context.current_research_plan_index + 1
+                    
+                    # 最終の統合なのかを確認
+                    is_final_synthesis = len(context.intermediate_research_reports) > 0 and context.current_research_plan_index > 0
+                    
+                    if is_final_synthesis:
+                        agent_input = "全段階のリサーチ結果を統合し、最終的な包括的レポートを作成してください。"
+                        console.print(f"🤖 {current_agent.name} に最終リサーチ統合を依頼します...")
+                    else:
+                        agent_input = f"第{phase_num}段階のリサーチ結果を分析し、中間レポートを作成してください。"
+                        console.print(f"🤖 {current_agent.name} に第{phase_num}段階リサーチ結果の要約を依頼します...")
+                    
                     agent_output = await self._run_agent(current_agent, agent_input, context, run_config)
 
                     if isinstance(agent_output, ResearchReport):
-                        context.research_report = agent_output
-                        context.current_step = "research_report_generated" # 次のステップへ直接移行 (承認は任意)
-                        console.print("[green]リサーチレポートを生成しました。[/green]")
-                        # WebSocketでレポートを送信 (承認は求めず、情報提供のみ)
-                        report_data = agent_output.model_dump()
-                        await self._send_server_event(context, ResearchCompletePayload(report=report_data))
-                        # すぐにアウトライン生成へ
-                        context.current_step = "outline_generation"
-                        await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message="Research report generated, generating outline."))
+                        if is_final_synthesis:
+                            # Final synthesis - set as main research report
+                            context.research_report = agent_output
+                            context.current_step = "research_report_generated"
+                            console.print("[green]最終リサーチレポートを生成しました。[/green]")
+                            # WebSocketでレポートを送信
+                            report_data = agent_output.model_dump()
+                            await self._send_server_event(context, ResearchCompletePayload(report=report_data))
+                            # アウトライン生成へ
+                            context.current_step = "outline_generation"
+                            await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message="Final research report generated, generating outline."))
+                        else:
+                            # Intermediate report - continue to gap analysis
+                            context.intermediate_research_reports.append(agent_output)
+                            
+                            if context.current_research_plan_index == 0:  # First phase completed
+                                context.current_step = "research_gap_analysis"
+                                console.print("[green]第一段階リサーチ完了。ギャップ分析に移ります。[/green]")
+                                await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message="First phase research completed, analyzing gaps."))
+                            else:  # Additional phase completed - check if we need more or can synthesize
+                                current_phase = context.current_research_plan_index + 1
+                                console.print(f"[green]第{current_phase}段階リサーチ完了。ギャップ再分析に移ります。[/green]")
+                                context.current_step = "research_gap_analysis"
+                                await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message=f"Phase {current_phase} research completed, re-analyzing gaps."))
+                    else:
+                        raise TypeError(f"予期しないAgent出力タイプ: {type(agent_output)}")
+
+                elif context.current_step == "research_gap_analysis":
+                    current_agent = research_gap_analyzer_agent
+                    agent_input = f"第{context.current_research_plan_index + 1}段階リサーチ結果を分析し、追加調査が必要な分野を特定してください。"
+                    console.print(f"🤖 {current_agent.name} にギャップ分析を依頼します...")
+                    agent_output = await self._run_agent(current_agent, agent_input, context, run_config)
+
+                    if isinstance(agent_output, ResearchGapAnalysis):
+                        context.last_agent_output = agent_output
+                        current_phase = context.current_research_plan_index + 1
+                        
+                        # Check if we've reached the maximum number of research phases
+                        if current_phase >= context.max_research_phases:
+                            console.print(f"[yellow]最大リサーチ段階数（{context.max_research_phases}）に達しました。追加リサーチをスキップします。[/yellow]")
+                            # Force progression to final synthesis regardless of gap analysis
+                            if len(context.intermediate_research_reports) > 1:
+                                context.current_step = "final_research_synthesizing"
+                                console.print("[green]最大段階数達成。最終統合に移ります。[/green]")
+                                await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message=f"Maximum research phases ({context.max_research_phases}) reached, final synthesis starting."))
+                            else:
+                                context.research_report = context.intermediate_research_reports[0]
+                                context.current_step = "research_report_generated"
+                                console.print("[green]最大段階数達成。アウトライン生成に移ります。[/green]")
+                                report_data = context.research_report.model_dump()
+                                await self._send_server_event(context, ResearchCompletePayload(report=report_data))
+                                context.current_step = "outline_generation"
+                                await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message=f"Maximum research phases ({context.max_research_phases}) reached, generating outline."))
+                        elif agent_output.needs_second_phase and agent_output.identified_gaps:
+                            # Start next research phase - go back to research_planning
+                            context.current_step = "research_planning"
+                            next_phase = context.current_research_plan_index + 2
+                            console.print(f"[cyan]第{next_phase}段階リサーチが必要です。計画作成に移ります。[/cyan]")
+                            await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message=f"Gap analysis completed, phase {next_phase} research needed."))
+                        else:
+                            # No more research needed, proceed to synthesis
+                            if len(context.intermediate_research_reports) > 1:
+                                # Multiple phases, need final synthesis
+                                context.current_step = "research_synthesizing"
+                                console.print("[green]リサーチ完了。最終統合に移ります。[/green]")
+                                await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message="Research completed, final synthesis starting."))
+                            else:
+                                # Only one phase, use it as final result
+                                context.research_report = context.intermediate_research_reports[0]
+                                context.current_step = "research_report_generated"
+                                console.print("[green]追加リサーチ不要。アウトライン生成に移ります。[/green]")
+                                # WebSocketでレポートを送信
+                                report_data = context.research_report.model_dump()
+                                await self._send_server_event(context, ResearchCompletePayload(report=report_data))
+                                context.current_step = "outline_generation"
+                                await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message="Research sufficient, generating outline."))
                     else:
                         raise TypeError(f"予期しないAgent出力タイプ: {type(agent_output)}")
 
@@ -561,7 +646,7 @@ class ArticleGenerationService:
 
                 if result and result.final_output:
                      output = result.final_output
-                     if isinstance(output, (ThemeProposal, Outline, RevisedArticle, ClarificationNeeded, StatusUpdate, ResearchPlan, ResearchQueryResult, ResearchReport)):
+                     if isinstance(output, (ThemeProposal, Outline, RevisedArticle, ClarificationNeeded, StatusUpdate, ResearchPlan, ResearchQueryResult, ResearchReport, ResearchGapAnalysis)):
                          return output
                      elif isinstance(output, str):
                          try:
@@ -571,6 +656,7 @@ class ArticleGenerationService:
                                  "theme_proposal": ThemeProposal, "outline": Outline, "revised_article": RevisedArticle,
                                  "clarification_needed": ClarificationNeeded, "status_update": StatusUpdate,
                                  "research_plan": ResearchPlan, "research_query_result": ResearchQueryResult, "research_report": ResearchReport,
+                                 "research_gap_analysis": ResearchGapAnalysis,
                              }
                              if status_val in output_model_map:
                                  model_cls = output_model_map[status_val]

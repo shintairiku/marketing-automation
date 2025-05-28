@@ -21,6 +21,7 @@ class ArticleContext:
     num_theme_proposals: int = 3
     vector_store_id: Optional[str] = None # File Search用
     num_research_queries: int = 5 # リサーチクエリ数の上限
+    max_research_phases: int = 3
     company_name: Optional[str] = None
     company_description: Optional[str] = None
     company_style_guide: Optional[str] = None # 文体、トンマナなど
@@ -35,6 +36,7 @@ class ArticleContext:
         "research_plan_generated", # ユーザー承認待ち
         "researching",
         "research_synthesizing",
+        "research_gap_analysis",
         "research_report_generated", # 承認は任意
         "outline_generation",
         "outline_generated", # ユーザー承認待ち
@@ -44,10 +46,12 @@ class ArticleContext:
         "error"
     ] = "start"
     selected_theme: Optional[ThemeIdea] = None
-    research_plan: Optional[ResearchPlan] = None
-    current_research_query_index: int = 0
-    research_query_results: List[ResearchQueryResult] = field(default_factory=list)
-    research_report: Optional[ResearchReport] = None
+    research_plans: List[ResearchPlan] = field(default_factory=list)
+    current_research_plan_index: int = 0  
+    current_research_query_index: int = 0 
+    research_results_by_phase: List[List[ResearchQueryResult]] = field(default_factory=list)
+    intermediate_research_reports: List[ResearchReport] = field(default_factory=list)
+    research_report: Optional[ResearchReport] = None  # Final combined report
     generated_outline: Optional[Outline] = None
     current_section_index: int = 0
     generated_sections_html: List[str] = field(default_factory=list)
@@ -67,8 +71,29 @@ class ArticleContext:
     def get_full_draft(self) -> str:
         return "\n".join(self.generated_sections_html)
 
+    # --- 後方互換性のためのプロパティ ---
+    @property 
+    def research_plan(self) -> Optional[ResearchPlan]:
+        """現在のリサーチステージに応じて、最新のリサーチ計画を返す"""
+        if self.research_plans and self.current_research_plan_index < len(self.research_plans):
+            return self.research_plans[self.current_research_plan_index]
+        return None
+    
+    @property
+    def research_query_results(self) -> List[ResearchQueryResult]:
+        """現在のリサーチステージに応じて、最新のリサーチ結果を返す"""
+        if (self.research_results_by_phase and 
+            self.current_research_plan_index < len(self.research_results_by_phase)):
+            return self.research_results_by_phase[self.current_research_plan_index]
+        return []
+
     def add_query_result(self, result: ResearchQueryResult):
-        self.research_query_results.append(result)
+        """現在のリサーチステージに応じて、リサーチ結果を追加する"""
+        # 現在のリサーチステージに応じたリサーチ結果リストを確保
+        while len(self.research_results_by_phase) <= self.current_research_plan_index:
+            self.research_results_by_phase.append([])
+        
+        self.research_results_by_phase[self.current_research_plan_index].append(result)
 
     def clear_section_writer_history(self):
         self.section_writer_history = []
