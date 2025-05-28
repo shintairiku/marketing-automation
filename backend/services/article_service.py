@@ -21,18 +21,22 @@ from schemas.response import (
     FinalResultPayload, ErrorPayload, UserInputRequestPayload, UserInputType,
     SelectThemePayload, ApprovePayload, GeneratedPersonasPayload, SelectPersonaPayload, GeneratedPersonaData, EditAndProceedPayload, RegeneratePayload, ThemeProposalData,
     ResearchPlanData, ResearchPlanQueryData,
-    OutlineData, OutlineSectionData # OutlineData, OutlineSectionData を追加
+    OutlineData, OutlineSectionData, # OutlineData, OutlineSectionData を追加
+    SerpKeywordAnalysisPayload, SerpAnalysisArticleData # SerpAPIキーワード分析用のペイロード追加
 )
 from services.context import ArticleContext
 from services.models import (
     AgentOutput, ThemeProposal, ResearchPlan, ResearchQueryResult, ResearchReport, Outline, OutlineSection,
     RevisedArticle, ClarificationNeeded, StatusUpdate, ArticleSection, KeyPoint, GeneratedPersonasResponse, GeneratedPersonaItem, ResearchQuery,
-    ThemeIdea # ThemeIdea を追加
+    ThemeIdea, # ThemeIdea を追加
+    SerpKeywordAnalysisReport # SerpAPIキーワード分析レポート用のモデル追加
 )
 from services.agents import (
     theme_agent, research_planner_agent, researcher_agent, research_synthesizer_agent,
-    outline_agent, section_writer_agent, editor_agent, persona_generator_agent # persona_generator_agent を追加
+    outline_agent, section_writer_agent, editor_agent, persona_generator_agent, # persona_generator_agent を追加
+    serp_keyword_analysis_agent # SerpAPIキーワード分析エージェント追加
 )
+from services.serpapi_service import SerpAPIService # SerpAPIサービス追加
 
 console = Console() # ログ出力用
 
@@ -222,9 +226,66 @@ class ArticleGenerationService:
 
                 # --- ステップに応じた処理 ---
                 if context.current_step == "start":
-                    context.current_step = "persona_generating" # 新しいステップへ移行
-                    await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message="Generating detailed personas..."))
+                    context.current_step = "keyword_analyzing"  # SerpAPIキーワード分析から開始
+                    await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message="Starting keyword analysis with SerpAPI..."))
                     # エージェント実行なし、次のループで処理
+
+                elif context.current_step == "keyword_analyzing":
+                    # SerpAPIキーワード分析エージェントを実行
+                    current_agent = serp_keyword_analysis_agent
+                    agent_input = f"キーワード: {', '.join(context.initial_keywords)}"
+                    console.print(f"🤖 {current_agent.name} にSerpAPIキーワード分析を依頼します...")
+                    agent_output = await self._run_agent(current_agent, agent_input, context, run_config)
+
+                    if isinstance(agent_output, SerpKeywordAnalysisReport):
+                        context.serp_analysis_report = agent_output
+                        context.current_step = "keyword_analyzed"
+                        console.print("[green]SerpAPIキーワード分析が完了しました。[/green]")
+                        
+                        # 分析結果をクライアントに送信
+                        analysis_data = SerpKeywordAnalysisPayload(
+                            search_query=agent_output.search_query,
+                            total_results=agent_output.total_results,
+                            analyzed_articles=[
+                                SerpAnalysisArticleData(
+                                    url=article.url,
+                                    title=article.title,
+                                    headings=article.headings,
+                                    content_preview=article.content_preview,
+                                    char_count=article.char_count,
+                                    image_count=article.image_count,
+                                    source_type=article.source_type,
+                                    position=article.position,
+                                    question=article.question
+                                ) for article in agent_output.analyzed_articles
+                            ],
+                            average_article_length=agent_output.average_article_length,
+                            recommended_target_length=agent_output.recommended_target_length,
+                            main_themes=agent_output.main_themes,
+                            common_headings=agent_output.common_headings,
+                            content_gaps=agent_output.content_gaps,
+                            competitive_advantages=agent_output.competitive_advantages,
+                            user_intent_analysis=agent_output.user_intent_analysis,
+                            content_strategy_recommendations=agent_output.content_strategy_recommendations
+                        )
+                        await self._send_server_event(context, analysis_data)
+                        
+                        # 推奨目標文字数をコンテキストに設定（ユーザー指定がない場合）
+                        if not context.target_length:
+                            context.target_length = agent_output.recommended_target_length
+                            console.print(f"[cyan]推奨目標文字数を設定しました: {context.target_length}文字[/cyan]")
+                        
+                        # 次のステップに進む（ペルソナ生成）
+                        context.current_step = "persona_generating"
+                        await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message="Keyword analysis completed, proceeding to persona generation."))
+                    else:
+                        await self._send_error(context, f"SerpAPIキーワード分析中に予期しないエージェント出力タイプ ({type(agent_output)}) を受け取りました。")
+                        context.current_step = "error"
+                        continue
+
+                elif context.current_step == "keyword_analyzed":
+                    context.current_step = "persona_generating"  # ペルソナ生成ステップに移行
+                    await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message="Proceeding to persona generation."))
                 
                 elif context.current_step == "persona_generating":
                     current_agent = persona_generator_agent
@@ -287,17 +348,40 @@ class ArticleGenerationService:
                             continue
 
                 elif context.current_step == "persona_selected":
-                    context.current_step = "theme_generating" # ★ persona_selected の次は theme_generating に移る
-                    await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message="Proceeding to theme generation."))
+                    context.current_step = "theme_generating"  # テーマ生成ステップに移行
+                    await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message="Persona selected, proceeding to theme generation."))
 
-                elif context.current_step == "theme_generating": # ★こちらが正しい theme_generating の開始点
+                elif context.current_step == "theme_generating":
                     current_agent = theme_agent
                     if not context.selected_detailed_persona: # selected_detailed_persona が存在することを確認
                         await self._send_error(context, "詳細ペルソナが選択されていません。テーマ生成をスキップします。", "theme_generating")
                         context.current_step = "error" # または適切なフォールバック処理
                         continue
                     
-                    agent_input = f"キーワード「{', '.join(context.initial_keywords)}」と、以下のペルソナに基づいて、{context.num_theme_proposals}個のテーマ案を生成してください。\\n\\nペルソナ詳細:\\n{context.selected_detailed_persona}"
+                    # SerpAPI分析結果を含めたプロンプト作成
+                    agent_input_base = f"キーワード「{', '.join(context.initial_keywords)}」と、以下のペルソナに基づいて、{context.num_theme_proposals}個のテーマ案を生成してください。\\n\\nペルソナ詳細:\\n{context.selected_detailed_persona}"
+                    
+                    # SerpAPI分析結果がある場合は、競合情報とSEO戦略を追加
+                    if context.serp_analysis_report:
+                        seo_context = f"""
+
+\\n\\n=== SEO分析結果（競合記事分析） ===
+検索クエリ: {context.serp_analysis_report.search_query}
+分析記事数: {len(context.serp_analysis_report.analyzed_articles)}
+推奨文字数: {context.serp_analysis_report.recommended_target_length}文字
+
+主要テーマ（競合で頻出）: {', '.join(context.serp_analysis_report.main_themes)}
+共通見出しパターン: {', '.join(context.serp_analysis_report.common_headings[:5])}
+コンテンツギャップ（差別化チャンス）: {', '.join(context.serp_analysis_report.content_gaps)}
+競合優位性のポイント: {', '.join(context.serp_analysis_report.competitive_advantages)}
+
+ユーザー検索意図: {context.serp_analysis_report.user_intent_analysis}
+
+\\n上記の競合分析結果を活用し、検索上位を狙えるかつ差別化されたテーマを提案してください。"""
+                        agent_input = agent_input_base + seo_context
+                    else:
+                        agent_input = agent_input_base
+                    
                     console.print(f"🤖 {current_agent.name} にテーマ提案を依頼します...")
                     agent_output = await self._run_agent(current_agent, agent_input, context, run_config)
 
@@ -797,7 +881,7 @@ class ArticleGenerationService:
 
                 if result and result.final_output:
                      output = result.final_output
-                     if isinstance(output, (ThemeProposal, Outline, RevisedArticle, ClarificationNeeded, StatusUpdate, ResearchPlan, ResearchQueryResult, ResearchReport, GeneratedPersonasResponse)):
+                     if isinstance(output, (ThemeProposal, Outline, RevisedArticle, ClarificationNeeded, StatusUpdate, ResearchPlan, ResearchQueryResult, ResearchReport, GeneratedPersonasResponse, SerpKeywordAnalysisReport)):
                          return output
                      elif isinstance(output, str):
                          try:
@@ -807,7 +891,7 @@ class ArticleGenerationService:
                                  "theme_proposal": ThemeProposal, "outline": Outline, "revised_article": RevisedArticle,
                                  "clarification_needed": ClarificationNeeded, "status_update": StatusUpdate,
                                  "research_plan": ResearchPlan, "research_query_result": ResearchQueryResult, "research_report": ResearchReport,
-                                 "generated_personas_response": GeneratedPersonasResponse
+                                 "generated_personas_response": GeneratedPersonasResponse, "serp_keyword_analysis_report": SerpKeywordAnalysisReport
                              }
                              if status_val in output_model_map:
                                  model_cls = output_model_map[status_val]

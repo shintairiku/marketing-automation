@@ -7,7 +7,7 @@ from fastapi import WebSocket # <<< WebSocket をインポート
 
 # 循環参照を避けるため、モデルは直接インポートせず、型ヒントとして文字列を使うか、
 # このファイル内で必要なモデルを再定義/インポートする
-from services.models import ThemeIdea, ResearchPlan, ResearchQueryResult, ResearchReport, Outline, AgentOutput, ArticleSection
+from services.models import ThemeIdea, ResearchPlan, ResearchQueryResult, ResearchReport, Outline, AgentOutput, ArticleSection, SerpKeywordAnalysisReport
 # WebSocketメッセージスキーマもインポート (型ヒント用)
 from schemas.response import ClientResponsePayload, UserInputType
 from schemas.request import AgeGroup, PersonaType # 追加
@@ -30,6 +30,9 @@ class ArticleContext:
     company_style_guide: Optional[str] = None # 文体、トンマナなど
     past_articles_summary: Optional[str] = None # 過去記事の傾向 (ツールで取得想定)
 
+    # --- SerpAPI分析関連 (新規追加) ---
+    serp_analysis_report: Optional[SerpKeywordAnalysisReport] = None # SerpAPIキーワード分析結果
+    
     # --- ペルソナ生成関連 (新規追加) ---
     generated_detailed_personas: List[str] = field(default_factory=list) # PersonaGeneratorAgentによって生成された具体的なペルソナ記述のリスト
     selected_detailed_persona: Optional[str] = None # ユーザーによって選択された単一の具体的なペルソナ記述
@@ -37,6 +40,8 @@ class ArticleContext:
     # --- 生成プロセス状態 ---
     current_step: Literal[
         "start",
+        "keyword_analyzing", # 新ステップ: SerpAPIキーワード分析中
+        "keyword_analyzed",  # 新ステップ: SerpAPIキーワード分析完了
         "persona_generating", # 新ステップ: 具体的なペルソナ生成中
         "persona_generated",  # 新ステップ: 具体的なペルソナ生成完了、ユーザー選択待ち
         "persona_selected",   # 新ステップ: 具体的なペルソナ選択完了
