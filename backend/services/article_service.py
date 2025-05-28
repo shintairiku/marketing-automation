@@ -19,12 +19,15 @@ from schemas.response import (
     StatusUpdatePayload, ThemeProposalPayload, ResearchPlanPayload, ResearchProgressPayload,
     ResearchCompletePayload, OutlinePayload, SectionChunkPayload, EditingStartPayload,
     FinalResultPayload, ErrorPayload, UserInputRequestPayload, UserInputType,
-    SelectThemePayload, ApprovePayload, GeneratedPersonasPayload, SelectPersonaPayload, GeneratedPersonaData # GeneratedPersonaData を追加
+    SelectThemePayload, ApprovePayload, GeneratedPersonasPayload, SelectPersonaPayload, GeneratedPersonaData, EditAndProceedPayload, RegeneratePayload, ThemeProposalData,
+    ResearchPlanData, ResearchPlanQueryData,
+    OutlineData, OutlineSectionData # OutlineData, OutlineSectionData を追加
 )
 from services.context import ArticleContext
 from services.models import (
     AgentOutput, ThemeProposal, ResearchPlan, ResearchQueryResult, ResearchReport, Outline, OutlineSection,
-    RevisedArticle, ClarificationNeeded, StatusUpdate, ArticleSection, KeyPoint, GeneratedPersonasResponse, GeneratedPersonaItem # 追加
+    RevisedArticle, ClarificationNeeded, StatusUpdate, ArticleSection, KeyPoint, GeneratedPersonasResponse, GeneratedPersonaItem, ResearchQuery,
+    ThemeIdea # ThemeIdea を追加
 )
 from services.agents import (
     theme_agent, research_planner_agent, researcher_agent, research_synthesizer_agent,
@@ -78,16 +81,24 @@ class ArticleGenerationService:
             while not generation_task.done():
                 try:
                     # タイムアウトを設定してクライアントからの応答を待つ (例: 5分)
-                    response_data = await asyncio.wait_for(websocket.receive_json(), timeout=300.0)
+                    response_data = await asyncio.wait_for(websocket.receive_json(), timeout=300.0) # TODO: タイムアウト値を設定ファイルなど外部から設定可能にする
                     message = ClientResponseMessage(**response_data) # バリデーション
 
                     if context.current_step in ["persona_generated", "theme_proposed", "research_plan_generated", "outline_generated"]:
-                        if context.expected_user_input == message.response_type:
-                            context.user_response = message.payload # 応答をコンテキストに保存
-                            context.user_response_event.set() # 待機中のループに応答があったことを通知
+                        if message.response_type in [UserInputType.SELECT_PERSONA, UserInputType.SELECT_THEME, UserInputType.APPROVE_PLAN, UserInputType.APPROVE_OUTLINE, UserInputType.REGENERATE, UserInputType.EDIT_AND_PROCEED]:
+                            # 期待される応答タイプ、または再生成・編集要求の場合
+                            if context.expected_user_input == message.response_type or \
+                               message.response_type == UserInputType.REGENERATE or \
+                               message.response_type == UserInputType.EDIT_AND_PROCEED:
+                                
+                                context.user_response = message # 応答全体をコンテキストに保存 (payloadだけでなくtypeも含む)
+                                context.user_response_event.set() # 待機中のループに応答があったことを通知
+                            else:
+                                # 期待する具体的な選択/承認タイプと異なる場合 (例: SELECT_THEMEを期待しているときにAPPROVE_PLANが来たなど)
+                                await self._send_error(context, f"Invalid response type '{message.response_type}' for current step '{context.current_step}' expecting '{context.expected_user_input}'.")
                         else:
-                            # 予期しない応答タイプ
-                            await self._send_error(context, "Invalid response type received.")
+                            # 予期しない応答タイプ (承認/選択/再生成/編集以外)
+                            await self._send_error(context, f"Unexpected response type '{message.response_type}' received during user input step.")
                     else:
                         # ユーザー入力待ちでないときにメッセージが来た場合
                         console.print(f"[yellow]Ignoring unexpected client message during step {context.current_step}[/yellow]")
@@ -227,92 +238,144 @@ class ArticleGenerationService:
                         console.print(f"[cyan]{len(context.generated_detailed_personas)}件の具体的なペルソナを生成しました。クライアントの選択を待ちます...[/cyan]")
                         
                         personas_data_for_client = [GeneratedPersonaData(id=i, description=desc) for i, desc in enumerate(context.generated_detailed_personas)]
-                        user_response = await self._request_user_input(
+                        user_response_message = await self._request_user_input( # ClientResponseMessage全体が返るように変更
                             context,
                             UserInputType.SELECT_PERSONA,
                             GeneratedPersonasPayload(personas=personas_data_for_client).model_dump() # dataとして送信
                         )
-                        if user_response:
-                            try:
-                                selected_id = None
-                                if isinstance(user_response, SelectPersonaPayload):
-                                    selected_id = user_response.selected_id
-                                elif isinstance(user_response, dict) and "selected_id" in user_response:
-                                    selected_id = int(user_response["selected_id"])
-                                
-                                if selected_id is not None and 0 <= selected_id < len(context.generated_detailed_personas):
+                        if user_response_message: # ClientResponseMessage が None でないことを確認
+                            response_type = user_response_message.response_type
+                            payload = user_response_message.payload
+
+                            if response_type == UserInputType.SELECT_PERSONA and isinstance(payload, SelectPersonaPayload):
+                                selected_id = payload.selected_id
+                                if 0 <= selected_id < len(context.generated_detailed_personas):
                                     context.selected_detailed_persona = context.generated_detailed_personas[selected_id]
                                     context.current_step = "persona_selected"
-                                    console.print(f"[green]クライアントがペルソナ「{context.selected_detailed_persona[:50]}...」を選択しました。[/green]")
-                                    await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message=f"Detailed persona selected."))
+                                    console.print(f"[green]クライアントがペルソナID {selected_id} を選択しました。[/green]")
+                                    await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message=f"Detailed persona selected: {context.selected_detailed_persona[:50]}..."))
                                 else:
                                     raise ValueError(f"無効なペルソナIDが選択されました: {selected_id}")
-                            except (AttributeError, TypeError, ValueError) as e:
-                                console.print(f"[bold red]ペルソナ選択の応答処理中にエラー: {e}[/bold red]")
-                                raise ValueError(f"ペルソナ選択の応答処理に失敗しました: {e}")
+                            elif response_type == UserInputType.REGENERATE:
+                                console.print("[yellow]クライアントがペルソナの再生成を要求しました。[/yellow]")
+                                context.current_step = "persona_generating" # 生成ステップに戻る
+                                context.generated_detailed_personas = [] # 生成済みペルソナをクリア
+                                # ループの先頭に戻り、再度ペルソナ生成が実行される
+                                continue # ★重要: continueでループの次のイテレーションへ
+                            elif response_type == UserInputType.EDIT_AND_PROCEED and isinstance(payload, EditAndProceedPayload):
+                                edited_persona_description = payload.edited_content.get("description")
+                                if edited_persona_description and isinstance(edited_persona_description, str):
+                                    context.selected_detailed_persona = edited_persona_description
+                                    context.current_step = "persona_selected" # 編集されたもので選択完了扱い
+                                    console.print(f"[green]クライアントがペルソナを編集し、選択しました: {context.selected_detailed_persona[:50]}...[/green]")
+                                    await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message=f"Detailed persona edited and selected."))
+                                else:
+                                    # 不正な編集内容
+                                    await self._send_error(context, "Invalid edited persona content.")
+                                    context.current_step = "persona_generated" # 選択待ちに留まる
+                                    continue
+                            else:
+                                # 予期しない応答タイプやペイロード
+                                await self._send_error(context, f"予期しない応答 ({response_type}, {type(payload)}) がペルソナ選択で受信されました。")
+                                context.current_step = "persona_generated" # 選択待ちに留まる
+                                continue
                         else:
-                            raise ValueError("ペルソナ選択の応答が空です。")
-                    else:
-                        raise TypeError(f"予期しないAgent出力タイプ: {type(agent_output)}")
+                            # 応答がない場合 (タイムアウトなど、上位で処理されるはずだが念のため)
+                            console.print("[red]ペルソナ選択でクライアントからの応答がありませんでした。[/red]")
+                            # エラーにするか、リトライを促すかなど検討。ここではループを継続（上位のタイムアウト処理に任せる）
+                            context.current_step = "persona_generated" # 選択待ちに留まる
+                            continue
 
                 elif context.current_step == "persona_selected":
-                    current_agent = theme_agent
-                    # ペルソナ情報の組み立て - ここでは選択された詳細ペルソナを使用
-                    if not context.selected_detailed_persona:
-                        raise ValueError("選択された詳細ペルソナがありません。")
-                    persona_description = context.selected_detailed_persona
+                    context.current_step = "theme_generating" # ★ persona_selected の次は theme_generating に移る
+                    await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message="Proceeding to theme generation."))
 
-                    agent_input = f"キーワード「{', '.join(context.initial_keywords)}」と、以下のペルソナに基づいて、{context.num_theme_proposals}個のテーマ案を生成してください。\n\nペルソナ詳細:\n{persona_description}"
+                elif context.current_step == "theme_generating": # ★こちらが正しい theme_generating の開始点
+                    current_agent = theme_agent
+                    if not context.selected_detailed_persona: # selected_detailed_persona が存在することを確認
+                        await self._send_error(context, "詳細ペルソナが選択されていません。テーマ生成をスキップします。", "theme_generating")
+                        context.current_step = "error" # または適切なフォールバック処理
+                        continue
+                    
+                    agent_input = f"キーワード「{', '.join(context.initial_keywords)}」と、以下のペルソナに基づいて、{context.num_theme_proposals}個のテーマ案を生成してください。\\n\\nペルソナ詳細:\\n{context.selected_detailed_persona}"
                     console.print(f"🤖 {current_agent.name} にテーマ提案を依頼します...")
                     agent_output = await self._run_agent(current_agent, agent_input, context, run_config)
 
                     if isinstance(agent_output, ThemeProposal):
-                        context.last_agent_output = agent_output
-                        if agent_output.themes:
+                        context.generated_themes = agent_output.themes # List[ThemeIdea]
+                        if context.generated_themes: # テーマが1つ以上生成されたか確認
                             context.current_step = "theme_proposed" # ユーザー選択待ちステップへ
-                            console.print(f"[cyan]テーマ案を{len(agent_output.themes)}件生成しました。クライアントの選択を待ちます...[/cyan]")
-                            # WebSocketでテーマ案を送信し、選択を要求
-                            theme_data = [t.model_dump() for t in agent_output.themes]
-                            user_response = await self._request_user_input(
+                            console.print(f"[cyan]{len(context.generated_themes)}件のテーマ案を生成しました。クライアントの選択を待ちます...[/cyan]")
+                            
+                            themes_data_for_client = [
+                                ThemeProposalData(title=idea.title, description=idea.description, keywords=idea.keywords)
+                                for idea in context.generated_themes
+                            ]
+                            user_response_message = await self._request_user_input(
                                 context,
                                 UserInputType.SELECT_THEME,
-                                {"themes": theme_data}
+                                ThemeProposalPayload(themes=themes_data_for_client).model_dump()
                             )
-                            # クライアントからの応答を処理
-                            if user_response:
-                                console.print(f"[cyan]クライアントからの応答を受信 (型: {type(user_response)}): {user_response}[/cyan]")
-                                try:
-                                    selected_index = None
-                                    # user_response が SelectThemePayload インスタンスかチェック
-                                    if isinstance(user_response, SelectThemePayload): # 型チェックを追加
-                                        selected_index = user_response.selected_index # 属性アクセスに変更
-                                    # 辞書の場合も念のため残す
-                                    elif isinstance(user_response, dict) and "selected_index" in user_response:
-                                        selected_index = int(user_response["selected_index"])
+                            if user_response_message:
+                                response_type = user_response_message.response_type
+                                payload = user_response_message.payload
 
-                                    if selected_index is not None and 0 <= selected_index < len(agent_output.themes):
-                                        context.selected_theme = agent_output.themes[selected_index]
+                                if response_type == UserInputType.SELECT_THEME and isinstance(payload, SelectThemePayload):
+                                    selected_index = payload.selected_index
+                                    if 0 <= selected_index < len(context.generated_themes):
+                                        context.selected_theme = context.generated_themes[selected_index]
                                         context.current_step = "theme_selected"
                                         console.print(f"[green]クライアントがテーマ「{context.selected_theme.title}」を選択しました。[/green]")
                                         await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message=f"Theme selected: {context.selected_theme.title}"))
                                     else:
-                                        if selected_index is None:
-                                            # エラーメッセージを修正
-                                            raise ValueError(f"テーマ選択の応答ペイロードから selected_index を抽出できませんでした: {user_response}")
+                                        await self._send_error(context, f"無効なテーマインデックスが選択されました: {selected_index}")
+                                        context.current_step = "theme_proposed" 
+                                        continue
+                                elif response_type == UserInputType.REGENERATE:
+                                    console.print("[yellow]クライアントがテーマの再生成を要求しました。[/yellow]")
+                                    context.current_step = "theme_generating" 
+                                    context.generated_themes = [] 
+                                    continue 
+                                elif response_type == UserInputType.EDIT_AND_PROCEED and isinstance(payload, EditAndProceedPayload):
+                                    try:
+                                        edited_theme_data = payload.edited_content
+                                        if isinstance(edited_theme_data.get("title"), str) and \
+                                           isinstance(edited_theme_data.get("description"), str) and \
+                                           isinstance(edited_theme_data.get("keywords"), list):
+                                            # context.selected_theme の型は ThemeIdea (services.models より)
+                                            context.selected_theme = ThemeIdea(**edited_theme_data)
+                                            context.current_step = "theme_selected"
+                                            console.print(f"[green]クライアントがテーマを編集し、選択しました: {context.selected_theme.title}[/green]")
+                                            await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message=f"Theme edited and selected."))
                                         else:
-                                            raise ValueError(f"無効なテーマインデックスが選択されました: {selected_index} (有効範囲: 0～{len(agent_output.themes)-1})")
-                                except (AttributeError, TypeError, ValueError) as e: # AttributeError をキャッチするよう修正
-                                    console.print(f"[bold red]テーマ選択の応答処理中にエラー: {e}[/bold red]")
-                                    raise ValueError(f"テーマ選択の応答処理に失敗しました: {e}")
+                                            await self._send_error(context, "Invalid edited theme content structure.")
+                                            context.current_step = "theme_proposed" 
+                                            continue
+                                    except (ValidationError, TypeError, AttributeError) as e:
+                                        await self._send_error(context, f"Error processing edited theme: {e}")
+                                        context.current_step = "theme_proposed" 
+                                        continue
+                                else:
+                                    await self._send_error(context, f"予期しない応答 ({response_type}, {type(payload)}) がテーマ選択で受信されました。")
+                                    context.current_step = "theme_proposed"
+                                    continue
                             else:
-                                raise ValueError("テーマ選択の応答が空です。")
-                        else:
-                            raise ValueError("テーマ案が生成されませんでした。")
-                    elif isinstance(agent_output, ClarificationNeeded):
-                         raise ValueError(f"テーマ生成で確認が必要になりました: {agent_output.message}")
-                    else:
-                        raise TypeError(f"予期しないAgent出力タイプ: {type(agent_output)}")
-
+                                console.print("[red]テーマ選択でクライアントからの応答がありませんでした。[/red]")
+                                context.current_step = "theme_proposed"
+                                continue
+                        else: # agent_output.themes が空の場合
+                            await self._send_error(context, "テーマ案がエージェントによって生成されませんでした。再試行します。")
+                            context.current_step = "theme_generating" # 再度テーマ生成を試みる
+                            continue
+                    elif isinstance(agent_output, ClarificationNeeded): # エージェントが明確化を求めた場合
+                        await self._send_error(context, f"テーマ生成で明確化が必要です: {agent_output.message}")
+                        context.current_step = "error" # または適切なフォールバック
+                        continue
+                    else: # 予期しないエージェント出力
+                        await self._send_error(context, f"テーマ生成中に予期しないエージェント出力タイプ ({type(agent_output)}) を受け取りました。")
+                        context.current_step = "error"
+                        continue
+                
                 elif context.current_step == "theme_selected":
                     context.current_step = "research_planning"
                     console.print("リサーチ計画ステップに進みます...")
@@ -321,40 +384,94 @@ class ArticleGenerationService:
 
                 elif context.current_step == "research_planning":
                     current_agent = research_planner_agent
-                    if not context.selected_theme: raise ValueError("テーマが選択されていません。")
+                    if not context.selected_theme: 
+                        await self._send_error(context, "テーマが選択されていません。リサーチ計画作成をスキップします。", "research_planning")
+                        context.current_step = "error"
+                        continue
+
                     agent_input = f"選択されたテーマ「{context.selected_theme.title}」についてのリサーチ計画を作成してください。"
                     console.print(f"🤖 {current_agent.name} にリサーチ計画作成を依頼します...")
                     agent_output = await self._run_agent(current_agent, agent_input, context, run_config)
 
                     if isinstance(agent_output, ResearchPlan):
-                        context.research_plan = agent_output
-                        context.current_step = "research_plan_generated" # ユーザー承認待ちステップへ
-                        console.print("[cyan]リサーチ計画を生成しました。クライアントの承認を待ちます...[/cyan]")
-                        # WebSocketで計画を送信し、承認を要求
-                        plan_data = agent_output.model_dump()
-                        user_response = await self._request_user_input(
+                        context.research_plan = agent_output # エージェントが生成した計画を context.research_plan に保存
+                        context.current_step = "research_plan_generated" 
+                        console.print("[cyan]リサーチ計画を生成しました。クライアントの承認/編集/再生成を待ちます...[/cyan]")
+                        
+                        plan_data_for_client = ResearchPlanData(
+                            topic=context.research_plan.topic, # agent_output から context.research_plan に変更
+                            queries=[ResearchPlanQueryData(query=q.query, focus=q.focus) for q in context.research_plan.queries] # agent_output から context.research_plan に変更
+                        )
+                        user_response_message = await self._request_user_input(
                             context,
                             UserInputType.APPROVE_PLAN,
-                            {"plan": plan_data}
+                            ResearchPlanPayload(plan=plan_data_for_client).model_dump()
                         )
-                        # 承認ペイロードがApprovePayloadまたはdictの場合に対応
-                        approved = False
-                        if isinstance(user_response, ApprovePayload):
-                            approved = user_response.approved
-                        elif isinstance(user_response, dict):
-                            approved = bool(user_response.get("approved"))
-                        if approved:
-                            console.print("[green]クライアントがリサーチ計画を承認しました。[/green]")
-                            context.current_step = "researching" # リサーチ開始
-                            context.current_research_query_index = 0
-                            context.research_query_results = []
-                            await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message="Research plan approved, starting research."))
+
+                        if user_response_message:
+                            response_type = user_response_message.response_type
+                            payload = user_response_message.payload
+
+                            if response_type == UserInputType.APPROVE_PLAN and isinstance(payload, ApprovePayload):
+                                if payload.approved:
+                                    # context.research_plan は既に設定済みなので、ここでは何もしない
+                                    context.current_step = "research_plan_approved"
+                                    console.print("[green]クライアントがリサーチ計画を承認しました。[/green]")
+                                    await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message="Research plan approved."))
+                                else:
+                                    console.print("[yellow]クライアントがリサーチ計画を否認しました。再生成を試みます。[/yellow]")
+                                    context.current_step = "research_planning"
+                                    context.research_plan = None # 承認されなかったのでクリア
+                                    continue
+                            elif response_type == UserInputType.REGENERATE:
+                                console.print("[yellow]クライアントがリサーチ計画の再生成を要求しました。[/yellow]")
+                                context.current_step = "research_planning"
+                                context.research_plan = None # 再生成するのでクリア
+                                continue
+                            elif response_type == UserInputType.EDIT_AND_PROCEED and isinstance(payload, EditAndProceedPayload):
+                                try:
+                                    edited_plan_data = payload.edited_content
+                                    if isinstance(edited_plan_data.get("topic"), str) and isinstance(edited_plan_data.get("queries"), list):
+                                        context.research_plan = ResearchPlan(
+                                            topic=edited_plan_data['topic'],
+                                            queries=[ResearchQuery(**q_data) for q_data in edited_plan_data['queries']],
+                                            status="research_plan"  # "approved_by_user_edit" から "research_plan" に修正
+                                        )
+                                        context.current_step = "research_plan_approved"
+                                        console.print(f"[green]クライアントがリサーチ計画を編集し、承認しました。[/green]")
+                                        await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message="Research plan edited and approved."))
+                                    else:
+                                        await self._send_error(context, "Invalid edited research plan content structure.")
+                                        context.current_step = "research_plan_generated" # ユーザーの再操作を待つ
+                                        # context.research_plan はエージェント生成のものが残っているか、Noneのまま
+                                        continue
+                                except (ValidationError, TypeError, AttributeError, KeyError) as e:
+                                    await self._send_error(context, f"Error processing edited research plan: {e}")
+                                    context.current_step = "research_plan_generated" # ユーザーの再操作を待つ
+                                    continue
+                            else:
+                                await self._send_error(context, f"予期しない応答 ({response_type}) がリサーチ計画承認で受信されました。")
+                                context.current_step = "research_plan_generated" # ユーザーの再操作を待つ
+                                continue
                         else:
-                            raise ValueError("リサーチ計画が承認されませんでした。")
+                            console.print("[red]リサーチ計画の承認/編集でクライアントからの応答がありませんでした。[/red]")
+                            context.current_step = "research_plan_generated" # ユーザーの再操作を待つ
+                            # タイムアウトの場合、上位の handle_websocket_connection で処理される
+                            continue
                     elif isinstance(agent_output, ClarificationNeeded):
-                         raise ValueError(f"リサーチ計画生成で確認が必要になりました: {agent_output.message}")
+                        await self._send_error(context, f"リサーチ計画作成で明確化が必要です: {agent_output.message}")
+                        context.current_step = "error"
+                        continue
                     else:
-                         raise TypeError(f"予期しないAgent出力タイプ: {type(agent_output)}")
+                        await self._send_error(context, f"リサーチ計画作成中に予期しないエージェント出力タイプ ({type(agent_output)}) を受け取りました。")
+                        context.current_step = "error"
+                        continue
+                
+                elif context.current_step == "research_plan_approved":
+                    context.current_step = "researching"
+                    console.print("リサーチ実行ステップに進みます...")
+                    await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message="Moving to research execution."))
+                    # エージェント実行なし
 
                 elif context.current_step == "researching":
                     if not context.research_plan: raise ValueError("リサーチ計画がありません。")
@@ -401,65 +518,131 @@ class ArticleGenerationService:
                         report_data = agent_output.model_dump()
                         await self._send_server_event(context, ResearchCompletePayload(report=report_data))
                         # すぐにアウトライン生成へ
-                        context.current_step = "outline_generation"
+                        context.current_step = "outline_generating" # ★ ステップ名修正
                         await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message="Research report generated, generating outline."))
                     else:
                         raise TypeError(f"予期しないAgent出力タイプ: {type(agent_output)}")
 
-                elif context.current_step == "outline_generation":
+                elif context.current_step == "outline_generating": # ★ ステップ名修正
                     current_agent = outline_agent
-                    if not context.selected_theme: raise ValueError("テーマが選択されていません。")
-                    if not context.research_report: raise ValueError("リサーチレポートがありません。")
-                    agent_input = f"選択されたテーマ「{context.selected_theme.title}」、詳細リサーチレポート、目標文字数 {context.target_length or '指定なし'} に基づいてアウトラインを作成してください。"
+                    if not context.research_report: 
+                        await self._send_error(context, "リサーチレポートがありません。アウトライン作成をスキップします。", "outline_generating")
+                        context.current_step = "error"
+                        continue
+                    
+                    instruction_text = f"詳細リサーチレポートに基づいてアウトラインを作成してください。テーマ: {context.selected_theme.title if context.selected_theme else '未選択'}, 目標文字数 {context.target_length or '指定なし'}"
+                    research_report_json_str = json.dumps(context.research_report.model_dump(), ensure_ascii=False, indent=2) # インデントありの方が見やすいかも
+
+                    # 会話履歴形式のリストを作成
+                    agent_input_list_for_outline = [
+                        {
+                            "role": "user",
+                            "content": [
+                                {"type": "input_text", "text": instruction_text},
+                                {"type": "input_text", "text": f"\n\n---参照リサーチレポート開始---\n{research_report_json_str}\n---参照リサーチレポート終了---"}
+                            ]
+                        }
+                    ]
                     console.print(f"🤖 {current_agent.name} にアウトライン作成を依頼します...")
-                    agent_output = await self._run_agent(current_agent, agent_input, context, run_config)
+                    agent_output = await self._run_agent(current_agent, agent_input_list_for_outline, context, run_config)
 
                     if isinstance(agent_output, Outline):
-                        context.generated_outline = agent_output
-                        context.current_step = "outline_generated" # ユーザー承認待ちステップへ
-                        console.print("[cyan]アウトラインを生成しました。クライアントの承認を待ちます...[/cyan]")
-                        # WebSocketでアウトラインを送信し、承認を要求
-                        def outline_section_to_dict(section: OutlineSection) -> Dict[str, Any]:
-                            data = section.model_dump(exclude={'subsections'})
-                            if section.subsections:
-                                data['subsections'] = [outline_section_to_dict(sub) for sub in section.subsections]
-                            return data
-                        outline_data = {
-                            "title": agent_output.title,
-                            "suggested_tone": agent_output.suggested_tone,
-                            "sections": [outline_section_to_dict(s) for s in agent_output.sections]
-                        }
-                        user_response = await self._request_user_input(
+                        context.generated_outline = agent_output # エージェントが生成したアウトラインを context.generated_outline に保存
+                        context.current_step = "outline_generated" 
+                        console.print("[cyan]アウトラインを生成しました。クライアントの承認/編集/再生成を待ちます...[/cyan]")
+                        
+                        def convert_section_to_data(section: OutlineSection) -> OutlineSectionData:
+                            return OutlineSectionData(
+                                heading=section.heading,
+                                estimated_chars=section.estimated_chars,
+                                subsections=[convert_section_to_data(s) for s in section.subsections] if section.subsections else None
+                            )
+                        
+                        outline_data_for_client = OutlineData(
+                            title=context.generated_outline.title, # context.outline_generated_by_agent から context.generated_outline に変更
+                            suggested_tone=context.generated_outline.suggested_tone, # context.outline_generated_by_agent から context.generated_outline に変更
+                            sections=[convert_section_to_data(s) for s in context.generated_outline.sections] # context.outline_generated_by_agent から context.generated_outline に変更
+                        )
+                        user_response_message = await self._request_user_input(
                             context,
                             UserInputType.APPROVE_OUTLINE,
-                            {"outline": outline_data}
+                            OutlinePayload(outline=outline_data_for_client).model_dump()
                         )
-                        # 承認ペイロードがApprovePayloadまたはdictの場合に対応
-                        approved = False
-                        if isinstance(user_response, ApprovePayload):
-                            approved = user_response.approved
-                        elif isinstance(user_response, dict):
-                            approved = bool(user_response.get("approved"))
-                        if approved:
-                            console.print("[green]クライアントがアウトラインを承認しました。[/green]")
-                            context.current_step = "writing_sections" # 執筆開始
-                            context.current_section_index = 0
-                            context.generated_sections_html = []
-                            context.clear_section_writer_history()
-                            from services.agents import create_section_writer_instructions, SECTION_WRITER_AGENT_BASE_PROMPT
-                            base_instruction_text = await create_section_writer_instructions(SECTION_WRITER_AGENT_BASE_PROMPT)(RunContextWrapper(context=context), section_writer_agent)
-                            context.add_to_section_writer_history("system", base_instruction_text)
-                            await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message="Outline approved, starting section writing."))
+                        
+                        if user_response_message:
+                            response_type = user_response_message.response_type
+                            payload = user_response_message.payload
+
+                            if response_type == UserInputType.APPROVE_OUTLINE and isinstance(payload, ApprovePayload):
+                                if payload.approved:
+                                    # context.generated_outline は既に設定済みなので、ここでは何もしない
+                                    context.current_step = "outline_approved"
+                                    console.print("[green]クライアントがアウトラインを承認しました。[/green]")
+                                    await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message="Outline approved, proceeding to writing."))
+                                else:
+                                    console.print("[yellow]クライアントがアウトラインを否認しました。再生成を試みます。[/yellow]")
+                                    context.current_step = "outline_generating"
+                                    context.generated_outline = None # 承認されなかったのでクリア
+                                    continue
+                            elif response_type == UserInputType.REGENERATE:
+                                console.print("[yellow]クライアントがアウトラインの再生成を要求しました。[/yellow]")
+                                context.current_step = "outline_generating"
+                                context.generated_outline = None # 再生成するのでクリア
+                                continue
+                            elif response_type == UserInputType.EDIT_AND_PROCEED and isinstance(payload, EditAndProceedPayload):
+                                try:
+                                    edited_outline_data = payload.edited_content
+                                    def convert_edited_section_to_model(data: Dict[str, Any]) -> OutlineSection:
+                                        subsections_data = data.get("subsections")
+                                        return OutlineSection(
+                                            heading=data['heading'],
+                                            estimated_chars=data.get('estimated_chars'),
+                                            subsections=[convert_edited_section_to_model(s) for s in subsections_data] if subsections_data else None
+                                        )
+                                    if isinstance(edited_outline_data.get("title"), str) and \
+                                       isinstance(edited_outline_data.get("suggested_tone"), str) and \
+                                       isinstance(edited_outline_data.get("sections"), list):
+                                        context.generated_outline = Outline(
+                                            title=edited_outline_data['title'],
+                                            suggested_tone=edited_outline_data['suggested_tone'],
+                                            sections=[convert_edited_section_to_model(s_data) for s_data in edited_outline_data['sections']],
+                                            status="outline"  # "approved_by_user_edit" から "outline" に修正
+                                        )
+                                        context.current_step = "outline_approved"
+                                        console.print(f"[green]クライアントがアウトラインを編集し、承認しました。[/green]")
+                                        await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message="Outline edited and approved."))
+                                    else:
+                                        await self._send_error(context, "Invalid edited outline content structure.")
+                                        context.current_step = "outline_generated"
+                                        continue
+                                except (ValidationError, TypeError, AttributeError, KeyError) as e:
+                                    await self._send_error(context, f"Error processing edited outline: {e}")
+                                    context.current_step = "outline_generated"
+                                    continue
+                            else:
+                                await self._send_error(context, f"予期しない応答 ({response_type}) がアウトライン承認で受信されました。")
+                                context.current_step = "outline_generated"
+                                continue
                         else:
-                            raise ValueError("アウトラインが承認されませんでした。")
+                            console.print("[red]アウトラインの承認/編集でクライアントからの応答がありませんでした。[/red]")
+                            context.current_step = "outline_generated"
+                            continue
                     elif isinstance(agent_output, ClarificationNeeded):
-                        raise ValueError(f"アウトライン生成で確認が必要になりました: {agent_output.message}")
+                        await self._send_error(context, f"アウトライン生成で確認が必要になりました: {agent_output.message}")
+                        context.current_step = "error"
+                        continue
                     else:
-                        raise TypeError(f"予期しないAgent出力タイプ: {type(agent_output)}")
+                        raise TypeError(f"予期しないAgent出力タイプ: {type(agent_output)}") # エラー送信の方が良い
+
+                elif context.current_step == "outline_approved": # ★ 新しいステップの開始
+                    # context.generated_outline を context.outline_approved に基づいて設定 (あるいは承認されたものがそのまま使われる)
+                    # if not context.outline_approved: raise ValueError("承認済みアウトラインがありません。")
+                    console.print("記事執筆ステップに進みます...")
+                    context.current_step = "writing_sections" 
 
                 elif context.current_step == "writing_sections":
-                    if not context.generated_outline: raise ValueError("アウトラインがありません。")
-                    if context.current_section_index >= len(context.generated_outline.sections):
+                    if not context.generated_outline: raise ValueError("承認済みアウトラインがありません。") # context.outline_approved から context.generated_outline に変更
+                    if context.current_section_index >= len(context.generated_outline.sections): # context.outline_approved から context.generated_outline に変更
                         context.full_draft_html = context.get_full_draft()
                         context.current_step = "editing"
                         console.print("[green]全セクションの執筆が完了しました。編集ステップに移ります。[/green]")
@@ -468,7 +651,7 @@ class ArticleGenerationService:
 
                     current_agent = section_writer_agent
                     target_index = context.current_section_index
-                    target_heading = context.generated_outline.sections[target_index].heading
+                    target_heading = context.generated_outline.sections[target_index].heading # context.outline_approved から context.generated_outline に変更
 
                     user_request = f"前のセクション（もしあれば）に続けて、アウトラインのセクション {target_index + 1}「{target_heading}」の内容をHTMLで執筆してください。提供された詳細リサーチ情報を参照し、必要に応じて出典へのリンクを含めてください。"
                     current_input_messages: List[Dict[str, Any]] = list(context.section_writer_history)
