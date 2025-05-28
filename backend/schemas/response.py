@@ -93,6 +93,7 @@ class ErrorPayload(BasePayload):
 
 class UserInputType(str, Enum):
     """クライアントに要求する入力の種類"""
+    SELECT_PERSONA = "select_persona"
     SELECT_THEME = "select_theme"
     APPROVE_PLAN = "approve_plan"
     APPROVE_OUTLINE = "approve_outline"
@@ -103,9 +104,19 @@ class UserInputRequestPayload(BasePayload):
     request_type: UserInputType = Field(description="要求する入力の種類")
     data: Optional[Dict[str, Any]] = Field(None, description="入力要求に関連するデータ (テーマ案リスト、計画詳細など)")
 
+# 新しいペイロード: 生成されたペルソナリスト (クライアント送信用)
+class GeneratedPersonaData(BaseModel):
+    id: int
+    description: str
+
+class GeneratedPersonasPayload(BasePayload):
+    """生成されたペルソナリストペイロード (選択要求時に使用)"""
+    personas: List[GeneratedPersonaData] = Field(description="生成された具体的なペルソナのリスト")
+
 # サーバーから送信されるイベントペイロードのUnion型
 ServerEventPayload = Union[
     StatusUpdatePayload,
+    GeneratedPersonasPayload,
     ThemeProposalPayload, # 選択要求時に使用
     ResearchPlanPayload,  # 承認要求時に使用
     ResearchProgressPayload,
@@ -119,6 +130,10 @@ ServerEventPayload = Union[
 ]
 
 # --- クライアント -> サーバー 応答ペイロード ---
+class SelectPersonaPayload(BasePayload):
+    """ペルソナ選択応答ペイロード"""
+    selected_id: int = Field(description="ユーザーが選択したペルソナのID (0ベース)", ge=0)
+
 class SelectThemePayload(BasePayload):
     """テーマ選択応答ペイロード"""
     selected_index: int = Field(description="ユーザーが選択したテーマのインデックス (0ベース)", ge=0)
@@ -130,6 +145,7 @@ class ApprovePayload(BasePayload):
 
 # クライアントから送信される応答ペイロードのUnion型
 ClientResponsePayload = Union[
+    SelectPersonaPayload,
     SelectThemePayload,
     ApprovePayload,
 ]
