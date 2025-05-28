@@ -55,6 +55,11 @@
 *   `MAX_RETRIES`: APIリクエストの最大リトライ回数。
 *   `INITIAL_RETRY_DELAY`: APIリクエストの初期リトライ遅延秒数。
 
+### OpenAI Agents SDKトレーシング設定
+
+*   `OPENAI_AGENTS_ENABLE_TRACING`: (オプション、デフォルト: `true`) OpenAI Agents SDKのトレーシング機能の有効化。`true` でトレースを記録し、OpenAI プラットフォームで可視化可能。
+*   `OPENAI_AGENTS_TRACE_INCLUDE_SENSITIVE_DATA`: (オプション、デフォルト: `false`) トレースに機密データ（LLM入出力、ツール実行結果など）を含めるかどうか。
+
 プロジェクトルートに `.env` ファイルを作成し、必要な値を設定してください。`.env.example` のようなテンプレートファイルがあれば、それをコピーして使用することを推奨します。
 
 ## 実行方法
@@ -120,3 +125,117 @@
 *   データベース連携 (生成記事の保存など)
 *   対応LLMモデルの拡充 (Anthropic, Geminiなど)
 *   エラーハンドリングの強化とリカバリ戦略の改善
+
+## トレーシング設定
+
+本アプリケーションは OpenAI Agents SDK のトレーシング機能を統合しており、記事生成ワークフロー全体の詳細な追跡と監視が可能です。
+
+### 環境変数
+
+```bash
+# トレーシングの有効化（デフォルト: true）
+OPENAI_AGENTS_ENABLE_TRACING=true
+
+# 機密データをトレースに含める（デフォルト: false）
+# レスポンス詳細を表示したい場合は true に設定
+OPENAI_AGENTS_TRACE_INCLUDE_SENSITIVE_DATA=true
+
+# デバッグログの有効化（開発環境用）
+DEBUG=true
+```
+
+### トレーシングの特徴
+
+#### 最新のResponses API統合
+- **OpenAI Agents SDK** はデフォルトでResponses APIを使用
+- 従来のChat Completions APIと比較して、トレーシング機能が大幅に改善
+- ステートフル（状態管理）なAPIによる会話履歴の自動管理
+
+#### 単一トレースでの統合フロー
+- 記事生成ワークフロー全体が単一のトレースとして記録
+- 複数エージェント実行が適切に階層化されて表示
+- 一意のトレースIDとグループIDによる識別
+
+#### 詳細なスパン情報
+以下の処理がカスタムスパンで詳細記録されます：
+
+- **エージェント実行**: 各エージェントの実行時間、リトライ回数、入力データサイズ
+- **リサーチクエリ実行**: クエリごとの実行状況と進捗
+- **セクション執筆**: セクションごとの執筆進捗と出力サイズ
+
+#### パフォーマンス監視
+- 実行時間の詳細記録
+- エラー発生箇所とリトライ状況の追跡
+- リソース使用量の監視
+
+#### エラーハンドリング
+- トレーシング機能の失敗時も主要ワークフローの継続
+- 安全なフォールバック処理
+- 詳細なエラーログとメトリクス
+
+### トレースデータの確認
+
+1. **OpenAI Platform**: OpenAI プラットフォームのトレースダッシュボードで視覚的に確認
+2. **ログ出力**: アプリケーションログでパフォーマンスメトリクスを確認
+3. **WebSocket**: リアルタイムでの進捗状況をクライアントで監視
+
+### "Could not fetch Response" エラーの解決方法
+
+このエラーが発生する場合は、以下の手順で解決してください：
+
+#### 1. 環境変数の設定確認
+```bash
+# 必須: トレーシングの有効化
+export OPENAI_AGENTS_ENABLE_TRACING=true
+
+# 重要: レスポンス詳細を表示するため
+export OPENAI_AGENTS_TRACE_INCLUDE_SENSITIVE_DATA=true
+
+# デバッグ情報を確認するため
+export DEBUG=true
+```
+
+#### 2. APIキーの権限確認
+- OpenAI Platform (https://platform.openai.com) でAPIキーが有効であることを確認
+- トレーシング機能への access 権限があることを確認
+- 正しいプロジェクト内でトレースを確認
+
+#### 3. アプリケーションの再起動
+環境変数を変更した後は必ずアプリケーションを再起動してください：
+```bash
+# 開発環境
+uvicorn main:app --reload --host 0.0.0.0 --port 8000
+
+# Docker環境
+docker-compose down && docker-compose up --build
+```
+
+#### 4. ログの確認
+アプリケーション起動時に以下のようなログが表示されることを確認：
+```
+OpenAI API キーを設定しました: sk-proj-...
+OpenAI Agents SDK トレーシングAPIキーを設定しました
+トレーシングで機密データを含めるように設定しました
+OpenAI Agents SDK トレーシングが有効化されました
+```
+
+#### 5. ネットワーク設定の確認
+- ファイアウォールやプロキシがトレースデータの送信を阻害していないか確認
+- 企業ネットワークの場合、IT部門に相談
+
+### よくあるエラーと対処法
+
+| エラーメッセージ | 原因 | 対処法 |
+|----------------|------|--------|
+| `Could not fetch Response` | APIキーの権限不足 | `OPENAI_AGENTS_TRACE_INCLUDE_SENSITIVE_DATA=true`に設定 |
+| `An error occurred while fetching log details` | 一時的なサーバーエラー | 数分待ってから再試行 |
+| `403 Forbidden` | プロジェクトアクセス権限不足 | OpenAI Platformで正しいプロジェクトを選択 |
+| `Traces not appearing` | トレーシング設定問題 | 環境変数とAPIキーを再確認 |
+
+### トラブルシューティング手順
+
+1. **設定確認**: 環境変数が正しく設定されているか確認
+2. **再起動**: アプリケーションを完全に再起動
+3. **ログ確認**: 起動時のトレーシング関連ログを確認
+4. **APIキー確認**: OpenAI Platformでキーの権限を確認
+5. **時間待機**: OpenAI Platform側の処理に時間がかかる場合があります（数分程度）
