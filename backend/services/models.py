@@ -90,9 +90,23 @@ class ResearchReport(BaseModel):
     interesting_angles: List[str] = Field(description="記事を面白くするための切り口や視点のアイデア")
     all_sources: List[str] = Field(description="参照した全ての情報源URLのリスト（重複削除済み、重要度順推奨）")
 
+# 新しいモデル: 具体的なペルソナ
+class GeneratedPersonaItem(BaseModel):
+    """生成された単一の具体的なペルソナ"""
+    id: int = Field(description="ペルソナの一意なID (リスト内インデックス)")
+    description: str = Field(description="生成された具体的なペルソナの説明文")
+    # keywords: List[str] = Field(description="このペルソナ生成に使用されたキーワード") # 必要であれば追加
+    # age_group: Optional[str] = Field(None, description="このペルソナの年代") # 必要であれば追加
+    # persona_type: Optional[str] = Field(None, description="このペルソナの属性") # 必要であれば追加
+
+class GeneratedPersonasResponse(BaseModel):
+    """ペルソナ生成エージェントの応答 (具体的なペルソナのリスト)"""
+    status: Literal["generated_personas_response"] = Field(description="出力タイプ: 生成済みペルソナリスト")
+    personas: List[GeneratedPersonaItem] = Field(description="生成された具体的なペルソナのリスト")
+
 # エージェントが出力しうる型のUnion (ArticleSection を削除)
 AgentOutput = Union[
     ThemeProposal, Outline, RevisedArticle, ClarificationNeeded, StatusUpdate,
-    ResearchPlan, ResearchQueryResult, ResearchReport
+    ResearchPlan, ResearchQueryResult, ResearchReport, GeneratedPersonasResponse
 ]
 

@@ -19,16 +19,16 @@ from schemas.response import (
     StatusUpdatePayload, ThemeProposalPayload, ResearchPlanPayload, ResearchProgressPayload,
     ResearchCompletePayload, OutlinePayload, SectionChunkPayload, EditingStartPayload,
     FinalResultPayload, ErrorPayload, UserInputRequestPayload, UserInputType,
-    SelectThemePayload, ApprovePayload # ApprovePayload を追加
+    SelectThemePayload, ApprovePayload, GeneratedPersonasPayload, SelectPersonaPayload, GeneratedPersonaData # GeneratedPersonaData を追加
 )
 from services.context import ArticleContext
 from services.models import (
     AgentOutput, ThemeProposal, ResearchPlan, ResearchQueryResult, ResearchReport, Outline, OutlineSection,
-    RevisedArticle, ClarificationNeeded, StatusUpdate, ArticleSection, KeyPoint
+    RevisedArticle, ClarificationNeeded, StatusUpdate, ArticleSection, KeyPoint, GeneratedPersonasResponse, GeneratedPersonaItem # 追加
 )
 from services.agents import (
     theme_agent, research_planner_agent, researcher_agent, research_synthesizer_agent,
-    outline_agent, section_writer_agent, editor_agent
+    outline_agent, section_writer_agent, editor_agent, persona_generator_agent # persona_generator_agent を追加
 )
 
 console = Console() # ログ出力用
@@ -54,10 +54,13 @@ class ArticleGenerationService:
             # 2. コンテキストと実行設定を初期化
             context = ArticleContext(
                 initial_keywords=request.initial_keywords,
-                target_persona=request.target_persona,
+                target_age_group=request.target_age_group,
+                persona_type=request.persona_type,
+                custom_persona=request.custom_persona,
                 target_length=request.target_length,
                 num_theme_proposals=request.num_theme_proposals,
                 num_research_queries=request.num_research_queries,
+                num_persona_examples=request.num_persona_examples,
                 company_name=request.company_name,
                 company_description=request.company_description,
                 company_style_guide=request.company_style_guide,
@@ -78,7 +81,7 @@ class ArticleGenerationService:
                     response_data = await asyncio.wait_for(websocket.receive_json(), timeout=300.0)
                     message = ClientResponseMessage(**response_data) # バリデーション
 
-                    if context.current_step in ["theme_proposed", "research_plan_generated", "outline_generated"]:
+                    if context.current_step in ["persona_generated", "theme_proposed", "research_plan_generated", "outline_generated"]:
                         if context.expected_user_input == message.response_type:
                             context.user_response = message.payload # 応答をコンテキストに保存
                             context.user_response_event.set() # 待機中のループに応答があったことを通知
@@ -208,8 +211,58 @@ class ArticleGenerationService:
 
                 # --- ステップに応じた処理 ---
                 if context.current_step == "start":
+                    context.current_step = "persona_generating" # 新しいステップへ移行
+                    await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message="Generating detailed personas..."))
+                    # エージェント実行なし、次のループで処理
+                
+                elif context.current_step == "persona_generating":
+                    current_agent = persona_generator_agent
+                    agent_input = f"キーワード: {context.initial_keywords}, 年代: {context.target_age_group}, 属性: {context.persona_type}, 独自ペルソナ: {context.custom_persona}, 生成数: {context.num_persona_examples}"
+                    console.print(f"🤖 {current_agent.name} に具体的なペルソナ生成を依頼します...")
+                    agent_output = await self._run_agent(current_agent, agent_input, context, run_config)
+
+                    if isinstance(agent_output, GeneratedPersonasResponse):
+                        context.generated_detailed_personas = [p.description for p in agent_output.personas]
+                        context.current_step = "persona_generated"
+                        console.print(f"[cyan]{len(context.generated_detailed_personas)}件の具体的なペルソナを生成しました。クライアントの選択を待ちます...[/cyan]")
+                        
+                        personas_data_for_client = [GeneratedPersonaData(id=i, description=desc) for i, desc in enumerate(context.generated_detailed_personas)]
+                        user_response = await self._request_user_input(
+                            context,
+                            UserInputType.SELECT_PERSONA,
+                            GeneratedPersonasPayload(personas=personas_data_for_client).model_dump() # dataとして送信
+                        )
+                        if user_response:
+                            try:
+                                selected_id = None
+                                if isinstance(user_response, SelectPersonaPayload):
+                                    selected_id = user_response.selected_id
+                                elif isinstance(user_response, dict) and "selected_id" in user_response:
+                                    selected_id = int(user_response["selected_id"])
+                                
+                                if selected_id is not None and 0 <= selected_id < len(context.generated_detailed_personas):
+                                    context.selected_detailed_persona = context.generated_detailed_personas[selected_id]
+                                    context.current_step = "persona_selected"
+                                    console.print(f"[green]クライアントがペルソナ「{context.selected_detailed_persona[:50]}...」を選択しました。[/green]")
+                                    await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message=f"Detailed persona selected."))
+                                else:
+                                    raise ValueError(f"無効なペルソナIDが選択されました: {selected_id}")
+                            except (AttributeError, TypeError, ValueError) as e:
+                                console.print(f"[bold red]ペルソナ選択の応答処理中にエラー: {e}[/bold red]")
+                                raise ValueError(f"ペルソナ選択の応答処理に失敗しました: {e}")
+                        else:
+                            raise ValueError("ペルソナ選択の応答が空です。")
+                    else:
+                        raise TypeError(f"予期しないAgent出力タイプ: {type(agent_output)}")
+
+                elif context.current_step == "persona_selected":
                     current_agent = theme_agent
-                    agent_input = f"キーワード「{', '.join(context.initial_keywords)}」とペルソナ「{context.target_persona}」に基づいて、{context.num_theme_proposals}個のテーマ案を生成してください。"
+                    # ペルソナ情報の組み立て - ここでは選択された詳細ペルソナを使用
+                    if not context.selected_detailed_persona:
+                        raise ValueError("選択された詳細ペルソナがありません。")
+                    persona_description = context.selected_detailed_persona
+
+                    agent_input = f"キーワード「{', '.join(context.initial_keywords)}」と、以下のペルソナに基づいて、{context.num_theme_proposals}個のテーマ案を生成してください。\n\nペルソナ詳細:\n{persona_description}"
                     console.print(f"🤖 {current_agent.name} にテーマ提案を依頼します...")
                     agent_output = await self._run_agent(current_agent, agent_input, context, run_config)
 
@@ -561,7 +614,7 @@ class ArticleGenerationService:
 
                 if result and result.final_output:
                      output = result.final_output
-                     if isinstance(output, (ThemeProposal, Outline, RevisedArticle, ClarificationNeeded, StatusUpdate, ResearchPlan, ResearchQueryResult, ResearchReport)):
+                     if isinstance(output, (ThemeProposal, Outline, RevisedArticle, ClarificationNeeded, StatusUpdate, ResearchPlan, ResearchQueryResult, ResearchReport, GeneratedPersonasResponse)):
                          return output
                      elif isinstance(output, str):
                          try:
@@ -571,6 +624,7 @@ class ArticleGenerationService:
                                  "theme_proposal": ThemeProposal, "outline": Outline, "revised_article": RevisedArticle,
                                  "clarification_needed": ClarificationNeeded, "status_update": StatusUpdate,
                                  "research_plan": ResearchPlan, "research_query_result": ResearchQueryResult, "research_report": ResearchReport,
+                                 "generated_personas_response": GeneratedPersonasResponse
                              }
                              if status_val in output_model_map:
                                  model_cls = output_model_map[status_val]

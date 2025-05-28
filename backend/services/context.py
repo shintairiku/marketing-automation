@@ -10,25 +10,36 @@ from fastapi import WebSocket # <<< WebSocket をインポート
 from services.models import ThemeIdea, ResearchPlan, ResearchQueryResult, ResearchReport, Outline, AgentOutput, ArticleSection
 # WebSocketメッセージスキーマもインポート (型ヒント用)
 from schemas.response import ClientResponsePayload, UserInputType
+from schemas.request import AgeGroup, PersonaType # 追加
 
 @dataclass
 class ArticleContext:
     """記事生成プロセス全体で共有されるコンテキスト (WebSocket対応)"""
     # --- ユーザー/API入力 ---
     initial_keywords: List[str] = field(default_factory=list)
-    target_persona: Optional[str] = None
+    target_age_group: Optional[AgeGroup] = None # 追加
+    persona_type: Optional[PersonaType] = None # 追加
+    custom_persona: Optional[str] = None # 追加 (target_persona の代わり)
     target_length: Optional[int] = None # 目標文字数
     num_theme_proposals: int = 3
     vector_store_id: Optional[str] = None # File Search用
     num_research_queries: int = 5 # リサーチクエリ数の上限
+    num_persona_examples: int = 3 # 追加: 生成する具体的なペルソナの数
     company_name: Optional[str] = None
     company_description: Optional[str] = None
     company_style_guide: Optional[str] = None # 文体、トンマナなど
     past_articles_summary: Optional[str] = None # 過去記事の傾向 (ツールで取得想定)
 
+    # --- ペルソナ生成関連 (新規追加) ---
+    generated_detailed_personas: List[str] = field(default_factory=list) # PersonaGeneratorAgentによって生成された具体的なペルソナ記述のリスト
+    selected_detailed_persona: Optional[str] = None # ユーザーによって選択された単一の具体的なペルソナ記述
+
     # --- 生成プロセス状態 ---
     current_step: Literal[
         "start",
+        "persona_generating", # 新ステップ: 具体的なペルソナ生成中
+        "persona_generated",  # 新ステップ: 具体的なペルソナ生成完了、ユーザー選択待ち
+        "persona_selected",   # 新ステップ: 具体的なペルソナ選択完了
         "theme_proposed", # ユーザー選択待ち
         "theme_selected",
         "research_planning",

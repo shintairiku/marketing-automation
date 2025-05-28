@@ -6,22 +6,26 @@ from agents import Agent, RunContextWrapper, ModelSettings
 # from .models import AgentOutput, ResearchQueryResult, ResearchReport, Outline, RevisedArticle
 # from .tools import web_search_tool, analyze_competitors, get_company_data
 # from .context import ArticleContext
-from services.models import AgentOutput, ResearchQueryResult, ResearchReport, Outline, RevisedArticle, ThemeProposal, ResearchPlan, ClarificationNeeded, StatusUpdate, ArticleSection
+from services.models import AgentOutput, ResearchQueryResult, ResearchReport, Outline, RevisedArticle, ThemeProposal, ResearchPlan, ClarificationNeeded, StatusUpdate, ArticleSection, GeneratedPersonasResponse, GeneratedPersonaItem
 from services.tools import web_search_tool, analyze_competitors, get_company_data, available_tools
 from services.context import ArticleContext
 from core.config import settings # 設定をインポート
+from schemas.request import PersonaType # 修正
 
 # --- 動的プロンプト生成関数 ---
 # (既存のスクリプトからコピーし、インポートパスを修正)
 
 def create_theme_instructions(base_prompt: str) -> Callable[[RunContextWrapper[ArticleContext], Agent[ArticleContext]], Awaitable[str]]:
     async def dynamic_instructions_func(ctx: RunContextWrapper[ArticleContext], agent: Agent[ArticleContext]) -> str:
+        if not ctx.context.selected_detailed_persona:
+            raise ValueError("テーマ提案のための詳細なペルソナが選択されていません。")
+        persona_description = ctx.context.selected_detailed_persona
         company_info_str = f"企業名: {ctx.context.company_name}\n概要: {ctx.context.company_description}\n文体ガイド: {ctx.context.company_style_guide}\n過去記事傾向: {ctx.context.past_articles_summary}" if ctx.context.company_name else "企業情報なし"
         full_prompt = f"""{base_prompt}
 
 --- 入力情報 ---
 キーワード: {', '.join(ctx.context.initial_keywords)}
-ターゲットペルソナ: {ctx.context.target_persona or '指定なし'}
+ターゲットペルソナ詳細:\n{persona_description}
 提案するテーマ数: {ctx.context.num_theme_proposals}
 企業情報:\n{company_info_str}
 ---
@@ -34,8 +38,10 @@ def create_theme_instructions(base_prompt: str) -> Callable[[RunContextWrapper[A
 def create_research_planner_instructions(base_prompt: str) -> Callable[[RunContextWrapper[ArticleContext], Agent[ArticleContext]], Awaitable[str]]:
     async def dynamic_instructions_func(ctx: RunContextWrapper[ArticleContext], agent: Agent[ArticleContext]) -> str:
         if not ctx.context.selected_theme:
-            # APIコンテキストではClarificationNeededではなくエラーを発生させるべき
             raise ValueError("リサーチ計画を作成するためのテーマが選択されていません。")
+        if not ctx.context.selected_detailed_persona:
+            raise ValueError("リサーチ計画のための詳細なペルソナが選択されていません。")
+        persona_description = ctx.context.selected_detailed_persona
 
         full_prompt = f"""{base_prompt}
 
@@ -43,7 +49,7 @@ def create_research_planner_instructions(base_prompt: str) -> Callable[[RunConte
 タイトル: {ctx.context.selected_theme.title}
 説明: {ctx.context.selected_theme.description}
 キーワード: {', '.join(ctx.context.selected_theme.keywords)}
-ターゲットペルソナ: {ctx.context.target_persona or '指定なし'}
+ターゲットペルソナ詳細:\n{persona_description}
 ---
 
 **重要:**
@@ -125,17 +131,15 @@ def create_research_synthesizer_instructions(base_prompt: str) -> Callable[[RunC
 def create_outline_instructions(base_prompt: str) -> Callable[[RunContextWrapper[ArticleContext], Agent[ArticleContext]], Awaitable[str]]:
     async def dynamic_instructions_func(ctx: RunContextWrapper[ArticleContext], agent: Agent[ArticleContext]) -> str:
         if not ctx.context.selected_theme or not ctx.context.research_report:
-            raise ValueError("テーマまたはリサーチレポートが利用できません。")
+            raise ValueError("アウトライン作成に必要なテーマまたはリサーチレポートがありません。")
+        if not ctx.context.selected_detailed_persona:
+            raise ValueError("アウトライン作成のための詳細なペルソナが選択されていません。")
+        persona_description = ctx.context.selected_detailed_persona
 
-        company_info_str = f"文体ガイド: {ctx.context.company_style_guide}" if ctx.context.company_style_guide else "企業文体ガイドなし"
-        # リサーチレポートのキーポイントを整形
-        research_key_points_str = ""
-        for kp in ctx.context.research_report.key_points:
-            sources_str = ", ".join(kp.supporting_sources[:2]) # 代表的なソースをいくつか表示
-            if len(kp.supporting_sources) > 2: sources_str += ", ..."
-            research_key_points_str += f"- {kp.point} (出典: {sources_str})\n"
-
-        research_summary = f"リサーチ要約: {ctx.context.research_report.overall_summary}\n主要ポイント:\n{research_key_points_str}面白い切り口: {', '.join(ctx.context.research_report.interesting_angles)}"
+        research_summary = ctx.context.research_report.overall_summary
+        company_info_str = ""
+        if ctx.context.company_name or ctx.context.company_description:
+            company_info_str = f"\nクライアント情報:\n  企業名: {ctx.context.company_name or '未設定'}\n  企業概要: {ctx.context.company_description or '未設定'}\n"
 
         full_prompt = f"""{base_prompt}
 
@@ -145,7 +149,7 @@ def create_outline_instructions(base_prompt: str) -> Callable[[RunContextWrapper
   説明: {ctx.context.selected_theme.description}
   キーワード: {', '.join(ctx.context.selected_theme.keywords)}
 ターゲット文字数: {ctx.context.target_length or '指定なし（標準的な長さで）'}
-ターゲットペルソナ: {ctx.context.target_persona or '指定なし'}
+ターゲットペルソナ詳細:\n{persona_description}
 {company_info_str}
 --- 詳細なリサーチ結果 ---
 {research_summary}
@@ -155,7 +159,7 @@ def create_outline_instructions(base_prompt: str) -> Callable[[RunContextWrapper
 **重要:**
 - 上記のテーマと**詳細なリサーチ結果**、そして競合分析の結果（ツール使用）に基づいて、記事のアウトラインを作成してください。
 - リサーチ結果の**キーポイント（出典情報も考慮）**や面白い切り口をアウトラインに反映させてください。
-- **ターゲットペルソナ（{ctx.context.target_persona or '指定なし'}）** が読みやすいように、日本の一般的なブログやコラムのような、**親しみやすく分かりやすいトーン**でアウトラインを作成してください。記事全体のトーンも提案してください。
+- **ターゲットペルソナ「{persona_description}」** が読みやすいように、日本の一般的なブログやコラムのような、**親しみやすく分かりやすいトーン**でアウトラインを作成してください。記事全体のトーンも提案してください。
 - あなたの応答は必ず `Outline` または `ClarificationNeeded` 型のJSON形式で出力してください。 (APIコンテキストではClarificationNeededはエラーとして扱う)
 - 文字数指定がある場合は、それに応じてセクション数や深さを調整してください。
 """
@@ -168,12 +172,14 @@ def create_section_writer_instructions(base_prompt: str) -> Callable[[RunContext
             raise ValueError("有効なアウトラインまたはセクションインデックスがありません。")
         if not ctx.context.research_report:
             raise ValueError("参照すべきリサーチレポートがありません。")
+        if not ctx.context.selected_detailed_persona:
+            raise ValueError("セクション執筆のための詳細なペルソナが選択されていません。")
+        persona_description = ctx.context.selected_detailed_persona
 
         target_section = ctx.context.generated_outline.sections[ctx.context.current_section_index]
         target_index = ctx.context.current_section_index
         target_heading = target_section.heading
-        target_persona = ctx.context.target_persona or '指定なし'
-
+        
         section_target_chars = None
         if ctx.context.target_length and len(ctx.context.generated_outline.sections) > 0:
             total_sections = len(ctx.context.generated_outline.sections)
@@ -197,7 +203,7 @@ def create_section_writer_instructions(base_prompt: str) -> Callable[[RunContext
 記事タイトル: {ctx.context.generated_outline.title}
 記事全体のキーワード: {', '.join(ctx.context.selected_theme.keywords) if ctx.context.selected_theme else 'N/A'}
 記事全体のトーン: {ctx.context.generated_outline.suggested_tone}
-ターゲットペルソナ: {target_persona}
+ターゲットペルソナ詳細:\n{persona_description}
 企業スタイルガイド: {company_style_guide}
 記事のアウトライン（全体像）:
 {outline_context}
@@ -212,7 +218,7 @@ def create_section_writer_instructions(base_prompt: str) -> Callable[[RunContext
 ---
 
 --- **【最重要】執筆スタイルとトーンについて** ---
-あなたの役割は、単に情報をHTMLにするだけでなく、**まるで経験豊富な友人が「{target_persona}」に語りかけるように**、親しみやすく、分かりやすい文章でセクションを執筆することです。
+あなたの役割は、単に情報をHTMLにするだけでなく、**まるで経験豊富な友人が以下のペルソナ「{persona_description}」に語りかけるように**、親しみやすく、分かりやすい文章でセクションを執筆することです。
 - **日本の一般的なブログ記事やコラムのような、自然で人間味あふれる、温かいトーン**を心がけてください。堅苦しい表現や機械的な言い回しは避けてください。
 - 読者に直接語りかけるような表現（例：「〜だと思いませんか？」「まずは〜から始めてみましょう！」「〜なんてこともありますよね」）や、共感を誘うような言葉遣いを積極的に使用してください。
 - 専門用語は避け、どうしても必要な場合は簡単な言葉で補足説明を加えてください。箇条書きなども活用し、情報を整理して伝えると良いでしょう。
@@ -245,6 +251,9 @@ def create_editor_instructions(base_prompt: str) -> Callable[[RunContextWrapper[
             raise ValueError("編集対象のドラフト記事がありません。")
         if not ctx.context.research_report:
             raise ValueError("参照すべきリサーチレポートがありません。")
+        if not ctx.context.selected_detailed_persona:
+            raise ValueError("編集のための詳細なペルソナが選択されていません。")
+        persona_description = ctx.context.selected_detailed_persona
 
         research_context_str = f"リサーチ要約: {ctx.context.research_report.overall_summary[:500]}...\n"
         research_context_str += "主要なキーポイントと出典:\n"
@@ -265,7 +274,7 @@ def create_editor_instructions(base_prompt: str) -> Callable[[RunContextWrapper[
 --- 記事の要件 ---
 タイトル: {ctx.context.generated_outline.title if ctx.context.generated_outline else 'N/A'}
 キーワード: {', '.join(ctx.context.selected_theme.keywords) if ctx.context.selected_theme else 'N/A'}
-ターゲットペルソナ: {ctx.context.target_persona or '指定なし'}
+ターゲットペルソナ詳細:\n{persona_description}
 目標文字数: {ctx.context.target_length or '指定なし'}
 トーン: {ctx.context.generated_outline.suggested_tone if ctx.context.generated_outline else 'N/A'}
 企業スタイルガイド: {ctx.context.company_style_guide or '指定なし'}
@@ -276,7 +285,7 @@ def create_editor_instructions(base_prompt: str) -> Callable[[RunContextWrapper[
 
 **重要:**
 - 上記のドラフトHTMLをレビューし、記事の要件と**詳細なリサーチ情報**に基づいて推敲・編集してください。
-- **特に、文章全体がターゲットペルソナ（{ctx.context.target_persona or '指定なし'}）にとって自然で、親しみやすく、分かりやすい言葉遣いになっているか** を重点的に確認してください。機械的な表現や硬い言い回しがあれば、より人間味のある表現に修正してください。
+- **特に、文章全体がターゲットペルソナ「{persona_description}」にとって自然で、親しみやすく、分かりやすい言葉遣いになっているか** を重点的に確認してください。機械的な表現や硬い言い回しがあれば、より人間味のある表現に修正してください。
 - チェックポイント:
     - 全体の流れと一貫性
     - 各セクションの内容の質と正確性 (**リサーチ情報との整合性、事実確認**)
@@ -293,6 +302,59 @@ def create_editor_instructions(base_prompt: str) -> Callable[[RunContextWrapper[
 """
         return full_prompt
     return dynamic_instructions_func
+
+# 新しいエージェント: ペルソナ生成エージェント
+PERSONA_GENERATOR_AGENT_BASE_PROMPT = """
+あなたはターゲット顧客の具体的なペルソナ像を鮮明に描き出すプロフェッショナルです。
+与えられたSEOキーワード、ターゲット年代、ペルソナ属性、およびクライアント企業情報（あれば）を基に、その顧客がどのような人物で、どのようなニーズや悩みを抱えているのか、具体的な背景情報（家族構成、ライフスタイル、価値観など）を含めて詳細なペルソナ像を複数案作成してください。
+あなたの応答は必ず `GeneratedPersonasResponse` 型のJSON形式で、`personas` リストの中に指定された数のペルソナ詳細を `GeneratedPersonaItem` として含めてください。
+各ペルソナの `description` は、ユーザーが提供した例のような形式で、具体的かつ簡潔に記述してください。
+
+例:
+ユーザー入力: 50代 主婦 キーワード「二重窓 デメリット」
+あなたの出力内のペルソナdescriptionの一例:
+「築30年の戸建てに暮らす50代後半の女性。家族構成は夫婦（子どもは独立）。年々寒さがこたえるようになり、家の暖かさには窓の性能が大きく関わっていることを知った。内窓を設置して家の断熱性を高めたいと考えている。補助金も気になっている。」
+"""
+
+def create_persona_generator_instructions(base_prompt: str) -> Callable[[RunContextWrapper[ArticleContext], Agent[ArticleContext]], Awaitable[str]]:
+    async def dynamic_instructions_func(ctx: RunContextWrapper[ArticleContext], agent: Agent[ArticleContext]) -> str:
+        # 初期入力からのペルソナ情報の組み立て (これは大まかな指定)
+        initial_persona_description = "指定なし"
+        if ctx.context.persona_type == PersonaType.OTHER and ctx.context.custom_persona:
+            initial_persona_description = ctx.context.custom_persona
+        elif ctx.context.target_age_group and ctx.context.persona_type:
+            initial_persona_description = f"{ctx.context.target_age_group.value}の{ctx.context.persona_type.value}"
+        elif ctx.context.custom_persona: # 移行措置
+            initial_persona_description = ctx.context.custom_persona
+        
+        company_info_str = ""
+        if ctx.context.company_name or ctx.context.company_description:
+            company_info_str = f"\nクライアント企業名: {ctx.context.company_name or '未設定'}\nクライアント企業概要: {ctx.context.company_description or '未設定'}"
+
+        full_prompt = f"""{base_prompt}
+
+--- 入力情報 ---
+SEOキーワード: {', '.join(ctx.context.initial_keywords)}
+ターゲット年代: {ctx.context.target_age_group.value if ctx.context.target_age_group else '指定なし'}
+ペルソナ属性（大分類）: {ctx.context.persona_type.value if ctx.context.persona_type else '指定なし'}
+（上記属性が「その他」の場合のユーザー指定ペルソナ: {ctx.context.custom_persona if ctx.context.persona_type == PersonaType.OTHER else '該当なし'}）
+生成する具体的なペルソナの数: {ctx.context.num_persona_examples}
+{company_info_str}
+---
+
+あなたのタスクは、上記入力情報に基づいて、より具体的で詳細なペルソナ像を **{ctx.context.num_persona_examples}個** 生成することです。
+各ペルソナは、`GeneratedPersonaItem` の形式で、`id` (0から始まるインデックス) と `description` を含めてください。
+"""
+        return full_prompt
+    return dynamic_instructions_func
+
+persona_generator_agent = Agent[ArticleContext](
+    name="PersonaGeneratorAgent",
+    instructions=create_persona_generator_instructions(PERSONA_GENERATOR_AGENT_BASE_PROMPT),
+    model=settings.default_model, # ペルソナ生成に適したモデルを選択 (例: default_model や writing_model)
+    tools=[], # 基本的にはツール不要だが、必要に応じてweb_searchなどを追加検討
+    output_type=GeneratedPersonasResponse, # 新しく定義したモデル
+)
 
 # --- エージェント定義 ---
 

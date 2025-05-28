@@ -64,8 +64,34 @@
                         <input type="text" id="initial_keywords" value="札幌, 注文住宅, 自然素材, 子育て" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm">
                     </div>
                     <div>
-                        <label for="target_persona" class="block text-sm font-medium text-gray-700">ターゲットペルソナ:</label>
-                        <input type="text" id="target_persona" value="札幌近郊で自然素材を使った家づくりに関心がある、小さな子供を持つ30代夫婦" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm">
+                        <label for="target_age_group" class="block text-sm font-medium text-gray-700">ターゲット年代層:</label>
+                        <select id="target_age_group" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm">
+                            <option value="">指定なし</option>
+                            <option value="10代">10代</option>
+                            <option value="20代" selected>20代</option>
+                            <option value="30代">30代</option>
+                            <option value="40代">40代</option>
+                            <option value="50代">50代</option>
+                            <option value="60代">60代</option>
+                            <option value="70代以上">70代以上</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label for="persona_type" class="block text-sm font-medium text-gray-700">ペルソナ属性:</label>
+                        <select id="persona_type" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm">
+                            <option value="">指定なし</option>
+                            <option value="主婦">主婦</option>
+                            <option value="学生">学生</option>
+                            <option value="社会人" selected>社会人</option>
+                            <option value="自営業">自営業</option>
+                            <option value="経営者・役員">経営者・役員</option>
+                            <option value="退職者">退職者</option>
+                            <option value="その他">その他（独自ペルソナを設定）</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label for="custom_persona" class="block text-sm font-medium text-gray-700">独自ペルソナ設定 (属性で「その他」選択時):</label>
+                        <input type="text" id="custom_persona" placeholder="例: 特定の趣味を持つエンジニア" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm">
                     </div>
                     <div>
                         <label for="target_length" class="block text-sm font-medium text-gray-700">目標文字数 (任意):</label>
@@ -76,8 +102,12 @@
                         <input type="number" id="num_theme_proposals" value="3" min="1" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm">
                     </div>
                      <div>
-                        <label for="num_research_queries" class="block text-sm font-medium text-gray-700">リサーチクエリ数:</label>
-                        <input type="number" id="num_research_queries" value="5" min="1" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm">
+                        <label for="num_research_queries" class="block text-sm font-medium text-gray-700">リサーチクエリ数 (任意):</label>
+                        <input type="number" id="num_research_queries" value="3" min="1" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm">
+                    </div>
+                    <div>
+                        <label for="num_persona_examples" class="block text-sm font-medium text-gray-700">具体的なペルソナ生成数 (任意):</label>
+                        <input type="number" id="num_persona_examples" value="3" min="1" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm">
                     </div>
                 </div>
                  <div class="mb-4">
@@ -97,12 +127,15 @@
 
             <div id="content-json" class="tab-content hidden">
                 <label for="initial_request_json" class="block text-sm font-medium text-gray-700">初期リクエスト (Raw JSON):</label>
-                <textarea id="initial_request_json" rows="10" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm font-mono">{
+                <textarea id="initial_request_json" rows="12" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm font-mono">{
 "initial_keywords": ["札幌", "注文住宅", "自然素材", "子育て"],
-"target_persona": "札幌近郊で自然素材を使った家づくりに関心がある、小さな子供を持つ30代夫婦",
+"target_age_group": "30代",
+"persona_type": "主婦",
+"custom_persona": "札幌中心部から少し離れた郊外に住み、夫と小学生の子供2人と暮らす。週末は家族でアウトドアを楽しむことが多い。",
 "target_length": 3000,
 "num_theme_proposals": 3,
-"num_research_queries": 5,
+"num_research_queries": 3,
+"num_persona_examples": 3,
 "company_name": "株式会社ナチュラルホームズ札幌",
 "company_description": "札幌を拠点に、自然素材を活かした健康で快適な注文住宅を提供しています。",
 "company_style_guide": "専門用語を避け、温かみのある丁寧語（ですます調）で。子育て世代の読者に寄り添い、安心感を与えるようなトーンを心がける。"
@@ -155,10 +188,13 @@
         const connectionStatusSpan = document.getElementById('connectionStatus');
 
         const initialKeywordsInput = document.getElementById('initial_keywords');
-        const targetPersonaInput = document.getElementById('target_persona');
+        const targetAgeGroupInput = document.getElementById('target_age_group');
+        const personaTypeInput = document.getElementById('persona_type');
+        const customPersonaInput = document.getElementById('custom_persona');
         const targetLengthInput = document.getElementById('target_length');
         const numThemeProposalsInput = document.getElementById('num_theme_proposals');
         const numResearchQueriesInput = document.getElementById('num_research_queries');
+        const numPersonaExamplesInput = document.getElementById('num_persona_examples');
         const companyNameInput = document.getElementById('company_name');
         const companyDescriptionInput = document.getElementById('company_description');
         const companyStyleGuideInput = document.getElementById('company_style_guide');
@@ -260,10 +296,13 @@
         function disableInteractionElements(disabled) {
             // Disable initial request form/JSON inputs and send buttons
             initialKeywordsInput.disabled = disabled;
-            targetPersonaInput.disabled = disabled;
+            targetAgeGroupInput.disabled = disabled;
+            personaTypeInput.disabled = disabled;
+            customPersonaInput.disabled = disabled;
             targetLengthInput.disabled = disabled;
             numThemeProposalsInput.disabled = disabled;
             numResearchQueriesInput.disabled = disabled;
+            numPersonaExamplesInput.disabled = disabled;
             companyNameInput.disabled = disabled;
             companyDescriptionInput.disabled = disabled;
             companyStyleGuideInput.disabled = disabled;
@@ -356,6 +395,12 @@
                 logMessage(`サーバーがユーザー入力を要求: ${payload.request_type}`, 'user-input-req');
                 displayInteraction(payload.request_type, payload.data);
                 disableInteractionElements(false); // Ensure interaction buttons are enabled
+            }
+            // 1.b Check for Generated Personas (special case of user input request)
+            else if (payload.personas && Array.isArray(payload.personas)) { // Check for GeneratedPersonasPayload structure
+                logMessage(`サーバーがペルソナ選択を要求`, 'user-input-req');
+                displayInteraction(UserInputType.SELECT_PERSONA, { personas: payload.personas });
+                disableInteractionElements(false);
             }
             // 2. Check for Error
             else if (payload.error_message) {
@@ -466,30 +511,74 @@
             }
         }
 
-        sendFormRequestBtn.onclick = () => {
+        function enableRequestButtons(enabled) {
+            sendFormRequestBtn.disabled = !enabled;
+            sendJsonRequestBtn.disabled = !enabled;
+        }
+
+        function toggleInitialInputsDisabled(disabled) {
+            initialKeywordsInput.disabled = disabled;
+            targetAgeGroupInput.disabled = disabled;
+            personaTypeInput.disabled = disabled;
+            customPersonaInput.disabled = disabled;
+            targetLengthInput.disabled = disabled;
+            numThemeProposalsInput.disabled = disabled;
+            numResearchQueriesInput.disabled = disabled;
+            numPersonaExamplesInput.disabled = disabled;
+            companyNameInput.disabled = disabled;
+            companyDescriptionInput.disabled = disabled;
+            companyStyleGuideInput.disabled = disabled;
+            initialRequestJsonText.disabled = disabled;
+        }
+
+        sendFormRequestBtn.addEventListener('click', () => {
+            if (!websocket || websocket.readyState !== WebSocket.OPEN) {
+                logMessage('WebSocket is not connected.', 'error');
+                return;
+            }
             const keywords = initialKeywordsInput.value.split(',').map(k => k.trim()).filter(k => k);
-            const targetLength = targetLengthInput.value ? parseInt(targetLengthInput.value, 10) : null;
+            const targetLength = parseInt(targetLengthInput.value, 10);
+            const numThemeProposals = parseInt(numThemeProposalsInput.value, 10);
+            const numResearchQueries = parseInt(numResearchQueriesInput.value, 10);
+            const numPersonaExamples = parseInt(numPersonaExamplesInput.value, 10);
+
             const requestData = {
                 initial_keywords: keywords,
-                target_persona: targetPersonaInput.value || null,
+                target_age_group: targetAgeGroupInput.value || null,
+                persona_type: personaTypeInput.value || null,
+                custom_persona: customPersonaInput.value || null,
                 target_length: isNaN(targetLength) ? null : targetLength,
-                num_theme_proposals: parseInt(numThemeProposalsInput.value, 10) || 3,
-                num_research_queries: parseInt(numResearchQueriesInput.value, 10) || 5,
+                num_theme_proposals: numThemeProposals || 3,
+                num_research_queries: numResearchQueries || 3,
+                num_persona_examples: numPersonaExamples || 3,
                 company_name: companyNameInput.value || null,
                 company_description: companyDescriptionInput.value || null,
-                company_style_guide: companyStyleGuideInput.value || null,
+                company_style_guide: companyStyleGuideInput.value || null
             };
-            sendInitialRequest(requestData);
-        };
 
-        sendJsonRequestBtn.onclick = () => {
+            for (const key in requestData) {
+                if (requestData[key] === null || requestData[key] === '') {
+                    delete requestData[key];
+                }
+            }
+            if (requestData.initial_keywords && requestData.initial_keywords.length === 0) {
+                delete requestData.initial_keywords;
+            }
+
+            logMessage(requestData, 'client', true);
+            websocket.send(JSON.stringify(requestData));
+            toggleInitialInputsDisabled(true);
+            userInteractionDiv.classList.add('hidden');
+        });
+
+        sendJsonRequestBtn.addEventListener('click', () => {
              try {
                 const requestData = JSON.parse(initialRequestJsonText.value);
                 sendInitialRequest(requestData);
             } catch (e) {
                 logMessage(`Raw Request内のJSONが無効です: ${e}`, 'error');
             }
-        };
+        });
 
         // --- User Interaction Handling ---
         function displayInteraction(requestType, data) {
@@ -499,8 +588,30 @@
             messagesDiv.scrollTop = messagesDiv.scrollHeight; // Scroll log to show interaction panel
             disableInteractionElements(false); // Make sure buttons inside are enabled
 
+            // --- Handle 'select_persona' request (New) ---
+            if (requestType === UserInputType.SELECT_PERSONA) {
+                userPromptDiv.innerHTML = '<strong>生成された具体的なペルソナを選択してください: (Please select a detailed persona:)</strong>';
+                if (data && data.personas && Array.isArray(data.personas)) {
+                    data.personas.forEach((persona, index) => {
+                        const button = document.createElement('button');
+                        button.innerHTML = `
+                            <strong class="text-purple-700">ペルソナ ${persona.id + 1}</strong>
+                            <p class="text-sm text-gray-700 mt-1 whitespace-pre-wrap">${persona.description}</p>
+                        `;
+                        button.className = 'block w-full text-left bg-white hover:bg-gray-100 text-gray-800 py-3 px-4 border border-gray-300 rounded shadow-sm mb-2 transition duration-150 ease-in-out focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-purple-500';
+                        
+                        button.onclick = () => {
+                            sendClientResponse(requestType, { selected_id: persona.id });
+                        };
+                        interactionOptionsDiv.appendChild(button);
+                    });
+                } else {
+                    userPromptDiv.innerHTML += '<p class="text-red-600">ペルソナデータが受信されませんでした。(No persona data received.)</p>';
+                    console.error("Invalid data for select_persona:", data);
+                }
+            }
             // --- Handle 'select_theme' request ---
-            if (requestType === 'select_theme') {
+            else if (requestType === UserInputType.SELECT_THEME) {
                 userPromptDiv.innerHTML = '<strong>テーマを選択してください: (Please select a theme:)</strong>';
                 if (data && data.themes && Array.isArray(data.themes)) {
                     data.themes.forEach((theme, index) => {
@@ -526,9 +637,9 @@
                 }
             }
             // --- Handle 'approve_plan' or 'approve_outline' request ---
-            else if (requestType === 'approve_plan' || requestType === 'approve_outline') {
+            else if (requestType === UserInputType.APPROVE_PLAN || requestType === UserInputType.APPROVE_OUTLINE) {
                  const planOrOutline = data.plan || data.outline;
-                 const typeName = requestType === 'approve_plan' ? 'リサーチ計画 (research plan)' : 'アウトライン (outline)';
+                 const typeName = requestType === UserInputType.APPROVE_PLAN ? 'リサーチ計画 (research plan)' : 'アウトライン (outline)';
                  userPromptDiv.innerHTML = `<strong>以下の${typeName}を確認し、承認または拒否してください: (Please review the following ${typeName} and approve/reject:)</strong> <pre><code>${JSON.stringify(planOrOutline, null, 2)}</code></pre>`;
 
                  const buttonContainer = document.createElement('div');
@@ -584,18 +695,24 @@
                     return; // Do not send if type doesn't match
                 }
 
-                // デバッグのために追加: ペイロードのログを取る
                 console.log(`Sending response for ${responseType}:`, payload);
 
-                // selected_indexが数値であることを確認
-                if (responseType === 'select_theme' && payload && typeof payload.selected_index !== 'undefined') {
-                    // 値が既に数値型なら何もしない、そうでなければ整数に変換
+                if (responseType === UserInputType.SELECT_THEME && payload && typeof payload.selected_index !== 'undefined') {
                     if (typeof payload.selected_index !== 'number') {
                         payload.selected_index = parseInt(payload.selected_index, 10);
                     }
-                    // NaNチェック
                     if (isNaN(payload.selected_index)) {
-                        logMessage(`選択されたインデックスが無効です: ${payload.selected_index}`, 'error');
+                        logMessage(`選択されたテーマインデックスが無効です: ${payload.selected_index}`, 'error');
+                        return;
+                    }
+                }
+                // For SELECT_PERSONA, ensure selected_id is a number
+                else if (responseType === UserInputType.SELECT_PERSONA && payload && typeof payload.selected_id !== 'undefined') {
+                    if (typeof payload.selected_id !== 'number') {
+                        payload.selected_id = parseInt(payload.selected_id, 10);
+                    }
+                    if (isNaN(payload.selected_id)) {
+                        logMessage(`選択されたペルソナIDが無効です: ${payload.selected_id}`, 'error');
                         return;
                     }
                 }
@@ -632,6 +749,14 @@
         };
 
         // --- Initial Setup ---
+        // UserInputType EnumをJavaScript側でも利用可能にする (グローバルスコープ)
+        const UserInputType = {
+            SELECT_PERSONA: "select_persona",
+            SELECT_THEME: "select_theme",
+            APPROVE_PLAN: "approve_plan",
+            APPROVE_OUTLINE: "approve_outline"
+        };
+
         switchTab('form'); // Start with the form tab active
         disableInteractionElements(true); // Keep inputs disabled until connected
 
