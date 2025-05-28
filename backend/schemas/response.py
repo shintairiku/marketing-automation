@@ -97,6 +97,8 @@ class UserInputType(str, Enum):
     SELECT_THEME = "select_theme"
     APPROVE_PLAN = "approve_plan"
     APPROVE_OUTLINE = "approve_outline"
+    REGENERATE = "regenerate"
+    EDIT_AND_PROCEED = "edit_and_proceed"
     # 今後、他の入力タイプを追加可能
 
 class UserInputRequestPayload(BasePayload):
@@ -143,11 +145,26 @@ class ApprovePayload(BasePayload):
     approved: bool = Field(description="承認したかどうか")
     # reason: Optional[str] = Field(None, description="拒否した場合の理由など (任意)")
 
+# 新しいクライアント応答ペイロード
+class RegeneratePayload(BasePayload):
+    """再生成要求ペイロード (特定のステップの再生成を意図)"""
+    # 現状、どのステップを再生成するかはサーバー側のコンテキストで判断するため、
+    # このペイロード自体に特別なフィールドは不要かもしれない。
+    # 必要であれば、再生成対象のステップを示すフィールドを追加する。
+    pass # シンプルにするため、一旦フィールドなし
+
+class EditAndProceedPayload(BasePayload):
+    """編集して進行要求ペイロード"""
+    # edited_step: UserInputType = Field(description="どのステップの内容を編集したか") # server_service側で判断
+    edited_content: Dict[str, Any] = Field(description="ユーザーによって編集された内容")
+
 # クライアントから送信される応答ペイロードのUnion型
 ClientResponsePayload = Union[
     SelectPersonaPayload,
     SelectThemePayload,
     ApprovePayload,
+    RegeneratePayload,
+    EditAndProceedPayload,
 ]
 
 # --- WebSocketメッセージモデル ---

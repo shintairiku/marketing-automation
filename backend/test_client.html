@@ -396,12 +396,6 @@
                 displayInteraction(payload.request_type, payload.data);
                 disableInteractionElements(false); // Ensure interaction buttons are enabled
             }
-            // 1.b Check for Generated Personas (special case of user input request)
-            else if (payload.personas && Array.isArray(payload.personas)) { // Check for GeneratedPersonasPayload structure
-                logMessage(`サーバーがペルソナ選択を要求`, 'user-input-req');
-                displayInteraction(UserInputType.SELECT_PERSONA, { personas: payload.personas });
-                disableInteractionElements(false);
-            }
             // 2. Check for Error
             else if (payload.error_message) {
                 logMessage(`エラー (${payload.step || 'unknown'}): ${payload.error_message}`, 'error');
@@ -582,82 +576,382 @@
 
         // --- User Interaction Handling ---
         function displayInteraction(requestType, data) {
-            currentExpectedResponseType = requestType; // Store the type for sending the response
+            currentExpectedResponseType = requestType;
             userInteractionDiv.classList.remove('hidden');
-            interactionOptionsDiv.innerHTML = ''; // Clear previous options
-            messagesDiv.scrollTop = messagesDiv.scrollHeight; // Scroll log to show interaction panel
-            disableInteractionElements(false); // Make sure buttons inside are enabled
+            interactionOptionsDiv.innerHTML = '';
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+            disableInteractionElements(false);
 
             // --- Handle 'select_persona' request (New) ---
             if (requestType === UserInputType.SELECT_PERSONA) {
-                userPromptDiv.innerHTML = '<strong>生成された具体的なペルソナを選択してください: (Please select a detailed persona:)</strong>';
-                if (data && data.personas && Array.isArray(data.personas)) {
-                    data.personas.forEach((persona, index) => {
-                        const button = document.createElement('button');
-                        button.innerHTML = `
-                            <strong class="text-purple-700">ペルソナ ${persona.id + 1}</strong>
-                            <p class="text-sm text-gray-700 mt-1 whitespace-pre-wrap">${persona.description}</p>
-                        `;
-                        button.className = 'block w-full text-left bg-white hover:bg-gray-100 text-gray-800 py-3 px-4 border border-gray-300 rounded shadow-sm mb-2 transition duration-150 ease-in-out focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-purple-500';
+                userPromptDiv.textContent = "以下の具体的なペルソナ案から1つ選択してください。各ペルソナは編集も可能です。";
+                const personas = data.personas;
+                if (personas && personas.length > 0) {
+                    personas.forEach((persona, index) => {
+                        const div = document.createElement('div');
+                        div.className = 'mb-3 p-3 border rounded bg-gray-50';
+
+                        const radioId = `persona_option_${index}`;
+                        const radio = document.createElement('input');
+                        radio.type = 'radio';
+                        radio.name = 'persona_selection';
+                        radio.id = radioId;
+                        radio.value = persona.id;
+                        radio.className = 'mr-2';
+                        if (index === 0) radio.checked = true;
+
+                        const label = document.createElement('label');
+                        label.htmlFor = radioId;
+                        label.className = 'font-semibold';
+                        label.textContent = `ペルソナ案 ${persona.id + 1}`;
+
+                        const descriptionTextareaId = `persona_desc_edit_${persona.id}`;
+                        const descriptionTextarea = document.createElement('textarea');
+                        descriptionTextarea.id = descriptionTextareaId;
+                        descriptionTextarea.value = persona.description;
+                        descriptionTextarea.rows = 3;
+                        descriptionTextarea.className = 'mt-1 block w-full p-2 border border-gray-300 rounded-md shadow-sm sm:text-sm';
                         
-                        button.onclick = () => {
-                            sendClientResponse(requestType, { selected_id: persona.id });
-                        };
-                        interactionOptionsDiv.appendChild(button);
+                        div.appendChild(radio);
+                        div.appendChild(label);
+                        div.appendChild(descriptionTextarea);
+                        interactionOptionsDiv.appendChild(div);
                     });
+
+                    // 選択して進むボタン
+                    const selectButton = document.createElement('button');
+                    selectButton.textContent = 'このペルソナで決定';
+                    selectButton.className = 'bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded mr-2';
+                    selectButton.onclick = () => {
+                        const selectedRadio = document.querySelector('input[name=\"persona_selection\"]:checked');
+                        if (selectedRadio) {
+                            sendClientResponse(UserInputType.SELECT_PERSONA, { selected_id: parseInt(selectedRadio.value) });
+                        }
+                    };
+                    interactionOptionsDiv.appendChild(selectButton);
+
+                    // 編集して進むボタン
+                    const editButton = document.createElement('button');
+                    editButton.textContent = '編集した内容で決定';
+                    editButton.className = 'bg-yellow-500 hover:bg-yellow-700 text-white font-bold py-2 px-4 rounded mr-2';
+                    editButton.onclick = () => {
+                        const selectedRadio = document.querySelector('input[name=\"persona_selection\"]:checked');
+                        if (selectedRadio) {
+                            const personaId = selectedRadio.value;
+                            const editedDescription = document.getElementById(`persona_desc_edit_${personaId}`).value;
+                            sendClientResponse(UserInputType.EDIT_AND_PROCEED, { 
+                                edited_content: { id: parseInt(personaId), description: editedDescription }
+                            }); 
+                        }
+                    };
+                    interactionOptionsDiv.appendChild(editButton);
+
+                    // 再生成ボタン
+                    const regenerateButton = document.createElement('button');
+                    regenerateButton.textContent = 'ペルソナを再生成';
+                    regenerateButton.className = 'bg-gray-500 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded';
+                    regenerateButton.onclick = () => {
+                        sendClientResponse(UserInputType.REGENERATE, {});
+                    };
+                    interactionOptionsDiv.appendChild(regenerateButton);
+
                 } else {
-                    userPromptDiv.innerHTML += '<p class="text-red-600">ペルソナデータが受信されませんでした。(No persona data received.)</p>';
-                    console.error("Invalid data for select_persona:", data);
+                    userPromptDiv.textContent = "ペルソナ案がありませんでした。";
                 }
             }
             // --- Handle 'select_theme' request ---
             else if (requestType === UserInputType.SELECT_THEME) {
-                userPromptDiv.innerHTML = '<strong>テーマを選択してください: (Please select a theme:)</strong>';
-                if (data && data.themes && Array.isArray(data.themes)) {
-                    data.themes.forEach((theme, index) => {
-                        const button = document.createElement('button');
-                        button.innerHTML = `
-                            <strong class="text-blue-700">${index + 1}. ${theme.title}</strong>
-                            <p class="text-sm text-gray-600 mt-1">説明: ${theme.description}</p>
-                            <p class="text-xs text-gray-500 mt-1">キーワード: ${theme.keywords.join(', ')}</p>
-                        `;
-                        button.className = 'block w-full text-left bg-white hover:bg-gray-100 text-gray-800 py-3 px-4 border border-gray-300 rounded shadow-sm mb-2 transition duration-150 ease-in-out focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500';
+                userPromptDiv.textContent = "以下のテーマ案から1つ選択してください。各テーマは編集も可能です。";
+                const themes = data.themes;
+                if (themes && themes.length > 0) {
+                    themes.forEach((theme, index) => {
+                        const div = document.createElement('div');
+                        div.className = 'mb-3 p-3 border rounded bg-gray-50';
+
+                        const radioId = `theme_option_${index}`;
+                        const radio = document.createElement('input');
+                        radio.type = 'radio';
+                        radio.name = 'theme_selection';
+                        radio.id = radioId;
+                        radio.value = index;
+                        radio.className = 'mr-2';
+                        if (index === 0) radio.checked = true;
+
+                        const label = document.createElement('label');
+                        label.htmlFor = radioId;
+                        label.className = 'font-semibold';
+                        label.textContent = `テーマ案 ${index + 1}`;
+                        div.appendChild(radio);
+                        div.appendChild(label);
+
+                        // タイトル編集
+                        const titleInputId = `theme_title_edit_${index}`;
+                        const titleLabel = document.createElement('label');
+                        titleLabel.htmlFor = titleInputId; titleLabel.className = 'block text-sm font-medium text-gray-700 mt-1'; titleLabel.textContent = 'タイトル:';
+                        const titleInput = document.createElement('input');
+                        titleInput.type = 'text'; titleInput.id = titleInputId; titleInput.value = theme.title;
+                        titleInput.className = 'mt-1 block w-full p-2 border border-gray-300 rounded-md shadow-sm sm:text-sm';
+                        div.appendChild(titleLabel);
+                        div.appendChild(titleInput);
+
+                        // 説明編集
+                        const descTextareaId = `theme_desc_edit_${index}`;
+                        const descLabel = document.createElement('label');
+                        descLabel.htmlFor = descTextareaId; descLabel.className = 'block text-sm font-medium text-gray-700 mt-1'; descLabel.textContent = '説明:';
+                        const descTextarea = document.createElement('textarea');
+                        descTextarea.id = descTextareaId; descTextarea.value = theme.description;
+                        descTextarea.rows = 2;
+                        descTextarea.className = 'mt-1 block w-full p-2 border border-gray-300 rounded-md shadow-sm sm:text-sm';
+                        div.appendChild(descLabel);
+                        div.appendChild(descTextarea);
+
+                        // キーワード編集
+                        const keywordsInputId = `theme_keywords_edit_${index}`;
+                        const keywordsLabel = document.createElement('label');
+                        keywordsLabel.htmlFor = keywordsInputId; keywordsLabel.className = 'block text-sm font-medium text-gray-700 mt-1'; keywordsLabel.textContent = 'キーワード (カンマ区切り):';
+                        const keywordsInput = document.createElement('input');
+                        keywordsInput.type = 'text'; keywordsInput.id = keywordsInputId; keywordsInput.value = theme.keywords.join(', ');
+                        keywordsInput.className = 'mt-1 block w-full p-2 border border-gray-300 rounded-md shadow-sm sm:text-sm';
+                        div.appendChild(keywordsLabel);
+                        div.appendChild(keywordsInput);
                         
-                        // ここを修正: インデックスを整数値として確実に送信する
-                        button.onclick = () => {
-                            const selectedIndex = parseInt(index, 10);
-                            sendClientResponse(requestType, { selected_index: selectedIndex });
-                        };
-                        
-                        interactionOptionsDiv.appendChild(button);
+                        interactionOptionsDiv.appendChild(div);
                     });
+
+                    const buttonContainer = document.createElement('div');
+                    buttonContainer.className = 'mt-4 flex space-x-2';
+
+                    const selectButton = document.createElement('button');
+                    selectButton.textContent = 'このテーマで決定';
+                    selectButton.className = 'bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded';
+                    selectButton.onclick = () => {
+                        const selectedRadio = document.querySelector('input[name=\"theme_selection\"]:checked');
+                        if (selectedRadio) {
+                            sendClientResponse(UserInputType.SELECT_THEME, { selected_index: parseInt(selectedRadio.value) });
+                        }
+                    };
+                    buttonContainer.appendChild(selectButton);
+
+                    const editButton = document.createElement('button');
+                    editButton.textContent = '編集した内容で決定';
+                    editButton.className = 'bg-yellow-500 hover:bg-yellow-700 text-white font-bold py-2 px-4 rounded';
+                    editButton.onclick = () => {
+                        const selectedRadio = document.querySelector('input[name=\"theme_selection\"]:checked');
+                        if (selectedRadio) {
+                            const themeIndex = selectedRadio.value;
+                            const editedTitle = document.getElementById(`theme_title_edit_${themeIndex}`).value;
+                            const editedDescription = document.getElementById(`theme_desc_edit_${themeIndex}`).value;
+                            const editedKeywords = document.getElementById(`theme_keywords_edit_${themeIndex}`).value.split(',').map(k => k.trim()).filter(k => k);
+                            sendClientResponse(UserInputType.EDIT_AND_PROCEED, { 
+                                edited_content: { 
+                                    title: editedTitle, 
+                                    description: editedDescription, 
+                                    keywords: editedKeywords 
+                                }
+                            }); 
+                        }
+                    };
+                    buttonContainer.appendChild(editButton);
+
+                    const regenerateButton = document.createElement('button');
+                    regenerateButton.textContent = 'テーマを再生成';
+                    regenerateButton.className = 'bg-gray-500 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded';
+                    regenerateButton.onclick = () => {
+                        sendClientResponse(UserInputType.REGENERATE, {});
+                    };
+                    buttonContainer.appendChild(regenerateButton);
+                    interactionOptionsDiv.appendChild(buttonContainer);
+
                 } else {
-                    userPromptDiv.innerHTML += '<p class="text-red-600">テーマデータが受信されませんでした。(No theme data received.)</p>';
-                    console.error("Invalid data for select_theme:", data);
+                    userPromptDiv.textContent = "テーマ案がありませんでした。";
                 }
             }
             // --- Handle 'approve_plan' or 'approve_outline' request ---
-            else if (requestType === UserInputType.APPROVE_PLAN || requestType === UserInputType.APPROVE_OUTLINE) {
-                 const planOrOutline = data.plan || data.outline;
-                 const typeName = requestType === UserInputType.APPROVE_PLAN ? 'リサーチ計画 (research plan)' : 'アウトライン (outline)';
-                 userPromptDiv.innerHTML = `<strong>以下の${typeName}を確認し、承認または拒否してください: (Please review the following ${typeName} and approve/reject:)</strong> <pre><code>${JSON.stringify(planOrOutline, null, 2)}</code></pre>`;
+            else if (requestType === UserInputType.APPROVE_PLAN) {
+                userPromptDiv.textContent = "以下のリサーチ計画を確認してください。編集、承認、または再生成が可能です。";
+                const plan = data.plan;
+                if (plan) {
+                    const planDiv = document.createElement('div');
+                    planDiv.className = 'mb-3 p-3 border rounded bg-gray-50';
+                    
+                    // トピック編集
+                    const topicLabel = document.createElement('h4');
+                    topicLabel.className = 'text-md font-semibold mb-1'; topicLabel.textContent = 'トピック:';
+                    const topicInput = document.createElement('input');
+                    topicInput.type = 'text'; topicInput.id = 'plan_topic_edit'; topicInput.value = plan.topic;
+                    topicInput.className = 'block w-full p-2 border border-gray-300 rounded-md shadow-sm sm:text-sm mb-2';
+                    planDiv.appendChild(topicLabel);
+                    planDiv.appendChild(topicInput);
 
-                 const buttonContainer = document.createElement('div');
-                 buttonContainer.className = 'flex justify-end space-x-3 mt-3';
+                    // クエリ編集
+                    const queriesLabel = document.createElement('h4');
+                    queriesLabel.className = 'text-md font-semibold mb-1'; queriesLabel.textContent = 'リサーチクエリ:';
+                    planDiv.appendChild(queriesLabel);
+                    plan.queries.forEach((q, index) => {
+                        const queryDiv = document.createElement('div');
+                        queryDiv.className = 'mb-2 p-2 border rounded bg-white';
+                        
+                        const queryInputId = `plan_query_edit_${index}`;
+                        const queryInputLabel = document.createElement('label');
+                        queryInputLabel.htmlFor = queryInputId; queryInputLabel.textContent = `クエリ ${index + 1}:`;
+                        const queryInput = document.createElement('input');
+                        queryInput.type = 'text'; queryInput.id = queryInputId; queryInput.value = q.query;
+                        queryInput.className = 'mt-1 block w-full p-1 border border-gray-300 rounded-md sm:text-sm';
+                        queryDiv.appendChild(queryInputLabel);
+                        queryDiv.appendChild(queryInput);
 
-                 const approveBtn = document.createElement('button');
-                 approveBtn.textContent = '承認 (Approve)';
-                 approveBtn.className = 'bg-green-500 hover:bg-green-700 text-white font-bold py-2 px-4 rounded transition duration-150 ease-in-out';
-                 approveBtn.onclick = () => sendClientResponse(requestType, { approved: true });
-                 buttonContainer.appendChild(approveBtn);
+                        const focusInputId = `plan_focus_edit_${index}`;
+                        const focusInputLabel = document.createElement('label');
+                        focusInputLabel.htmlFor = focusInputId; focusInputLabel.textContent = `フォーカス ${index + 1}:`;
+                        const focusInput = document.createElement('input');
+                        focusInput.type = 'text'; focusInput.id = focusInputId; focusInput.value = q.focus;
+                        focusInput.className = 'mt-1 block w-full p-1 border border-gray-300 rounded-md sm:text-sm';
+                        queryDiv.appendChild(focusInputLabel);
+                        queryDiv.appendChild(focusInput);
+                        planDiv.appendChild(queryDiv);
+                    });
+                    interactionOptionsDiv.appendChild(planDiv);
 
-                 const rejectBtn = document.createElement('button');
-                 rejectBtn.textContent = '拒否 (Reject)';
-                 rejectBtn.className = 'bg-red-500 hover:bg-red-700 text-white font-bold py-2 px-4 rounded transition duration-150 ease-in-out';
-                 rejectBtn.onclick = () => sendClientResponse(requestType, { approved: false });
-                 buttonContainer.appendChild(rejectBtn);
+                    const buttonContainer = document.createElement('div');
+                    buttonContainer.className = 'mt-4 flex space-x-2';
 
-                 interactionOptionsDiv.appendChild(buttonContainer);
+                    const approveButton = document.createElement('button');
+                    approveButton.textContent = 'この計画で承認';
+                    approveButton.className = 'bg-green-500 hover:bg-green-700 text-white font-bold py-2 px-4 rounded';
+                    approveButton.onclick = () => sendClientResponse(UserInputType.APPROVE_PLAN, { approved: true });
+                    buttonContainer.appendChild(approveButton);
+
+                    const editButton = document.createElement('button');
+                    editButton.textContent = '編集した内容で承認';
+                    editButton.className = 'bg-yellow-500 hover:bg-yellow-700 text-white font-bold py-2 px-4 rounded';
+                    editButton.onclick = () => {
+                        const editedTopic = document.getElementById('plan_topic_edit').value;
+                        const editedQueries = [];
+                        plan.queries.forEach((q, index) => {
+                            const editedQuery = document.getElementById(`plan_query_edit_${index}`).value;
+                            const editedFocus = document.getElementById(`plan_focus_edit_${index}`).value;
+                            editedQueries.push({ query: editedQuery, focus: editedFocus });
+                        });
+                        sendClientResponse(UserInputType.EDIT_AND_PROCEED, { 
+                            edited_content: { topic: editedTopic, queries: editedQueries }
+                        });
+                    };
+                    buttonContainer.appendChild(editButton);
+
+                    const regenerateButton = document.createElement('button');
+                    regenerateButton.textContent = '計画を再生成';
+                    regenerateButton.className = 'bg-gray-500 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded';
+                    regenerateButton.onclick = () => sendClientResponse(UserInputType.REGENERATE, {});
+                    buttonContainer.appendChild(regenerateButton);
+                    interactionOptionsDiv.appendChild(buttonContainer);
+                } else {
+                    userPromptDiv.textContent = "リサーチ計画のデータがありませんでした。";
+                }
+            }
+            else if (requestType === UserInputType.APPROVE_OUTLINE) {
+                userPromptDiv.textContent = "以下のアウトラインを確認してください。編集、承認、または再生成が可能です。";
+                const outline = data.outline;
+                if (outline) {
+                    const outlineDiv = document.createElement('div');
+                    outlineDiv.className = 'mb-3 p-3 border rounded bg-gray-50';
+
+                    // タイトル編集
+                    const titleLabel = document.createElement('h4');
+                    titleLabel.className = 'text-md font-semibold mb-1'; titleLabel.textContent = 'タイトル:';
+                    const titleInput = document.createElement('input');
+                    titleInput.type = 'text'; titleInput.id = 'outline_title_edit'; titleInput.value = outline.title;
+                    titleInput.className = 'block w-full p-2 border border-gray-300 rounded-md shadow-sm sm:text-sm mb-2';
+                    outlineDiv.appendChild(titleLabel);
+                    outlineDiv.appendChild(titleInput);
+
+                    // トーン編集
+                    const toneLabel = document.createElement('h4');
+                    toneLabel.className = 'text-md font-semibold mb-1'; toneLabel.textContent = '提案トーン:';
+                    const toneInput = document.createElement('input');
+                    toneInput.type = 'text'; toneInput.id = 'outline_tone_edit'; toneInput.value = outline.suggested_tone;
+                    toneInput.className = 'block w-full p-2 border border-gray-300 rounded-md shadow-sm sm:text-sm mb-2';
+                    outlineDiv.appendChild(toneLabel);
+                    outlineDiv.appendChild(toneInput);
+
+                    // セクション編集 (トップレベルのみ)
+                    const sectionsLabel = document.createElement('h4');
+                    sectionsLabel.className = 'text-md font-semibold mb-1'; sectionsLabel.textContent = 'セクション:';
+                    outlineDiv.appendChild(sectionsLabel);
+                    outline.sections.forEach((section, index) => {
+                        const sectionDiv = document.createElement('div');
+                        sectionDiv.className = 'mb-2 p-2 border rounded bg-white';
+                        sectionDiv.innerHTML = `<p class=\"font-medium text-gray-800\">セクション ${index + 1}</p>`;
+
+                        const headingInputId = `outline_heading_edit_${index}`;
+                        const headingLabel = document.createElement('label');
+                        headingLabel.htmlFor = headingInputId; headingLabel.textContent = '見出し:';
+                        const headingInput = document.createElement('input');
+                        headingInput.type = 'text'; headingInput.id = headingInputId; headingInput.value = section.heading;
+                        headingInput.className = 'mt-1 block w-full p-1 border border-gray-300 rounded-md sm:text-sm';
+                        sectionDiv.appendChild(headingLabel);
+                        sectionDiv.appendChild(headingInput);
+
+                        const charsInputId = `outline_chars_edit_${index}`;
+                        const charsLabel = document.createElement('label');
+                        charsLabel.htmlFor = charsInputId; charsLabel.textContent = '推定文字数 (任意):';
+                        const charsInput = document.createElement('input');
+                        charsInput.type = 'number'; charsInput.id = charsInputId; charsInput.value = section.estimated_chars || '';
+                        charsInput.className = 'mt-1 block w-full p-1 border border-gray-300 rounded-md sm:text-sm';
+                        sectionDiv.appendChild(charsLabel);
+                        sectionDiv.appendChild(charsInput);
+
+                        // サブセクションは表示のみ (編集は今回対象外)
+                        if (section.subsections && section.subsections.length > 0) {
+                            const subLabel = document.createElement('p');
+                            subLabel.className = 'text-sm text-gray-600 mt-1';
+                            subLabel.textContent = `サブセクション: ${section.subsections.map(s => s.heading).join(', ')}`;
+                            sectionDiv.appendChild(subLabel);
+                        }
+                        outlineDiv.appendChild(sectionDiv);
+                    });
+                    interactionOptionsDiv.appendChild(outlineDiv);
+
+                    const buttonContainer = document.createElement('div');
+                    buttonContainer.className = 'mt-4 flex space-x-2';
+
+                    const approveButton = document.createElement('button');
+                    approveButton.textContent = 'このアウトラインで承認';
+                    approveButton.className = 'bg-green-500 hover:bg-green-700 text-white font-bold py-2 px-4 rounded';
+                    approveButton.onclick = () => sendClientResponse(UserInputType.APPROVE_OUTLINE, { approved: true });
+                    buttonContainer.appendChild(approveButton);
+
+                    const editButton = document.createElement('button');
+                    editButton.textContent = '編集した内容で承認';
+                    editButton.className = 'bg-yellow-500 hover:bg-yellow-700 text-white font-bold py-2 px-4 rounded';
+                    editButton.onclick = () => {
+                        const editedTitle = document.getElementById('outline_title_edit').value;
+                        const editedTone = document.getElementById('outline_tone_edit').value;
+                        const editedSections = [];
+                        outline.sections.forEach((section, index) => {
+                            const editedHeading = document.getElementById(`outline_heading_edit_${index}`).value;
+                            const editedCharsStr = document.getElementById(`outline_chars_edit_${index}`).value;
+                            const editedSection = {
+                                heading: editedHeading,
+                                estimated_chars: editedCharsStr ? parseInt(editedCharsStr) : null,
+                                subsections: section.subsections // サブセクションは元のものをそのまま渡す (編集対象外)
+                            };
+                            editedSections.push(editedSection);
+                        });
+                        sendClientResponse(UserInputType.EDIT_AND_PROCEED, { 
+                            edited_content: { title: editedTitle, suggested_tone: editedTone, sections: editedSections }
+                        });
+                    };
+                    buttonContainer.appendChild(editButton);
+
+                    const regenerateButton = document.createElement('button');
+                    regenerateButton.textContent = 'アウトラインを再生成';
+                    regenerateButton.className = 'bg-gray-500 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded';
+                    regenerateButton.onclick = () => sendClientResponse(UserInputType.REGENERATE, {});
+                    buttonContainer.appendChild(regenerateButton);
+                    interactionOptionsDiv.appendChild(buttonContainer);
+                } else {
+                    userPromptDiv.textContent = "アウトラインのデータがありませんでした。";
+                }
             }
             // --- Handle unknown request types ---
             else {
@@ -687,49 +981,19 @@
 
         // --- Send Client Response Back to Server ---
         function sendClientResponse(responseType, payload) {
-            if (websocket && websocket.readyState === WebSocket.OPEN) {
-                // Ensure the responseType matches the one we were expecting
-                if (responseType !== currentExpectedResponseType) {
-                    logMessage(`応答タイプ (${responseType}) が期待 (${currentExpectedResponseType}) と一致しません。(Response type mismatch)`, 'error');
-                    console.warn("Mismatch between responseType and currentExpectedResponseType", responseType, currentExpectedResponseType);
-                    return; // Do not send if type doesn't match
-                }
-
-                console.log(`Sending response for ${responseType}:`, payload);
-
-                if (responseType === UserInputType.SELECT_THEME && payload && typeof payload.selected_index !== 'undefined') {
-                    if (typeof payload.selected_index !== 'number') {
-                        payload.selected_index = parseInt(payload.selected_index, 10);
-                    }
-                    if (isNaN(payload.selected_index)) {
-                        logMessage(`選択されたテーマインデックスが無効です: ${payload.selected_index}`, 'error');
-                        return;
-                    }
-                }
-                // For SELECT_PERSONA, ensure selected_id is a number
-                else if (responseType === UserInputType.SELECT_PERSONA && payload && typeof payload.selected_id !== 'undefined') {
-                    if (typeof payload.selected_id !== 'number') {
-                        payload.selected_id = parseInt(payload.selected_id, 10);
-                    }
-                    if (isNaN(payload.selected_id)) {
-                        logMessage(`選択されたペルソナIDが無効です: ${payload.selected_id}`, 'error');
-                        return;
-                    }
-                }
-
-                const message = {
-                    type: "client_response", // Message type identifier
-                    response_type: responseType, // The type of request this is responding to
-                    payload: payload // The actual response data
-                };
-                const messageStr = JSON.stringify(message);
-                websocket.send(messageStr);
-                logMessage(message, 'client', true); // Log sent JSON
-                hideInteraction(); // Hide interaction panel after sending response
-                disableInteractionElements(true); // Disable inputs again while server processes response
-            } else {
-                logMessage('WebSocket が接続されていません。(WebSocket is not connected.)', 'error');
+            if (!websocket || websocket.readyState !== WebSocket.OPEN) {
+                logMessage('WebSocket is not connected.', 'error');
+                return;
             }
+            const message = {
+                type: "client_response",
+                response_type: responseType,
+                payload: payload
+            };
+            websocket.send(JSON.stringify(message));
+            logMessage(message, 'client', true);
+            clearUserInteraction(); // Hide the interaction panel after sending
+            currentExpectedResponseType = null; // Reset expected type
         }
 
         // --- Copy Final HTML to Clipboard ---
@@ -754,7 +1018,9 @@
             SELECT_PERSONA: "select_persona",
             SELECT_THEME: "select_theme",
             APPROVE_PLAN: "approve_plan",
-            APPROVE_OUTLINE: "approve_outline"
+            APPROVE_OUTLINE: "approve_outline",
+            EDIT_AND_PROCEED: "edit_and_proceed",
+            REGENERATE: "regenerate"
         };
 
         switchTab('form'); // Start with the form tab active
