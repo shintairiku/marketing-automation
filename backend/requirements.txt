@@ -9,3 +9,6 @@ pydantic-settings
 # 必要に応じて他のライブラリ (litellmなど) を追加
 # agents SDKが内部で使用する可能性のあるライブラリ
 griffe
+serpapi
+beautifulsoup4
+requests

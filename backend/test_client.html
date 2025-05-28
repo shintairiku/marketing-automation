@@ -171,6 +171,20 @@
         </div>
         <!-- Streaming Preview Section END -->
 
+        <!-- SerpAPI Analysis Results Section START -->
+        <div id="serpapi-analysis-container" class="hidden mt-6 p-4 border rounded-md bg-blue-50">
+            <h2 class="text-lg font-semibold mb-3 flex items-center">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 mr-2 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 00-2-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                </svg>
+                SerpAPIキーワード分析結果 (SerpAPI Keyword Analysis Results)
+            </h2>
+            <div id="serpapi-analysis-content" class="space-y-4">
+                <!-- SerpAPI analysis results will appear here -->
+            </div>
+        </div>
+        <!-- SerpAPI Analysis Results Section END -->
+
         <div id="final-article-container" class="hidden mt-6 p-4 border rounded-md bg-gray-50">
             <h2 class="text-lg font-semibold mb-3">4. 完成記事 (Final Article)</h2>
             <button id="copyHtmlBtn" class="bg-purple-500 hover:bg-purple-700 text-white font-bold py-2 px-4 rounded mb-3 transition duration-150 ease-in-out">HTMLをコピー (Copy HTML)</button>
@@ -213,6 +227,9 @@
 
         const streamingPreviewContainer = document.getElementById('streaming-preview-container');
         const streamingPreviewDiv = document.getElementById('streaming-preview');
+
+        const serpApiAnalysisContainer = document.getElementById('serpapi-analysis-container');
+        const serpApiAnalysisContent = document.getElementById('serpapi-analysis-content');
 
         const tabForm = document.getElementById('tab-form');
         const tabJson = document.getElementById('tab-json');
@@ -345,6 +362,8 @@
                 finalArticlePreviewDiv.innerHTML = '';
                 streamingPreviewContainer.classList.add('hidden');
                 streamingPreviewDiv.innerHTML = '';
+                serpApiAnalysisContainer.classList.add('hidden');
+                serpApiAnalysisContent.innerHTML = '';
                 finalHtmlContent = '';
             };
 
@@ -454,6 +473,61 @@
                 // Assume processing is ongoing unless proven otherwise
                 disableInteractionElements(true);
             }
+
+            // 6. Handle different processing steps
+            if (payload.step) {
+                // Persona selection
+                if (payload.step === 'persona_generated' && payload.personas) {
+                    logMessage(`${payload.personas.length}個のペルソナ候補を生成しました。`, 'info');
+                }
+                // Theme generation
+                else if (payload.step === 'theme_generated' && payload.themes) {
+                    logMessage(`${payload.themes.length}個のテーマ案を生成しました。`, 'info');
+                }
+                // Research plan generated
+                else if (payload.step === 'research_plan_generated' && payload.research_plan) {
+                    logMessage(`リサーチ計画が生成されました。${payload.research_plan.queries.length}個のクエリで調査を開始します。`, 'info');
+                }
+                // Research progress
+                else if (payload.step === 'research_progress' && payload.query_result) {
+                    logMessage(`リサーチクエリ「${payload.query_result.query}」の結果を取得しました。`, 'info');
+                }
+                // Research completed
+                else if (payload.step === 'research_completed' && payload.research_report) {
+                    logMessage(`リサーチが完了しました。`, 'info');
+                }
+                // Outline generated
+                else if (payload.step === 'outline_generated' && payload.outline) {
+                    logMessage(`アウトラインが生成されました。${payload.outline.sections.length}個のセクションで構成されます。`, 'info');
+                }
+                // Section writing progress
+                else if (payload.step === 'section_writing_progress' && payload.section) {
+                    logMessage(`セクション ${payload.section.section_index + 1}: 「${payload.section.heading}」を執筆しました。`, 'info');
+                    // Update streaming preview if applicable
+                    if (streamingPreviewContainer.classList.contains('hidden')) {
+                        streamingPreviewContainer.classList.remove('hidden');
+                    }
+                    streamingPreviewDiv.innerHTML += payload.section.html_content;
+                    streamingPreviewDiv.scrollTop = streamingPreviewDiv.scrollHeight;
+                }
+                // Article completed
+                else if (payload.step === 'article_completed' && payload.article) {
+                    logMessage(`記事執筆が完了しました。`, 'info');
+                    displayFinalArticle(payload.article.title, payload.article.final_html_content);
+                }
+                // SerpAPI keyword analysis steps
+                else if (payload.step === 'keyword_analyzing') {
+                    logMessage(`SerpAPIを使用してキーワード分析を開始しています...`, 'info');
+                }
+                else if (payload.step === 'keyword_analyzed' && payload.serp_analysis_report) {
+                    logMessage(`SerpAPIキーワード分析が完了しました。検索クエリ: ${payload.serp_analysis_report.search_query}`, 'info');
+                    displaySerpApiAnalysis(payload.serp_analysis_report);
+                }
+                // Generic step processing
+                else {
+                    logMessage(`処理ステップ: ${payload.step}`, 'info');
+                }
+            }
         }
 
         function displayStreamingChunk(sectionIndex, heading, chunk, isComplete) {
@@ -494,6 +568,8 @@
                     finalArticlePreviewDiv.innerHTML = '';
                     streamingPreviewContainer.classList.add('hidden');
                     streamingPreviewDiv.innerHTML = '';
+                    serpApiAnalysisContainer.classList.add('hidden');
+                    serpApiAnalysisContent.innerHTML = '';
                     finalHtmlContent = '';
                     hideInteraction(); // Hide any leftover interaction panel
                 } catch (e) {
@@ -977,6 +1053,119 @@
             finalArticlePreviewDiv.innerHTML = `<h3 class="text-xl font-semibold mb-3">${title}</h3>${sanitizedHtml}`;
             // Scroll to the final article section
              finalArticleContainer.scrollIntoView({ behavior: 'smooth' });
+        }
+
+        // Display SerpAPI keyword analysis results
+        function displaySerpApiAnalysis(analysisReport) {
+            serpApiAnalysisContainer.classList.remove('hidden');
+            
+            let analysisHtml = `
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                    <div class="bg-white p-3 rounded border">
+                        <h4 class="font-semibold text-blue-800 mb-2">基本情報</h4>
+                        <p><strong>検索クエリ:</strong> ${analysisReport.search_query}</p>
+                        <p><strong>検索結果総数:</strong> ${analysisReport.total_results?.toLocaleString() || 'N/A'}</p>
+                        <p><strong>分析記事数:</strong> ${analysisReport.analyzed_articles?.length || 0}</p>
+                        <p><strong>平均文字数:</strong> ${analysisReport.average_article_length?.toLocaleString() || 'N/A'}</p>
+                        <p><strong>推奨目標文字数:</strong> <span class="font-bold text-green-600">${analysisReport.recommended_target_length?.toLocaleString() || 'N/A'}</span></p>
+                    </div>
+                    <div class="bg-white p-3 rounded border">
+                        <h4 class="font-semibold text-blue-800 mb-2">検索意図分析</h4>
+                        <p class="text-sm">${analysisReport.user_intent_analysis || 'N/A'}</p>
+                    </div>
+                </div>
+                
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                    <div class="bg-white p-3 rounded border">
+                        <h4 class="font-semibold text-blue-800 mb-2">主要テーマ（競合頻出）</h4>
+                        <ul class="text-sm space-y-1">
+                            ${analysisReport.main_themes?.map(theme => `<li class="bg-blue-100 px-2 py-1 rounded inline-block mr-1 mb-1">${theme}</li>`).join('') || '<li>データなし</li>'}
+                        </ul>
+                    </div>
+                    <div class="bg-white p-3 rounded border">
+                        <h4 class="font-semibold text-blue-800 mb-2">共通見出しパターン</h4>
+                        <ul class="text-sm space-y-1">
+                            ${analysisReport.common_headings?.slice(0, 8).map(heading => `<li class="bg-gray-100 px-2 py-1 rounded text-xs">${heading}</li>`).join('') || '<li>データなし</li>'}
+                        </ul>
+                    </div>
+                </div>
+                
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                    <div class="bg-white p-3 rounded border">
+                        <h4 class="font-semibold text-green-800 mb-2">コンテンツギャップ（差別化チャンス）</h4>
+                        <ul class="text-sm space-y-1">
+                            ${analysisReport.content_gaps?.map(gap => `<li class="bg-green-100 px-2 py-1 rounded inline-block mr-1 mb-1">${gap}</li>`).join('') || '<li>データなし</li>'}
+                        </ul>
+                    </div>
+                    <div class="bg-white p-3 rounded border">
+                        <h4 class="font-semibold text-green-800 mb-2">競合優位性のポイント</h4>
+                        <ul class="text-sm space-y-1">
+                            ${analysisReport.competitive_advantages?.map(advantage => `<li class="bg-yellow-100 px-2 py-1 rounded inline-block mr-1 mb-1">${advantage}</li>`).join('') || '<li>データなし</li>'}
+                        </ul>
+                    </div>
+                </div>
+                
+                <div class="bg-white p-3 rounded border mb-4">
+                    <h4 class="font-semibold text-purple-800 mb-2">コンテンツ戦略推奨</h4>
+                    <ul class="text-sm space-y-1">
+                        ${analysisReport.content_strategy_recommendations?.map((rec, index) => `<li class="flex items-start"><span class="bg-purple-500 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs mr-2 mt-0.5">${index + 1}</span>${rec}</li>`).join('') || '<li>データなし</li>'}
+                    </ul>
+                </div>
+            `;
+            
+            // 分析記事の詳細表示（折りたたみ式）
+            if (analysisReport.analyzed_articles && analysisReport.analyzed_articles.length > 0) {
+                analysisHtml += `
+                    <div class="bg-white p-3 rounded border">
+                        <h4 class="font-semibold text-gray-800 mb-2 cursor-pointer flex items-center" onclick="toggleAnalyzedArticles()">
+                            <svg id="articles-chevron" xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-1 transform transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+                            </svg>
+                            分析記事詳細 (${analysisReport.analyzed_articles.length}件) - クリックで展開
+                        </h4>
+                        <div id="analyzed-articles-detail" class="hidden mt-2 space-y-2 max-h-96 overflow-y-auto">
+                            ${analysisReport.analyzed_articles.map((article, index) => `
+                                <div class="border-l-4 border-blue-500 pl-3 py-2 bg-gray-50">
+                                    <h5 class="font-medium text-sm mb-1">記事 ${index + 1}: ${article.title}</h5>
+                                    <p class="text-xs text-gray-600 mb-1">
+                                        <strong>URL:</strong> <a href="${article.url}" target="_blank" class="text-blue-500 hover:underline">${article.url}</a>
+                                    </p>
+                                    <p class="text-xs text-gray-600 mb-1">
+                                        <strong>文字数:</strong> ${article.char_count?.toLocaleString() || 'N/A'} | 
+                                        <strong>画像数:</strong> ${article.image_count || 0} |
+                                        <strong>取得元:</strong> ${article.source_type}
+                                        ${article.position ? ` | <strong>順位:</strong> ${article.position}` : ''}
+                                    </p>
+                                    ${article.question ? `<p class="text-xs text-gray-600 mb-1"><strong>関連質問:</strong> ${article.question}</p>` : ''}
+                                    <div class="text-xs text-gray-700">
+                                        <strong>見出し例:</strong> ${article.headings?.slice(0, 3).join(', ') || 'N/A'}
+                                        ${article.headings?.length > 3 ? ` (他${article.headings.length - 3}件)` : ''}
+                                    </div>
+                                    <div class="text-xs text-gray-700 mt-1">
+                                        <strong>本文プレビュー:</strong> ${article.content_preview?.substring(0, 150) || 'N/A'}${article.content_preview?.length > 150 ? '...' : ''}
+                                    </div>
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>
+                `;
+            }
+            
+            serpApiAnalysisContent.innerHTML = analysisHtml;
+            serpApiAnalysisContainer.scrollIntoView({ behavior: 'smooth' });
+        }
+
+        // Toggle analyzed articles detail visibility
+        function toggleAnalyzedArticles() {
+            const detail = document.getElementById('analyzed-articles-detail');
+            const chevron = document.getElementById('articles-chevron');
+            if (detail.classList.contains('hidden')) {
+                detail.classList.remove('hidden');
+                chevron.style.transform = 'rotate(180deg)';
+            } else {
+                detail.classList.add('hidden');
+                chevron.style.transform = 'rotate(0deg)';
+            }
         }
 
         // --- Send Client Response Back to Server ---
