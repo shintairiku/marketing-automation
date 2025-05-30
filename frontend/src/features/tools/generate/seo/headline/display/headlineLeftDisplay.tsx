@@ -58,7 +58,8 @@ export default function ThemeLeftDisplay() {
                 </div>
             </div>
             {/* 文字数入力 */}
-            <div>
+            {/* テーマ選択時に入力するため不要 */}
+            {/* <div>
                 <CommonTitle title="生成したい文字数を選択" />
                 <div className="flex gap-2 mt-5">
                     {characterNumberOptions.map((num, idx) => (
@@ -69,7 +70,7 @@ export default function ThemeLeftDisplay() {
                         </button>
                     ))}
                 </div>
-            </div>
+            </div> */}
         </div>
     )
 }

@@ -1,6 +1,12 @@
 {
   "dependencies": {
     "@clerk/localizations": "^3.16.0",
-    "@clerk/nextjs": "^6.19.4"
+    "@clerk/nextjs": "^6.19.4",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0"
+  },
+  "devDependencies": {
+    "@types/react": "^18.2.0",
+    "@types/react-dom": "^18.2.0"
   }
 }
