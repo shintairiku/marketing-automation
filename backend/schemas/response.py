@@ -222,3 +222,40 @@ class ClientResponseMessage(WebSocketMessage):
 # UserActionPayload は ClientResponseMessage.payload の型ヒントとして使用
 UserActionPayload = ClientResponsePayload
 
+# --- Organization Management Response Models ---
+class OrganizationResponse(BaseModel):
+    """組織情報レスポンス"""
+    id: str = Field(description="組織ID")
+    max_seats: int = Field(description="最大シート数")
+    used_seats: int = Field(description="使用中シート数")
+    subscription_status: str = Field(description="サブスクリプション状態")
+    current_period_start: Optional[str] = Field(None, description="現在の課金期間開始日")
+    current_period_end: Optional[str] = Field(None, description="現在の課金期間終了日")
+    
+class MemberResponse(BaseModel):
+    """メンバー情報レスポンス"""
+    id: str = Field(description="メンバーID")
+    user_id: str = Field(description="ユーザーID")
+    role: str = Field(description="役割（owner, admin, member）")
+    status: str = Field(description="ステータス（active, inactive）")
+    email: str = Field(description="メールアドレス")
+    full_name: Optional[str] = Field(None, description="フルネーム")
+    joined_at: str = Field(description="参加日")
+
+class InvitationResponse(BaseModel):
+    """招待情報レスポンス"""
+    id: str = Field(description="招待ID")
+    email: str = Field(description="招待されたメールアドレス")
+    role: str = Field(description="招待時の役割")
+    status: str = Field(description="招待ステータス（pending, accepted, expired）")
+    expires_at: str = Field(description="招待期限")
+    invited_by: str = Field(description="招待したユーザーID")
+    invited_at: str = Field(description="招待日時")
+
+class MemberUsageResponse(BaseModel):
+    """メンバー使用量レスポンス"""
+    user_id: str = Field(description="ユーザーID")
+    email: str = Field(description="メールアドレス")
+    name: Optional[str] = Field(None, description="ユーザー名")
+    articles_generated: int = Field(description="今月生成した記事数")
+

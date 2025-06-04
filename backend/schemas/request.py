@@ -21,6 +21,15 @@ class PersonaType(str, Enum):
     RETIREE = "退職者"
     OTHER = "その他" # ユーザーが独自に設定する場合
 
+class InviteMemberRequest(BaseModel):
+    """メンバー招待リクエスト"""
+    email: str = Field(..., description="招待するメンバーのメールアドレス")
+    role: Optional[str] = Field("member", description="招待するメンバーの役割（member, admin）")
+
+class UpdateSeatsRequest(BaseModel):
+    """シート数更新リクエスト"""
+    max_seats: int = Field(..., description="新しい最大シート数", ge=1)
+
 class GenerateArticleRequest(BaseModel):
     """記事生成APIリクエストモデル"""
     initial_keywords: List[str] = Field(..., description="記事生成の元となるキーワードリスト", examples=[["札幌", "注文住宅", "自然素材", "子育て"]])

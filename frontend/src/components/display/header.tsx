@@ -1,6 +1,7 @@
 import { Menu, Search } from "lucide-react";
 
-import { SignedIn, SignedOut, SignInButton,UserButton } from "@clerk/nextjs";
+import { OrganizationSwitcher } from "@/components/organization/organization-switcher";
+import { SignedIn, SignedOut, SignInButton, UserButton } from "@clerk/nextjs";
 
 export default function Header() {
     return (
@@ -10,6 +11,9 @@ export default function Header() {
           <h1 className="text-xl font-medium">shintairiku</h1>
         </div>
         <div className="flex items-center gap-4">
+          <SignedIn>
+            <OrganizationSwitcher />
+          </SignedIn>
           <div className="relative">
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-500" />
             <input type="text" placeholder="search/" className="h-10 rounded-md border border-gray-300 pl-9 pr-4" />

@@ -6,9 +6,18 @@ python-dotenv
 rich # ログ出力用に残す場合。APIのみなら不要な場合も
 sse-starlette
 pydantic-settings
-# 必要に応じて他のライブラリ (litellmなど) を追加
-# agents SDKが内部で使用する可能性のあるライブラリ
-griffe
+
+# 認証・データベース関連
+pyjwt[crypto]
+httpx
+supabase
+stripe
+
+# SerpAPI・スクレイピング関連
 serpapi
+google-search-results
 beautifulsoup4
 requests
+
+# agents SDKが内部で使用する可能性のあるライブラリ
+griffe

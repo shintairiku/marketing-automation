@@ -6,6 +6,7 @@ from pathlib import Path # <<< Path をインポート
 from openai import AsyncOpenAI
 
 from api.endpoints import article as article_router
+from api.endpoints import organization as organization_router
 from core.config import settings
 from core.exceptions import exception_handlers
 
@@ -19,6 +20,7 @@ app = FastAPI(
 
 # APIルーターのインクルード
 app.include_router(article_router.router, prefix="/articles", tags=["Articles"])
+app.include_router(organization_router.router, prefix="/api", tags=["Organizations"])
 
 @app.get("/", tags=["Root"], summary="APIルートエンドポイント")
 async def read_root():

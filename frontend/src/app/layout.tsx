@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import { Montserrat, Montserrat_Alternates } from 'next/font/google';
 
 import { Toaster } from '@/components/ui/toaster';
+import { OrganizationProvider } from '@/hooks/use-organization-context';
 import { cn } from '@/utils/cn';
 import { jaJP } from "@clerk/localizations";
 import { ClerkProvider } from '@clerk/nextjs';
@@ -36,7 +37,9 @@ export default function RootLayout({
     <ClerkProvider localization={jaJP}>
       <html lang='ja'>
         <body className={cn('font-sans antialiased', montserrat.variable, montserratAlternates.variable)}>
-          {children}
+          <OrganizationProvider>
+            {children}
+          </OrganizationProvider>
           <Toaster />
           <Analytics />
         </body>

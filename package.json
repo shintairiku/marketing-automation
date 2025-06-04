@@ -1,6 +1,0 @@
-{
-  "dependencies": {
-    "@clerk/localizations": "^3.16.0",
-    "@clerk/nextjs": "^6.19.4"
-  }
-}
