@@ -1,8 +1,8 @@
 'use client';
 
+import React from 'react';
 import { type ClassValue, clsx } from 'clsx';
 import { twMerge } from 'tailwind-merge';
-import React from 'react';
 
 interface StepIndicatorProps {
   currentStep: string;

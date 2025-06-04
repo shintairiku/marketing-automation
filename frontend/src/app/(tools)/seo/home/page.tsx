@@ -1,5 +1,5 @@
-import Sidebar from "@/components/display/sidebar";
 import Header from "@/components/display/header";
+import Sidebar from "@/components/display/sidebar";
 import IndexPage from "@/features/tools/seo/home/display/indexPage";
 
 export default function Page() {
