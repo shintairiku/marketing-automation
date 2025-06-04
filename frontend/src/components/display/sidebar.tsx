@@ -25,71 +25,87 @@ import {
 
 export const iconMap: Record<string, React.ReactElement<{ size?: number }>> = {
   /* ───────── 1. Home (Dashboard) ───────── */
-  '/dashboard'                 : <IoHome size={24} />,
-  '/dashboard/news'            : <IoNewspaper size={24} />,
-  '/dashboard/setting'         : <IoSettings size={24} />,
-  '/dashboard/overview'        : <IoClipboard size={24} />,
-  '/dashboard/calendar'        : <IoCalendar size={24} />,
-  '/dashboard/performance'     : <IoStatsChart size={24} />,
+  '/home'                 : <IoHome size={24} />,
+  '/home/dashboard'            : <IoNewspaper size={24} />,
+  '/home/news'         : <IoSettings size={24} />,
+  '/home/overview'        : <IoClipboard size={24} />,
+  '/home/calendar'        : <IoCalendar size={24} />,
+  '/home/performance'     : <IoStatsChart size={24} />,
 
   /* ───────── 2. Generate / SEO ───────── */
-  '/generate/seo/home'              : <IoGlobe size={24} />,
-  '/generate/seo/new-article'        : <IoText size={24} />,
+  '/seo/home'              : <IoGlobe size={24} />,
+  '/seo/generate/new-article'        : <IoText size={24} />,
 
-  '/manage/seo/list'           : <IoList size={24} />,
-  '/manage/seo/status'         : <IoSync size={24} />,
-  '/manage/seo/schedule'       : <IoCalendar size={24} />,
+  '/seo/manage/list'           : <IoList size={24} />,
+  '/seo/manage/status'         : <IoSync size={24} />,
+  '/seo/manage/schedule'       : <IoCalendar size={24} />,
 
-  '/analyze/seo/dashboard'     : <IoAnalytics size={24} />,
-  '/analyze/seo/report'        : <IoDocumentText size={24} />,
-  '/analyze/seo/feedback'      : <IoChatbubbles size={24} />,
+  '/seo/analyze/dashboard'     : <IoAnalytics size={24} />,
+  '/seo/analyze/report'        : <IoDocumentText size={24} />,
+  '/seo/analyze/feedback'      : <IoChatbubbles size={24} />,
 
-  '/input/seo/persona'         : <IoPerson size={24} />,
+  '/seo/input/persona'         : <IoPerson size={24} />,
 
   /* ───────── 3. Generate / Instagram ───────── */
-  '/generate/instagram'            : <IoLogoInstagram size={24} />,
-  '/generate/instagram/caption'    : <IoText size={24} />,
-  '/generate/instagram/hashtags'   : <IoPricetag size={24} />,
-  '/generate/instagram/image'      : <IoImage size={24} />,
-  '/generate/instagram/rewrite'    : <IoSparkles size={24} />,
-  '/generate/instagram/schedule'   : <IoCalendar size={24} />,
-  '/generate/instagram/list'       : <IoList size={24} />,
-  '/generate/instagram/status'     : <IoSync size={24} />,
-  '/generate/instagram/dashboard'  : <IoAnalytics size={24} />,
-  '/generate/instagram/report'     : <IoDocumentText size={24} />,
-  '/generate/instagram/feedback'   : <IoChatbubbles size={24} />,
+  '/instagram/home'            : <IoLogoInstagram size={24} />,
+  '/instagram/generate/caption'    : <IoText size={24} />,
+  '/instagram/generate/hashtags'   : <IoPricetag size={24} />,
+  '/instagram/generate/image'      : <IoImage size={24} />,
+  '/instagram/generate/rewrite'    : <IoSparkles size={24} />,
+  '/instagram/generate/schedule'   : <IoCalendar size={24} />,
+  '/instagram/manage/list'       : <IoList size={24} />,
+  '/instagram/manage/status'     : <IoSync size={24} />,
+  '/instagram/analyze/dashboard'  : <IoAnalytics size={24} />,
+  '/instagram/analyze/report'     : <IoDocumentText size={24} />,
+  '/instagram/analyze/feedback'   : <IoChatbubbles size={24} />,
 
-  '/generate/instagram/persona'    : <IoPerson size={24} />,
+  '/instagram/input/persona'    : <IoPerson size={24} />,
 
   /* ───────── 4. Generate / LINE ───────── */
-  '/generate/line'                 : <IoChat size={24} />,
-  '/generate/line/text'            : <IoText size={24} />,
-  '/generate/line/image'           : <IoImage size={24} />,
-  '/generate/line/rewrite'         : <IoGitBranch size={24} />,
-  '/generate/line/schedule'        : <IoCalendar size={24} />,
+  '/line/home'                 : <IoChat size={24} />,
+  '/line/generate/text'            : <IoText size={24} />,
+  '/line/generate/image'           : <IoImage size={24} />,
+  '/line/generate/rewrite'         : <IoGitBranch size={24} />,
+  '/line/generate/schedule'        : <IoCalendar size={24} />,
 
-  '/generate/line/list'            : <IoList size={24} />,
-  '/generate/line/status'          : <IoSync size={24} />,
+  '/line/manage/list'            : <IoList size={24} />,
+  '/line/manage/status'          : <IoSync size={24} />,
 
-  '/generate/line/dashboard'       : <IoAnalytics size={24} />,
-  '/generate/line/report'          : <IoDocumentText size={24} />,
-  '/generate/line/feedback'        : <IoChatbubbles size={24} />,
+  '/line/analyze/dashboard'       : <IoAnalytics size={24} />,
+  '/line/analyze/report'          : <IoDocumentText size={24} />,
+  '/line/analyze/feedback'        : <IoChatbubbles size={24} />,
 
-  '/generate/line/persona'         : <IoPerson size={24} />,
+  '/line/input/persona'         : <IoPerson size={24} />,
 };
+
+function findSelectedMenu(pathname: string) {
+  // 1. 親リンクで一致するものを探す
+  let menu = groups.flatMap(g => g.links).find(l => pathname === l.href);
+  if (menu) return menu;
+
+  // 2. subLinksの中に一致するものがあれば、その親リンクを返す
+  menu = groups
+    .flatMap(g => g.links)
+    .find(l => l.subLinks && l.subLinks.some(section => section.links.some(sub => pathname === sub.href)));
+  if (menu) return menu;
+
+  // 3. さらにサブリンクが階層的に深い場合はstartsWithで判定
+  menu = groups
+    .flatMap(g => g.links)
+    .find(l => l.subLinks && l.subLinks.some(section => section.links.some(sub => pathname.startsWith(sub.href))));
+  if (menu) return menu;
+
+  return undefined;
+}
 
 export default function Sidebar() {
   const pathname = usePathname();
-  
-  // 現在のパスに基づいて選択されたメニュー項目を取得
-  const selectedMenu = groups
-    .flatMap(g => g.links)
-    .find(l => pathname.startsWith(l.href));
+  const selectedMenu = findSelectedMenu(pathname);
 
   return (
     <div className="flex h-[calc(100vh-45px)]">
       <aside className="group w-[64px] hover:w-[250px] h-full bg-primary text-white relative transition-all duration-300 ease-in-out z-20">
-        <ScrollArea className="h-full">
+        <ScrollArea className="h-full py-10">
           <nav className="flex flex-col gap-2">
             {groups.map((g) => (
               <div key={g.title} className="border-b border-white/20 p-[8px]">
