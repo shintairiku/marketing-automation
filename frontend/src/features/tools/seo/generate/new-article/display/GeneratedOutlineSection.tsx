@@ -1,13 +1,13 @@
 'use client';
 
-import React from "react";
-import { useState } from "react";
-import { Card, CardContent, CardHeader } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
+import React, { useEffect, useMemo,useState } from "react";
+import { IoChevronForward,IoList, IoPencil, IoRefresh } from 'react-icons/io5';
+
 import { Badge } from "@/components/ui/badge";
-import { Separator } from "@/components/ui/separator";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { IoList, IoRefresh, IoPencil, IoChevronForward } from 'react-icons/io5';
+import { Separator } from "@/components/ui/separator";
 
 interface GeneratedOutline {
   id: string;
@@ -17,11 +17,29 @@ interface GeneratedOutline {
 }
 
 export default function GenerateSeoOutline() {
+  const [displayMode, setDisplayMode] = useState<"current" | "html" | "markdown">("current");
   const [generatedOutlines, setGeneratedOutlines] = useState<GeneratedOutline[]>([]);
   const [isEditing, setIsEditing] = useState(false);
   const [editingOutlineId, setEditingOutlineId] = useState<string | null>(null);
   const [editingValue, setEditingValue] = useState("");
-  const [displayMode, setDisplayMode] = useState<"current" | "html" | "markdown">("current");
+
+  const dummyOutlineData = useMemo(() => ({
+    "1000": [
+      { title: "はじめに", level: 1 },
+      { title: "問題提起", level: 2 },
+      { title: "本記事で解決できること", level: 2 },
+      { title: "SEO対策の重要性", level: 1 },
+      { title: "検索エンジンの仕組み", level: 2 },
+      { title: "SEOの基本原則", level: 2 },
+      { title: "キーワード選定のポイント", level: 2 },
+      { title: "コンテンツ最適化の方法", level: 1 },
+      { title: "タイトルとメタディスクリプション", level: 2 },
+      { title: "見出し構造の最適化", level: 2 },
+      { title: "内部リンクの活用", level: 2 },
+      { title: "まとめ", level: 1 },
+      { title: "次のステップ", level: 2 }
+    ]
+  }), []);
 
   // スライダー用の値とラベルのマッピング
   const wordCountOptions = [500, 1000, 3000, 5000, 10000];
@@ -29,43 +47,8 @@ export default function GenerateSeoOutline() {
     return wordCountOptions[value] || wordCountOptions[1];
   };
 
-  // ダミーデータ
-  const dummyOutlineData = {
-  
-    "1000": [
-      { title: "Webマーケティング完全ガイド：全体像を掴む",                 level: 1 },
-      { title: "国内外のWebマーケティング市場の現状",                       level: 2 },
-      { title: "最新トレンド：SNS広告からAI活用まで",                      level: 3 },
-      { title: "企業が抱える主要課題とボトルネック",                       level: 3 },
-  
-      { title: "成功するWebマーケティングの基本概念",                       level: 1 },
-      { title: "押さえておきたい重要ポイント",                              level: 2 },
-      { title: "理論的背景：カスタマージャーニーとファネル",               level: 3 },
-      { title: "実践的意義：売上とブランド価値を高める",                    level: 3 },
-  
-      { title: "具体的な手法一覧",                                          level: 2 },
-      { title: "SEOで検索流入を最大化",                                     level: 3 },
-      { title: "SNS運用でエンゲージメント向上",                             level: 3 },
-  
-      { title: "Webマーケティング実践ガイド",                                 level: 1 },
-      { title: "ステップ1：戦略準備",                                        level: 2 },
-      { title: "必要なツールとリソース",                                    level: 3 },
-      { title: "サイト・SNS環境設定",                                       level: 3 },
-  
-      { title: "ステップ2：施策実行",                                        level: 2 },
-      { title: "初期設定：KPIと計測タグ",                                   level: 3 },
-      { title: "キャンペーン運用開始",                                       level: 3 },
-  
-      { title: "ステップ3：改善・最適化",                                    level: 2 },
-      { title: "分析と効果測定",                                            level: 3 },
-      { title: "改善案の立案とA/Bテスト",                                   level: 3 },
-  
-      { title: "まとめ：成果を最大化するポイント",                           level: 1 }
-    ],
-  };
-
   // 初期ダミーデータ投入
-  React.useEffect(() => {
+  useEffect(() => {
     // デフォルトは1000ワードのアウトライン
     const template = dummyOutlineData["1000"];
     const mockOutlines: GeneratedOutline[] = template.map((item, index) => ({
@@ -75,7 +58,7 @@ export default function GenerateSeoOutline() {
       isSelected: false
     }));
     setGeneratedOutlines(mockOutlines);
-  }, []);
+  }, [dummyOutlineData]);
 
   const toggleOutlineSelection = (id: string) => {
     if (isEditing) return;

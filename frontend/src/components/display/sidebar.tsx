@@ -1,27 +1,28 @@
 'use client';
 
 import React from 'react';
+import Image from 'next/image';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { groups } from '@/components/constant/route';
 import clsx from 'clsx';
-import { ScrollArea } from '@/components/ui/scroll-area';
-import Image from 'next/image';
 import {
-  /* Home / Dashboard */
-  IoHome, IoNewspaper, IoSettings, IoClipboard, IoCalendar, IoStatsChart,
-
-  /* SEO */
-  IoGlobe, IoText, IoList, IoDocumentText, IoPencil, IoCloudUpload,
-  IoSync, IoAnalytics, IoChatbubbles, IoPerson,
-
-  /* Instagram */
-  IoLogoInstagram, IoPricetag, IoImage, IoSparkles,
-
+IoAnalytics, IoCalendar, 
   /* LINE */
   IoChatbubbles as IoChat,  /* ←重複を避けるためエイリアス */
-  IoGitBranch
-} from 'react-icons/io5';
+IoChatbubbles, IoClipboard, IoCloudUpload,
+IoDocumentText,   IoGitBranch,
+  /* SEO */
+  IoGlobe, 
+  /* Home / Dashboard */
+  IoHome, IoImage, IoList, 
+  /* Instagram */
+  IoLogoInstagram, IoNewspaper, IoPencil, IoPerson,
+IoPricetag, IoSettings, IoSparkles,
+IoStatsChart,
+  IoSync, IoText} from 'react-icons/io5';
+
+import { groups } from '@/components/constant/route';
+import { ScrollArea } from '@/components/ui/scroll-area';
 
 export const iconMap: Record<string, React.ReactElement<{ size?: number }>> = {
   /* ───────── 1. Home (Dashboard) ───────── */

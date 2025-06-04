@@ -1,5 +1,6 @@
-import { Menu, Search } from "lucide-react";
 import Image from "next/image";
+import { Menu, Search } from "lucide-react";
+
 import { SignedIn, SignedOut, SignInButton,UserButton } from "@clerk/nextjs";
 
 export default function Header() {

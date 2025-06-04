@@ -1,12 +1,14 @@
 "use client";
-import { ScrollArea } from "@/components/ui/scroll-area";
-import { Card, CardContent } from "@/components/ui/card";
+import React, { useEffect,useState } from "react";
 import { IoSparkles } from "react-icons/io5";
+import { IoChevronForward,IoPencil, IoRefresh } from "react-icons/io5";
+
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { IoRefresh, IoPencil, IoChevronForward } from "react-icons/io5";
+import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import React, { useState, useEffect } from "react";
+import { ScrollArea } from "@/components/ui/scroll-area";
+
 import { StepIndicator } from "../component/StepIndicator";
 
 // ダミーデータ

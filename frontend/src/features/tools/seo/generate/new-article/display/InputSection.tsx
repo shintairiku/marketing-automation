@@ -1,11 +1,12 @@
 "use client";
+import { IoRefresh, IoSparkles } from "react-icons/io5";
+
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Slider } from "@/components/ui/slider";
-import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Button } from "@/components/ui/button";
-import { IoRefresh, IoSparkles } from "react-icons/io5";
+import { Slider } from "@/components/ui/slider";
 
 export default function InputSection() {
     const titleCountOptions = [1, 4, 8, 16, 32, 64];
