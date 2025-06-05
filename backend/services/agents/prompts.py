@@ -1,20 +1,9 @@
 # -*- coding: utf-8 -*-
-# 既存のスクリプトからエージェント定義とプロンプト生成関数をここに移動・整理
-from typing import List, Dict, Union, Optional, Tuple, Any, Literal, Callable, Awaitable
-from agents import Agent, RunContextWrapper, ModelSettings
-# 循環参照を避けるため、モデル、ツール、コンテキストは直接インポートしない
-# from .models import AgentOutput, ResearchQueryResult, ResearchReport, Outline, RevisedArticle
-# from .tools import web_search_tool, analyze_competitors, get_company_data
-# from .context import ArticleContext
-from services.models import AgentOutput, ResearchQueryResult, ResearchReport, Outline, RevisedArticle, ThemeProposal, ResearchPlan, ClarificationNeeded, StatusUpdate, ArticleSection, GeneratedPersonasResponse, GeneratedPersonaItem, SerpKeywordAnalysisReport
-from services.tools import web_search_tool, analyze_competitors, get_company_data, available_tools
+from typing import Callable, Awaitable
+from agents import Agent, RunContextWrapper
 from services.context import ArticleContext
-from core.config import settings # 設定をインポート
-from schemas.request import PersonaType # 修正
-from openai import AsyncOpenAI
+from schemas.request import PersonaType
 
-# --- 動的プロンプト生成関数 ---
-# (既存のスクリプトからコピーし、インポートパスを修正)
 
 def create_theme_instructions(base_prompt: str) -> Callable[[RunContextWrapper[ArticleContext], Agent[ArticleContext]], Awaitable[str]]:
     async def dynamic_instructions_func(ctx: RunContextWrapper[ArticleContext], agent: Agent[ArticleContext]) -> str:
@@ -359,30 +348,16 @@ def create_editor_instructions(base_prompt: str) -> Callable[[RunContextWrapper[
         return full_prompt
     return dynamic_instructions_func
 
-# 新しいエージェント: ペルソナ生成エージェント
-PERSONA_GENERATOR_AGENT_BASE_PROMPT = """
-あなたはターゲット顧客の具体的なペルソナ像を鮮明に描き出すプロフェッショナルです。
-与えられたSEOキーワード、ターゲット年代、ペルソナ属性、およびクライアント企業情報（あれば）を基に、その顧客がどのような人物で、どのようなニーズや悩みを抱えているのか、具体的な背景情報（家族構成、ライフスタイル、価値観など）を含めて詳細なペルソナ像を複数案作成してください。
-あなたの応答は必ず `GeneratedPersonasResponse` 型のJSON形式で、`personas` リストの中に指定された数のペルソナ詳細を `GeneratedPersonaItem` として含めてください。
-各ペルソナの `description` は、ユーザーが提供した例のような形式で、具体的かつ簡潔に記述してください。
-
-例:
-ユーザー入力: 50代 主婦 キーワード「二重窓 デメリット」
-あなたの出力内のペルソナdescriptionの一例:
-「築30年の戸建てに暮らす50代後半の女性。家族構成は夫婦（子どもは独立）。年々寒さがこたえるようになり、家の暖かさには窓の性能が大きく関わっていることを知った。内窓を設置して家の断熱性を高めたいと考えている。補助金も気になっている。」
-"""
-
 def create_persona_generator_instructions(base_prompt: str) -> Callable[[RunContextWrapper[ArticleContext], Agent[ArticleContext]], Awaitable[str]]:
     async def dynamic_instructions_func(ctx: RunContextWrapper[ArticleContext], agent: Agent[ArticleContext]) -> str:
-        # 初期入力からのペルソナ情報の組み立て (これは大まかな指定)
         initial_persona_description = "指定なし"
         if ctx.context.persona_type == PersonaType.OTHER and ctx.context.custom_persona:
             initial_persona_description = ctx.context.custom_persona
         elif ctx.context.target_age_group and ctx.context.persona_type:
             initial_persona_description = f"{ctx.context.target_age_group.value}の{ctx.context.persona_type.value}"
-        elif ctx.context.custom_persona: # 移行措置
+        elif ctx.context.custom_persona:
             initial_persona_description = ctx.context.custom_persona
-        
+
         company_info_str = ""
         if ctx.context.company_name or ctx.context.company_description:
             company_info_str = f"\nクライアント企業名: {ctx.context.company_name or '未設定'}\nクライアント企業概要: {ctx.context.company_description or '未設定'}"
@@ -393,7 +368,7 @@ def create_persona_generator_instructions(base_prompt: str) -> Callable[[RunCont
 SEOキーワード: {', '.join(ctx.context.initial_keywords)}
 ターゲット年代: {ctx.context.target_age_group.value if ctx.context.target_age_group else '指定なし'}
 ペルソナ属性（大分類）: {ctx.context.persona_type.value if ctx.context.persona_type else '指定なし'}
-（上記属性が「その他」の場合のユーザー指定ペルソナ: {ctx.context.custom_persona if ctx.context.persona_type == PersonaType.OTHER else '該当なし'}）
+(上記属性が「その他」の場合のユーザー指定ペルソナ: {ctx.context.custom_persona if ctx.context.persona_type == PersonaType.OTHER else '該当なし'})
 生成する具体的なペルソナの数: {ctx.context.num_persona_examples}
 {company_info_str}
 ---
@@ -404,32 +379,8 @@ SEOキーワード: {', '.join(ctx.context.initial_keywords)}
         return full_prompt
     return dynamic_instructions_func
 
-persona_generator_agent = Agent[ArticleContext](
-    name="PersonaGeneratorAgent",
-    instructions=create_persona_generator_instructions(PERSONA_GENERATOR_AGENT_BASE_PROMPT),
-    model=settings.default_model, # ペルソナ生成に適したモデルを選択 (例: default_model や writing_model)
-    tools=[], # 基本的にはツール不要だが、必要に応じてweb_searchなどを追加検討
-    output_type=GeneratedPersonasResponse, # 新しく定義したモデル
-)
 
-# 新しいエージェント: SerpAPIキーワード分析エージェント
-SERP_KEYWORD_ANALYSIS_AGENT_BASE_PROMPT = """
-あなたはSEOとキーワード分析の専門家です。
-SerpAPIで取得されたGoogle検索結果と、上位記事のスクレイピング結果を詳細に分析し、以下を含む包括的なSEO戦略レポートを作成します：
-
-1. 上位記事で頻出する主要テーマ・トピック
-2. 共通して使用される見出しパターン・構成
-3. 上位記事で不足している可能性のあるコンテンツ（コンテンツギャップ）
-4. 差別化できる可能性のあるポイント
-5. 検索ユーザーの意図分析（情報収集、比較検討、購入検討など）
-6. コンテンツ戦略の推奨事項
-
-あなたの分析結果は、後続の記事生成プロセス（ペルソナ生成、テーマ提案、アウトライン作成、執筆）において重要な参考資料として活用されます。
-特に、ターゲットキーワードで上位表示を狙うために必要な要素を明確に特定し、実用的な戦略を提案してください。
-
-あなたの応答は必ず `SerpKeywordAnalysisReport` 型のJSON形式で出力してください。
-"""
-
+# 新しいエージェント: ペルソナ生成エージェント
 def create_serp_keyword_analysis_instructions(base_prompt: str) -> Callable[[RunContextWrapper[ArticleContext], Agent[ArticleContext]], Awaitable[str]]:
     async def dynamic_instructions_func(ctx: RunContextWrapper[ArticleContext], agent: Agent[ArticleContext]) -> str:
         # キーワードからSerpAPI分析を実行（この時点で実行）
@@ -511,127 +462,3 @@ def create_serp_keyword_analysis_instructions(base_prompt: str) -> Callable[[Run
 """
         return full_prompt
     return dynamic_instructions_func
-
-serp_keyword_analysis_agent = Agent[ArticleContext](
-    name="SerpKeywordAnalysisAgent",
-    instructions=create_serp_keyword_analysis_instructions(SERP_KEYWORD_ANALYSIS_AGENT_BASE_PROMPT),
-    model=settings.research_model,  # 分析タスクに適したモデル
-    tools=[],  # SerpAPIサービスを直接使用するため、ツールは不要
-    output_type=SerpKeywordAnalysisReport,
-)
-
-# --- エージェント定義 ---
-
-# 1. テーマ提案エージェント
-THEME_AGENT_BASE_PROMPT = """
-あなたはSEO記事のテーマを考案する専門家です。
-与えられたキーワード、ターゲットペルソナ、企業情報を分析し、読者の検索意図とSEO効果を考慮した上で、創造的で魅力的な記事テーマ案を複数生成します。
-必要であれば `get_company_data` ツールで企業情報を補強し、`web_search` ツールで関連トレンドや競合を調査できます。
-情報が不足している場合は、ClarificationNeededを返してください。
-"""
-theme_agent = Agent[ArticleContext](
-    name="ThemeAgent",
-    instructions=create_theme_instructions(THEME_AGENT_BASE_PROMPT),
-    model=settings.default_model,
-    tools=[get_company_data, web_search_tool],
-    output_type=AgentOutput, # ThemeProposal or ClarificationNeeded
-)
-
-# 2. リサーチプランナーエージェント
-RESEARCH_PLANNER_AGENT_BASE_PROMPT = """
-あなたは優秀なリサーチプランナーです。
-与えられた記事テーマに基づき、そのテーマを深く掘り下げ、読者が知りたいであろう情報を網羅するための効果的なWeb検索クエリプランを作成します。
-"""
-research_planner_agent = Agent[ArticleContext](
-    name="ResearchPlannerAgent",
-    instructions=create_research_planner_instructions(RESEARCH_PLANNER_AGENT_BASE_PROMPT),
-    model=settings.research_model,
-    tools=[],
-    output_type=AgentOutput, # ResearchPlan or ClarificationNeeded
-)
-
-# 3. リサーチャーエージェント
-RESEARCHER_AGENT_BASE_PROMPT = """
-あなたは熟練したディープリサーチャーです。
-指定された検索クエリでWeb検索を実行し、結果を深く分析します。
-記事テーマに関連する具体的で信頼できる情報、データ、主張、引用を詳細に抽出し、最も適切な出典元URLとタイトルを特定して、指定された形式で返します。
-必ず web_search ツールを使用してください。
-"""
-researcher_agent = Agent[ArticleContext](
-    name="ResearcherAgent",
-    instructions=create_researcher_instructions(RESEARCHER_AGENT_BASE_PROMPT),
-    model=settings.research_model,
-    tools=[web_search_tool],
-    output_type=ResearchQueryResult,
-)
-
-# 4. リサーチシンセサイザーエージェント
-RESEARCH_SYNTHESIZER_AGENT_BASE_PROMPT = """
-あなたは情報を整理し、要点を抽出し、統合する専門家です。
-収集された詳細なリサーチ結果（抜粋と出典）を分析し、記事のテーマに沿って統合・要約します。
-各キーポイントについて、それを裏付ける情報源URLを明確に紐付け、記事作成者がすぐに活用できる実用的で詳細なリサーチレポートを作成します。
-"""
-research_synthesizer_agent = Agent[ArticleContext](
-    name="ResearchSynthesizerAgent",
-    instructions=create_research_synthesizer_instructions(RESEARCH_SYNTHESIZER_AGENT_BASE_PROMPT),
-    model=settings.research_model,
-    tools=[],
-    output_type=ResearchReport, # 修正: ResearchReportを返す
-)
-
-# 5. アウトライン作成エージェント
-OUTLINE_AGENT_BASE_PROMPT = """
-あなたはSEO記事のアウトライン（構成案）を作成する専門家です。
-選択されたテーマ、目標文字数、企業のスタイルガイド、ターゲットペルソナ、そして詳細なリサーチレポート（キーポイントと出典情報を含む）に基づいて、論理的で網羅的、かつ読者の興味を引く記事のアウトラインを生成します。
-`analyze_competitors` ツールで競合記事の構成を調査し、差別化できる構成を考案します。
-`get_company_data` ツールでスタイルガイドを確認します。
-文字数指定に応じて、見出しの数や階層構造を適切に調整します。
-ターゲットペルソナが読みやすいように、親しみやすく分かりやすいトーンで記事全体のトーンも提案してください。
-"""
-outline_agent = Agent[ArticleContext](
-    name="OutlineAgent",
-    instructions=create_outline_instructions(OUTLINE_AGENT_BASE_PROMPT),
-    model=settings.writing_model,
-    tools=[analyze_competitors, get_company_data],
-    output_type=AgentOutput, # Outline or ClarificationNeeded
-)
-
-# 6. セクション執筆エージェント
-SECTION_WRITER_AGENT_BASE_PROMPT = """
-あなたは指定された記事のセクション（見出し）に関する内容を執筆するプロのライターです。
-あなたの役割は、日本の一般的なブログやコラムのように、自然で人間味あふれる、親しみやすい文章で、割り当てられた特定のセクションの内容をHTML形式で執筆することです。
-記事全体のテーマ、アウトライン、キーワード、トーン、会話履歴（前のセクションを含む完全な文脈）、そして詳細なリサーチレポート（出典情報付き）に基づき、創造的かつSEOを意識して執筆してください。
-リサーチ情報に基づき、必要に応じて信頼できる情報源へのHTMLリンクを自然に含めてください。
-必要に応じて `web_search` ツールで最新情報や詳細情報を調査し、内容を充実させます。
-あなたのタスクは、指示された1つのセクションのHTMLコンテンツを生成することだけです。読者を引きつけ、価値を提供するオリジナルな文章を作成してください。
-"""
-section_writer_agent = Agent[ArticleContext](
-    name="SectionWriterAgent",
-    instructions=create_section_writer_instructions(SECTION_WRITER_AGENT_BASE_PROMPT),
-    model=settings.writing_model,
-    tools=[web_search_tool],
-    # output_type を削除 (構造化出力を強制しない)
-)
-
-# 7. 推敲・編集エージェント
-EDITOR_AGENT_BASE_PROMPT = """
-あなたはプロの編集者兼SEOスペシャリストです。
-与えられた記事ドラフト（HTML形式）を、記事の要件（テーマ、キーワード、ペルソナ、文字数、トーン、スタイルガイド）と詳細なリサーチレポート（出典情報付き）を照らし合わせながら、徹底的にレビューし、推敲・編集します。
-特に、文章全体がターゲットペルソナにとって自然で、親しみやすく、分かりやすい言葉遣いになっているか を重点的に確認し、機械的な表現があれば人間味のある表現に修正してください。
-リサーチ情報との整合性、事実確認、含まれるHTMLリンクの適切性も厳しくチェックします。
-文章の流れ、一貫性、正確性、文法、読みやすさ、独創性、そしてSEO最適化の観点から、最高品質の記事に仕上げることを目指します。
-必要であれば `web_search` ツールでファクトチェックや追加情報を調査します。
-最終的な成果物として、編集済みの完全なHTMLコンテンツを出力します。
-"""
-editor_agent = Agent[ArticleContext](
-    name="EditorAgent",
-    instructions=create_editor_instructions(EDITOR_AGENT_BASE_PROMPT),
-    model=settings.editing_model,
-    tools=[web_search_tool],
-    output_type=RevisedArticle, # 修正: RevisedArticleを返す
-)
-
-# LiteLLMエージェント生成関数 (APIでは直接使わないかもしれないが、念のため残す)
-# 必要に応じてAPIキーの取得方法などを修正する必要がある
-# def get_litellm_agent(...) -> Optional[Agent]: ... (実装は省略)
-
