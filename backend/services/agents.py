@@ -6,24 +6,52 @@ from agents import Agent, RunContextWrapper, ModelSettings
 # from .models import AgentOutput, ResearchQueryResult, ResearchReport, Outline, RevisedArticle
 # from .tools import web_search_tool, analyze_competitors, get_company_data
 # from .context import ArticleContext
-from services.models import AgentOutput, ResearchQueryResult, ResearchReport, Outline, RevisedArticle, ThemeProposal, ResearchPlan, ClarificationNeeded, StatusUpdate, ArticleSection
+from services.models import AgentOutput, ResearchQueryResult, ResearchReport, Outline, RevisedArticle, ThemeProposal, ResearchPlan, ClarificationNeeded, StatusUpdate, ArticleSection, GeneratedPersonasResponse, GeneratedPersonaItem, SerpKeywordAnalysisReport
 from services.tools import web_search_tool, analyze_competitors, get_company_data, available_tools
 from services.context import ArticleContext
 from core.config import settings # 設定をインポート
+from schemas.request import PersonaType # 修正
+from openai import AsyncOpenAI
 
 # --- 動的プロンプト生成関数 ---
 # (既存のスクリプトからコピーし、インポートパスを修正)
 
 def create_theme_instructions(base_prompt: str) -> Callable[[RunContextWrapper[ArticleContext], Agent[ArticleContext]], Awaitable[str]]:
     async def dynamic_instructions_func(ctx: RunContextWrapper[ArticleContext], agent: Agent[ArticleContext]) -> str:
+        if not ctx.context.selected_detailed_persona:
+            raise ValueError("テーマ提案のための詳細なペルソナが選択されていません。")
+        persona_description = ctx.context.selected_detailed_persona
         company_info_str = f"企業名: {ctx.context.company_name}\n概要: {ctx.context.company_description}\n文体ガイド: {ctx.context.company_style_guide}\n過去記事傾向: {ctx.context.past_articles_summary}" if ctx.context.company_name else "企業情報なし"
+        
+        # SerpAPI分析結果を含める
+        seo_analysis_str = ""
+        if ctx.context.serp_analysis_report:
+            seo_analysis_str = f"""
+
+=== SerpAPI競合分析結果 ===
+検索クエリ: {ctx.context.serp_analysis_report.search_query}
+競合記事数: {len(ctx.context.serp_analysis_report.analyzed_articles)}
+推奨文字数: {ctx.context.serp_analysis_report.recommended_target_length}文字
+
+主要テーマ（競合頻出）: {', '.join(ctx.context.serp_analysis_report.main_themes)}
+共通見出し: {', '.join(ctx.context.serp_analysis_report.common_headings[:8])}
+コンテンツギャップ: {', '.join(ctx.context.serp_analysis_report.content_gaps)}
+差別化ポイント: {', '.join(ctx.context.serp_analysis_report.competitive_advantages)}
+検索意図: {ctx.context.serp_analysis_report.user_intent_analysis}
+
+戦略推奨: {', '.join(ctx.context.serp_analysis_report.content_strategy_recommendations[:5])}
+
+上記の競合分析を活用し、検索上位を狙える差別化されたテーマを提案してください。
+"""
+        
         full_prompt = f"""{base_prompt}
 
 --- 入力情報 ---
 キーワード: {', '.join(ctx.context.initial_keywords)}
-ターゲットペルソナ: {ctx.context.target_persona or '指定なし'}
+ターゲットペルソナ詳細:\n{persona_description}
 提案するテーマ数: {ctx.context.num_theme_proposals}
 企業情報:\n{company_info_str}
+{seo_analysis_str}
 ---
 
 あなたの応答は必ず `ThemeProposal` または `ClarificationNeeded` 型のJSON形式で出力してください。
@@ -34,8 +62,24 @@ def create_theme_instructions(base_prompt: str) -> Callable[[RunContextWrapper[A
 def create_research_planner_instructions(base_prompt: str) -> Callable[[RunContextWrapper[ArticleContext], Agent[ArticleContext]], Awaitable[str]]:
     async def dynamic_instructions_func(ctx: RunContextWrapper[ArticleContext], agent: Agent[ArticleContext]) -> str:
         if not ctx.context.selected_theme:
-            # APIコンテキストではClarificationNeededではなくエラーを発生させるべき
             raise ValueError("リサーチ計画を作成するためのテーマが選択されていません。")
+        if not ctx.context.selected_detailed_persona:
+            raise ValueError("リサーチ計画のための詳細なペルソナが選択されていません。")
+        persona_description = ctx.context.selected_detailed_persona
+
+        # SerpAPI分析結果を含める
+        seo_guidance_str = ""
+        if ctx.context.serp_analysis_report:
+            seo_guidance_str = f"""
+
+=== SerpAPI分析ガイダンス ===
+競合記事の主要テーマ: {', '.join(ctx.context.serp_analysis_report.main_themes)}
+コンテンツギャップ（調査すべき領域）: {', '.join(ctx.context.serp_analysis_report.content_gaps)}
+差別化ポイント: {', '.join(ctx.context.serp_analysis_report.competitive_advantages)}
+検索ユーザーの意図: {ctx.context.serp_analysis_report.user_intent_analysis}
+
+上記の分析結果を踏まえ、競合が扱っていない角度や、より深く掘り下げるべき領域を重点的にリサーチしてください。
+"""
 
         full_prompt = f"""{base_prompt}
 
@@ -43,7 +87,8 @@ def create_research_planner_instructions(base_prompt: str) -> Callable[[RunConte
 タイトル: {ctx.context.selected_theme.title}
 説明: {ctx.context.selected_theme.description}
 キーワード: {', '.join(ctx.context.selected_theme.keywords)}
-ターゲットペルソナ: {ctx.context.target_persona or '指定なし'}
+ターゲットペルソナ詳細:\n{persona_description}
+{seo_guidance_str}
 ---
 
 **重要:**
@@ -125,17 +170,30 @@ def create_research_synthesizer_instructions(base_prompt: str) -> Callable[[RunC
 def create_outline_instructions(base_prompt: str) -> Callable[[RunContextWrapper[ArticleContext], Agent[ArticleContext]], Awaitable[str]]:
     async def dynamic_instructions_func(ctx: RunContextWrapper[ArticleContext], agent: Agent[ArticleContext]) -> str:
         if not ctx.context.selected_theme or not ctx.context.research_report:
-            raise ValueError("テーマまたはリサーチレポートが利用できません。")
+            raise ValueError("アウトライン作成に必要なテーマまたはリサーチレポートがありません。")
+        if not ctx.context.selected_detailed_persona:
+            raise ValueError("アウトライン作成のための詳細なペルソナが選択されていません。")
+        persona_description = ctx.context.selected_detailed_persona
 
-        company_info_str = f"文体ガイド: {ctx.context.company_style_guide}" if ctx.context.company_style_guide else "企業文体ガイドなし"
-        # リサーチレポートのキーポイントを整形
-        research_key_points_str = ""
-        for kp in ctx.context.research_report.key_points:
-            sources_str = ", ".join(kp.supporting_sources[:2]) # 代表的なソースをいくつか表示
-            if len(kp.supporting_sources) > 2: sources_str += ", ..."
-            research_key_points_str += f"- {kp.point} (出典: {sources_str})\n"
+        research_summary = ctx.context.research_report.overall_summary
+        company_info_str = ""
+        if ctx.context.company_name or ctx.context.company_description:
+            company_info_str = f"\nクライアント情報:\n  企業名: {ctx.context.company_name or '未設定'}\n  企業概要: {ctx.context.company_description or '未設定'}\n"
 
-        research_summary = f"リサーチ要約: {ctx.context.research_report.overall_summary}\n主要ポイント:\n{research_key_points_str}面白い切り口: {', '.join(ctx.context.research_report.interesting_angles)}"
+        # SerpAPI分析結果を含める
+        seo_structure_guidance = ""
+        if ctx.context.serp_analysis_report:
+            seo_structure_guidance = f"""
+
+=== SerpAPI構成戦略ガイダンス ===
+競合共通見出しパターン: {', '.join(ctx.context.serp_analysis_report.common_headings)}
+推奨文字数: {ctx.context.serp_analysis_report.recommended_target_length}文字
+コンテンツギャップ（新規追加推奨）: {', '.join(ctx.context.serp_analysis_report.content_gaps)}
+差別化ポイント: {', '.join(ctx.context.serp_analysis_report.competitive_advantages)}
+コンテンツ戦略: {', '.join(ctx.context.serp_analysis_report.content_strategy_recommendations)}
+
+上記を参考に、競合に勝る構成を設計してください。共通見出しは参考程度に留め、差別化要素を強く反映したアウトラインを作成してください。
+"""
 
         full_prompt = f"""{base_prompt}
 
@@ -145,8 +203,9 @@ def create_outline_instructions(base_prompt: str) -> Callable[[RunContextWrapper
   説明: {ctx.context.selected_theme.description}
   キーワード: {', '.join(ctx.context.selected_theme.keywords)}
 ターゲット文字数: {ctx.context.target_length or '指定なし（標準的な長さで）'}
-ターゲットペルソナ: {ctx.context.target_persona or '指定なし'}
+ターゲットペルソナ詳細:\n{persona_description}
 {company_info_str}
+{seo_structure_guidance}
 --- 詳細なリサーチ結果 ---
 {research_summary}
 参照した全情報源URL数: {len(ctx.context.research_report.all_sources)}
@@ -155,8 +214,9 @@ def create_outline_instructions(base_prompt: str) -> Callable[[RunContextWrapper
 **重要:**
 - 上記のテーマと**詳細なリサーチ結果**、そして競合分析の結果（ツール使用）に基づいて、記事のアウトラインを作成してください。
 - リサーチ結果の**キーポイント（出典情報も考慮）**や面白い切り口をアウトラインに反映させてください。
-- **ターゲットペルソナ（{ctx.context.target_persona or '指定なし'}）** が読みやすいように、日本の一般的なブログやコラムのような、**親しみやすく分かりやすいトーン**でアウトラインを作成してください。記事全体のトーンも提案してください。
-- あなたの応答は必ず `Outline` または `ClarificationNeeded` 型のJSON形式で出力してください。 (APIコンテキストではClarificationNeededはエラーとして扱う)
+- **ターゲットペルソナ「{persona_description}」** が読みやすいように、日本の一般的なブログやコラムのような、**親しみやすく分かりやすいトーン**でアウトラインを作成してください。記事全体のトーンも提案してください。
+- SerpAPI分析で判明した競合の弱点を補強し、差別化要素を強調した構成にしてください。
+- あなたの応答は必ず `Outline` または `ClarificationNeeded` 型のJSON形式で出力してください。 (APIコンテキストではClarificationNeededはエラーとして処理)
 - 文字数指定がある場合は、それに応じてセクション数や深さを調整してください。
 """
         return full_prompt
@@ -168,12 +228,14 @@ def create_section_writer_instructions(base_prompt: str) -> Callable[[RunContext
             raise ValueError("有効なアウトラインまたはセクションインデックスがありません。")
         if not ctx.context.research_report:
             raise ValueError("参照すべきリサーチレポートがありません。")
+        if not ctx.context.selected_detailed_persona:
+            raise ValueError("セクション執筆のための詳細なペルソナが選択されていません。")
+        persona_description = ctx.context.selected_detailed_persona
 
         target_section = ctx.context.generated_outline.sections[ctx.context.current_section_index]
         target_index = ctx.context.current_section_index
         target_heading = target_section.heading
-        target_persona = ctx.context.target_persona or '指定なし'
-
+        
         section_target_chars = None
         if ctx.context.target_length and len(ctx.context.generated_outline.sections) > 0:
             total_sections = len(ctx.context.generated_outline.sections)
@@ -197,7 +259,7 @@ def create_section_writer_instructions(base_prompt: str) -> Callable[[RunContext
 記事タイトル: {ctx.context.generated_outline.title}
 記事全体のキーワード: {', '.join(ctx.context.selected_theme.keywords) if ctx.context.selected_theme else 'N/A'}
 記事全体のトーン: {ctx.context.generated_outline.suggested_tone}
-ターゲットペルソナ: {target_persona}
+ターゲットペルソナ詳細:\n{persona_description}
 企業スタイルガイド: {company_style_guide}
 記事のアウトライン（全体像）:
 {outline_context}
@@ -212,7 +274,7 @@ def create_section_writer_instructions(base_prompt: str) -> Callable[[RunContext
 ---
 
 --- **【最重要】執筆スタイルとトーンについて** ---
-あなたの役割は、単に情報をHTMLにするだけでなく、**まるで経験豊富な友人が「{target_persona}」に語りかけるように**、親しみやすく、分かりやすい文章でセクションを執筆することです。
+あなたの役割は、単に情報をHTMLにするだけでなく、**まるで経験豊富な友人が以下のペルソナ「{persona_description}」に語りかけるように**、親しみやすく、分かりやすい文章でセクションを執筆することです。
 - **日本の一般的なブログ記事やコラムのような、自然で人間味あふれる、温かいトーン**を心がけてください。堅苦しい表現や機械的な言い回しは避けてください。
 - 読者に直接語りかけるような表現（例：「〜だと思いませんか？」「まずは〜から始めてみましょう！」「〜なんてこともありますよね」）や、共感を誘うような言葉遣いを積極的に使用してください。
 - 専門用語は避け、どうしても必要な場合は簡単な言葉で補足説明を加えてください。箇条書きなども活用し、情報を整理して伝えると良いでしょう。
@@ -245,6 +307,9 @@ def create_editor_instructions(base_prompt: str) -> Callable[[RunContextWrapper[
             raise ValueError("編集対象のドラフト記事がありません。")
         if not ctx.context.research_report:
             raise ValueError("参照すべきリサーチレポートがありません。")
+        if not ctx.context.selected_detailed_persona:
+            raise ValueError("編集のための詳細なペルソナが選択されていません。")
+        persona_description = ctx.context.selected_detailed_persona
 
         research_context_str = f"リサーチ要約: {ctx.context.research_report.overall_summary[:500]}...\n"
         research_context_str += "主要なキーポイントと出典:\n"
@@ -265,7 +330,7 @@ def create_editor_instructions(base_prompt: str) -> Callable[[RunContextWrapper[
 --- 記事の要件 ---
 タイトル: {ctx.context.generated_outline.title if ctx.context.generated_outline else 'N/A'}
 キーワード: {', '.join(ctx.context.selected_theme.keywords) if ctx.context.selected_theme else 'N/A'}
-ターゲットペルソナ: {ctx.context.target_persona or '指定なし'}
+ターゲットペルソナ詳細:\n{persona_description}
 目標文字数: {ctx.context.target_length or '指定なし'}
 トーン: {ctx.context.generated_outline.suggested_tone if ctx.context.generated_outline else 'N/A'}
 企業スタイルガイド: {ctx.context.company_style_guide or '指定なし'}
@@ -276,7 +341,7 @@ def create_editor_instructions(base_prompt: str) -> Callable[[RunContextWrapper[
 
 **重要:**
 - 上記のドラフトHTMLをレビューし、記事の要件と**詳細なリサーチ情報**に基づいて推敲・編集してください。
-- **特に、文章全体がターゲットペルソナ（{ctx.context.target_persona or '指定なし'}）にとって自然で、親しみやすく、分かりやすい言葉遣いになっているか** を重点的に確認してください。機械的な表現や硬い言い回しがあれば、より人間味のある表現に修正してください。
+- **特に、文章全体がターゲットペルソナ「{persona_description}」にとって自然で、親しみやすく、分かりやすい言葉遣いになっているか** を重点的に確認してください。機械的な表現や硬い言い回しがあれば、より人間味のある表現に修正してください。
 - チェックポイント:
     - 全体の流れと一貫性
     - 各セクションの内容の質と正確性 (**リサーチ情報との整合性、事実確認**)
@@ -293,6 +358,167 @@ def create_editor_instructions(base_prompt: str) -> Callable[[RunContextWrapper[
 """
         return full_prompt
     return dynamic_instructions_func
+
+# 新しいエージェント: ペルソナ生成エージェント
+PERSONA_GENERATOR_AGENT_BASE_PROMPT = """
+あなたはターゲット顧客の具体的なペルソナ像を鮮明に描き出すプロフェッショナルです。
+与えられたSEOキーワード、ターゲット年代、ペルソナ属性、およびクライアント企業情報（あれば）を基に、その顧客がどのような人物で、どのようなニーズや悩みを抱えているのか、具体的な背景情報（家族構成、ライフスタイル、価値観など）を含めて詳細なペルソナ像を複数案作成してください。
+あなたの応答は必ず `GeneratedPersonasResponse` 型のJSON形式で、`personas` リストの中に指定された数のペルソナ詳細を `GeneratedPersonaItem` として含めてください。
+各ペルソナの `description` は、ユーザーが提供した例のような形式で、具体的かつ簡潔に記述してください。
+
+例:
+ユーザー入力: 50代 主婦 キーワード「二重窓 デメリット」
+あなたの出力内のペルソナdescriptionの一例:
+「築30年の戸建てに暮らす50代後半の女性。家族構成は夫婦（子どもは独立）。年々寒さがこたえるようになり、家の暖かさには窓の性能が大きく関わっていることを知った。内窓を設置して家の断熱性を高めたいと考えている。補助金も気になっている。」
+"""
+
+def create_persona_generator_instructions(base_prompt: str) -> Callable[[RunContextWrapper[ArticleContext], Agent[ArticleContext]], Awaitable[str]]:
+    async def dynamic_instructions_func(ctx: RunContextWrapper[ArticleContext], agent: Agent[ArticleContext]) -> str:
+        # 初期入力からのペルソナ情報の組み立て (これは大まかな指定)
+        initial_persona_description = "指定なし"
+        if ctx.context.persona_type == PersonaType.OTHER and ctx.context.custom_persona:
+            initial_persona_description = ctx.context.custom_persona
+        elif ctx.context.target_age_group and ctx.context.persona_type:
+            initial_persona_description = f"{ctx.context.target_age_group.value}の{ctx.context.persona_type.value}"
+        elif ctx.context.custom_persona: # 移行措置
+            initial_persona_description = ctx.context.custom_persona
+        
+        company_info_str = ""
+        if ctx.context.company_name or ctx.context.company_description:
+            company_info_str = f"\nクライアント企業名: {ctx.context.company_name or '未設定'}\nクライアント企業概要: {ctx.context.company_description or '未設定'}"
+
+        full_prompt = f"""{base_prompt}
+
+--- 入力情報 ---
+SEOキーワード: {', '.join(ctx.context.initial_keywords)}
+ターゲット年代: {ctx.context.target_age_group.value if ctx.context.target_age_group else '指定なし'}
+ペルソナ属性（大分類）: {ctx.context.persona_type.value if ctx.context.persona_type else '指定なし'}
+（上記属性が「その他」の場合のユーザー指定ペルソナ: {ctx.context.custom_persona if ctx.context.persona_type == PersonaType.OTHER else '該当なし'}）
+生成する具体的なペルソナの数: {ctx.context.num_persona_examples}
+{company_info_str}
+---
+
+あなたのタスクは、上記入力情報に基づいて、より具体的で詳細なペルソナ像を **{ctx.context.num_persona_examples}個** 生成することです。
+各ペルソナは、`GeneratedPersonaItem` の形式で、`id` (0から始まるインデックス) と `description` を含めてください。
+"""
+        return full_prompt
+    return dynamic_instructions_func
+
+persona_generator_agent = Agent[ArticleContext](
+    name="PersonaGeneratorAgent",
+    instructions=create_persona_generator_instructions(PERSONA_GENERATOR_AGENT_BASE_PROMPT),
+    model=settings.default_model, # ペルソナ生成に適したモデルを選択 (例: default_model や writing_model)
+    tools=[], # 基本的にはツール不要だが、必要に応じてweb_searchなどを追加検討
+    output_type=GeneratedPersonasResponse, # 新しく定義したモデル
+)
+
+# 新しいエージェント: SerpAPIキーワード分析エージェント
+SERP_KEYWORD_ANALYSIS_AGENT_BASE_PROMPT = """
+あなたはSEOとキーワード分析の専門家です。
+SerpAPIで取得されたGoogle検索結果と、上位記事のスクレイピング結果を詳細に分析し、以下を含む包括的なSEO戦略レポートを作成します：
+
+1. 上位記事で頻出する主要テーマ・トピック
+2. 共通して使用される見出しパターン・構成
+3. 上位記事で不足している可能性のあるコンテンツ（コンテンツギャップ）
+4. 差別化できる可能性のあるポイント
+5. 検索ユーザーの意図分析（情報収集、比較検討、購入検討など）
+6. コンテンツ戦略の推奨事項
+
+あなたの分析結果は、後続の記事生成プロセス（ペルソナ生成、テーマ提案、アウトライン作成、執筆）において重要な参考資料として活用されます。
+特に、ターゲットキーワードで上位表示を狙うために必要な要素を明確に特定し、実用的な戦略を提案してください。
+
+あなたの応答は必ず `SerpKeywordAnalysisReport` 型のJSON形式で出力してください。
+"""
+
+def create_serp_keyword_analysis_instructions(base_prompt: str) -> Callable[[RunContextWrapper[ArticleContext], Agent[ArticleContext]], Awaitable[str]]:
+    async def dynamic_instructions_func(ctx: RunContextWrapper[ArticleContext], agent: Agent[ArticleContext]) -> str:
+        # キーワードからSerpAPI分析を実行（この時点で実行）
+        keywords = ctx.context.initial_keywords
+        
+        # SerpAPIサービスのインポートと実行
+        from services.serpapi_service import serpapi_service
+        analysis_result = await serpapi_service.analyze_keywords(keywords, num_articles_to_scrape=5)
+        
+        # 分析データを文字列に整理
+        articles_summary = ""
+        for i, article in enumerate(analysis_result.scraped_articles):
+            articles_summary += f"""
+記事 {i+1}:
+- タイトル: {article.title}
+- URL: {article.url}
+- 文字数: {article.char_count}
+- 画像数: {article.image_count}
+- 取得元: {article.source_type}
+{f"- 検索順位: {article.position}" if article.position else ""}
+{f"- 関連質問: {article.question}" if article.question else ""}
+- 見出し構成:
+{chr(10).join(f"  * {heading}" for heading in article.headings)}
+- 本文プレビュー: {article.content[:200]}...
+
+"""
+        
+        related_questions_str = ""
+        if analysis_result.related_questions:
+            related_questions_str = "関連質問:\n"
+            for i, q in enumerate(analysis_result.related_questions):
+                related_questions_str += f"  {i+1}. {q.get('question', 'N/A')}\n"
+        
+        full_prompt = f"""{base_prompt}
+
+--- SerpAPI分析データ ---
+検索クエリ: {analysis_result.search_query}
+検索結果総数: {analysis_result.total_results:,}
+分析対象記事数: {len(analysis_result.scraped_articles)}
+平均文字数: {analysis_result.average_char_count}
+推奨目標文字数: {analysis_result.suggested_target_length}
+
+{related_questions_str}
+
+--- 上位記事詳細分析データ ---
+{articles_summary}
+
+--- あなたのタスク ---
+上記のSerpAPI分析結果を基に、以下の項目を含む包括的なSEO戦略レポートを作成してください：
+
+1. main_themes: 上位記事で頻出する主要テーマ・トピック（5-8個程度）
+2. common_headings: 共通して使用される見出しパターン（5-10個程度）
+3. content_gaps: 上位記事で不足している可能性のあるコンテンツ（3-5個程度）
+4. competitive_advantages: 差別化できる可能性のあるポイント（3-5個程度）
+5. user_intent_analysis: 検索ユーザーの意図分析（詳細な文章で）
+6. content_strategy_recommendations: コンテンツ戦略の推奨事項（5-8個程度）
+
+**必須フィールド**: あなたの応答には以下の情報を必ず含めてください：
+- search_query: "{analysis_result.search_query}"
+- total_results: {analysis_result.total_results}
+- average_article_length: {analysis_result.average_char_count}
+- recommended_target_length: {analysis_result.suggested_target_length}
+- analyzed_articles: 分析した記事のリスト（以下の形式で各記事を記述）
+  [
+    {{
+      "url": "記事URL",
+      "title": "記事タイトル", 
+      "headings": ["見出し1", "見出し2", ...],
+      "content_preview": "記事内容のプレビュー",
+      "char_count": 文字数,
+      "image_count": 画像数,
+      "source_type": "organic_result" または "related_question",
+      "position": 順位（該当する場合）,
+      "question": "関連質問"（該当する場合）
+    }}, ...
+  ]
+
+特に、分析した記事の見出し構成、文字数、扱っているトピックの傾向を詳しく分析し、競合に勝るコンテンツを作成するための戦略を提案してください。
+"""
+        return full_prompt
+    return dynamic_instructions_func
+
+serp_keyword_analysis_agent = Agent[ArticleContext](
+    name="SerpKeywordAnalysisAgent",
+    instructions=create_serp_keyword_analysis_instructions(SERP_KEYWORD_ANALYSIS_AGENT_BASE_PROMPT),
+    model=settings.research_model,  # 分析タスクに適したモデル
+    tools=[],  # SerpAPIサービスを直接使用するため、ツールは不要
+    output_type=SerpKeywordAnalysisReport,
+)
 
 # --- エージェント定義 ---
 
