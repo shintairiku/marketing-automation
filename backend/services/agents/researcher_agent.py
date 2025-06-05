@@ -4,7 +4,7 @@ from services.context import ArticleContext
 from services.tools import web_search_tool
 from services.models import ResearchQueryResult
 from core.config import settings
-from .prompts import create_researcher_instructions
+from services.prompts import create_researcher_instructions
 
 RESEARCHER_AGENT_BASE_PROMPT = """あなたは熟練したディープリサーチャーです。
 指定された検索クエリでWeb検索を実行し、結果を深く分析します。

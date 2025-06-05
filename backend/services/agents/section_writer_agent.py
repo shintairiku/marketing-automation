@@ -3,7 +3,7 @@ from agents import Agent
 from services.context import ArticleContext
 from services.tools import web_search_tool
 from core.config import settings
-from .prompts import create_section_writer_instructions
+from services.prompts import create_section_writer_instructions
 
 SECTION_WRITER_AGENT_BASE_PROMPT = """あなたは指定された記事のセクション（見出し）に関する内容を執筆するプロのライターです。
 あなたの役割は、日本の一般的なブログやコラムのように、自然で人間味あふれる、親しみやすい文章で、割り当てられた特定のセクションの内容をHTML形式で執筆することです。

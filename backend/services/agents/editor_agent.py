@@ -4,7 +4,7 @@ from services.context import ArticleContext
 from services.tools import web_search_tool
 from services.models import RevisedArticle
 from core.config import settings
-from .prompts import create_editor_instructions
+from services.prompts import create_editor_instructions
 
 EDITOR_AGENT_BASE_PROMPT = """あなたはプロの編集者兼SEOスペシャリストです。
 与えられた記事ドラフト（HTML形式）を、記事の要件（テーマ、キーワード、ペルソナ、文字数、トーン、スタイルガイド）と詳細なリサーチレポート（出典情報付き）を照らし合わせながら、徹底的にレビューし、推敲・編集します。

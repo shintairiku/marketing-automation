@@ -3,7 +3,7 @@ from agents import Agent
 from services.context import ArticleContext
 from services.models import ResearchReport
 from core.config import settings
-from .prompts import create_research_synthesizer_instructions
+from services.prompts import create_research_synthesizer_instructions
 
 RESEARCH_SYNTHESIZER_AGENT_BASE_PROMPT = """あなたは情報を整理し、要点を抽出し、統合する専門家です。
 収集された詳細なリサーチ結果（抜粋と出典）を分析し、記事のテーマに沿って統合・要約します。
