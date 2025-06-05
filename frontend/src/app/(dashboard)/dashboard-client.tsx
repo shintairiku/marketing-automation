@@ -52,10 +52,7 @@ export function DashboardClient({ children }: PropsWithChildren) {
           <div className={cn(
             "hidden lg:block transition-all duration-300 ease-in-out",
           )}>
-            <Sidebar 
-              isExpanded={!isSidebarCollapsed} 
-              setIsExpanded={(expanded) => setIsSidebarCollapsed(!expanded)} 
-            />
+            <Sidebar />
           </div>
         )}
 
@@ -81,11 +78,7 @@ export function DashboardClient({ children }: PropsWithChildren) {
                     <SheetHeader className="sr-only">
                         <SheetTitle>ナビゲーションメニュー</SheetTitle>
                     </SheetHeader>
-                    <Sidebar 
-                        className="h-full w-full border-0" 
-                        isExpanded={true} 
-                        setIsExpanded={() => { /* モバイルシート内では操作不要 */ }} 
-                    />
+                    <Sidebar />
                     </SheetContent>
                 </Sheet>
                 {/* モバイル時のページタイトルなどもここに表示するか、Headerコンポーネント側でレスポンシブ対応するか検討 */}
