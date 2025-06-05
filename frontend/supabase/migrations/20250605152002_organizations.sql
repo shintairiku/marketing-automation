@@ -12,8 +12,8 @@ create table organizations (
   owner_user_id uuid references auth.users not null,
   -- Clerk organization ID for Clerk integration (optional)
   clerk_organization_id text unique,
-  -- Stripe customer ID for billing (optional, references customers table)
-  stripe_customer_id text references customers(stripe_customer_id),
+  -- Stripe customer ID for billing (optional)
+  stripe_customer_id text,
   -- Timestamps
   created_at timestamp with time zone default timezone('utc'::text, now()) not null,
   updated_at timestamp with time zone default timezone('utc'::text, now()) not null
@@ -26,16 +26,6 @@ alter table organizations enable row level security;
 -- Owners can do everything with their organizations
 create policy "Organization owners can manage their organizations" on organizations
   for all using (auth.uid() = owner_user_id);
-
--- Members can view organizations they belong to (will be enforced via organization_members table)
-create policy "Organization members can view their organizations" on organizations
-  for select using (
-    exists (
-      select 1 from organization_members 
-      where organization_members.organization_id = organizations.id 
-      and organization_members.user_id = auth.uid()
-    )
-  );
 
 /**
  * ORGANIZATION_MEMBERS
@@ -228,6 +218,16 @@ $$ language plpgsql security definer;
 create trigger on_organization_created
   after insert on organizations
   for each row execute function handle_new_organization();
+
+-- Add the member view policy after organization_members table is created
+create policy "Organization members can view their organizations" on organizations
+  for select using (
+    exists (
+      select 1 from organization_members 
+      where organization_members.organization_id = organizations.id 
+      and organization_members.user_id = auth.uid()
+    )
+  );
 
 /**
  * REALTIME SUBSCRIPTIONS

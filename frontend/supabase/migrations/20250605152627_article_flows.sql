@@ -50,10 +50,11 @@ create table article_generation_flows (
   created_at timestamp with time zone default timezone('utc'::text, now()) not null,
   updated_at timestamp with time zone default timezone('utc'::text, now()) not null,
   
-  -- Constraint: flow must belong to either an organization or a user, but not both
+  -- Constraint: flow must belong to either an organization, a user, or be a system template
   constraint flow_ownership_check check (
     (organization_id is not null and user_id is null) or
-    (organization_id is null and user_id is not null)
+    (organization_id is null and user_id is not null) or
+    (organization_id is null and user_id is null and is_template = true)
   )
 );
 
