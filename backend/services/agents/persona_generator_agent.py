@@ -3,7 +3,7 @@ from agents import Agent
 from services.context import ArticleContext
 from services.models import GeneratedPersonasResponse
 from core.config import settings
-from .prompts import create_persona_generator_instructions
+from services.prompts import create_persona_generator_instructions
 from schemas.request import PersonaType
 
 PERSONA_GENERATOR_AGENT_BASE_PROMPT = """あなたはターゲット顧客の具体的なペルソナ像を鮮明に描き出すプロフェッショナルです。

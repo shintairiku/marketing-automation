@@ -3,7 +3,7 @@ from agents import Agent
 from services.context import ArticleContext
 from services.models import SerpKeywordAnalysisReport
 from core.config import settings
-from .prompts import create_serp_keyword_analysis_instructions
+from services.prompts import create_serp_keyword_analysis_instructions
 
 SERP_KEYWORD_ANALYSIS_AGENT_BASE_PROMPT = """あなたはSEOとキーワード分析の専門家です。
 SerpAPIで取得されたGoogle検索結果と、上位記事のスクレイピング結果を詳細に分析し、以下を含む包括的なSEO戦略レポートを作成します：

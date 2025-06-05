@@ -4,7 +4,7 @@ from services.context import ArticleContext
 from services.tools import web_search_tool, get_company_data
 from services.models import AgentOutput
 from core.config import settings
-from .prompts import create_theme_instructions
+from services.prompts import create_theme_instructions
 
 THEME_AGENT_BASE_PROMPT = """あなたはSEO記事のテーマを考案する専門家です。
 与えられたキーワード、ターゲットペルソナ、企業情報を分析し、読者の検索意図とSEO効果を考慮した上で、創造的で魅力的な記事テーマ案を複数生成します。

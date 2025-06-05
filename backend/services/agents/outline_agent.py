@@ -4,7 +4,7 @@ from services.context import ArticleContext
 from services.tools import analyze_competitors, get_company_data
 from services.models import AgentOutput
 from core.config import settings
-from .prompts import create_outline_instructions
+from services.prompts import create_outline_instructions
 
 OUTLINE_AGENT_BASE_PROMPT = """あなたはSEO記事のアウトライン（構成案）を作成する専門家です。
 選択されたテーマ、目標文字数、企業のスタイルガイド、ターゲットペルソナ、そして詳細なリサーチレポート（キーポイントと出典情報を含む）に基づいて、論理的で網羅的、かつ読者の興味を引く記事のアウトラインを生成します。
