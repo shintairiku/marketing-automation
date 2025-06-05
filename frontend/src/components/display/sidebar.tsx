@@ -1,164 +1,196 @@
-"use client"
+'use client';
 
-import { ReactNode,useEffect, useState } from "react"
-import { BarChart3, ChevronRight,Clock, Database, Settings } from "lucide-react"
+import React from 'react';
+import Image from 'next/image';
+import Link from 'next/link';
+import { usePathname } from 'next/navigation';
+import clsx from 'clsx';
+import {
+IoAnalytics, IoCalendar, 
+  /* LINE */
+  IoChatbubbles as IoChat,  /* ←重複を避けるためエイリアス */
+IoChatbubbles, IoClipboard, IoCloudUpload,
+IoDocumentText,   IoGitBranch,
+  /* SEO */
+  IoGlobe, 
+  /* Home / Dashboard */
+  IoHome, IoImage, IoList, 
+  /* Instagram */
+  IoLogoInstagram, IoNewspaper, IoPencil, IoPerson,
+IoPricetag, IoSettings, IoSparkles,
+IoStatsChart,
+  IoSync, IoText} from 'react-icons/io5';
 
-import SidebarCategory from "@/components/display/sidebarCategory"
-import { cn } from "@/utils/tailwind-utils"
+import { groups } from '@/components/constant/route';
+import { ScrollArea } from '@/components/ui/scroll-area';
 
-interface SidebarProps {
-  className?: string;
-  isExpanded: boolean
-  setIsExpanded: (value: boolean) => void
+export const iconMap: Record<string, React.ReactElement<{ size?: number }>> = {
+  /* ───────── 1. Home (Dashboard) ───────── */
+  '/home'                 : <IoHome size={24} />,
+  '/home/dashboard'            : <IoNewspaper size={24} />,
+  '/home/news'         : <IoSettings size={24} />,
+  '/home/overview'        : <IoClipboard size={24} />,
+  '/home/calendar'        : <IoCalendar size={24} />,
+  '/home/performance'     : <IoStatsChart size={24} />,
+
+  /* ───────── 2. Generate / SEO ───────── */
+  '/seo/home'              : <IoGlobe size={24} />,
+  '/seo/generate/new-article'        : <IoText size={24} />,
+
+  '/seo/manage/list'           : <IoList size={24} />,
+  '/seo/manage/status'         : <IoSync size={24} />,
+  '/seo/manage/schedule'       : <IoCalendar size={24} />,
+
+  '/seo/analyze/dashboard'     : <IoAnalytics size={24} />,
+  '/seo/analyze/report'        : <IoDocumentText size={24} />,
+  '/seo/analyze/feedback'      : <IoChatbubbles size={24} />,
+
+  '/seo/input/persona'         : <IoPerson size={24} />,
+
+  /* ───────── 3. Generate / Instagram ───────── */
+  '/instagram/home'            : <IoLogoInstagram size={24} />,
+  '/instagram/generate/caption'    : <IoText size={24} />,
+  '/instagram/generate/hashtags'   : <IoPricetag size={24} />,
+  '/instagram/generate/image'      : <IoImage size={24} />,
+  '/instagram/generate/rewrite'    : <IoSparkles size={24} />,
+  '/instagram/generate/schedule'   : <IoCalendar size={24} />,
+  '/instagram/manage/list'       : <IoList size={24} />,
+  '/instagram/manage/status'     : <IoSync size={24} />,
+  '/instagram/analyze/dashboard'  : <IoAnalytics size={24} />,
+  '/instagram/analyze/report'     : <IoDocumentText size={24} />,
+  '/instagram/analyze/feedback'   : <IoChatbubbles size={24} />,
+
+  '/instagram/input/persona'    : <IoPerson size={24} />,
+
+  /* ───────── 4. Generate / LINE ───────── */
+  '/line/home'                 : <IoChat size={24} />,
+  '/line/generate/text'            : <IoText size={24} />,
+  '/line/generate/image'           : <IoImage size={24} />,
+  '/line/generate/rewrite'         : <IoGitBranch size={24} />,
+  '/line/generate/schedule'        : <IoCalendar size={24} />,
+
+  '/line/manage/list'            : <IoList size={24} />,
+  '/line/manage/status'          : <IoSync size={24} />,
+
+  '/line/analyze/dashboard'       : <IoAnalytics size={24} />,
+  '/line/analyze/report'          : <IoDocumentText size={24} />,
+  '/line/analyze/feedback'        : <IoChatbubbles size={24} />,
+
+  '/line/input/persona'         : <IoPerson size={24} />,
+};
+
+function findSelectedMenu(pathname: string) {
+  // 1. 親リンクで一致するものを探す
+  let menu = groups.flatMap(g => g.links).find(l => pathname === l.href);
+  if (menu) return menu;
+
+  // 2. subLinksの中に一致するものがあれば、その親リンクを返す
+  menu = groups
+    .flatMap(g => g.links)
+    .find(l => l.subLinks && l.subLinks.some(section => section.links.some(sub => pathname === sub.href)));
+  if (menu) return menu;
+
+  // 3. さらにサブリンクが階層的に深い場合はstartsWithで判定
+  menu = groups
+    .flatMap(g => g.links)
+    .find(l => l.subLinks && l.subLinks.some(section => section.links.some(sub => pathname.startsWith(sub.href))));
+  if (menu) return menu;
+
+  return undefined;
 }
 
-// アイコンコンポーネントの型定義
-interface IconProps {
-  className?: string;
-}
-
-// 各メニューアイテムの型定義
-interface MenuItem {
-  id: string;
-  icon: ReactNode; // ReactNode を使用して柔軟性を確保
-  label: string;
-  items: SubMenuItem[];
-  href?: string; // トップレベルのリンク用
-}
-
-interface SubMenuItem {
-  id: string;
-  label: string;
-  href?: string; // サブアイテムのリンク用
-}
-
-export default function Sidebar({ className, isExpanded, setIsExpanded }: SidebarProps) {
-  // 日本語のメニューデータとアイコンの割り当て
-  const menuData: MenuItem[] = [
-    {
-      id: "dashboard",
-      icon: <Clock className="h-5 w-5" />,
-      label: "ダッシュボード",
-      items: [],
-      href: "/dashboard", // ダッシュボードへの直接リンク
-    },
-    {
-      id: "generation",
-      icon: <Settings className="h-5 w-5" />,
-      label: "生成機能",
-      items: [
-        { id: "seo", label: "SEO記事生成", href: "/tools/generate/seo" },
-        { id: "ig-caption", label: "IGキャプション生成", href: "/tools/generate/ig-caption" },
-        { id: "ig-content", label: "IGコンテンツ生成", href: "/tools/generate/ig-content" },
-        { id: "line", label: "LINE配信生成", href: "/tools/generate/line" },
-      ],
-    },
-    {
-      id: "analytics",
-      icon: <BarChart3 className="h-5 w-5" />,
-      label: "分析機能",
-      items: [
-        { id: "blog-analytics", label: "ブログ", href: "/analytics/blog" },
-        { id: "instagram-analytics", label: "インスタグラム", href: "/analytics/instagram" },
-        { id: "line-analytics", label: "LINE", href: "/analytics/line" },
-        { id: "ads-analytics", label: "広告", href: "/analytics/ads" },
-      ],
-    },
-    {
-      id: "input-space",
-      icon: <Database className="h-5 w-5" />,
-      label: "入力スペース",
-      items: [
-        { id: "persona-settings", label: "ペルソナの設定", href: "/input-space/persona" },
-        { id: "blog-domain-settings", label: "ブログドメインの設定", href: "/input-space/blog-domain" },
-        { id: "instagram-template-settings", label: "インスタグラムテンプレート", href: "/input-space/instagram-template" },
-        { id: "line-template-settings", label: "LINEテンプレート", href: "/input-space/line-template" },
-      ],
-    },
-  ];
-
-  const [activeCategories, setActiveCategories] = useState<string[]>(menuData.filter(category => category.items.length > 0).map(category => category.id));
-  // activeSubItem は選択されたサブメニューアイテムのIDを保持します。
-  // 例: 'seo', 'ig-caption' など
-  const [activeSubItem, setActiveSubItem] = useState<string | null>(null);
-  const [isTransitioning, setIsTransitioning] = useState(false)
-
-  useEffect(() => {
-    if (isExpanded) {
-      setIsTransitioning(true)
-      const timer = setTimeout(() => {
-        setIsTransitioning(false)
-      }, 300) // アニメーション時間と同じ
-      return () => clearTimeout(timer)
-    } else {
-      setIsTransitioning(false)
-      // サイドバーが閉じられたらアクティブなカテゴリもリセット（デザインによる）
-      // setActiveCategories([]);
-    }
-  }, [isExpanded])
-
-  const handleCategoryClick = (categoryId: string, href?: string) => {
-    if (href) { // トップレベルのアイテムが直接リンクを持つ場合
-      // router.push(href); // Next.jsのルーターを使用する場合
-      console.log(`Navigating to ${href}`);
-      setActiveCategories([categoryId]); // クリックされたカテゴリをアクティブにする
-      setActiveSubItem(null); // サブアイテムの選択は解除
-      return;
-    }
-
-    setActiveCategories(prev => {
-      if (prev.includes(categoryId)) {
-        return prev.filter(id => id !== categoryId) // カテゴリを閉じる
-      } else {
-        // 他のカテゴリが展開されている場合、それを閉じて新しいカテゴリのみ展開する（アコーディオン動作）
-        return [categoryId] // カテゴリを開く
-      }
-    })
-    setActiveSubItem(null); // カテゴリ変更時はサブアイテムの選択を解除
-  }
-
-  const handleSubItemClick = (subItemId: string, href?: string) => {
-    if (href) {
-      // router.push(href); // Next.jsのルーターを使用する場合
-      console.log(`Navigating to ${href}`);
-    }
-    setActiveSubItem(subItemId);
-    // サブアイテムがクリックされたときに親カテゴリもアクティブにする
-    const parentCategory = menuData.find(category => category.items.some(item => item.id === subItemId));
-    if (parentCategory && !activeCategories.includes(parentCategory.id)) {
-      setActiveCategories(prev => [...prev, parentCategory.id]);
-    }
-  };
+export default function Sidebar() {
+  const pathname = usePathname();
+  const selectedMenu = findSelectedMenu(pathname);
 
   return (
-    <div
-      className={cn(
-        "relative flex h-full flex-col bg-sidebar-bg shadow-md transition-all duration-300 ease-in-out",
-        isExpanded ? "w-[250px]" : "w-[70px]", // 幅を少し調整
-        className // 渡された className を適用
-      )}
-      onMouseEnter={() => setIsExpanded(true)}
-      onMouseLeave={() => setIsExpanded(false)}
-    >
-      <nav className="flex-grow overflow-y-auto py-4">
-        {menuData.map((category) => (
-          <SidebarCategory
-            key={category.id}
-            icon={category.icon}
-            label={category.label}
-            items={category.items}
-            isExpanded={isExpanded}
-            isCategoryActive={activeCategories.includes(category.id)}
-            activeSubItem={activeSubItem}
-            onCategoryClick={() => handleCategoryClick(category.id, category.href)}
-            onSubItemClick={handleSubItemClick}
-            isTransitioning={isTransitioning}
-            hasSubItems={category.items.length > 0}
-            href={category.href}
-          />
-        ))}
-      </nav>
-      {/* フッターや追加情報などが必要な場合はここに */}
+    <div className="flex h-[calc(100vh-45px)]">
+      <aside className="group w-[64px] hover:w-[250px] h-full bg-primary text-white relative transition-all duration-300 ease-in-out z-20">
+        <ScrollArea className="h-full py-10">
+          <nav className="flex flex-col gap-2">
+            {groups.map((g) => (
+              <div key={g.title} className="border-b border-white/20 p-[8px]">
+                {g.links.map((l) => (
+                  <Link
+                    key={l.href}
+                    href={l.href}
+                    className={clsx(
+                      'flex items-center p-[8px] rounded-lg text-sm',
+                      pathname.startsWith(l.href)
+                        ? 'bg-primary text-white hover:bg-primary/80'
+                        : 'hover:bg-primary/80'
+                    )}
+                  >
+                    <div className="text-white">
+                      {iconMap[l.href]}
+                    </div>
+                    <span className="opacity-0 group-hover:opacity-100 transition-opacity delay-100 ml-3 text-[15px] text-white font-semibold whitespace-nowrap">
+                      {l.label}
+                    </span>
+                  </Link>
+                ))}
+              </div>
+            ))}
+          </nav>
+        </ScrollArea>
+        <div className='absolute right-0 top-0 size-[36px] translate-x-full bg-primary'>
+          <div className='size-[36px] bg-white' style={{ clipPath: 'circle(100% at 100% 100%)' }}></div>
+        </div>
+        <div className='absolute right-0 bottom-0 size-[36px] translate-x-full bg-primary'>
+          <div className='size-[36px] bg-white' style={{ clipPath: 'circle(100% at 100% 0%)' }}></div>
+        </div>
+      </aside>
+
+      <aside className="absolute left-[64px] w-[250px] h-full bg-white text-black shadow-[10px_0_10px_rgba(0,0,0,0.1)] z-10">
+        <div className="flex flex-col gap-2 p-5">
+          <div className="flex items-center justify-center gap-2">
+            {selectedMenu?.imageurl && (
+              <div className="relative w-6 h-6">
+                <Image 
+                  src={selectedMenu.imageurl} 
+                  alt={selectedMenu.sublabel || ''} 
+                  fill
+                  style={{ objectFit: 'contain' }}
+                  priority
+                />
+              </div>
+            )}
+            <p className="text-lg font-bold whitespace-nowrap text-center">{selectedMenu?.sublabel}</p>
+          </div>
+        </div>
+        <ScrollArea className="h-[calc(100%-80px)]">
+          {selectedMenu?.subLinks?.map((section) => (
+            <div key={section.title} className="flex flex-col gap-2 p-[8px] py-5">
+              <div className="flex items-center justify-between gap-2">
+                <p className="font-bold text-primary">{section.title}</p>
+                <div className='h-[1px] bg-primary flex-1'></div>
+              </div>
+              <div className="flex flex-col">
+                {section.links.map((link) => (
+                  <Link
+                    key={link.href}
+                    href={link.href}
+                    className={clsx(
+                      "flex items-center gap-2 p-[8px] rounded-lg",
+                      pathname === link.href
+                        ? "bg-primary/10 text-primary"
+                        : "hover:bg-gray-100"
+                    )}
+                  >
+                    <div className="text-foreground">
+                      {iconMap[link.href]}
+                    </div>
+                    <span className="text-sm text-foreground whitespace-nowrap transition-opacity duration-300 group-hover:opacity-0">
+                      {link.label}
+                    </span>
+                  </Link>
+                ))}
+              </div>
+            </div>
+          ))}
+        </ScrollArea>
+      </aside>
     </div>
-  )
+  );
 }
+
