@@ -10,6 +10,9 @@ load_dotenv()
 class Settings(BaseSettings):
     """アプリケーション設定を管理するクラス"""
     openai_api_key: str = Field(..., env="OPENAI_API_KEY")
+    # SerpAPI設定
+    serpapi_key: str = Field("", env="SERPAPI_API_KEY")
+    
     # 他のAPIキーが必要な場合は追加
     # anthropic_api_key: Optional[str] = Field(None, env="ANTHROPIC_API_KEY")
     # gemini_api_key: Optional[str] = Field(None, env="GEMINI_API_KEY")

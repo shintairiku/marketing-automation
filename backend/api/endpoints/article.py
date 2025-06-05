@@ -12,9 +12,13 @@ router = APIRouter()
 article_service = ArticleGenerationService() # サービスインスタンス化
 
 @router.websocket("/ws/generate")
-async def generate_article_websocket_endpoint(websocket: WebSocket):
+async def generate_article_websocket_endpoint(websocket: WebSocket, process_id: str = None, user_id: str = None):
     """
     WebSocket接続を確立し、インタラクティブな記事生成プロセスを開始します。
+
+    **パラメータ:**
+    - process_id: 既存プロセスの再開用ID（新規作成の場合はNone）
+    - user_id: ユーザーID（認証システムから取得）
 
     **接続後の流れ:**
 
@@ -51,5 +55,5 @@ async def generate_article_websocket_endpoint(websocket: WebSocket):
 
     接続は、生成完了時、エラー発生時、またはクライアント/サーバーからの切断要求時に閉じられます。
     """
-    await article_service.handle_websocket_connection(websocket)
+    await article_service.handle_websocket_connection(websocket, process_id, user_id)
 

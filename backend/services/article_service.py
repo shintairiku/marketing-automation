@@ -4,8 +4,10 @@ import json
 import time
 import traceback
 import logging  # ログ追加
+from datetime import datetime, timezone
 from typing import AsyncGenerator, List, Dict, Any, Optional, Union
 from fastapi import WebSocket, WebSocketDisconnect, status # <<< status をインポート
+from starlette.websockets import WebSocketState # WebSocketStateをインポート
 from openai import AsyncOpenAI, BadRequestError, InternalServerError, AuthenticationError
 from openai.types.responses import ResponseTextDeltaEvent, ResponseCompletedEvent
 from agents import Runner, RunConfig, Agent, RunContextWrapper, trace
@@ -72,7 +74,7 @@ def safe_custom_span(name: str, data: dict[str, Any] | None = None):
 class ArticleGenerationService:
     """記事生成のコアロジックを提供し、WebSocket通信を処理するサービスクラス"""
 
-    async def handle_websocket_connection(self, websocket: WebSocket):
+    async def handle_websocket_connection(self, websocket: WebSocket, process_id: Optional[str] = None, user_id: Optional[str] = None):
         """WebSocket接続を処理し、記事生成プロセスを実行"""
         await websocket.accept()
         context: Optional[ArticleContext] = None
@@ -80,12 +82,47 @@ class ArticleGenerationService:
         generation_task: Optional[asyncio.Task] = None
 
         try:
-            # 1. 最初のメッセージ(生成リクエスト)を受信
-            initial_data = await websocket.receive_json()
-            request = GenerateArticleRequest(**initial_data) # バリデーション
+            # 1. 既存プロセスの再開か新規作成かを判定
+            if process_id:
+                # 既存プロセスの再開
+                context = await self._load_context_from_db(process_id)
+                if not context:
+                    raise ValueError(f"Process {process_id} not found")
+                
+                # WebSocketオブジェクトを再設定
+                context.websocket = websocket
+                context.user_response_event = asyncio.Event()
+                
+                console.print(f"[green]Resuming process {process_id} from step {context.current_step}[/green]")
+                
+                # 既存の実行設定を再作成
+                session_id = process_id
+                trace_id = f"trace_{session_id.replace('-', '')[:32]}"
+                
+                run_config = RunConfig(
+                    workflow_name="SEO記事生成ワークフロー",
+                    trace_id=trace_id,
+                    group_id=session_id,
+                    trace_metadata={
+                        "keywords": context.initial_keywords,
+                        "target_length": context.target_length,
+                        "persona_type": context.persona_type.value if context.persona_type else None,
+                        "company_name": context.company_name,
+                        "session_start_time": time.time(),
+                        "workflow_version": "1.0.0",
+                        "resumed": True
+                    },
+                    tracing_disabled=not settings.enable_tracing,
+                    trace_include_sensitive_data=settings.trace_include_sensitive_data
+                )
+            else:
+                # 新規プロセスの開始
+                # 最初のメッセージ(生成リクエスト)を受信
+                initial_data = await websocket.receive_json()
+                request = GenerateArticleRequest(**initial_data) # バリデーション
 
-            # 2. コンテキストと実行設定を初期化
-            context = ArticleContext(
+                # コンテキストと実行設定を初期化
+                context = ArticleContext(
                 initial_keywords=request.initial_keywords,
                 target_age_group=request.target_age_group,
                 persona_type=request.persona_type,
@@ -98,16 +135,21 @@ class ArticleGenerationService:
                 company_description=request.company_description,
                 company_style_guide=request.company_style_guide,
                 websocket=websocket, # WebSocketオブジェクトをコンテキストに追加
-                user_response_event=asyncio.Event() # ユーザー応答待ちイベント
-            )
-            
-            # 単一のトレースIDとグループIDを生成して、フロー全体をまとめる
-            import uuid
-            import time
-            session_id = str(uuid.uuid4())
-            trace_id = f"trace_{session_id.replace('-', '')[:32]}"
-            
-            run_config = RunConfig(
+                    user_response_event=asyncio.Event() # ユーザー応答待ちイベント
+                )
+                
+                # 単一のトレースIDとグループIDを生成して、フロー全体をまとめる
+                import uuid
+                import time
+                session_id = str(uuid.uuid4())
+                trace_id = f"trace_{session_id.replace('-', '')[:32]}"
+                
+                # データベースに初期状態を保存してprocess_idを取得
+                if user_id:
+                    process_id = await self._save_context_to_db(context, user_id=user_id)
+                    console.print(f"[cyan]Created new process {process_id}[/cyan]")
+                
+                run_config = RunConfig(
                 workflow_name="SEO記事生成ワークフロー",
                 trace_id=trace_id,
                 group_id=session_id,
@@ -118,16 +160,16 @@ class ArticleGenerationService:
                     "company_name": request.company_name,
                     "session_start_time": time.time(),
                     "workflow_version": "1.0.0",
-                    "user_agent": request.dict().get("user_agent", "unknown")  # ユーザーエージェント情報があれば
+                    "user_agent": "unknown"  # ユーザーエージェント情報があれば追加
                 },
                 tracing_disabled=not settings.enable_tracing,
                 trace_include_sensitive_data=settings.trace_include_sensitive_data
-            )
+                )
 
             # 3. 単一のトレースコンテキスト内でバックグラウンド生成ループを開始
             with safe_trace_context("SEO記事生成ワークフロー", trace_id, session_id):
                 generation_task = asyncio.create_task(
-                    self._run_generation_loop(context, run_config)
+                    self._run_generation_loop(context, run_config, process_id, user_id)
                 )
 
                 # 4. クライアントからの応答を待ち受けるループ
@@ -263,13 +305,17 @@ class ArticleGenerationService:
         return response
 
 
-    async def _run_generation_loop(self, context: ArticleContext, run_config: RunConfig):
+    async def _run_generation_loop(self, context: ArticleContext, run_config: RunConfig, process_id: Optional[str] = None, user_id: Optional[str] = None):
         """記事生成のメインループ（WebSocketインタラクティブ版）"""
         current_agent: Optional[Agent[ArticleContext]] = None
         agent_input: Union[str, List[Dict[str, Any]]]
 
         try:
             while context.current_step not in ["completed", "error"]:
+                # データベースに現在の状態を保存
+                if process_id and user_id:
+                    await self._save_context_to_db(context, process_id=process_id, user_id=user_id)
+                
                 await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message=f"Starting step: {context.current_step}"))
                 console.rule(f"[bold yellow]API Step: {context.current_step}[/bold yellow]")
 
@@ -903,6 +949,10 @@ class ArticleGenerationService:
                             title=agent_output.title,
                             final_html_content=agent_output.final_html_content
                         ))
+                        
+                        # 最終保存
+                        if process_id and user_id:
+                            await self._save_context_to_db(context, process_id=process_id, user_id=user_id)
                     else:
                         raise TypeError(f"予期しないAgent出力タイプ: {type(agent_output)}")
 
@@ -1028,5 +1078,140 @@ class ArticleGenerationService:
             logger.error(f"エージェント {agent.name} execution finished unexpectedly: 総実行時間 {total_time:.2f}秒")
             raise RuntimeError(f"Agent {agent.name} execution finished unexpectedly.")
 
-# WebSocketStateのインポートを追加 (エラーハンドリングで使用)
-from starlette.websockets import WebSocketState # <<< WebSocketState をインポート
+    async def _save_context_to_db(self, context: ArticleContext, process_id: Optional[str] = None, user_id: Optional[str] = None, organization_id: Optional[str] = None) -> str:
+        """Save ArticleContext to database and return process_id"""
+        try:
+            from services.article_flow_service import get_supabase_client
+            import datetime
+            supabase = get_supabase_client()
+            
+            # Convert context to dict (excluding WebSocket and asyncio objects)
+            context_dict = {}
+            for key, value in context.__dict__.items():
+                if key not in ["websocket", "user_response_event"]:
+                    if hasattr(value, "model_dump"):
+                        context_dict[key] = value.model_dump()
+                    elif isinstance(value, (str, int, float, bool, list, dict, type(None))):
+                        context_dict[key] = value
+                    else:
+                        context_dict[key] = str(value)
+            
+            if process_id:
+                # Update existing state
+                update_data = {
+                    "article_context": context_dict,
+                    "status": context.current_step,
+                    "updated_at": datetime.now(timezone.utc).isoformat()
+                }
+                
+                # Add error message if in error state
+                if context.current_step == "error" and hasattr(context, 'error_message'):
+                    update_data["error_message"] = context.error_message
+                    
+                # Add final article if completed
+                if context.current_step == "completed" and hasattr(context, 'final_article_html'):
+                    # Create article record
+                    article_data = {
+                        "user_id": user_id,
+                        "organization_id": organization_id,
+                        "generation_process_id": process_id,
+                        "title": context.generated_outline.title if context.generated_outline else "Generated Article",
+                        "content": context.final_article_html,
+                        "keywords": context.initial_keywords,
+                        "target_audience": context.selected_detailed_persona,
+                        "status": "completed"
+                    }
+                    
+                    article_result = supabase.table("articles").insert(article_data).execute()
+                    if article_result.data:
+                        update_data["article_id"] = article_result.data[0]["id"]
+                
+                supabase.table("generated_articles_state").update(update_data).eq("id", process_id).execute()
+                return process_id
+            else:
+                # Create new state
+                state_data = {
+                    "user_id": user_id,
+                    "organization_id": organization_id,
+                    "status": context.current_step,
+                    "article_context": context_dict,
+                    "generated_content": {}
+                }
+                
+                result = supabase.table("generated_articles_state").insert(state_data).execute()
+                if result.data:
+                    return result.data[0]["id"]
+                else:
+                    raise Exception("Failed to create generation state")
+            
+        except Exception as e:
+            logger.error(f"Error saving context to database: {e}")
+            raise
+
+    async def _load_context_from_db(self, process_id: str) -> Optional[ArticleContext]:
+        """Load ArticleContext from database"""
+        try:
+            from services.article_flow_service import get_supabase_client
+            supabase = get_supabase_client()
+            
+            result = supabase.table("generated_articles_state").select("*").eq("id", process_id).execute()
+            
+            if not result.data:
+                return None
+            
+            state = result.data[0]
+            context_dict = state["article_context"]
+            
+            # Reconstruct ArticleContext from stored data
+            context = ArticleContext(
+                initial_keywords=context_dict.get("initial_keywords", []),
+                target_age_group=context_dict.get("target_age_group"),
+                persona_type=context_dict.get("persona_type"),
+                custom_persona=context_dict.get("custom_persona"),
+                target_length=context_dict.get("target_length"),
+                num_theme_proposals=context_dict.get("num_theme_proposals", 3),
+                num_research_queries=context_dict.get("num_research_queries", 3),
+                num_persona_examples=context_dict.get("num_persona_examples", 3),
+                company_name=context_dict.get("company_name"),
+                company_description=context_dict.get("company_description"),
+                company_style_guide=context_dict.get("company_style_guide"),
+                websocket=None,  # Will be set when WebSocket connects
+                user_response_event=None  # Will be set when WebSocket connects
+            )
+            
+            # Restore other context state
+            context.current_step = context_dict.get("current_step", "start")
+            context.generated_detailed_personas = context_dict.get("generated_detailed_personas", [])
+            context.selected_detailed_persona = context_dict.get("selected_detailed_persona")
+            
+            # Restore complex objects
+            if context_dict.get("selected_theme"):
+                from services.models import ThemeIdea
+                context.selected_theme = ThemeIdea(**context_dict["selected_theme"])
+                
+            if context_dict.get("research_plan"):
+                from services.models import ResearchPlan
+                context.research_plan = ResearchPlan(**context_dict["research_plan"])
+                
+            if context_dict.get("research_report"):
+                from services.models import ResearchReport
+                context.research_report = ResearchReport(**context_dict["research_report"])
+                
+            if context_dict.get("generated_outline"):
+                from services.models import Outline
+                context.generated_outline = Outline(**context_dict["generated_outline"])
+            
+            # Restore other state
+            context.research_query_results = context_dict.get("research_query_results", [])
+            context.current_research_query_index = context_dict.get("current_research_query_index", 0)
+            context.generated_sections_html = context_dict.get("generated_sections_html", [])
+            context.current_section_index = context_dict.get("current_section_index", 0)
+            context.full_draft_html = context_dict.get("full_draft_html")
+            context.final_article_html = context_dict.get("final_article_html")
+            context.section_writer_history = context_dict.get("section_writer_history", [])
+            
+            return context
+            
+        except Exception as e:
+            logger.error(f"Error loading context from database: {e}")
+            return None
