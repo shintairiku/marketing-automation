@@ -2,6 +2,7 @@
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse # <<< HTMLResponse をインポート
 from fastapi.templating import Jinja2Templates # HTMLファイルを使う場合 (今回は直接返す)
+from fastapi.middleware.cors import CORSMiddleware # CORS ミドルウェア追加
 from pathlib import Path # <<< Path をインポート
 from openai import AsyncOpenAI
 
@@ -17,6 +18,15 @@ app = FastAPI(
     description="Comprehensive API for marketing automation including SEO article generation, organization management, and workflow automation.",
     version="2.0.0",
     exception_handlers=exception_handlers
+)
+
+# CORS設定
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000"],  # フロントエンドのURL
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["*"],
 )
 
 # APIルーターのインクルード
