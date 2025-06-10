@@ -30,6 +30,11 @@ export interface GenerationState {
   researchPlan?: any;
   outline?: any;
   generatedContent?: string;
+  currentSection?: {
+    index: number;
+    heading: string;
+    content: string;
+  };
   finalArticle?: {
     title: string;
     content: string;
@@ -139,6 +144,15 @@ export const useArticleGeneration = ({ processId }: UseArticleGenerationOptions)
           newState.generatedContent = '';
         }
         newState.generatedContent += payload.html_content_chunk;
+        
+        // セクション情報を更新
+        if (payload.section_index !== undefined && payload.heading) {
+          newState.currentSection = {
+            index: payload.section_index,
+            heading: payload.heading,
+            content: payload.html_content_chunk,
+          };
+        }
       }
 
       if (payload.final_html_content) {
