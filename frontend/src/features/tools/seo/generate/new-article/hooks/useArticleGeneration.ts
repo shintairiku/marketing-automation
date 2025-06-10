@@ -41,10 +41,9 @@ export interface GenerationState {
 
 interface UseArticleGenerationOptions {
   processId?: string;
-  userId?: string;
 }
 
-export const useArticleGeneration = ({ processId, userId }: UseArticleGenerationOptions) => {
+export const useArticleGeneration = ({ processId }: UseArticleGenerationOptions) => {
   const [state, setState] = useState<GenerationState>({
     currentStep: 'start',
     steps: [
@@ -86,7 +85,31 @@ export const useArticleGeneration = ({ processId, userId }: UseArticleGeneration
         });
       }
 
-      // 特定のイベントタイプに応じた処理
+      // UserInputRequestPayload 形式のメッセージ処理
+      if (payload.request_type && payload.data) {
+        newState.isWaitingForInput = true;
+        
+        switch (payload.request_type) {
+          case 'select_persona':
+            newState.personas = payload.data.personas;
+            newState.inputType = 'select_persona';
+            break;
+          case 'select_theme':
+            newState.themes = payload.data.themes;
+            newState.inputType = 'select_theme';
+            break;
+          case 'approve_plan':
+            newState.researchPlan = payload.data.plan;
+            newState.inputType = 'approve_plan';
+            break;
+          case 'approve_outline':
+            newState.outline = payload.data.outline;
+            newState.inputType = 'approve_outline';
+            break;
+        }
+      }
+
+      // 従来の直接フィールド処理（後方互換性のため）
       if (payload.personas) {
         newState.personas = payload.personas;
         newState.isWaitingForInput = true;
@@ -141,7 +164,6 @@ export const useArticleGeneration = ({ processId, userId }: UseArticleGeneration
 
   const { isConnected, isConnecting, error: wsError, connect, disconnect, sendMessage, startGeneration } = useWebSocket({
     processId,
-    userId,
     onMessage: handleMessage,
   });
 

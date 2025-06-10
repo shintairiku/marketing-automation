@@ -80,6 +80,7 @@ class ArticleGenerationService:
         context: Optional[ArticleContext] = None
         run_config: Optional[RunConfig] = None
         generation_task: Optional[asyncio.Task] = None
+        is_initialized = False  # 初期化完了フラグ
 
         try:
             # 1. 既存プロセスの再開か新規作成かを判定
@@ -115,6 +116,7 @@ class ArticleGenerationService:
                     tracing_disabled=not settings.enable_tracing,
                     trace_include_sensitive_data=settings.trace_include_sensitive_data
                 )
+                is_initialized = True  # 既存プロセスは既に初期化済み
             else:
                 # 新規プロセスの開始
                 # 最初のメッセージ(生成リクエスト)を受信
@@ -165,6 +167,7 @@ class ArticleGenerationService:
                 tracing_disabled=not settings.enable_tracing,
                 trace_include_sensitive_data=settings.trace_include_sensitive_data
                 )
+                is_initialized = True  # 初期化完了
 
             # 3. 単一のトレースコンテキスト内でバックグラウンド生成ループを開始
             with safe_trace_context("SEO記事生成ワークフロー", trace_id, session_id):
@@ -177,26 +180,44 @@ class ArticleGenerationService:
                     try:
                         # タイムアウトを設定してクライアントからの応答を待つ (例: 5分)
                         response_data = await asyncio.wait_for(websocket.receive_json(), timeout=300.0) # TODO: タイムアウト値を設定ファイルなど外部から設定可能にする
-                        message = ClientResponseMessage(**response_data) # バリデーション
+                        
+                        # 初期化完了後のメッセージはクライアント応答として処理
+                        if is_initialized:
+                            try:
+                                message = ClientResponseMessage(**response_data) # バリデーション
+                                console.print(f"[blue]クライアント応答受信: {message.response_type}, current_step: {context.current_step}, expected: {context.expected_user_input}[/blue]")
+                            except ValidationError as ve:
+                                console.print(f"[red]Invalid client response format: {ve.errors()}[/red]")
+                                await self._send_error(context, f"Invalid response format: {ve}")
+                                continue
 
-                        if context.current_step in ["persona_generated", "theme_proposed", "research_plan_generated", "outline_generated"]:
-                            if message.response_type in [UserInputType.SELECT_PERSONA, UserInputType.SELECT_THEME, UserInputType.APPROVE_PLAN, UserInputType.APPROVE_OUTLINE, UserInputType.REGENERATE, UserInputType.EDIT_AND_PROCEED]:
-                                # 期待される応答タイプ、または再生成・編集要求の場合
-                                if context.expected_user_input == message.response_type or \
-                                   message.response_type == UserInputType.REGENERATE or \
-                                   message.response_type == UserInputType.EDIT_AND_PROCEED:
-                                    
-                                    context.user_response = message # 応答全体をコンテキストに保存 (payloadだけでなくtypeも含む)
-                                    context.user_response_event.set() # 待機中のループに応答があったことを通知
+                            if context.current_step in ["persona_generated", "theme_proposed", "research_plan_generated", "outline_generated"]:
+                                console.print(f"[blue]ステップ確認OK: {context.current_step} は受け入れ可能なステップです[/blue]")
+                                if message.response_type in [UserInputType.SELECT_PERSONA, UserInputType.SELECT_THEME, UserInputType.APPROVE_PLAN, UserInputType.APPROVE_OUTLINE, UserInputType.REGENERATE, UserInputType.EDIT_AND_PROCEED]:
+                                    console.print(f"[blue]応答タイプ確認OK: {message.response_type} は有効な応答タイプです[/blue]")
+                                    # 期待される応答タイプ、または再生成・編集要求の場合
+                                    if context.expected_user_input == message.response_type or \
+                                       message.response_type == UserInputType.REGENERATE or \
+                                       message.response_type == UserInputType.EDIT_AND_PROCEED:
+                                        
+                                        console.print(f"[green]応答タイプマッチ！ {message.response_type} を処理します[/green]")
+                                        context.user_response = message # 応答全体をコンテキストに保存 (payloadだけでなくtypeも含む)
+                                        context.user_response_event.set() # 待機中のループに応答があったことを通知
+                                    else:
+                                        # 期待する具体的な選択/承認タイプと異なる場合 (例: SELECT_THEMEを期待しているときにAPPROVE_PLANが来たなど)
+                                        console.print(f"[red]応答タイプ不一致: expected {context.expected_user_input}, got {message.response_type}[/red]")
+                                        await self._send_error(context, f"Invalid response type '{message.response_type}' for current step '{context.current_step}' expecting '{context.expected_user_input}'.")
                                 else:
-                                    # 期待する具体的な選択/承認タイプと異なる場合 (例: SELECT_THEMEを期待しているときにAPPROVE_PLANが来たなど)
-                                    await self._send_error(context, f"Invalid response type '{message.response_type}' for current step '{context.current_step}' expecting '{context.expected_user_input}'.")
+                                    # 予期しない応答タイプ (承認/選択/再生成/編集以外)
+                                    console.print(f"[red]予期しない応答タイプ: {message.response_type}[/red]")
+                                    await self._send_error(context, f"Unexpected response type '{message.response_type}' received during user input step.")
                             else:
-                                # 予期しない応答タイプ (承認/選択/再生成/編集以外)
-                                await self._send_error(context, f"Unexpected response type '{message.response_type}' received during user input step.")
+                                # ユーザー入力待ちでないときにメッセージが来た場合
+                                console.print(f"[yellow]Ignoring unexpected client message during step {context.current_step} (not in input-waiting steps)[/yellow]")
                         else:
-                            # ユーザー入力待ちでないときにメッセージが来た場合
-                            console.print(f"[yellow]Ignoring unexpected client message during step {context.current_step}[/yellow]")
+                            # まだ初期化されていない場合（通常はここに来ることはない）
+                            console.print(f"[red]Received message before initialization complete[/red]")
+                            await self._send_error(context, "System not ready for client responses")
 
                     except asyncio.TimeoutError:
                         await self._send_error(context, "Client response timeout.")
@@ -206,10 +227,9 @@ class ArticleGenerationService:
                         console.print("[yellow]WebSocket disconnected by client.[/yellow]")
                         if generation_task: generation_task.cancel()
                         break
-                    except (ValidationError, json.JSONDecodeError) as e:
-                        await self._send_error(context, f"Invalid message format: {e}")
-                        # 不正なメッセージを受け取った場合、処理を続けるか切断するか検討
-                        # ここではエラーを送信してループを続ける
+                    except (json.JSONDecodeError) as e:
+                        await self._send_error(context, f"Invalid JSON format: {e}")
+                        # 不正なメッセージを受け取った場合、処理を続ける
                     except Exception as e: # その他の予期せぬエラー
                          await self._send_error(context, f"Error processing client message: {e}")
                          if generation_task: generation_task.cancel()
@@ -1082,25 +1102,69 @@ class ArticleGenerationService:
         """Save ArticleContext to database and return process_id"""
         try:
             from services.article_flow_service import get_supabase_client
-            import datetime
+            from datetime import datetime, timezone
+            import json
             supabase = get_supabase_client()
+            
+            def safe_serialize_value(value):
+                """Recursively serialize any object to JSON-serializable format"""
+                if value is None:
+                    return None
+                elif isinstance(value, (str, int, float, bool)):
+                    return value
+                elif isinstance(value, list):
+                    return [safe_serialize_value(item) for item in value]
+                elif isinstance(value, dict):
+                    return {k: safe_serialize_value(v) for k, v in value.items()}
+                elif hasattr(value, "model_dump"):
+                    # Pydantic models
+                    return value.model_dump()
+                elif hasattr(value, "__dict__"):
+                    # Regular objects with attributes
+                    return {k: safe_serialize_value(v) for k, v in value.__dict__.items()}
+                else:
+                    # Fallback to string representation
+                    return str(value)
             
             # Convert context to dict (excluding WebSocket and asyncio objects)
             context_dict = {}
             for key, value in context.__dict__.items():
                 if key not in ["websocket", "user_response_event"]:
-                    if hasattr(value, "model_dump"):
-                        context_dict[key] = value.model_dump()
-                    elif isinstance(value, (str, int, float, bool, list, dict, type(None))):
-                        context_dict[key] = value
-                    else:
+                    try:
+                        context_dict[key] = safe_serialize_value(value)
+                    except Exception as e:
+                        console.print(f"[yellow]Warning: Failed to serialize {key}: {e}. Using string representation.[/yellow]")
                         context_dict[key] = str(value)
+            
+            # Verify JSON serialization works
+            try:
+                json.dumps(context_dict)
+            except Exception as e:
+                console.print(f"[red]Error: Context still not JSON serializable after processing: {e}[/red]")
+                raise e
+            
+            # Map current_step to valid generation_status enum values
+            def map_step_to_status(step: str) -> str:
+                """Map context step to valid generation_status enum value"""
+                if step in ["start", "keyword_analysis", "persona_generation", "theme_generation", 
+                           "research_planning", "research_execution", "outline_generation", 
+                           "content_writing", "editing"]:
+                    return "in_progress"
+                elif step == "completed":
+                    return "completed"
+                elif step == "error":
+                    return "error"
+                elif step in ["persona_selection_required", "theme_selection_required", 
+                             "research_plan_generated", "outline_generated"]:
+                    return "user_input_required"
+                else:
+                    return "in_progress"  # Default fallback
             
             if process_id:
                 # Update existing state
                 update_data = {
                     "article_context": context_dict,
-                    "status": context.current_step,
+                    "status": map_step_to_status(context.current_step),
                     "updated_at": datetime.now(timezone.utc).isoformat()
                 }
                 
@@ -1129,11 +1193,20 @@ class ArticleGenerationService:
                 supabase.table("generated_articles_state").update(update_data).eq("id", process_id).execute()
                 return process_id
             else:
+                # Get default flow ID for new states
+                flow_result = supabase.table("article_generation_flows").select("id").eq("name", "Default SEO Article Generation").eq("is_template", True).execute()
+                
+                if not flow_result.data:
+                    raise Exception("Default flow template not found")
+                
+                default_flow_id = flow_result.data[0]["id"]
+                
                 # Create new state
                 state_data = {
+                    "flow_id": default_flow_id,
                     "user_id": user_id,
                     "organization_id": organization_id,
-                    "status": context.current_step,
+                    "status": map_step_to_status(context.current_step),
                     "article_context": context_dict,
                     "generated_content": {}
                 }
@@ -1188,6 +1261,10 @@ class ArticleGenerationService:
             if context_dict.get("selected_theme"):
                 from services.models import ThemeIdea
                 context.selected_theme = ThemeIdea(**context_dict["selected_theme"])
+            
+            if context_dict.get("generated_themes"):
+                from services.models import ThemeIdea
+                context.generated_themes = [ThemeIdea(**theme_data) for theme_data in context_dict["generated_themes"]]
                 
             if context_dict.get("research_plan"):
                 from services.models import ResearchPlan
@@ -1210,8 +1287,126 @@ class ArticleGenerationService:
             context.final_article_html = context_dict.get("final_article_html")
             context.section_writer_history = context_dict.get("section_writer_history", [])
             
+            # Restore SerpAPI analysis report if available
+            if context_dict.get("serp_analysis_report"):
+                from services.models import SerpKeywordAnalysisReport
+                context.serp_analysis_report = SerpKeywordAnalysisReport(**context_dict["serp_analysis_report"])
+            
+            # Restore other simple fields
+            context.expected_user_input = context_dict.get("expected_user_input")
+            
             return context
             
         except Exception as e:
             logger.error(f"Error loading context from database: {e}")
             return None
+
+    async def get_user_articles(
+        self, 
+        user_id: str, 
+        status_filter: Optional[str] = None,
+        limit: int = 20,
+        offset: int = 0
+    ) -> List[Dict[str, Any]]:
+        """
+        Get articles for a specific user.
+        
+        Args:
+            user_id: User ID to filter articles
+            status_filter: Optional status filter ('completed', 'in_progress', etc.)
+            limit: Maximum number of articles to return
+            offset: Number of articles to skip for pagination
+            
+        Returns:
+            List of article dictionaries with basic information
+        """
+        try:
+            from services.article_flow_service import get_supabase_client
+            supabase = get_supabase_client()
+            
+            # Query for articles created by the user
+            query = supabase.table("articles").select(
+                "id, title, content, keywords, target_audience, status, created_at, updated_at"
+            ).eq("user_id", user_id)
+            
+            # Apply status filter if provided
+            if status_filter:
+                query = query.eq("status", status_filter)
+            
+            # Apply pagination
+            query = query.order("created_at", desc=True).range(offset, offset + limit - 1)
+            
+            result = query.execute()
+            
+            articles = []
+            for article in result.data:
+                # Extract short description from content (first 150 characters)
+                content = article.get("content", "")
+                # Strip HTML tags for short description
+                import re
+                plain_text = re.sub(r'<[^>]+>', '', content)
+                short_description = plain_text[:150] + "..." if len(plain_text) > 150 else plain_text
+                
+                articles.append({
+                    "id": article["id"],
+                    "title": article["title"],
+                    "shortdescription": short_description,
+                    "postdate": article["created_at"].split("T")[0] if article["created_at"] else None,
+                    "status": article["status"],
+                    "keywords": article.get("keywords", []),
+                    "target_audience": article.get("target_audience"),
+                    "updated_at": article["updated_at"]
+                })
+            
+            return articles
+            
+        except Exception as e:
+            logger.error(f"Error retrieving articles for user {user_id}: {e}")
+            raise
+    
+    async def get_article(self, article_id: str, user_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Get detailed article information by ID.
+        
+        Args:
+            article_id: Article ID
+            user_id: User ID for access control
+            
+        Returns:
+            Article dictionary with detailed information or None if not found
+        """
+        try:
+            from services.article_flow_service import get_supabase_client
+            supabase = get_supabase_client()
+            
+            # Query for article with user access control
+            result = supabase.table("articles").select("*").eq("id", article_id).eq("user_id", user_id).execute()
+            
+            if not result.data:
+                return None
+            
+            article = result.data[0]
+            
+            # Extract short description from content
+            content = article.get("content", "")
+            import re
+            plain_text = re.sub(r'<[^>]+>', '', content)
+            short_description = plain_text[:300] + "..." if len(plain_text) > 300 else plain_text
+            
+            return {
+                "id": article["id"],
+                "title": article["title"],
+                "content": article["content"],
+                "shortdescription": short_description,
+                "postdate": article["created_at"].split("T")[0] if article["created_at"] else None,
+                "status": article["status"],
+                "keywords": article.get("keywords", []),
+                "target_audience": article.get("target_audience"),
+                "created_at": article["created_at"],
+                "updated_at": article["updated_at"],
+                "generation_process_id": article.get("generation_process_id")
+            }
+            
+        except Exception as e:
+            logger.error(f"Error retrieving article {article_id}: {e}")
+            raise

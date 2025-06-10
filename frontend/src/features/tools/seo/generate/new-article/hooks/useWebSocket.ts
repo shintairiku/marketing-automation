@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useAuth } from '@clerk/nextjs';
 
 export interface WebSocketMessage {
   type: 'server_event' | 'client_response';
@@ -23,6 +24,8 @@ export interface ServerEventMessage extends WebSocketMessage {
     title?: string;
     final_html_content?: string;
     error_message?: string;
+    request_type?: string;
+    data?: any;
   };
 }
 
@@ -34,7 +37,6 @@ export interface ClientResponseMessage extends WebSocketMessage {
 
 interface UseWebSocketOptions {
   processId?: string;
-  userId?: string;
   onMessage?: (message: ServerEventMessage) => void;
   onError?: (error: Event) => void;
   onClose?: (event: CloseEvent) => void;
@@ -42,7 +44,6 @@ interface UseWebSocketOptions {
 
 export const useWebSocket = ({
   processId,
-  userId,
   onMessage,
   onError,
   onClose,
@@ -51,8 +52,9 @@ export const useWebSocket = ({
   const [isConnecting, setIsConnecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
+  const { getToken } = useAuth();
 
-  const connect = useCallback(() => {
+  const connect = useCallback(async () => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       return;
     }
@@ -60,45 +62,54 @@ export const useWebSocket = ({
     setIsConnecting(true);
     setError(null);
 
-    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8008';
-    const wsUrl = new URL(apiUrl.replace('http', 'ws') + '/articles/ws/generate');
-    if (processId) wsUrl.searchParams.set('process_id', processId);
-    if (userId) wsUrl.searchParams.set('user_id', userId);
+    try {
+      // Get auth token from Clerk
+      const token = await getToken();
+      
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8008';
+      const wsUrl = new URL(apiUrl.replace('http', 'ws') + '/articles/ws/generate');
+      if (processId) wsUrl.searchParams.set('process_id', processId);
+      if (token) wsUrl.searchParams.set('token', token);
 
-    const ws = new WebSocket(wsUrl.toString());
-    wsRef.current = ws;
+      const ws = new WebSocket(wsUrl.toString());
+      wsRef.current = ws;
 
-    ws.onopen = () => {
-      setIsConnected(true);
+      ws.onopen = () => {
+        setIsConnected(true);
+        setIsConnecting(false);
+        setError(null);
+      };
+
+      ws.onmessage = (event) => {
+        try {
+          const message: ServerEventMessage = JSON.parse(event.data);
+          onMessage?.(message);
+        } catch (err) {
+          console.error('Failed to parse WebSocket message:', err);
+          setError('Failed to parse server message');
+        }
+      };
+
+      ws.onerror = (event) => {
+        setError('WebSocket connection error');
+        setIsConnecting(false);
+        onError?.(event);
+      };
+
+      ws.onclose = (event) => {
+        setIsConnected(false);
+        setIsConnecting(false);
+        if (event.code !== 1000) {
+          setError(`Connection closed unexpectedly: ${event.reason || 'Unknown reason'}`);
+        }
+        onClose?.(event);
+      };
+    } catch (err) {
+      console.error('Failed to get auth token or connect:', err);
+      setError('Authentication failed');
       setIsConnecting(false);
-      setError(null);
-    };
-
-    ws.onmessage = (event) => {
-      try {
-        const message: ServerEventMessage = JSON.parse(event.data);
-        onMessage?.(message);
-      } catch (err) {
-        console.error('Failed to parse WebSocket message:', err);
-        setError('Failed to parse server message');
-      }
-    };
-
-    ws.onerror = (event) => {
-      setError('WebSocket connection error');
-      setIsConnecting(false);
-      onError?.(event);
-    };
-
-    ws.onclose = (event) => {
-      setIsConnected(false);
-      setIsConnecting(false);
-      if (event.code !== 1000) {
-        setError(`Connection closed unexpectedly: ${event.reason || 'Unknown reason'}`);
-      }
-      onClose?.(event);
-    };
-  }, [processId, userId, onMessage, onError, onClose]);
+    }
+  }, [processId, getToken, onMessage, onError, onClose]);
 
   const disconnect = useCallback(() => {
     if (wsRef.current) {
