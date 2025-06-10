@@ -11,6 +11,7 @@ from urllib.parse import urlparse
 import time # ★ 追加: 時間計測用
 from openai import AsyncOpenAI, APIError # ★ 追加: OpenAI API用
 import google.generativeai as genai # ★ 追加: Gemini API用
+import re # ★ 追加: 正規表現用（著者情報抽出など）
 
 # スクレイピング時のデフォルトユーザーエージェント
 USER_AGENT = "Mozilla/5.0 (compatible; ShintairikuBot/1.0; +https://shintairiku.com/bot)"
@@ -28,6 +29,22 @@ class ScrapedArticle:
     source_type: str  # "related_question" または "organic_result"
     position: Optional[int] = None  # organic_resultの場合の順位
     question: Optional[str] = None  # related_questionの場合の質問文
+    # ★ 新しいコンテンツフォーマット分析フィールド
+    video_count: int = 0  # 動画数（iframe含む）
+    table_count: int = 0  # テーブル数
+    list_item_count: int = 0  # リスト項目総数
+    external_link_count: int = 0  # 外部リンク数
+    internal_link_count: int = 0  # 内部リンク数
+    # ★ メタデータフィールド（オプション）
+    author_info: Optional[str] = None  # 著者情報
+    publish_date: Optional[str] = None  # 公開日
+    modified_date: Optional[str] = None  # 更新日
+    schema_types: List[str] = None  # 構造化データのタイプリスト
+    
+    def __post_init__(self):
+        """デフォルト値の初期化"""
+        if self.schema_types is None:
+            self.schema_types = []
 
 
 @dataclass
@@ -221,7 +238,16 @@ class SerpAPIService:
                             char_count=article_data.get("char_count", 0),
                             image_count=article_data.get("image_count", 0),
                             source_type="related_question",
-                            question=question_data.get("question")
+                            question=question_data.get("question"),
+                            video_count=article_data.get("video_count", 0),
+                            table_count=article_data.get("table_count", 0),
+                            list_item_count=article_data.get("list_item_count", 0),
+                            external_link_count=article_data.get("external_link_count", 0),
+                            internal_link_count=article_data.get("internal_link_count", 0),
+                            author_info=article_data.get("author_info"),
+                            publish_date=article_data.get("publish_date"),
+                            modified_date=article_data.get("modified_date"),
+                            schema_types=article_data.get("schema_types", [])
                         ))
                     await asyncio.sleep(settings.scraping_delay) # ★ 追加: スクレイピング後に遅延
                 except Exception as e:
@@ -256,7 +282,16 @@ class SerpAPIService:
                             char_count=article_data.get("char_count", 0),
                             image_count=article_data.get("image_count", 0),
                             source_type="organic_result",
-                            position=result.get("position")
+                            position=result.get("position"),
+                            video_count=article_data.get("video_count", 0),
+                            table_count=article_data.get("table_count", 0),
+                            list_item_count=article_data.get("list_item_count", 0),
+                            external_link_count=article_data.get("external_link_count", 0),
+                            internal_link_count=article_data.get("internal_link_count", 0),
+                            author_info=article_data.get("author_info"),
+                            publish_date=article_data.get("publish_date"),
+                            modified_date=article_data.get("modified_date"),
+                            schema_types=article_data.get("schema_types", [])
                         ))
                     await asyncio.sleep(settings.scraping_delay) # ★ 追加: スクレイピング後に遅延
                 except Exception as e:
@@ -318,6 +353,33 @@ class SerpAPIService:
             # 例: raise NetworkError(f"Failed to call SerpAPI: {e}")
             return {"error": str(e), "query_params": params} # エラー情報を含んだdictを返す例
     
+    async def _classify_headings_semantically(self, structured_headings: List[Dict[str, Any]], original_url: str = "N/A") -> List[Dict[str, Any]]:
+        """
+        見出しリストを受け取り、各見出しに意味的な分類を行う (ルールベース)。
+        original_url はAPIベースの分類器とのインターフェース互換性のために追加されましたが、この関数では使用されません。
+        """
+        classified_headings = []
+        for heading_node in structured_headings:
+            new_node = heading_node.copy()
+            level = new_node.get("level", 0)
+            text = new_node.get("text", "")
+            semantic_type = "body"
+            lower_text = text.lower()
+
+            if level <= 2:
+                if any(kw in lower_text for kw in ["はじめに", "序論", "導入", "introduction"]):
+                    semantic_type = "introduction"
+                elif any(kw in lower_text for kw in ["まとめ", "結論", "結論として", "conclusion", "おわりに"]):
+                    semantic_type = "conclusion"
+            
+            new_node["semantic_type"] = semantic_type
+            
+            if "children" in new_node and new_node["children"]:
+                new_node["children"] = await self._classify_headings_semantically(new_node["children"], original_url)
+            
+            classified_headings.append(new_node)
+        return classified_headings
+    
     async def _classify_headings_semantically_gemini(self, structured_headings: List[Dict[str, Any]], original_url: str = "N/A") -> List[Dict[str, Any]]:
         """Gemini API を使用して見出しリストを意味的に分類する。"""
         if not settings.gemini_api_key:
@@ -340,7 +402,7 @@ class SerpAPIService:
                      await self._classify_headings_semantically_gemini(heading['children'], original_url)
             return structured_headings
 
-        model = genai.GenerativeModel('gemini-1.5-flash-latest') # または 'gemini-pro'
+        model = genai.GenerativeModel('gemini-2.0-flash') # または 'gemini-pro'
         
         # APIに渡すために見出しテキストのリストを準備 (IDも振る)
         def _flatten_headings(headings_list, prefix=""):
@@ -512,32 +574,6 @@ class SerpAPIService:
             if node.get('children'):
                 self._add_char_counts_to_headings_recursive(node['children'], all_heading_tags_in_document)
 
-    async def _classify_headings_semantically(self, structured_headings: List[Dict[str, Any]], original_url: str = "N/A") -> List[Dict[str, Any]]:
-        """
-        見出しリストを受け取り、各見出しに意味的な分類を行う (ルールベース)。
-        original_url はAPIベースの分類器とのインターフェース互換性のために追加されましたが、この関数では使用されません。
-        """
-        classified_headings = []
-        for heading_node in structured_headings:
-            new_node = heading_node.copy()
-            level = new_node.get("level", 0)
-            text = new_node.get("text", "")
-            semantic_type = "body"
-            lower_text = text.lower()
-
-            if level <= 2:
-                if any(kw in lower_text for kw in ["はじめに", "序論", "導入", "introduction"]):
-                    semantic_type = "introduction"
-                elif any(kw in lower_text for kw in ["まとめ", "結論", "結論として", "conclusion", "おわりに"]):
-                    semantic_type = "conclusion"
-            
-            new_node["semantic_type"] = semantic_type
-            
-            if "children" in new_node and new_node["children"]:
-                new_node["children"] = await self._classify_headings_semantically(new_node["children"], original_url)
-            
-            classified_headings.append(new_node)
-        return classified_headings
 
     async def _scrape_url_real(self, url: str) -> Optional[Dict[str, Any]]:
         """ 実際のURLスクレイピング """
@@ -628,12 +664,97 @@ class SerpAPIService:
             img_tags = content_element.find_all('img')
             image_count = len([img for img in img_tags if img.get('src') and not img.get('src', '').startswith('data:')])
             
+            # ★ 新しいコンテンツフォーマット分析
+            # 動画数の計算（video + YouTubeなどのiframe）
+            video_tags = content_element.find_all('video')
+            iframe_tags = content_element.find_all('iframe')
+            video_iframes = [iframe for iframe in iframe_tags 
+                           if iframe.get('src') and any(domain in iframe.get('src', '') 
+                               for domain in ['youtube.com', 'youtu.be', 'vimeo.com', 'dailymotion.com'])]
+            video_count = len(video_tags) + len(video_iframes)
+            
+            # テーブル数
+            table_count = len(content_element.find_all('table'))
+            
+            # リスト項目総数
+            list_items = content_element.find_all('li')
+            list_item_count = len(list_items)
+            
+            # リンク分析（外部・内部）
+            all_links = content_element.find_all('a', href=True)
+            external_links = []
+            internal_links = []
+            current_domain = urlparse(current_url).netloc if current_url else ""
+            
+            for link in all_links:
+                href = link.get('href', '')
+                if href.startswith('http'):
+                    link_domain = urlparse(href).netloc
+                    if link_domain != current_domain:
+                        external_links.append(href)
+                    else:
+                        internal_links.append(href)
+                elif href.startswith('/') or not href.startswith('#'):
+                    internal_links.append(href)  # 相対パスは内部リンクとみなす
+            
+            external_link_count = len(external_links)
+            internal_link_count = len(internal_links)
+            
+            # ★ メタデータ抽出（基本版）
+            author_info = None
+            publish_date = None
+            modified_date = None
+            
+            # 著者情報の抽出
+            author_meta = soup.find('meta', attrs={'name': 'author'})
+            if author_meta:
+                author_info = author_meta.get('content')
+            else:
+                # クラス名で著者情報を探す
+                author_elements = soup.find_all(['div', 'span', 'p'], class_=re.compile(r'author', re.I))
+                if author_elements:
+                    author_info = author_elements[0].get_text(strip=True)
+            
+            # 公開日・更新日の抽出
+            pub_meta = soup.find('meta', attrs={'property': 'article:published_time'})
+            if pub_meta:
+                publish_date = pub_meta.get('content')
+            
+            mod_meta = soup.find('meta', attrs={'property': 'article:modified_time'})
+            if mod_meta:
+                modified_date = mod_meta.get('content')
+            
+            # ★ 構造化データ（Schema.org）の抽出
+            schema_types = []
+            ld_json_scripts = soup.find_all('script', type='application/ld+json')
+            for script in ld_json_scripts:
+                try:
+                    ld_data = json.loads(script.string)
+                    if isinstance(ld_data, dict) and '@type' in ld_data:
+                        schema_types.append(ld_data['@type'])
+                    elif isinstance(ld_data, list):
+                        for item in ld_data:
+                            if isinstance(item, dict) and '@type' in item:
+                                schema_types.append(item['@type'])
+                except (json.JSONDecodeError, AttributeError):
+                    continue
+            
             return {
                 "title": title,
                 "headings": classified_final_headings[:30],
                 "content": content_text.strip()[:10000],
                 "char_count": char_count,
-                "image_count": image_count
+                "image_count": image_count,
+                # ★ 新しいフィールド
+                "video_count": video_count,
+                "table_count": table_count,
+                "list_item_count": list_item_count,
+                "external_link_count": external_link_count,
+                "internal_link_count": internal_link_count,
+                "author_info": author_info,
+                "publish_date": publish_date,
+                "modified_date": modified_date,
+                "schema_types": schema_types
             }
             
         except requests.exceptions.Timeout: print(f"タイムアウト: {url}"); return None
@@ -668,7 +789,7 @@ if __name__ == '__main__':
 
     async def main_test_scrape_real_serp(use_generative_ai_for_classification: bool = False): 
         service = SerpAPIService()
-        test_query = "FastAPI スクレイピング" 
+        test_query = "犬 ペット ペットショップ ペット用品" 
         num_to_scrape = 3 # ★ テストのため記事数を少なく維持 (元は3)
         print(f"\n--- Testing full analyze_keywords for query: '{test_query}' with {num_to_scrape} articles to scrape ---")
         
@@ -690,59 +811,117 @@ if __name__ == '__main__':
         print(f"Number of Scraped Articles: {len(analysis_result.scraped_articles)}")
         print(f"Average Char Count of Scraped: {analysis_result.average_char_count}")
         print(f"Suggested Target Length: {analysis_result.suggested_target_length}")
+        
+        # ★ 新しいコンテンツフォーマット分析のサマリーを表示
+        if analysis_result.scraped_articles:
+            total_videos = sum(getattr(article, 'video_count', 0) for article in analysis_result.scraped_articles)
+            total_tables = sum(getattr(article, 'table_count', 0) for article in analysis_result.scraped_articles)
+            total_list_items = sum(getattr(article, 'list_item_count', 0) for article in analysis_result.scraped_articles)
+            total_external_links = sum(getattr(article, 'external_link_count', 0) for article in analysis_result.scraped_articles)
+            total_internal_links = sum(getattr(article, 'internal_link_count', 0) for article in analysis_result.scraped_articles)
+            
+            articles_with_author = sum(1 for article in analysis_result.scraped_articles if getattr(article, 'author_info', None))
+            articles_with_publish_date = sum(1 for article in analysis_result.scraped_articles if getattr(article, 'publish_date', None))
+            articles_with_schema = sum(1 for article in analysis_result.scraped_articles if getattr(article, 'schema_types', []))
+            
+            print(f"")
+            print(f"📊 Content Format Analysis Summary:")
+            print(f"  Total Videos: {total_videos} (avg: {total_videos/len(analysis_result.scraped_articles):.1f} per article)")
+            print(f"  Total Tables: {total_tables} (avg: {total_tables/len(analysis_result.scraped_articles):.1f} per article)")
+            print(f"  Total List Items: {total_list_items} (avg: {total_list_items/len(analysis_result.scraped_articles):.1f} per article)")
+            print(f"  Total External Links: {total_external_links} (avg: {total_external_links/len(analysis_result.scraped_articles):.1f} per article)")
+            print(f"  Total Internal Links: {total_internal_links} (avg: {total_internal_links/len(analysis_result.scraped_articles):.1f} per article)")
+            print(f"")
+            print(f"🔍 E-E-A-T Metadata Analysis:")
+            print(f"  Articles with Author Info: {articles_with_author}/{len(analysis_result.scraped_articles)} ({articles_with_author/len(analysis_result.scraped_articles)*100:.1f}%)")
+            print(f"  Articles with Publish Date: {articles_with_publish_date}/{len(analysis_result.scraped_articles)} ({articles_with_publish_date/len(analysis_result.scraped_articles)*100:.1f}%)")
+            print(f"  Articles with Schema Data: {articles_with_schema}/{len(analysis_result.scraped_articles)} ({articles_with_schema/len(analysis_result.scraped_articles)*100:.1f}%)")
 
-        print("\n--- Details of Scraped Articles ---")
-        if not analysis_result.scraped_articles: 
-            print("No articles were scraped.")
-        else:
-            # ★ 重複チェック追加
-            urls_seen = set()
-            for i, article in enumerate(analysis_result.scraped_articles):
-                print(f"--- Article {i+1} ---")
-                print(f"  URL: {article.url}")
-                
-                # ★ 重複URLチェック
-                if article.url in urls_seen:
-                    print(f"  ⚠️  WARNING: Duplicate URL detected!")
-                else:
-                    urls_seen.add(article.url)
-                
-                print(f"  Title: {article.title}")
-                print(f"  Headings Count: {len(article.headings)}")
-                print(f"  Headings Structure:")
-                
-                # ★ JSON出力を安全に実行
-                try:
-                    def format_headings_for_print(headings_list):
-                        formatted = []
-                        for h_dict in headings_list: # Renamed h to h_dict to avoid conflict
-                            entry = {
-                                "level": h_dict.get("level"), 
-                                "text": h_dict.get("text"), 
-                                "semantic_type": h_dict.get("semantic_type", "N/A"),
-                                "char_count_section": h_dict.get("char_count_section", "N/A") # ★ 追加
-                            }
-                            if h_dict.get("children"):
-                                entry["children"] = format_headings_for_print(h_dict["children"])
-                            formatted.append(entry)
-                        return formatted
+            print("\n--- Details of Scraped Articles ---")
+            if not analysis_result.scraped_articles: 
+                print("No articles were scraped.")
+            else:
+                # ★ 重複チェック追加
+                urls_seen = set()
+                for i, article in enumerate(analysis_result.scraped_articles):
+                    print(f"--- Article {i+1} ---")
+                    print(f"  URL: {article.url}")
                     
-                    formatted_headings = format_headings_for_print(article.headings)
-                    print(json.dumps(formatted_headings, indent=2, ensure_ascii=False))
+                    # ★ 重複URLチェック
+                    if article.url in urls_seen:
+                        print(f"  ⚠️  WARNING: Duplicate URL detected!")
+                    else:
+                        urls_seen.add(article.url)
                     
-                except TypeError as e:
-                    print(f"    ❌ Could not serialize headings to JSON: {e}")
-                    print(f"    Raw headings data (first 3): {article.headings[:3]}")
-                except Exception as e:
-                    print(f"    ❌ Unexpected error in JSON serialization: {e}")
+                    print(f"  Title: {article.title}")
+                    print(f"  Headings Count: {len(article.headings)}")
+                    print(f"  Headings Structure:")
+                    
+                    # ★ JSON出力を安全に実行
+                    try:
+                        def format_headings_for_print(headings_list):
+                            formatted = []
+                            for h_dict in headings_list: # Renamed h to h_dict to avoid conflict
+                                entry = {
+                                    "level": h_dict.get("level"), 
+                                    "text": h_dict.get("text"), 
+                                    "semantic_type": h_dict.get("semantic_type", "N/A"),
+                                    "char_count_section": h_dict.get("char_count_section", "N/A") # ★ 追加
+                                }
+                                if h_dict.get("children"):
+                                    entry["children"] = format_headings_for_print(h_dict["children"])
+                                formatted.append(entry)
+                            return formatted
+                            
+                        formatted_headings = format_headings_for_print(article.headings)
+                        print(json.dumps(formatted_headings, indent=2, ensure_ascii=False))
+                        
+                    except TypeError as e:
+                        print(f"    ❌ Could not serialize headings to JSON: {e}")
+                        print(f"    Raw headings data (first 3): {article.headings[:3]}")
+                    except Exception as e:
+                        print(f"    ❌ Unexpected error in JSON serialization: {e}")
 
-                content_preview_text = article.content[:200].replace('\n', ' ')
-                print(f"  Content Preview: {content_preview_text}...")
-                print(f"  Char Count: {article.char_count}") # Overall article char count
-                print(f"  Image Count: {article.image_count}")
-                print(f"  Source Type: {article.source_type}")
-                if article.position: print(f"  Original Position: {article.position}")
-                if article.question: print(f"  Original Question: {article.question}")
+                    content_preview_text = article.content[:200].replace('\n', ' ')
+                    print(f"  Content Preview: {content_preview_text}...")
+                    print(f"  Char Count: {article.char_count}") # Overall article char count
+                    print(f"  Image Count: {article.image_count}")
+                    
+                    # ★ 新しいコンテンツフォーマット分析結果を表示
+                    print(f"  Video Count: {getattr(article, 'video_count', 0)}")
+                    print(f"  Table Count: {getattr(article, 'table_count', 0)}")
+                    print(f"  List Item Count: {getattr(article, 'list_item_count', 0)}")
+                    print(f"  External Link Count: {getattr(article, 'external_link_count', 0)}")
+                    print(f"  Internal Link Count: {getattr(article, 'internal_link_count', 0)}")
+                    
+                    # ★ メタデータ情報を表示
+                    author_info = getattr(article, 'author_info', None)
+                    if author_info:
+                        print(f"  Author Info: {author_info}")
+                    else:
+                        print(f"  Author Info: Not found")
+                    
+                    publish_date = getattr(article, 'publish_date', None)
+                    if publish_date:
+                        print(f"  Publish Date: {publish_date}")
+                    else:
+                        print(f"  Publish Date: Not found")
+                    
+                    modified_date = getattr(article, 'modified_date', None)
+                    if modified_date:
+                        print(f"  Modified Date: {modified_date}")
+                    else:
+                        print(f"  Modified Date: Not found")
+                    
+                    schema_types = getattr(article, 'schema_types', [])
+                    if schema_types:
+                        print(f"  Schema Types: {', '.join(schema_types)}")
+                    else:
+                        print(f"  Schema Types: None found")
+                    
+                    print(f"  Source Type: {article.source_type}")
+                    if article.position: print(f"  Original Position: {article.position}")
+                    if article.question: print(f"  Original Question: {article.question}")
                 
         print("--- End of full analyze_keywords test ---")
 
