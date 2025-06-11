@@ -964,15 +964,33 @@ class ArticleGenerationService:
                         context.final_article_html = agent_output.final_html_content
                         context.current_step = "completed"
                         console.print("[green]記事の編集が完了しました！[/green]")
-                        # WebSocketで最終結果を送信
+
+                        # --- 1. DBへ保存して article_id を取得 ---
+                        article_id: Optional[str] = None
+                        if process_id and user_id:
+                            try:
+                                # 先に保存処理を実行（articles への INSERT を含む）
+                                await self._save_context_to_db(context, process_id=process_id, user_id=user_id)
+
+                                # 保存後に generated_articles_state から article_id を取得
+                                from services.article_flow_service import get_supabase_client
+                                supabase = get_supabase_client()
+                                state_res = supabase.table("generated_articles_state").select("article_id").eq("id", process_id).execute()
+                                if state_res.data and state_res.data[0].get("article_id"):
+                                    article_id = state_res.data[0]["article_id"]
+                            except Exception as fetch_err:
+                                console.print(f"[yellow]Warning: article_id の取得に失敗しました: {fetch_err}[/yellow]")
+
+                        # --- 2. WebSocketで最終結果を送信（article_id 付き） ---
                         await self._send_server_event(context, FinalResultPayload(
                             title=agent_output.title,
-                            final_html_content=agent_output.final_html_content
+                            final_html_content=agent_output.final_html_content,
+                            article_id=article_id
                         ))
-                        
-                        # 最終保存
-                        if process_id and user_id:
-                            await self._save_context_to_db(context, process_id=process_id, user_id=user_id)
+                         
+                         # ループ終了時のステータス更新は _run_generation_loop の finally で行う
+                         
+                         # context は最新だが、この段階で article_id を保持していなくてもよい
                     else:
                         raise TypeError(f"予期しないAgent出力タイプ: {type(agent_output)}")
 
@@ -1409,4 +1427,60 @@ class ArticleGenerationService:
             
         except Exception as e:
             logger.error(f"Error retrieving article {article_id}: {e}")
+            raise
+
+    async def update_article(
+        self, 
+        article_id: str, 
+        user_id: str, 
+        update_data: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """
+        記事を更新します。
+        
+        Args:
+            article_id: 記事ID
+            user_id: ユーザーID（アクセス制御用）
+            update_data: 更新するデータの辞書
+            
+        Returns:
+            更新された記事の情報
+        """
+        try:
+            from services.article_flow_service import get_supabase_client
+            from datetime import datetime, timezone
+            supabase = get_supabase_client()
+            
+            # まず記事が存在し、ユーザーがアクセス権限を持つことを確認
+            existing_result = supabase.table("articles").select("*").eq("id", article_id).eq("user_id", user_id).execute()
+            
+            if not existing_result.data:
+                raise ValueError("Article not found or access denied")
+            
+            # 更新データを準備
+            update_fields = {}
+            allowed_fields = ["title", "content", "shortdescription", "target_audience", "keywords"]
+            
+            for field, value in update_data.items():
+                if field in allowed_fields and value is not None:
+                    update_fields[field] = value
+            
+            # 更新時刻を追加
+            update_fields["updated_at"] = datetime.now(timezone.utc).isoformat()
+            
+            # 更新が必要なフィールドがない場合
+            if not update_fields:
+                return await self.get_article(article_id, user_id)
+            
+            # データベースを更新
+            result = supabase.table("articles").update(update_fields).eq("id", article_id).eq("user_id", user_id).execute()
+            
+            if not result.data:
+                raise Exception("Failed to update article")
+            
+            # 更新された記事情報を返す
+            return await self.get_article(article_id, user_id)
+            
+        except Exception as e:
+            logger.error(f"Error updating article {article_id}: {e}")
             raise

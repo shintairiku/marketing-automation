@@ -13,3 +13,6 @@ serpapi
 beautifulsoup4
 requests
 google-search-results
+supabase
+pydantic[email]
+uuid

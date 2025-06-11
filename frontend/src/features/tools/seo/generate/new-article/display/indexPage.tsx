@@ -1,22 +1,26 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { useRouter } from 'next/navigation';
+import { AnimatePresence,motion } from 'framer-motion';
+import { AlertCircle, CheckCircle, Wifi, WifiOff } from 'lucide-react';
+
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent } from '@/components/ui/card';
 import { useUser } from '@clerk/nextjs';
 
 import CompactGenerationFlow from "../component/CompactGenerationFlow";
 import CompactUserInteraction from "../component/CompactUserInteraction";
 import GenerationErrorHandler from "../component/GenerationErrorHandler";
-import InputSection from "./InputSection";
-import ExplainDialog from "./ExplainDialog";
 import { useArticleGeneration } from '../hooks/useArticleGeneration';
-import { Card, CardContent } from '@/components/ui/card';
-import { Alert, AlertDescription } from '@/components/ui/alert';
-import { AlertCircle, CheckCircle, Wifi, WifiOff } from 'lucide-react';
-import { Button } from '@/components/ui/button';
+
+import ExplainDialog from "./ExplainDialog";
+import InputSection from "./InputSection";
 
 export default function IndexPage() {
     const { user } = useUser();
+    const router = useRouter();
     const [thinkingMessages, setThinkingMessages] = useState<string[]>([]);
 
     
@@ -83,6 +87,17 @@ export default function IndexPage() {
         
         setThinkingMessages(messages);
     }, [state.currentStep, state.researchProgress, state.sectionsProgress, state.steps]);
+
+    // 生成完了後に編集ページへ遷移
+    useEffect(() => {
+        if (state.currentStep === 'completed' && state.articleId) {
+            // 2 秒後に自動遷移（完了アニメーションが出る場合を考慮）
+            const timer = setTimeout(() => {
+                router.push(`/seo/generate/edit-article/${state.articleId}`);
+            }, 2000);
+            return () => clearTimeout(timer);
+        }
+    }, [state.currentStep, state.articleId, router]);
 
     const handleStartGeneration = (requestData: any) => {
         startArticleGeneration(requestData);

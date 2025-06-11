@@ -1,10 +1,12 @@
 'use client';
 
 import { motion } from 'framer-motion';
+import { Lightbulb, RefreshCw } from 'lucide-react';
+
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
-import { Lightbulb, RefreshCw } from 'lucide-react';
+
 import { ThemeOption } from '../hooks/useArticleGeneration';
 
 interface ThemeSelectionProps {

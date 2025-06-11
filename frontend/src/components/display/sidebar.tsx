@@ -96,6 +96,23 @@ function findSelectedMenu(pathname: string) {
     .find(l => l.subLinks && l.subLinks.some(section => section.links.some(sub => pathname.startsWith(sub.href))));
   if (menu) return menu;
 
+  // 4. パス階層で判定（/seo/で始まる場合はSEOメニューを返す）
+  if (pathname.startsWith('/seo/')) {
+    menu = groups.flatMap(g => g.links).find(l => l.href === '/seo/home');
+    if (menu) return menu;
+  }
+  
+  // 5. 他のプラットフォームも同様に判定
+  if (pathname.startsWith('/instagram/')) {
+    menu = groups.flatMap(g => g.links).find(l => l.href === '/instagram/home');
+    if (menu) return menu;
+  }
+  
+  if (pathname.startsWith('/line/')) {
+    menu = groups.flatMap(g => g.links).find(l => l.href === '/line/home');
+    if (menu) return menu;
+  }
+
   return undefined;
 }
 

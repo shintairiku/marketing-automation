@@ -1,10 +1,10 @@
 # -*- coding: utf-8 -*-
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, status, Depends, HTTPException, Query
-from typing import Any, List, Optional
+from typing import Any, List, Optional, Dict
 import traceback
 import json
 import logging
-from pydantic import ValidationError
+from pydantic import ValidationError, BaseModel, Field
 
 from services.article_service import ArticleGenerationService
 from schemas.response import WebSocketMessage, ErrorPayload # エラー送信用
@@ -14,6 +14,19 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 article_service = ArticleGenerationService() # サービスインスタンス化
+
+class ArticleUpdateRequest(BaseModel):
+    """記事更新リクエスト"""
+    title: Optional[str] = None
+    content: Optional[str] = None
+    shortdescription: Optional[str] = None
+    target_audience: Optional[str] = None
+    keywords: Optional[List[str]] = None
+
+class AIEditRequest(BaseModel):
+    """AIによるブロック編集リクエスト"""
+    content: str = Field(..., description="元のHTMLブロック内容")
+    instruction: str = Field(..., description="編集指示（カジュアルに書き換え等）")
 
 @router.get("/", response_model=List[dict], status_code=status.HTTP_200_OK)
 async def get_articles(
@@ -79,6 +92,49 @@ async def get_article(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to retrieve article"
+        )
+
+@router.patch("/{article_id}", response_model=dict, status_code=status.HTTP_200_OK)
+async def update_article(
+    article_id: str,
+    update_data: ArticleUpdateRequest,
+    user_id: str = Depends(get_current_user_id_from_token)
+):
+    """
+    記事を更新します。
+    
+    **Parameters:**
+    - article_id: 記事ID
+    - update_data: 更新するデータ
+    - user_id: ユーザーID（認証から取得）
+    
+    **Returns:**
+    - 更新された記事情報
+    """
+    try:
+        # まず記事が存在し、ユーザーがアクセス権限を持つことを確認
+        existing_article = await article_service.get_article(article_id, user_id)
+        if not existing_article:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Article not found or access denied"
+            )
+        
+        # 記事を更新
+        updated_article = await article_service.update_article(
+            article_id=article_id,
+            user_id=user_id,
+            update_data=update_data.dict(exclude_unset=True)
+        )
+        
+        return updated_article
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating article {article_id}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to update article"
         )
 
 @router.websocket("/ws/generate")
@@ -152,4 +208,57 @@ async def generate_article_websocket_endpoint(websocket: WebSocket, process_id: 
         return
     
     await article_service.handle_websocket_connection(websocket, process_id, user_id)
+
+@router.post("/{article_id}/ai-edit", response_model=dict, status_code=status.HTTP_200_OK)
+async def ai_edit_block(
+    article_id: str,
+    req: AIEditRequest,
+    user_id: str = Depends(get_current_user_id_from_token)
+):
+    """
+    ブロック内容を OpenAI で編集して返す。
+    
+    **Parameters**
+    - article_id: 記事ID（アクセス制御用）
+    - req: AIEditRequest (content, instruction)
+    - user_id: Clerk認証ユーザーID
+    """
+    try:
+        # ユーザーが記事にアクセスできるかチェック
+        article = await article_service.get_article(article_id, user_id)
+        if not article:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Article not found or access denied")
+
+        from core.config import settings
+        from openai import AsyncOpenAI
+        client = AsyncOpenAI(api_key=settings.openai_api_key)
+
+        system_prompt = (
+            "あなたは優秀なSEOライターです。ユーザーの指示に従ってHTMLブロックを編集し、" \
+            "結果を同じタグ構造で返してください。不要なタグや装飾は追加しないでください。"
+        )
+        user_prompt = (
+            f"### 編集指示\n{req.instruction}\n\n" \
+            f"### 元のHTMLブロック\n{req.content}\n\n" \
+            "### 出力形式:\n編集後のHTMLブロックのみを返す。余計な説明は不要。"
+        )
+
+        completion = await client.chat.completions.create(
+            model=settings.editing_model,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            temperature=0.7,
+        )
+
+        new_content = completion.choices[0].message.content.strip()
+
+        return {"new_content": new_content}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"AI edit error for article {article_id}: {e}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="AI edit failed")
 

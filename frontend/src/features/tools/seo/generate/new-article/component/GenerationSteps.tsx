@@ -1,7 +1,8 @@
 'use client';
 
 import { motion } from 'framer-motion';
-import { Check, Clock, AlertCircle } from 'lucide-react';
+import { AlertCircle,Check, Clock } from 'lucide-react';
+
 import { GenerationStep } from '../hooks/useArticleGeneration';
 
 interface GenerationStepsProps {
