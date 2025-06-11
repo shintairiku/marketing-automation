@@ -20,4 +20,5 @@ dependencies = [
     "supabase",
     "pydantic[email]",
     "uuid",
+    "google-generativeai"
 ]
