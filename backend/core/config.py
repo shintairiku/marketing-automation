@@ -13,6 +13,7 @@ class Settings(BaseSettings):
     # SerpAPI設定
     serpapi_key: str = Field("", env="SERPAPI_API_KEY")
     
+    gemini_api_key: str = Field(..., env="GEMINI_API_KEY")
     # 他のAPIキーが必要な場合は追加
     # anthropic_api_key: Optional[str] = Field(None, env="ANTHROPIC_API_KEY")
     # gemini_api_key: Optional[str] = Field(None, env="GEMINI_API_KEY")
@@ -35,6 +36,13 @@ class Settings(BaseSettings):
     research_model: str = os.getenv("RESEARCH_MODEL", "gpt-4o-mini")
     writing_model: str = os.getenv("WRITING_MODEL", "gpt-4o-mini")
     editing_model: str = os.getenv("EDITING_MODEL", "gpt-4o-mini")
+    serpapi_key: str = os.getenv("SERPAPI_KEY")
+
+    # Scraping settings
+    scraping_timeout: int = int(os.getenv("SCRAPING_TIMEOUT", "10"))
+    scraping_delay: float = float(os.getenv("SCRAPING_DELAY", "1.0"))
+    max_concurrent_scraping: int = int(os.getenv("MAX_CONCURRENT_SCRAPING", "3"))
+    serpapi_rate_limit: int = int(os.getenv("SERPAPI_RATE_LIMIT", "50"))
 
     # デバッグフラグ
     debug: bool = os.getenv("DEBUG", "false").lower() == "true"
