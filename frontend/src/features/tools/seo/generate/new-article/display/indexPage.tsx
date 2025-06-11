@@ -6,7 +6,6 @@ import { useUser } from '@clerk/nextjs';
 
 import CompactGenerationFlow from "../component/CompactGenerationFlow";
 import CompactUserInteraction from "../component/CompactUserInteraction";
-import RealTimePreview from "../component/RealTimePreview";
 import GenerationErrorHandler from "../component/GenerationErrorHandler";
 import InputSection from "./InputSection";
 import ExplainDialog from "./ExplainDialog";
@@ -19,7 +18,7 @@ import { Button } from '@/components/ui/button';
 export default function IndexPage() {
     const { user } = useUser();
     const [thinkingMessages, setThinkingMessages] = useState<string[]>([]);
-    const [isPreviewVisible, setIsPreviewVisible] = useState(false);
+
     
     const {
         state,
@@ -34,6 +33,7 @@ export default function IndexPage() {
         approvePlan,
         approveOutline,
         regenerate,
+        editAndProceed,
     } = useArticleGeneration({
         userId: user?.id,
     });
@@ -58,28 +58,62 @@ export default function IndexPage() {
         } else if (state.currentStep === 'research_planning') {
             messages.push('記事の信頼性を高めるリサーチ計画を策定しています...');
         } else if (state.currentStep === 'researching') {
-            messages.push('Web上から最新の情報を収集・分析しています...');
+            if (state.researchProgress) {
+                messages.push(`Web上から最新の情報を収集・分析しています... (${state.researchProgress.currentQuery}/${state.researchProgress.totalQueries})`);
+            } else {
+                messages.push('Web上から最新の情報を収集・分析しています...');
+            }
         } else if (state.currentStep === 'research_synthesizing') {
             messages.push('収集した情報を整理し、記事に活用できる形にまとめています...');
         } else if (state.currentStep === 'outline_generating') {
             messages.push('読者に価値を提供する記事構成を設計しています...');
         } else if (state.currentStep === 'writing_sections') {
-            messages.push('専門性と読みやすさを両立した記事を執筆しています...');
+            if (state.sectionsProgress) {
+                messages.push(`専門性と読みやすさを両立した記事を執筆しています... (${state.sectionsProgress.currentSection}/${state.sectionsProgress.totalSections})`);
+            } else {
+                messages.push('専門性と読みやすさを両立した記事を執筆しています...');
+            }
         } else if (state.currentStep === 'editing') {
             messages.push('記事全体を校正し、最終調整を行っています...');
+        } else if (state.currentStep === 'completed') {
+            messages.push('記事生成が完了しました！');
+        } else if (state.currentStep === 'error' || state.steps.some(step => step.status === 'error')) {
+            messages.push('記事生成中にエラーが発生しました。再試行してください。');
         }
         
         setThinkingMessages(messages);
-    }, [state.currentStep]);
+    }, [state.currentStep, state.researchProgress, state.sectionsProgress, state.steps]);
 
     const handleStartGeneration = (requestData: any) => {
         startArticleGeneration(requestData);
-        setIsPreviewVisible(true); // 生成開始と同時にプレビューを表示
     };
 
     const getProgressPercentage = () => {
-        const completed = state.steps.filter(step => step.status === 'completed').length;
-        return Math.round((completed / state.steps.length) * 100);
+        const stepOrder = [
+            'start', 'keyword_analyzing', 'keyword_analyzed', 'persona_generating', 'persona_generated',
+            'theme_generating', 'theme_proposed', 'research_planning', 'research_plan_generated',
+            'researching', 'research_synthesizing', 'outline_generating', 'outline_generated',
+            'writing_sections', 'editing', 'completed'
+        ];
+        
+        // 完了状態の場合は100%
+        if (state.currentStep === 'completed') {
+            return 100;
+        }
+        
+        const currentStepIndex = stepOrder.indexOf(state.currentStep);
+        if (currentStepIndex === -1) return 0;
+        
+        // 完了したステップ数を計算
+        const completedSteps = state.steps.filter(step => step.status === 'completed').length;
+        const inProgressSteps = state.steps.filter(step => step.status === 'in_progress').length;
+        
+        // 実行中のステップは50%の重みを付ける
+        const totalProgress = completedSteps + (inProgressSteps * 0.5);
+        const percentage = Math.round((totalProgress / state.steps.length) * 100);
+        
+        // 完了前は最大95%まで、完了時は100%
+        return state.currentStep === 'completed' ? 100 : Math.min(percentage, 95);
     };
 
     const isGenerating = state.currentStep !== 'start' && state.currentStep !== 'completed' && state.currentStep !== 'error';
@@ -96,7 +130,7 @@ export default function IndexPage() {
                         {isConnected ? (
                             <><Wifi className="h-4 w-4 text-green-600" />
                             <AlertDescription className="text-green-800">
-                                サーバーに接続されています
+                                サーバーに接続されています（開発用）
                             </AlertDescription></>
                         ) : (
                             <><WifiOff className="h-4 w-4 text-red-600" />
@@ -171,6 +205,11 @@ export default function IndexPage() {
                             progressPercentage={getProgressPercentage()}
                             finalArticle={state.finalArticle}
                             currentMessage={thinkingMessages[0]}
+                            generatedContent={state.generatedContent}
+                            currentSection={state.currentSection}
+                            outline={state.outline}
+                            researchProgress={state.researchProgress}
+                            sectionsProgress={state.sectionsProgress}
                         />
 
                         {/* ユーザーインタラクション */}
@@ -202,6 +241,11 @@ export default function IndexPage() {
                                             }
                                         }}
                                         onRegenerate={regenerate}
+                                        onEditAndProceed={(editedContent) => {
+                                            if (state.inputType) {
+                                                editAndProceed(editedContent, state.inputType);
+                                            }
+                                        }}
                                         isWaiting={false}
                                     />
                                 </motion.div>
@@ -235,16 +279,7 @@ export default function IndexPage() {
                 )}
             </AnimatePresence>
 
-            {/* リアルタイムプレビュー */}
-            <RealTimePreview
-                isVisible={isPreviewVisible}
-                onToggle={() => setIsPreviewVisible(!isPreviewVisible)}
-                generatedContent={state.generatedContent}
-                currentSection={state.currentSection}
-                outline={state.outline}
-                isGenerating={isGenerating}
-                currentStep={state.currentStep}
-            />
+
         </div>
     );
 }
