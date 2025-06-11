@@ -3,19 +3,20 @@
 import { useState } from 'react';
 import { motion } from 'framer-motion';
 import { 
-  Download, 
-  RefreshCw, 
-  Eye, 
-  Code, 
-  Share2, 
-  Copy, 
+  AlertCircle,
   CheckCircle,
-  AlertCircle
-} from 'lucide-react';
-import { Card, CardContent } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
+  Code, 
+  Copy, 
+  Download, 
+  Eye, 
+  RefreshCw, 
+  Share2} from 'lucide-react';
+
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+
 import ArticlePreviewStyles from './ArticlePreviewStyles';
 
 interface CompletedArticleViewProps {

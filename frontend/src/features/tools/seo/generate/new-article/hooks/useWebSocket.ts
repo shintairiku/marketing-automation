@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+
 import { useAuth } from '@clerk/nextjs';
 
 export interface WebSocketMessage {
@@ -23,6 +24,7 @@ export interface ServerEventMessage extends WebSocketMessage {
     is_complete?: boolean;
     title?: string;
     final_html_content?: string;
+    article_id?: string;
     error_message?: string;
     request_type?: string;
     data?: any;

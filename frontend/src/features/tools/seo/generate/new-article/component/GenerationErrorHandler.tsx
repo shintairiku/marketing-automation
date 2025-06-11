@@ -4,15 +4,15 @@ import { useState } from 'react';
 import { motion } from 'framer-motion';
 import { 
   AlertTriangle, 
-  RefreshCw, 
-  MessageCircle, 
+  CheckCircle,
   HelpCircle,
-  CheckCircle
-} from 'lucide-react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
+  MessageCircle, 
+  RefreshCw} from 'lucide-react';
+
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 
 interface GenerationErrorHandlerProps {
   error: string;

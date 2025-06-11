@@ -1,6 +1,8 @@
 "use client"
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
+import { BarChart3, Calendar, Edit, Eye,User } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -35,11 +37,12 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { useArticles, useArticleDetail } from "@/hooks/useArticles";
+import { useArticleDetail,useArticles } from "@/hooks/useArticles";
 
 const PAGE_SIZE = 20;
 
 export default function IndexPage() {
+  const router = useRouter();
   const [selectedArticleId, setSelectedArticleId] = useState<string | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
   const [statusFilter, setStatusFilter] = useState<string>("");
@@ -77,6 +80,42 @@ export default function IndexPage() {
     setPage(1); // Reset to first page when clearing filter
   };
 
+  const handleEditClick = (articleId: string, e: React.MouseEvent) => {
+    e.stopPropagation(); // カードクリックイベントを防ぐ
+    router.push(`/seo/generate/edit-article/${articleId}`);
+  };
+
+  const formatDate = (dateString: string) => {
+    try {
+      return new Date(dateString).toLocaleDateString('ja-JP', {
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit'
+      });
+    } catch {
+      return dateString;
+    }
+  };
+
+  const getStatusDisplay = (status: string) => {
+    switch (status) {
+      case 'completed': return '完了';
+      case 'in_progress': return '進行中';
+      case 'error': return 'エラー';
+      case 'cancelled': return 'キャンセル';
+      default: return status;
+    }
+  };
+
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case 'completed': return 'bg-green-100 text-green-800';
+      case 'in_progress': return 'bg-blue-100 text-blue-800';
+      case 'error': return 'bg-red-100 text-red-800';
+      default: return 'bg-gray-100 text-gray-800';
+    }
+  };
+
   if (articlesError) {
     return (
       <div className="space-y-6">
@@ -94,97 +133,139 @@ export default function IndexPage() {
 
   return (
     <div className="space-y-6">
-      {/* 上部：ボタン群 */}
-      <div className="flex items-center gap-2">
-        <Dialog>
-          <DialogTrigger asChild>
-            <Button variant="outline">フィルター</Button>
-          </DialogTrigger>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>記事をフィルター</DialogTitle>
-            </DialogHeader>
-            <div className="flex flex-col gap-4 py-2">
-              <div>
-                <label className="block text-sm mb-1">ステータス</label>
-                <select 
-                  className="border rounded px-2 py-1 w-full"
-                  value={statusFilter}
-                  onChange={(e) => setStatusFilter(e.target.value)}
-                >
-                  <option value="">すべて</option>
-                  <option value="completed">完了</option>
-                  <option value="in_progress">進行中</option>
-                  <option value="error">エラー</option>
-                  <option value="cancelled">キャンセル</option>
-                </select>
+      {/* ヘッダー */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">記事管理</h1>
+          <p className="text-gray-600 mt-1">生成された記事の管理と編集</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <Dialog>
+            <DialogTrigger asChild>
+              <Button variant="outline">フィルター</Button>
+            </DialogTrigger>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>記事をフィルター</DialogTitle>
+              </DialogHeader>
+              <div className="flex flex-col gap-4 py-2">
+                <div>
+                  <label className="block text-sm mb-1">ステータス</label>
+                  <select 
+                    className="border rounded px-2 py-1 w-full"
+                    value={statusFilter}
+                    onChange={(e) => setStatusFilter(e.target.value)}
+                  >
+                    <option value="">すべて</option>
+                    <option value="completed">完了</option>
+                    <option value="in_progress">進行中</option>
+                    <option value="error">エラー</option>
+                    <option value="cancelled">キャンセル</option>
+                  </select>
+                </div>
               </div>
-            </div>
-            <DialogFooter>
-              <Button variant="outline" onClick={handleClearFilter}>クリア</Button>
-              <Button onClick={() => handleFilterApply(statusFilter)}>適用</Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
-        <Button variant="outline" onClick={refetch}>
-          更新
-        </Button>
+              <DialogFooter>
+                <Button variant="outline" onClick={handleClearFilter}>クリア</Button>
+                <Button onClick={() => handleFilterApply(statusFilter)}>適用</Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+          <Button variant="outline" onClick={refetch}>
+            更新
+          </Button>
+        </div>
       </div>
 
-      {/* 中部：カードで囲まれたテーブル */}
-      <Card className="p-4">
-        {articlesLoading ? (
-          <div className="flex justify-center items-center py-8">
-            <div className="text-center">
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900 mx-auto"></div>
-              <p className="mt-2 text-sm text-gray-600">記事を読み込み中...</p>
-            </div>
+      {/* メインコンテンツエリア */}
+      {articlesLoading ? (
+        <div className="flex justify-center items-center py-16">
+          <div className="text-center">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-gray-900 mx-auto"></div>
+            <p className="mt-4 text-lg text-gray-600">記事を読み込み中...</p>
           </div>
-        ) : articles.length === 0 ? (
-          <div className="text-center py-8">
+        </div>
+      ) : articles.length === 0 ? (
+        <div className="text-center py-16">
+          <div className="max-w-md mx-auto">
+            <div className="bg-gray-100 rounded-full w-16 h-16 flex items-center justify-center mx-auto mb-4">
+              <Edit className="w-8 h-8 text-gray-600" />
+            </div>
+            <h3 className="text-xl font-semibold text-gray-900 mb-2">記事がありません</h3>
             <p className="text-gray-600">
-              {statusFilter ? `「${statusFilter}」ステータスの記事が見つかりません` : "記事がまだありません"}
+              {statusFilter ? `「${getStatusDisplay(statusFilter)}」ステータスの記事が見つかりません` : "まだ記事が生成されていません"}
             </p>
           </div>
-        ) : (
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead className="py-2 px-2">タイトル</TableHead>
-                <TableHead className="py-2 px-2">概要</TableHead>
-                <TableHead className="py-2 px-2">投稿日</TableHead>
-                <TableHead className="py-2 px-2">ステータス</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {articles.map((article) => (
-                <TableRow
-                  key={article.id}
-                  className="cursor-pointer hover:bg-muted"
-                  onClick={() => handleRowClick(article.id)}
-                >
-                  <TableCell className="py-2 px-2 font-medium">{article.title}</TableCell>
-                  <TableCell className="py-2 px-2">{article.shortdescription}</TableCell>
-                  <TableCell className="py-2 px-2">{article.postdate}</TableCell>
-                  <TableCell className="py-2 px-2">
-                    <span className={`px-2 py-1 text-xs rounded-full ${
-                      article.status === 'completed' ? 'bg-green-100 text-green-800' :
-                      article.status === 'in_progress' ? 'bg-blue-100 text-blue-800' :
-                      article.status === 'error' ? 'bg-red-100 text-red-800' :
-                      'bg-gray-100 text-gray-800'
-                    }`}>
-                      {article.status === 'completed' ? '完了' :
-                       article.status === 'in_progress' ? '進行中' :
-                       article.status === 'error' ? 'エラー' :
-                       article.status}
-                    </span>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        )}
-      </Card>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {articles.map((article) => (
+            <Card 
+              key={article.id} 
+              className="overflow-hidden hover:shadow-lg transition-shadow duration-200 cursor-pointer bg-white"
+              onClick={() => handleRowClick(article.id)}
+            >
+              {/* カードヘッダー画像風エリア */}
+              <div className="h-48 bg-gradient-to-br from-blue-50 to-indigo-100 relative">
+                <div className="absolute top-4 left-4">
+                  <span className={`px-3 py-1 text-xs font-medium rounded-full ${getStatusColor(article.status)}`}>
+                    {getStatusDisplay(article.status)}
+                  </span>
+                </div>
+                <div className="absolute bottom-4 left-4 right-4">
+                  <h3 className="text-lg font-bold text-gray-900 line-clamp-2 leading-tight">
+                    {article.title}
+                  </h3>
+                </div>
+              </div>
+              
+              {/* カードコンテンツ */}
+              <div className="p-6">
+                <p className="text-gray-600 text-sm line-clamp-3 mb-4">
+                  {article.shortdescription || "記事の概要が設定されていません"}
+                </p>
+                
+                {/* メタ情報 */}
+                <div className="space-y-2 mb-4">
+                  <div className="flex items-center text-sm text-gray-500">
+                    <Calendar className="w-4 h-4 mr-2" />
+                    <span>{formatDate(article.postdate)}</span>
+                  </div>
+                  {article.target_audience && (
+                    <div className="flex items-center text-sm text-gray-500">
+                      <User className="w-4 h-4 mr-2" />
+                      <span className="line-clamp-1">{article.target_audience}</span>
+                    </div>
+                  )}
+                </div>
+                
+                {/* アクションボタン */}
+                <div className="flex gap-2">
+                  <Button 
+                    size="sm" 
+                    className="flex-1 bg-secondary hover:bg-secondary/90"
+                    onClick={(e) => handleEditClick(article.id, e)}
+                  >
+                    <Edit className="w-4 h-4 mr-1" />
+                    修正
+                  </Button>
+                  <Button 
+                    size="sm" 
+                    variant="outline" 
+                    className="flex-1"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleRowClick(article.id);
+                    }}
+                  >
+                    <Eye className="w-4 h-4 mr-1" />
+                    分析
+                  </Button>
+                </div>
+              </div>
+            </Card>
+          ))}
+        </div>
+      )}
 
       {/* 下部：ページネーション */}
       {articles.length > 0 && (

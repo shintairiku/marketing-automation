@@ -1,8 +1,9 @@
 'use client';
 
 import { motion } from 'framer-motion';
-import { Card, CardContent } from "@/components/ui/card";
 import { Brain, Sparkles, Zap } from 'lucide-react';
+
+import { Card, CardContent } from "@/components/ui/card";
 
 interface AiThinkingBoxProps {
   messages: string[];

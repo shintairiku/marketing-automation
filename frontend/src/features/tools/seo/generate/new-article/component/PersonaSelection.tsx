@@ -1,10 +1,12 @@
 'use client';
 
 import { motion } from 'framer-motion';
+import { RefreshCw,User } from 'lucide-react';
+
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
-import { User, RefreshCw } from 'lucide-react';
+
 import { PersonaOption } from '../hooks/useArticleGeneration';
 
 interface PersonaSelectionProps {

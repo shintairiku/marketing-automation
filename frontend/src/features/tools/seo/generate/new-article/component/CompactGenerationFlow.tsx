@@ -1,35 +1,37 @@
 'use client';
 
-import { useState, useEffect, memo } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { memo,useEffect, useState } from 'react';
+import { AnimatePresence,motion } from 'framer-motion';
 import { 
-  Brain, 
-  FileText, 
-  Users, 
-  Lightbulb, 
-  Search, 
+  AlertCircle,
   BookOpen,
-  Edit3,
+  Brain, 
   Check,
   Clock,
-  AlertCircle,
-  Play,
-  Pause,
-  RotateCcw,
-  Eye,
   Download,
+  Edit3,
+  Eye,
+  FileText, 
+  Lightbulb, 
+  Pause,
+  PenTool,
+  Play,
+  RotateCcw,
+  Search, 
   Sparkles,
-  Zap,
   Target,
   TrendingUp,
-  PenTool
-} from 'lucide-react';
-import { GenerationStep } from '../hooks/useArticleGeneration';
-import { Card, CardContent } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Progress } from '@/components/ui/progress';
+  Users, 
+  Zap} from 'lucide-react';
+
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent } from '@/components/ui/card';
+import { Progress } from '@/components/ui/progress';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+
+import { GenerationStep } from '../hooks/useArticleGeneration';
+
 import ArticlePreviewStyles from './ArticlePreviewStyles';
 import CompletedArticleView from './CompletedArticleView';
 

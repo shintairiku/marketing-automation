@@ -1,12 +1,13 @@
 'use client';
 
 import { motion } from 'framer-motion';
+import { Brain, FileText, Sparkles } from 'lucide-react';
+
+import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
-import { Badge } from '@/components/ui/badge';
-import { FileText, Brain, Sparkles } from 'lucide-react';
 
 interface ContentGenerationProps {
   currentStep: string;

@@ -1,7 +1,8 @@
 'use client';
 
-import { useState, useCallback } from 'react';
-import { useWebSocket, ServerEventMessage, ClientResponseMessage } from './useWebSocket';
+import { useCallback,useState } from 'react';
+
+import { ClientResponseMessage,ServerEventMessage, useWebSocket } from './useWebSocket';
 
 export interface GenerationStep {
   id: string;
@@ -39,6 +40,7 @@ export interface GenerationState {
     title: string;
     content: string;
   };
+  articleId?: string;
   isWaitingForInput: boolean;
   inputType?: string;
   error?: string;
@@ -73,6 +75,7 @@ export const useArticleGeneration = ({ processId }: UseArticleGenerationOptions)
       { id: 'editing', title: '編集・校正', status: 'pending' },
     ],
     isWaitingForInput: false,
+    articleId: undefined,
   });
 
   const handleMessage = useCallback((message: ServerEventMessage) => {
@@ -253,6 +256,11 @@ export const useArticleGeneration = ({ processId }: UseArticleGenerationOptions)
         // ユーザー入力待ち状態をクリア
         newState.isWaitingForInput = false;
         newState.inputType = undefined;
+
+        // article_id があれば保存
+        if (payload.article_id) {
+          newState.articleId = payload.article_id as string;
+        }
       }
 
       if (payload.error_message) {
@@ -313,6 +321,16 @@ export const useArticleGeneration = ({ processId }: UseArticleGenerationOptions)
           currentStep: newState.currentStep,
           finalArticle: !!newState.finalArticle 
         });
+
+        // article_id が含まれていれば保存
+        if (payload.article_id && typeof payload.article_id === 'string') {
+          newState.articleId = payload.article_id;
+        }
+      }
+
+      // 汎用的に article_id を受信した場合
+      if (payload.article_id && typeof payload.article_id === 'string') {
+        newState.articleId = payload.article_id;
       }
 
       // リサーチ進捗情報を処理
@@ -329,7 +347,7 @@ export const useArticleGeneration = ({ processId }: UseArticleGenerationOptions)
             step.id === 'researching' ? { 
               ...step, 
               status: 'in_progress', 
-              message: `リサーチ中 (${payload.query_index + 1}/${payload.total_queries}): ${payload.query}` 
+              message: `リサーチ中 (${(payload.query_index ?? 0) + 1}/${payload.total_queries ?? 0}): ${payload.query ?? ''}` 
             } : step
           );
         }

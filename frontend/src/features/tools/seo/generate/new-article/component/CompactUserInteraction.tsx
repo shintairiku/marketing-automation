@@ -1,28 +1,30 @@
 'use client';
 
 import { useState } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { AnimatePresence,motion } from 'framer-motion';
 import { 
-  Users, 
-  Lightbulb, 
-  Search, 
   BookOpen, 
   Check, 
-  X, 
-  RotateCcw,
   ChevronRight,
-  Star,
-  Target,
   Clock,
   Edit3,
+  Lightbulb, 
+  RotateCcw,
   Save,
+  Search, 
+  Star,
+  Target,
+  Users, 
+  X, 
   XCircle
 } from 'lucide-react';
-import { Card, CardContent } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
+
 import { Badge } from '@/components/ui/badge';
-import { Textarea } from '@/components/ui/textarea';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
+
 import { PersonaOption, ThemeOption } from '../hooks/useArticleGeneration';
 
 interface CompactUserInteractionProps {
