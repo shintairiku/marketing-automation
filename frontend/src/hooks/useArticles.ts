@@ -1,4 +1,4 @@
-import { useEffect,useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import { useAuth } from "@clerk/nextjs";
 
@@ -47,7 +47,7 @@ export function useArticles(pageSize: number = 20, statusFilter?: string): UseAr
   const [total, setTotal] = useState(0);
   const { getToken } = useAuth();
 
-  const fetchArticles = async (page: number) => {
+  const fetchArticles = useCallback(async (page: number) => {
     try {
       setLoading(true);
       setError(null);
@@ -93,19 +93,19 @@ export function useArticles(pageSize: number = 20, statusFilter?: string): UseAr
     } finally {
       setLoading(false);
     }
-  };
+  }, [pageSize, statusFilter, getToken]);
 
   const setPage = (page: number) => {
     setCurrentPage(page);
   };
 
-  const refetch = async () => {
+  const refetch = useCallback(async () => {
     await fetchArticles(currentPage);
-  };
+  }, [fetchArticles, currentPage]);
 
   useEffect(() => {
     fetchArticles(currentPage);
-  }, [currentPage, pageSize, statusFilter]);
+  }, [currentPage, fetchArticles]);
 
   const totalPages = Math.ceil(total / pageSize);
 
@@ -127,7 +127,7 @@ export function useArticleDetail(articleId: string | null): UseArticleDetailResu
   const [error, setError] = useState<string | null>(null);
   const { getToken } = useAuth();
 
-  const fetchArticle = async (id: string) => {
+  const fetchArticle = useCallback(async (id: string) => {
     try {
       setLoading(true);
       setError(null);
@@ -162,13 +162,13 @@ export function useArticleDetail(articleId: string | null): UseArticleDetailResu
     } finally {
       setLoading(false);
     }
-  };
+  }, [getToken]);
 
-  const refetch = async () => {
+  const refetch = useCallback(async () => {
     if (articleId) {
       await fetchArticle(articleId);
     }
-  };
+  }, [articleId, fetchArticle]);
 
   useEffect(() => {
     if (articleId) {
@@ -178,7 +178,7 @@ export function useArticleDetail(articleId: string | null): UseArticleDetailResu
       setLoading(false);
       setError(null);
     }
-  }, [articleId]);
+  }, [articleId, fetchArticle]);
 
   return {
     article,
