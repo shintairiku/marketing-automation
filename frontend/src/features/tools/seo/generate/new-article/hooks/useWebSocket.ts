@@ -26,12 +26,25 @@ export interface ServerEventMessage extends WebSocketMessage {
     error_message?: string;
     request_type?: string;
     data?: any;
+    query_index?: number;
+    total_queries?: number;
+    query?: string;
+    research_progress?: {
+      currentQuery: number;
+      totalQueries: number;
+      query: string;
+    };
+    sections_progress?: {
+      currentSection: number;
+      totalSections: number;
+      sectionHeading: string;
+    };
   };
 }
 
 export interface ClientResponseMessage extends WebSocketMessage {
   type: 'client_response';
-  response_type: string;
+  response_type: 'select_persona' | 'select_theme' | 'approve_plan' | 'approve_outline' | 'regenerate' | 'edit_persona' | 'edit_theme' | 'edit_plan' | 'edit_outline' | 'edit_generic';
   payload: any;
 }
 

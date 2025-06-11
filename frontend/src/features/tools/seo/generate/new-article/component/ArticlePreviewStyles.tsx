@@ -1,67 +1,275 @@
 'use client';
 
-import { cn } from '@/lib/utils';
+import { ReactNode } from 'react';
 
 interface ArticlePreviewStylesProps {
-  children: React.ReactNode;
-  className?: string;
+  children: ReactNode;
+  isFullscreen?: boolean;
 }
 
-export default function ArticlePreviewStyles({ children, className }: ArticlePreviewStylesProps) {
+export default function ArticlePreviewStyles({ children, isFullscreen = false }: ArticlePreviewStylesProps) {
   return (
-    <div className={cn(
-      "prose prose-lg max-w-none",
-      // 基本的な文字設定
-      "text-foreground leading-relaxed",
-      
-      // 見出しスタイル
-      "prose-headings:text-foreground prose-headings:font-bold prose-headings:tracking-tight",
-      "prose-h1:text-3xl prose-h1:mb-6 prose-h1:mt-8 prose-h1:border-b prose-h1:border-border prose-h1:pb-3",
-      "prose-h2:text-2xl prose-h2:mb-4 prose-h2:mt-8 prose-h2:text-primary",
-      "prose-h3:text-xl prose-h3:mb-3 prose-h3:mt-6 prose-h3:text-secondary",
-      "prose-h4:text-lg prose-h4:mb-2 prose-h4:mt-4",
-      
-      // 段落とリストのスタイル
-      "prose-p:mb-4 prose-p:text-base prose-p:leading-relaxed",
-      "prose-ul:mb-4 prose-ul:space-y-2",
-      "prose-ol:mb-4 prose-ol:space-y-2",
-      "prose-li:text-base prose-li:leading-relaxed",
-      
-      // リンクスタイル
-      "prose-a:text-primary prose-a:no-underline prose-a:font-medium",
-      "prose-a:border-b prose-a:border-primary/30",
-      "hover:prose-a:border-primary/60 hover:prose-a:text-primary/80",
-      
-      // 強調・太字
-      "prose-strong:text-foreground prose-strong:font-semibold",
-      "prose-em:text-muted-foreground prose-em:italic",
-      
-      // 引用
-      "prose-blockquote:border-l-4 prose-blockquote:border-primary/30",
-      "prose-blockquote:bg-muted/30 prose-blockquote:py-2 prose-blockquote:px-4",
-      "prose-blockquote:my-6 prose-blockquote:italic prose-blockquote:text-muted-foreground",
-      
-      // コードブロック
-      "prose-code:bg-muted prose-code:px-1.5 prose-code:py-0.5",
-      "prose-code:rounded prose-code:text-sm prose-code:text-foreground",
-      "prose-pre:bg-muted prose-pre:p-4 prose-pre:rounded-lg",
-      "prose-pre:overflow-x-auto prose-pre:text-sm",
-      
-      // テーブル
-      "prose-table:w-full prose-table:border-collapse",
-      "prose-thead:border-b prose-thead:border-border",
-      "prose-th:text-left prose-th:font-semibold prose-th:py-2 prose-th:px-3",
-      "prose-td:py-2 prose-td:px-3 prose-td:border-b prose-td:border-border/50",
-      
-      // 画像
-      "prose-img:rounded-lg prose-img:shadow-md prose-img:my-6",
-      
-      // HR
-      "prose-hr:border-border prose-hr:my-8",
-      
-      className
-    )}>
+    <div className={`prose prose-gray max-w-none ${isFullscreen ? 'prose-lg' : ''}`}>
+      <style jsx>{`
+        .prose {
+          font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+          line-height: 1.75;
+          color: #374151;
+        }
+        
+        .prose h1 {
+          font-size: ${isFullscreen ? '3rem' : '2.25rem'};
+          font-weight: 900;
+          margin-bottom: ${isFullscreen ? '2rem' : '1rem'};
+          margin-top: ${isFullscreen ? '0' : '2rem'};
+          color: #111827;
+          line-height: 1.1;
+          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+          -webkit-background-clip: text;
+          -webkit-text-fill-color: transparent;
+          background-clip: text;
+          letter-spacing: -0.02em;
+        }
+        
+        .prose h2 {
+          font-size: ${isFullscreen ? '2.25rem' : '1.875rem'};
+          font-weight: 800;
+          margin-bottom: ${isFullscreen ? '1.5rem' : '0.75rem'};
+          margin-top: ${isFullscreen ? '3rem' : '1.5rem'};
+          color: #1f2937;
+          line-height: 1.2;
+          border-bottom: 3px solid #e5e7eb;
+          padding-bottom: 0.5rem;
+          letter-spacing: -0.01em;
+        }
+        
+        .prose h3 {
+          font-size: ${isFullscreen ? '1.875rem' : '1.5rem'};
+          font-weight: 700;
+          margin-bottom: ${isFullscreen ? '1rem' : '0.5rem'};
+          margin-top: ${isFullscreen ? '2rem' : '1.25rem'};
+          color: #374151;
+          line-height: 1.3;
+          position: relative;
+          padding-left: 1rem;
+        }
+        
+        .prose h3:before {
+          content: '';
+          position: absolute;
+          left: 0;
+          top: 50%;
+          transform: translateY(-50%);
+          width: 4px;
+          height: 60%;
+          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+          border-radius: 2px;
+        }
+        
+        .prose h4 {
+          font-size: ${isFullscreen ? '1.5rem' : '1.25rem'};
+          font-weight: 600;
+          margin-bottom: 0.75rem;
+          margin-top: 1.5rem;
+          color: #4b5563;
+          line-height: 1.4;
+        }
+        
+        .prose p {
+          margin-bottom: ${isFullscreen ? '1.5rem' : '1rem'};
+          line-height: ${isFullscreen ? '1.8' : '1.7'};
+          color: #374151;
+          font-size: ${isFullscreen ? '1.125rem' : '1rem'};
+          text-align: justify;
+        }
+        
+        .prose p:first-of-type {
+          font-size: ${isFullscreen ? '1.25rem' : '1.125rem'};
+          font-weight: 500;
+          color: #1f2937;
+          line-height: 1.6;
+        }
+        
+        .prose ul, .prose ol {
+          margin-bottom: ${isFullscreen ? '1.5rem' : '1rem'};
+          padding-left: ${isFullscreen ? '2rem' : '1.5rem'};
+        }
+        
+        .prose li {
+          margin-bottom: ${isFullscreen ? '0.75rem' : '0.5rem'};
+          line-height: ${isFullscreen ? '1.7' : '1.6'};
+          font-size: ${isFullscreen ? '1.125rem' : '1rem'};
+          position: relative;
+        }
+        
+        .prose ul li:before {
+          content: '•';
+          color: #667eea;
+          font-weight: bold;
+          position: absolute;
+          left: -1rem;
+          font-size: 1.2em;
+        }
+        
+        .prose strong {
+          font-weight: 700;
+          color: #111827;
+          background: linear-gradient(135deg, #fbbf24, #f59e0b);
+          -webkit-background-clip: text;
+          -webkit-text-fill-color: transparent;
+          background-clip: text;
+        }
+        
+        .prose em {
+          font-style: italic;
+          color: #6b7280;
+          font-weight: 500;
+        }
+        
+        .prose blockquote {
+          border-left: 4px solid #667eea;
+          padding-left: ${isFullscreen ? '2rem' : '1rem'};
+          margin: ${isFullscreen ? '2.5rem 0' : '1.5rem 0'};
+          font-style: italic;
+          color: #4b5563;
+          background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+          padding: ${isFullscreen ? '2rem' : '1rem'};
+          border-radius: 0.75rem;
+          box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+          position: relative;
+          font-size: ${isFullscreen ? '1.125rem' : '1rem'};
+        }
+        
+        .prose blockquote:before {
+          content: '"';
+          position: absolute;
+          top: -10px;
+          left: 20px;
+          font-size: 4rem;
+          color: #667eea;
+          opacity: 0.3;
+          font-family: serif;
+        }
+        
+        .prose code {
+          background: linear-gradient(135deg, #fef3c7, #fed7aa);
+          color: #dc2626;
+          padding: 0.25rem 0.5rem;
+          border-radius: 0.375rem;
+          font-size: ${isFullscreen ? '1rem' : '0.875rem'};
+          font-family: 'JetBrains Mono', 'Monaco', 'Consolas', monospace;
+          font-weight: 600;
+          border: 1px solid #fed7aa;
+        }
+        
+        .prose pre {
+          background: linear-gradient(135deg, #1e293b 0%, #334155 100%);
+          color: #e2e8f0;
+          padding: ${isFullscreen ? '2rem' : '1rem'};
+          border-radius: 0.75rem;
+          overflow-x: auto;
+          margin: ${isFullscreen ? '2rem 0' : '1rem 0'};
+          box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.25);
+          border: 1px solid #475569;
+        }
+        
+        .prose pre code {
+          background: transparent;
+          color: inherit;
+          padding: 0;
+          border-radius: 0;
+          border: none;
+          font-size: ${isFullscreen ? '1rem' : '0.875rem'};
+        }
+        
+        .prose a {
+          color: #667eea;
+          text-decoration: none;
+          font-weight: 600;
+          background: linear-gradient(135deg, #667eea, #764ba2);
+          -webkit-background-clip: text;
+          -webkit-text-fill-color: transparent;
+          background-clip: text;
+          border-bottom: 2px solid transparent;
+          border-image: linear-gradient(135deg, #667eea, #764ba2) 1;
+          transition: all 0.3s ease;
+          position: relative;
+        }
+        
+        .prose a:hover {
+          border-bottom: 2px solid #667eea;
+          transform: translateY(-1px);
+        }
+        
+        .prose img {
+          border-radius: 0.75rem;
+          box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.15);
+          margin: ${isFullscreen ? '2rem auto' : '1rem auto'};
+          max-width: 100%;
+          height: auto;
+        }
+        
+        .prose table {
+          width: 100%;
+          border-collapse: collapse;
+          margin: ${isFullscreen ? '2rem 0' : '1rem 0'};
+          box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+          border-radius: 0.5rem;
+          overflow: hidden;
+        }
+        
+        .prose th, .prose td {
+          padding: ${isFullscreen ? '1rem' : '0.75rem'};
+          text-align: left;
+          border-bottom: 1px solid #e5e7eb;
+        }
+        
+        .prose th {
+          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+          color: white;
+          font-weight: 700;
+          font-size: ${isFullscreen ? '1rem' : '0.875rem'};
+        }
+        
+        .prose tr:hover {
+          background-color: #f9fafb;
+        }
+        
+        /* セクション区切り */
+        .prose hr {
+          border: none;
+          height: 2px;
+          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+          margin: ${isFullscreen ? '3rem 0' : '2rem 0'};
+          border-radius: 1px;
+          opacity: 0.3;
+        }
+        
+        /* フルスクリーン時の特別なスタイリング */
+        ${isFullscreen ? `
+          .prose {
+            max-width: 4xl;
+            margin: 0 auto;
+            padding: 3rem 2rem;
+            background: white;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.15);
+            border-radius: 1rem;
+            position: relative;
+          }
+          
+          .prose:before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 4px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border-radius: 1rem 1rem 0 0;
+          }
+        ` : ''}
+      `}</style>
       {children}
     </div>
   );
-} 
+}
