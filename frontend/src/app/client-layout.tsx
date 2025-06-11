@@ -20,7 +20,7 @@ export function ClientLayout({
         <div className="flex flex-col h-screen">
           <Header />
           <div className="flex flex-1">
-            <Sidebar isExpanded={isExpanded} setIsExpanded={setIsExpanded} />
+            <Sidebar />
             <main className="flex-1 py-5 px-10">{children}</main>
           </div>
         </div>

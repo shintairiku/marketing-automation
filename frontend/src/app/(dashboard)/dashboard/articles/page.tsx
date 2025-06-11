@@ -42,62 +42,57 @@ const generateMockArticles = (): GeneratedArticle[] => {
     {
       id: '1',
       title: 'SEO対策の完全ガイド：初心者から上級者まで',
-      metaDescription: 'SEO対策に関する完全ガイド。基礎知識から実践テクニックまで詳しく解説します。',
-      sections: [
-        { id: '1-1', level: 'h2', title: 'SEO対策とは何か？基本的な解説' },
-        { id: '1-2', level: 'h2', title: 'SEO対策の主要なメリット' },
-      ],
+      content: '<p>SEO対策に関する完全ガイド。基礎知識から実践テクニックまで詳しく解説します。</p><h2>SEO対策とは何か？基本的な解説</h2><p>テキスト...</p><h2>SEO対策の主要なメリット</h2><p>テキスト...</p>',
+      status: 'published',
+      category: 'SEO',
+      tags: ['ガイド', '初心者向け'],
+      slug: 'seo-complete-guide',
       createdAt: '2025-04-05T09:12:44.123Z',
       updatedAt: '2025-04-07T16:23:15.456Z',
-      status: 'published',
     },
     {
       id: '2',
       title: 'コンテンツマーケティングの最新トレンドと成功事例',
-      metaDescription: 'コンテンツマーケティングの最新トレンドと成功事例を紹介します。',
-      sections: [
-        { id: '2-1', level: 'h2', title: 'コンテンツマーケティング市場の現状分析' },
-        { id: '2-2', level: 'h2', title: '2025年に注目すべき主要トレンド' },
-      ],
+      content: '<p>コンテンツマーケティングの最新トレンドと成功事例を紹介します。</p><h2>コンテンツマーケティング市場の現状分析</h2><p>テキスト...</p><h2>2025年に注目すべき主要トレンド</h2><p>テキスト...</p>',
+      status: 'draft',
+      category: 'マーケティング',
+      tags: ['トレンド', '事例'],
+      slug: 'content-marketing-trends',
       createdAt: '2025-03-28T11:45:22.789Z',
       updatedAt: '2025-03-28T11:45:22.789Z',
-      status: 'draft',
     },
     {
       id: '3',
       title: 'ソーシャルメディアマーケティングの効果的な戦略',
-      metaDescription: 'ソーシャルメディアマーケティングの効果的な戦略を解説します。',
-      sections: [
-        { id: '3-1', level: 'h2', title: 'ソーシャルメディアマーケティングの基礎' },
-        { id: '3-2', level: 'h2', title: '各プラットフォームの特性と活用法' },
-      ],
+      content: '<p>ソーシャルメディアマーケティングの効果的な戦略を解説します。</p><h2>ソーシャルメディアマーケティングの基礎</h2><p>テキスト...</p><h2>各プラットフォームの特性と活用法</h2><p>テキスト...</p>',
+      status: 'published',
+      category: 'SNS',
+      tags: ['戦略', 'Facebook', 'Instagram'],
+      slug: 'social-media-strategy',
       createdAt: '2025-04-01T15:37:10.123Z',
       updatedAt: '2025-04-03T09:18:42.456Z',
-      status: 'published',
     },
     {
       id: '4',
       title: 'Google検索アルゴリズムの最新アップデート解説',
-      metaDescription: 'Googleの検索アルゴリズムの最新アップデートとその影響について解説します。',
-      sections: [
-        { id: '4-1', level: 'h2', title: '2025年のアルゴリズム変更点' },
-        { id: '4-2', level: 'h2', title: 'コアウェブバイタルの重要性' },
-      ],
+      content: '<p>Googleの検索アルゴリズムの最新アップデートとその影響について解説します。</p><h2>2025年のアルゴリズム変更点</h2><p>テキスト...</p><h2>コアウェブバイタルの重要性</h2><p>テキスト...</p>',
+      status: 'draft',
+      category: 'SEO',
+      tags: ['Google', 'アルゴリズム'],
+      slug: 'google-algorithm-update',
       createdAt: '2025-04-10T08:30:00.000Z',
       updatedAt: '2025-04-10T08:30:00.000Z',
-      status: 'draft',
     },
     {
       id: '5',
       title: 'BtoBマーケティングの成功戦略とリード獲得術',
-      metaDescription: 'BtoB企業のためのマーケティング戦略とリード獲得方法を解説します。',
-      sections: [
-        { id: '5-1', level: 'h2', title: 'BtoBマーケティングの特徴と課題' },
-        { id: '5-2', level: 'h2', title: '効果的なリード獲得のための5つの方法' },
-      ],
+      content: '<p>BtoB企業のためのマーケティング戦略とリード獲得方法を解説します。</p><h2>BtoBマーケティングの特徴と課題</h2><p>テキスト...</p><h2>効果的なリード獲得のための5つの方法</h2><p>テキスト...</p>',
+      status: 'published',
+      category: 'マーケティング',
+      tags: ['BtoB', 'リード獲得'],
+      slug: 'btob-marketing-strategy',
       createdAt: '2025-04-09T14:15:30.000Z',
       updatedAt: '2025-04-09T16:45:12.000Z',
-      status: 'published',
     },
   ];
 };
@@ -113,9 +108,9 @@ export default function ImprovedArticlesPage() {
 
   // 検索、フィルタリング、ソート
   const filteredArticles = articles
-    .filter(article => 
+    .filter(article =>
       article.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      article.metaDescription.toLowerCase().includes(searchTerm.toLowerCase())
+      (article.content && article.content.toLowerCase().includes(searchTerm.toLowerCase()))
     )
     .filter(article => 
       statusFilter === 'all' ? true : article.status === statusFilter
@@ -345,7 +340,7 @@ export default function ImprovedArticlesPage() {
                           </div>
                           <div className="max-w-md">
                             <div className="font-medium text-foreground group-hover:text-indigo-400 transition-colors">{article.title}</div>
-                            <div className="mt-1 hidden text-sm text-muted-foreground line-clamp-1 sm:block">{article.metaDescription}</div>
+                            <div className="mt-1 hidden text-sm text-muted-foreground line-clamp-1 sm:block">{article.content}</div>
                           </div>
                         </div>
                       </td>
@@ -454,7 +449,7 @@ export default function ImprovedArticlesPage() {
                 </div>
                 
                 <h3 className="text-lg font-medium mb-2 group-hover:text-indigo-400 transition-colors line-clamp-2">{article.title}</h3>
-                <p className="text-sm text-muted-foreground mb-4 line-clamp-2">{article.metaDescription}</p>
+                <p className="text-sm text-muted-foreground mb-4 line-clamp-2">{article.content}</p>
                 
                 <div className="flex justify-between items-center">
                   {getStatusBadge(article.status)}

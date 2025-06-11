@@ -8,10 +8,17 @@ dependencies = [
     "fastapi",
     "uvicorn[standard]",
     "openai",
-    "openai-agents",
+    "openai-agents==0.0.16",
     "python-dotenv",
     "rich",
     "sse-starlette",
     "pydantic-settings",
-    "griffe"
+    "griffe",
+    "serpapi",
+    "beautifulsoup4",
+    "google-search-results",
+    "supabase",
+    "pydantic[email]",
+    "uuid",
+    "google-generativeai"
 ]
