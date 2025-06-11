@@ -85,6 +85,8 @@ class FinalResultPayload(BasePayload):
     """最終結果ペイロード"""
     title: str = Field(description="最終的な記事タイトル")
     final_html_content: str = Field(description="完成した記事のHTMLコンテンツ")
+    # 新規追加: DBに保存された記事ID (フロントエンドで編集ページへ遷移する際に使用)
+    article_id: Optional[str] = Field(default=None, description="生成された記事の一意ID")
 
 class ErrorPayload(BasePayload):
     """エラーペイロード"""
