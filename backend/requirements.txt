@@ -12,4 +12,8 @@ griffe
 serpapi
 beautifulsoup4
 requests
+google-generativeai
 google-search-results
+supabase
+pydantic[email]
+uuid

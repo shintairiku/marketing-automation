@@ -1,4 +1,3 @@
-
 export const groups = [
   {
     title: 'Home',
@@ -45,7 +44,7 @@ export const groups = [
           {
             title: '記事管理',
             links: [
-              { href: '/seo/manage/list',     label: '記事一覧' },
+              { href: '/seo/manage/list',     label: '記事管理' },
               { href: '/seo/manage/status',     label: '記事ステータス管理' },
               { href: '/seo/manage/schedule',     label: '配信カレンダー' },
             ],

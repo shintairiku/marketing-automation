@@ -10,15 +10,39 @@ load_dotenv()
 class Settings(BaseSettings):
     """アプリケーション設定を管理するクラス"""
     openai_api_key: str = Field(..., env="OPENAI_API_KEY")
+    # SerpAPI設定
+    serpapi_key: str = Field("", env="SERPAPI_API_KEY")
+    
+    gemini_api_key: str = Field(..., env="GEMINI_API_KEY")
     # 他のAPIキーが必要な場合は追加
     # anthropic_api_key: Optional[str] = Field(None, env="ANTHROPIC_API_KEY")
     # gemini_api_key: Optional[str] = Field(None, env="GEMINI_API_KEY")
+
+    # Supabase設定
+    supabase_url: str = Field(..., env="SUPABASE_URL")
+    supabase_key: str = Field(..., env="SUPABASE_ANON_KEY")
+    supabase_service_role_key: str = Field(..., env="SUPABASE_SERVICE_ROLE_KEY")
+
+    # Clerk設定 (optional)
+    clerk_secret_key: str = Field("", env="CLERK_SECRET_KEY")
+    clerk_publishable_key: str = Field("", env="CLERK_PUBLISHABLE_KEY")
+
+    # Stripe設定 (optional)
+    stripe_secret_key: str = Field("", env="STRIPE_SECRET_KEY")
+    stripe_webhook_secret: str = Field("", env="STRIPE_WEBHOOK_SECRET")
 
     # デフォルトモデル名 (環境変数またはデフォルト値)
     default_model: str = os.getenv("DEFAULT_MODEL", "gpt-4o-mini")
     research_model: str = os.getenv("RESEARCH_MODEL", "gpt-4o-mini")
     writing_model: str = os.getenv("WRITING_MODEL", "gpt-4o-mini")
     editing_model: str = os.getenv("EDITING_MODEL", "gpt-4o-mini")
+    serpapi_key: str = os.getenv("SERPAPI_KEY")
+
+    # Scraping settings
+    scraping_timeout: int = int(os.getenv("SCRAPING_TIMEOUT", "10"))
+    scraping_delay: float = float(os.getenv("SCRAPING_DELAY", "1.0"))
+    max_concurrent_scraping: int = int(os.getenv("MAX_CONCURRENT_SCRAPING", "3"))
+    serpapi_rate_limit: int = int(os.getenv("SERPAPI_RATE_LIMIT", "50"))
 
     # デバッグフラグ
     debug: bool = os.getenv("DEBUG", "false").lower() == "true"
