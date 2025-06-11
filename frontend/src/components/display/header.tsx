@@ -1,21 +1,27 @@
-import { Menu,Search } from "lucide-react"
+import Image from "next/image";
+import { Menu, Search } from "lucide-react";
+
+import { SignedIn, SignedOut, SignInButton,UserButton } from "@clerk/nextjs";
 
 export default function Header() {
     return (
-      <header className="flex min-h-[60px] items-center justify-between bg-[#F9F9F9] shadow-lg px-4 z-10">
-        <div className="flex items-center gap-2">
-          <div className="h-8 w-8 rounded-full bg-gray-200"></div>
-          <h1 className="text-xl font-medium">shintairiku</h1>
-        </div>
-        <div className="flex items-center gap-2">
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-500" />
-            <input type="text" placeholder="search/" className="h-10 rounded-md border border-gray-300 pl-9 pr-4" />
+      <header className="flex justify-between items-center h-[45px] bg-primary fixed top-0 left-0 right-0 z-50 px-3">
+        <div className="flex items-center ">
+          <div className="flex items-center gap-5">
+              <Image src="/logo.png" alt="logo" width={32} height={32} />
+              <p className="text-white text-lg font-bold">Jangle AI</p>
+              <div className="flex flex-col justify-end h-full">
+                <p className="text-white text-[10px] font-bold">マーケティングAIエージェント</p>
+              </div>
           </div>
-          <button className="ml-2 rounded-md border border-gray-300 p-2">
-            <Menu className="h-5 w-5" />
-          </button>
-          <div className="ml-2 h-8 w-8 rounded-full bg-gray-200"></div>
+        </div>
+        <div className="flex items-center gap-4">
+          <SignedIn>
+            <UserButton afterSignOutUrl="/" />
+          </SignedIn>
+          <SignedOut>
+            <SignInButton />
+          </SignedOut>
         </div>
       </header>
     )
