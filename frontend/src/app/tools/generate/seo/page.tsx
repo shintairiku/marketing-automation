@@ -1,4 +1,3 @@
-
 "use client"
 
 import { useState } from "react"
@@ -15,7 +14,6 @@ import { SEO_STEPS, type StepInfo } from "@/features/tools/generate/seo/types/se
 
 export default function SeoPage() {
     const [currentStep, setCurrentStep] = useState<StepInfo>(SEO_STEPS[0]);
-    const [isExpanded, setIsExpanded] = useState(true);
     const handleNextStep = () => {
         const currentIndex = SEO_STEPS.findIndex(step => step.id === currentStep.id);
         if (currentIndex < SEO_STEPS.length - 1) {
@@ -27,7 +25,7 @@ export default function SeoPage() {
         <div className="flex flex-col h-screen overflow-hidden">
             <Header />
             <div className="flex flex-1">
-                <Sidebar isExpanded={isExpanded} setIsExpanded={setIsExpanded} />
+                <Sidebar />
                 <main className="flex-1 py-5 px-10">
                     <div className="flex flex-col h-full">
                         <div className="p-4">

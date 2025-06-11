@@ -142,6 +142,7 @@ export default memo(function CompactGenerationFlow({
       // クリーンアップ関数でタイマーをクリア
       return () => clearTimeout(timer);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentStep, progressPercentage, finalArticle]);
   
   // リセット機能（新しい記事生成時）
@@ -151,6 +152,7 @@ export default memo(function CompactGenerationFlow({
       setShowCompletionAnimation(false);
       setHideProcessCards(false);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentStep]);
   
   // finalArticleが存在する場合、即座にプロセスカードを隠す（アニメーション無しで）
