@@ -12,3 +12,4 @@ griffe
 serpapi
 beautifulsoup4
 requests
+google-generativeai

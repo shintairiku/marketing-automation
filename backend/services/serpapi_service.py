@@ -5,7 +5,7 @@ from dataclasses import dataclass
 import requests
 from bs4 import BeautifulSoup, NavigableString
 from serpapi import GoogleSearch
-from backend.core.config import settings
+from core.config import settings
 import urllib.robotparser
 from urllib.parse import urlparse
 import time # ★ 追加: 時間計測用
