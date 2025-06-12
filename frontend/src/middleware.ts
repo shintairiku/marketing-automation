@@ -9,6 +9,9 @@ const isProtectedRoute = createRouteMatcher([
   '/generate(.*)',  // Protects /generate and its sub-routes
   '/edit(.*)',      // Protects /edit and its sub-routes
   '/tools(.*)',     // Protects /tools and its sub-routes
+  '/seo(.*)',       // Protects /seo and its sub-routes
+  '/instagram(.*)', // Protects /instagram and its sub-routes
+  '/line(.*)',      // Protects /line and its sub-routes
   // 他に保護したいルートがあればここに追加
 ]);
 
