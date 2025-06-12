@@ -18,6 +18,7 @@ import {
   IoTimerOutline,
   IoTrendingUp} from 'react-icons/io5';
 
+import { ApiConnectionStatus } from '@/components/ApiConnectionStatus';
 import { Button } from '@/components/ui/button';
 import {
   Card,
@@ -293,7 +294,7 @@ export default function DashboardPage() {
       </div>
 
       {/* パフォーマンスと最近のアクティビティ */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* パフォーマンスグラフ */}
         <Card className="bg-white shadow-lg h-full">
           <CardHeader>
@@ -384,6 +385,9 @@ export default function DashboardPage() {
             </div>
           </CardContent>
         </Card>
+
+        {/* API接続状況 */}
+        <ApiConnectionStatus />
       </div>
 
       {/* お知らせセクション */}

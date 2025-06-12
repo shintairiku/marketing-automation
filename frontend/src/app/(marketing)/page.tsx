@@ -28,7 +28,7 @@ function HeroSection() {
               AI搭載SEO記事自動生成
             </span>
           </div>
-          <h1>高品質なSEO記事を<br/>わずか数分で自動生成</h1>
+          <h1>（仮）高品質なSEO記事を<br/>わずか数分で自動生成</h1>
           <p className='text-lg text-muted-foreground mb-2'>
             キーワードを入力するだけで、AIが検索上位表示を狙えるSEO最適化された記事を自動作成。
             チャットベースの編集機能で簡単カスタマイズ。
