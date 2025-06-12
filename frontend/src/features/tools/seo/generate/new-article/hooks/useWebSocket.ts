@@ -81,7 +81,7 @@ export const useWebSocket = ({
       // Get auth token from Clerk
       const token = await getToken();
       
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8008';
+      const apiUrl = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000';
       const wsUrl = new URL(apiUrl.replace('http', 'ws') + '/articles/ws/generate');
       if (processId) wsUrl.searchParams.set('process_id', processId);
       if (token) wsUrl.searchParams.set('token', token);
