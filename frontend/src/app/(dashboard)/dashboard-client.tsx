@@ -2,6 +2,7 @@
 
 import { PropsWithChildren } from 'react';
 import { usePathname } from 'next/navigation';
+
 import Header from '@/components/display/header';
 import Sidebar from '@/components/display/sidebar';
 import { cn } from '@/utils/cn';

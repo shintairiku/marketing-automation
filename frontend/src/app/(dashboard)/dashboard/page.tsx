@@ -1,310 +1,416 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect,useState } from 'react';
 import Link from 'next/link';
 import { 
-  IoAdd, 
-  IoBarChart,
-  IoCalendarOutline,
-  IoCheckmarkCircleOutline,
-  IoDocument, 
-  IoEllipsisVertical, 
-  IoEyeOutline,
-  IoPencil, 
-  IoTimeOutline,
-  IoTrash,
+  IoAnalytics,
+  IoArrowForward,
+  IoChatbubbles,
+  IoCheckmarkCircle,
+  IoDocumentText,
+  IoGlobe,
+  IoLogoInstagram,
+  IoNotifications,
+  IoPencil,
+  IoRocket,
+  IoSparkles,
+  IoStatsChart,
+  IoTimerOutline,
   IoTrendingUp} from 'react-icons/io5';
+
 import { Button } from '@/components/ui/button';
 import {
   Card,
   CardContent,
   CardDescription,
-  CardFooter,
   CardHeader,
   CardTitle,
 } from '@/components/ui/card';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
-import { GeneratedArticle } from '@/features/article-generation/types';
+import { useUser } from '@clerk/nextjs';
 
-// ダミーデータを生成
-const generateMockArticles = (): GeneratedArticle[] => {
-  return [
-    {
-      id: '1',
-      title: 'SEO対策の完全ガイド：初心者から上級者まで',
-      content: '<p>SEO対策に関する完全ガイド。基礎知識から実践テクニックまで詳しく解説します。</p><h2>SEO対策とは何か？基本的な解説</h2><p>テキスト...</p><h2>SEO対策の主要なメリット</h2><p>テキスト...</p>',
-      status: 'published',
-      category: 'SEO',
-      tags: ['ガイド', '初心者向け'],
-      slug: 'seo-complete-guide',
-      createdAt: '2025-04-05T09:12:44.123Z',
-      updatedAt: '2025-04-07T16:23:15.456Z',
+// プラットフォームのデータ
+const platforms = [
+  {
+    id: 'seo',
+    name: 'SEO Blog',
+    icon: IoGlobe,
+    color: 'from-purple-500 to-indigo-600',
+    bgColor: 'bg-purple-50',
+    iconColor: 'text-purple-600',
+    stats: {
+      articles: 12,
+      published: 8,
+      views: '2.4K'
     },
-    {
-      id: '2',
-      title: 'コンテンツマーケティングの最新トレンドと成功事例',
-      content: '<p>コンテンツマーケティングの最新トレンドと成功事例を紹介します。</p><h2>コンテンツマーケティング市場の現状分析</h2><p>テキスト...</p><h2>2025年に注目すべき主要トレンド</h2><p>テキスト...</p>',
-      status: 'draft',
-      category: 'マーケティング',
-      tags: ['トレンド', '事例'],
-      slug: 'content-marketing-trends',
-      createdAt: '2025-03-28T11:45:22.789Z',
-      updatedAt: '2025-03-28T11:45:22.789Z',
+    recentActivity: '3時間前に記事を公開',
+    link: '/seo/home',
+    quickActions: [
+      { label: '新規記事作成', href: '/seo/generate/new-article', icon: IoPencil },
+      { label: '記事管理', href: '/seo/manage/list', icon: IoDocumentText },
+      { label: 'ダッシュボード', href: '/seo/analyze/dashboard', icon: IoAnalytics }
+    ]
+  },
+  {
+    id: 'instagram',
+    name: 'Instagram',
+    icon: IoLogoInstagram,
+    color: 'from-pink-500 to-purple-600',
+    bgColor: 'bg-pink-50',
+    iconColor: 'text-pink-600',
+    stats: {
+      posts: 24,
+      scheduled: 5,
+      engagement: '4.2%'
     },
-    {
-      id: '3',
-      title: 'ソーシャルメディアマーケティングの効果的な戦略',
-      content: '<p>ソーシャルメディアマーケティングの効果的な戦略を解説します。</p><h2>ソーシャルメディアマーケティングの基礎</h2><p>テキスト...</p><h2>各プラットフォームの特性と活用法</h2><p>テキスト...</p>',
-      status: 'published',
-      category: 'SNS',
-      tags: ['戦略', 'Facebook', 'Instagram'],
-      slug: 'social-media-strategy',
-      createdAt: '2025-04-01T15:37:10.123Z',
-      updatedAt: '2025-04-03T09:18:42.456Z',
+    recentActivity: '昨日投稿を公開',
+    link: '/instagram/home',
+    quickActions: [
+      { label: 'キャプション生成', href: '/instagram/generate/caption', icon: IoPencil },
+      { label: 'コンテンツ一覧', href: '/instagram/manage/list', icon: IoDocumentText },
+      { label: 'ダッシュボード', href: '/instagram/analyze/dashboard', icon: IoAnalytics }
+    ]
+  },
+  {
+    id: 'line',
+    name: 'LINE',
+    icon: IoChatbubbles,
+    color: 'from-green-500 to-teal-600',
+    bgColor: 'bg-green-50',
+    iconColor: 'text-green-600',
+    stats: {
+      messages: 18,
+      sent: 15,
+      openRate: '82%'
     },
-  ];
-};
+    recentActivity: '2日前にメッセージ配信',
+    link: '/line/home',
+    quickActions: [
+      { label: '文章生成', href: '/line/generate/text', icon: IoPencil },
+      { label: 'コンテンツ一覧', href: '/line/manage/list', icon: IoDocumentText },
+      { label: 'ダッシュボード', href: '/line/analyze/dashboard', icon: IoAnalytics }
+    ]
+  }
+];
 
-export default function ImprovedDashboardPage() {
-  const [articles] = useState<GeneratedArticle[]>(generateMockArticles());
+// モックデータ：最近のアクティビティ
+const recentActivities = [
+  { id: 1, type: 'seo', action: '記事を公開', title: 'SEO対策の完全ガイド', time: '3時間前', status: 'completed' },
+  { id: 2, type: 'instagram', action: '投稿を予約', title: '新商品の紹介投稿', time: '5時間前', status: 'scheduled' },
+  { id: 3, type: 'line', action: 'メッセージを配信', title: '週末セールのお知らせ', time: '昨日', status: 'completed' },
+  { id: 4, type: 'seo', action: '記事を下書き保存', title: 'コンテンツマーケティング戦略', time: '2日前', status: 'draft' }
+];
 
-  // 記事の状態によってバッジの色とテキストを変更
-  const getStatusBadge = (status: string) => {
-    if (status === 'published') {
-      return (
-        <span className="inline-flex items-center rounded-full bg-green-500/20 px-2.5 py-1 text-xs font-medium text-green-400">
-          <IoCheckmarkCircleOutline className="mr-1" />
-          公開済
-        </span>
-      );
-    }
-    return (
-      <span className="inline-flex items-center rounded-full bg-amber-500/20 px-2.5 py-1 text-xs font-medium text-amber-400">
-        <IoTimeOutline className="mr-1" />
-        下書き
-      </span>
-    );
-  };
+// モックデータ：パフォーマンスデータ
+const performanceData = [
+  { day: '月', value: 65 },
+  { day: '火', value: 78 },
+  { day: '水', value: 82 },
+  { day: '木', value: 91 },
+  { day: '金', value: 87 },
+  { day: '土', value: 94 },
+  { day: '日', value: 89 }
+];
 
-  // 日付をフォーマット
-  const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString('ja-JP', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-    });
-  };
+export default function DashboardPage() {
+  const { user } = useUser();
+  const [greeting, setGreeting] = useState('');
+
+  useEffect(() => {
+    const hour = new Date().getHours();
+    if (hour < 12) setGreeting('おはようございます');
+    else if (hour < 18) setGreeting('こんにちは');
+    else setGreeting('こんばんは');
+  }, []);
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-6">
       {/* ウェルカムセクション */}
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-3xl font-bold mb-1">こんにちは、ユーザーさん</h1>
-          <p className="text-muted-foreground">効果的なコンテンツを作成して、あなたのビジネスを成長させましょう。</p>
+      <div className="bg-white rounded-xl shadow-lg p-8">
+        <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-6">
+          <div>
+            <h1 className="text-3xl font-bold text-gray-900 mb-2">
+              {greeting}、{user?.firstName || 'ユーザー'}さん
+            </h1>
+            <p className="text-gray-600">
+              今日もマーケティング活動を効率化しましょう。
+            </p>
+          </div>
+          <div className="flex gap-3">
+            <Button variant="outline" asChild>
+              <Link href="/dashboard/news">
+                <IoNotifications className="mr-2" size={18} />
+                お知らせ
+              </Link>
+            </Button>
+            <Button variant="sexy" asChild>
+              <Link href="/seo/generate/new-article">
+                <IoSparkles className="mr-2" size={18} />
+                コンテンツを作成
+              </Link>
+            </Button>
+          </div>
         </div>
-        <Button variant="sexy" asChild>
-          <Link href="/seo/generate/new-article">
-            <IoAdd className="mr-2" size={18} /> 新しい記事を生成
-          </Link>
-        </Button>
       </div>
 
-      {/* 使用状況サマリー */}
+      {/* 統計サマリー */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <Card>
+        <Card className="bg-white shadow-lg hover:shadow-xl transition-shadow duration-200">
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm text-muted-foreground">今月の生成記事数</CardTitle>
+            <CardTitle className="text-sm text-gray-600">今月の生成数</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="flex items-end justify-between">
-              <div className="text-2xl font-bold">5 / 10</div>
-              <IoDocument className="text-indigo-400" size={24} />
-            </div>
-              <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-muted">
-              <div className="h-full w-1/2 bg-indigo-500"></div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm text-muted-foreground">公開済み記事</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="flex items-end justify-between">
-              <div className="text-2xl font-bold">2</div>
-              <IoCheckmarkCircleOutline className="text-green-400" size={24} />
+              <div>
+                <div className="text-2xl font-bold text-gray-900">54</div>
+                <p className="text-xs text-green-600 flex items-center mt-1">
+                  <IoTrendingUp className="mr-1" size={12} />
+                  +12% 前月比
+                </p>
+              </div>
+              <div className="bg-gradient-to-br from-purple-100 to-indigo-100 p-3 rounded-lg">
+                <IoDocumentText className="text-purple-600" size={24} />
+              </div>
             </div>
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="bg-white shadow-lg hover:shadow-xl transition-shadow duration-200">
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm text-muted-foreground">下書き</CardTitle>
+            <CardTitle className="text-sm text-gray-600">公開済み</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="flex items-end justify-between">
-              <div className="text-2xl font-bold">3</div>
-              <IoTimeOutline className="text-amber-400" size={24} />
+              <div>
+                <div className="text-2xl font-bold text-gray-900">38</div>
+                <p className="text-xs text-gray-500 mt-1">総コンテンツ数</p>
+              </div>
+              <div className="bg-gradient-to-br from-green-100 to-teal-100 p-3 rounded-lg">
+                <IoCheckmarkCircle className="text-green-600" size={24} />
+              </div>
             </div>
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="bg-white shadow-lg hover:shadow-xl transition-shadow duration-200">
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm text-muted-foreground">アクセス状況</CardTitle>
+            <CardTitle className="text-sm text-gray-600">予約投稿</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="flex items-end justify-between">
-              <div className="text-2xl font-bold">257</div>
-              <div className="flex items-center text-green-400">
-                <IoTrendingUp size={24} />
-                <span className="text-xs ml-1">+12%</span>
+              <div>
+                <div className="text-2xl font-bold text-gray-900">16</div>
+                <p className="text-xs text-gray-500 mt-1">今週の予定</p>
+              </div>
+              <div className="bg-gradient-to-br from-blue-100 to-sky-100 p-3 rounded-lg">
+                <IoTimerOutline className="text-blue-600" size={24} />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="bg-white shadow-lg hover:shadow-xl transition-shadow duration-200">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm text-gray-600">エンゲージメント</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="flex items-end justify-between">
+              <div>
+                <div className="text-2xl font-bold text-gray-900">4.8%</div>
+                <p className="text-xs text-green-600 flex items-center mt-1">
+                  <IoTrendingUp className="mr-1" size={12} />
+                  +0.3% 向上
+                </p>
+              </div>
+              <div className="bg-gradient-to-br from-pink-100 to-purple-100 p-3 rounded-lg">
+                <IoStatsChart className="text-pink-600" size={24} />
               </div>
             </div>
           </CardContent>
         </Card>
       </div>
 
-      {/* アクティビティグラフ */}
-      <Card>
+      {/* プラットフォームクイックアクセス */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {platforms.map((platform) => (
+          <Card key={platform.id} className="bg-white shadow-lg hover:shadow-xl transition-all duration-200 overflow-hidden group">
+            <div className={`h-2 bg-gradient-to-r ${platform.color}`} />
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className={`${platform.bgColor} p-3 rounded-lg group-hover:scale-110 transition-transform duration-200`}>
+                    <platform.icon className={platform.iconColor} size={24} />
+                  </div>
+                  <div>
+                    <CardTitle className="text-lg">{platform.name}</CardTitle>
+                    <CardDescription className="text-xs">{platform.recentActivity}</CardDescription>
+                  </div>
+                </div>
+                <Button variant="ghost" size="icon" asChild>
+                  <Link href={platform.link}>
+                    <IoArrowForward size={18} />
+                  </Link>
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid grid-cols-3 gap-4 text-center">
+                {Object.entries(platform.stats).map(([key, value]) => (
+                  <div key={key}>
+                    <p className="text-2xl font-bold text-gray-900">{value}</p>
+                    <p className="text-xs text-gray-600 capitalize">
+                      {key === 'articles' && '記事数'}
+                      {key === 'posts' && '投稿数'}
+                      {key === 'messages' && 'メッセージ'}
+                      {key === 'published' && '公開済み'}
+                      {key === 'scheduled' && '予約'}
+                      {key === 'sent' && '配信済み'}
+                      {key === 'views' && '閲覧数'}
+                      {key === 'engagement' && 'エンゲージ'}
+                      {key === 'openRate' && '開封率'}
+                    </p>
+                  </div>
+                ))}
+              </div>
+              <div className="space-y-2">
+                {platform.quickActions.map((action) => (
+                  <Button
+                    key={action.href}
+                    variant="ghost"
+                    size="sm"
+                    className="w-full justify-start hover:bg-gray-50"
+                    asChild
+                  >
+                    <Link href={action.href}>
+                      <action.icon className="mr-2" size={16} />
+                      {action.label}
+                    </Link>
+                  </Button>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+
+      {/* パフォーマンスと最近のアクティビティ */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* パフォーマンスグラフ */}
+        <Card className="bg-white shadow-lg h-full">
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle>週間パフォーマンス</CardTitle>
+                <CardDescription>エンゲージメント率の推移</CardDescription>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-green-600 font-medium">+15%</span>
+                <IoTrendingUp className="text-green-600" size={20} />
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div className="h-64 flex items-end justify-between gap-2">
+              {performanceData.map((data) => (
+                <div
+                  key={data.day}
+                  className="flex-1 bg-gradient-to-t from-purple-500 to-indigo-400 rounded-t-lg relative group"
+                  style={{ height: `${data.value}%` }}
+                >
+                  <div className="absolute -top-8 left-1/2 transform -translate-x-1/2 opacity-0 group-hover:opacity-100 transition-opacity bg-gray-900 text-white text-xs px-2 py-1 rounded">
+                    {data.value}%
+                  </div>
+                  <div className="absolute -bottom-6 left-1/2 transform -translate-x-1/2 text-xs text-gray-600">
+                    {data.day}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* 最近のアクティビティ */}
+        <Card className="bg-white shadow-lg h-full">
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <CardTitle>最近のアクティビティ</CardTitle>
+              <Button variant="ghost" size="sm" asChild>
+                <Link href="/dashboard/activities">
+                  すべて見る
+                  <IoArrowForward className="ml-1" size={14} />
+                </Link>
+              </Button>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-4">
+              {recentActivities.map((activity) => {
+                const platform = platforms.find(p => p.id === activity.type);
+                return (
+                  <div
+                    key={activity.id}
+                    className="flex items-center gap-4 p-3 rounded-lg hover:bg-gray-50 transition-colors"
+                  >
+                    <div className={`${platform?.bgColor} p-2 rounded-lg`}>
+                      {platform && <platform.icon className={platform.iconColor} size={20} />}
+                    </div>
+                    <div className="flex-1">
+                      <p className="text-sm font-medium text-gray-900">{activity.action}</p>
+                      <p className="text-xs text-gray-600">{activity.title}</p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-xs text-gray-500">{activity.time}</p>
+                      {activity.status === 'completed' && (
+                        <span className="inline-flex items-center text-xs text-green-600">
+                          <IoCheckmarkCircle size={12} className="mr-1" />
+                          完了
+                        </span>
+                      )}
+                      {activity.status === 'scheduled' && (
+                        <span className="inline-flex items-center text-xs text-blue-600">
+                          <IoTimerOutline size={12} className="mr-1" />
+                          予約済み
+                        </span>
+                      )}
+                      {activity.status === 'draft' && (
+                        <span className="inline-flex items-center text-xs text-gray-500">
+                          <IoPencil size={12} className="mr-1" />
+                          下書き
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* お知らせセクション */}
+      <Card className="bg-gradient-to-r from-purple-50 to-indigo-50 border-purple-200 shadow-lg">
         <CardHeader>
-          <div className="flex items-center justify-between">
-            <CardTitle>記事パフォーマンス</CardTitle>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="sm">今週</Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuItem>今日</DropdownMenuItem>
-                <DropdownMenuItem>今週</DropdownMenuItem>
-                <DropdownMenuItem>今月</DropdownMenuItem>
-                <DropdownMenuItem>過去3ヶ月</DropdownMenuItem>
-                <DropdownMenuItem>過去1年</DropdownMenuItem>
-                <DropdownMenuItem>すべての期間</DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </div>
-          <CardDescription>公開記事のアクセス数とエンゲージメント</CardDescription>
-        </CardHeader>
-        <CardContent>
-          {/* グラフの代わりにプレースホルダー */}
-          <div className="h-[300px] w-full rounded-md bg-muted flex items-center justify-center">
-            <div className="text-center">
-              <IoBarChart size={60} className="mx-auto text-indigo-500/40" />
-              <p className="mt-4 text-muted-foreground">グラフコンポーネントがここに表示されます</p>
-              <p className="mt-2 text-sm text-gray-500">実際の実装ではチャートライブラリを使用してください</p>
+          <div className="flex items-center gap-3">
+            <div className="bg-white p-3 rounded-lg shadow-sm">
+              <IoRocket className="text-purple-600" size={24} />
+            </div>
+            <div>
+              <CardTitle className="text-purple-900">新機能のお知らせ</CardTitle>
+              <CardDescription className="text-purple-700">
+                Instagram Reelsの自動生成機能がリリースされました
+              </CardDescription>
             </div>
           </div>
-        </CardContent>
-      </Card>
-
-      {/* 最近の記事 */}
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-          <CardTitle>最近の記事</CardTitle>
-          <Button variant="outline" asChild>
-            <Link href="/seo/manage/list">すべて表示</Link>
-          </Button>
         </CardHeader>
         <CardContent>
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr className="border-b border-border">
-                  <th className="pb-2 text-left text-xs font-normal text-muted-foreground">タイトル</th>
-                  <th className="pb-2 text-left text-xs font-normal text-muted-foreground">ステータス</th>
-                  <th className="pb-2 text-left text-xs font-normal text-muted-foreground">更新日</th>
-                  <th className="pb-2 text-left text-xs font-normal text-muted-foreground">作成日</th>
-                  <th className="pb-2 text-right text-xs font-normal text-muted-foreground">アクション</th>
-                </tr>
-              </thead>
-              <tbody>
-                {articles.map((article) => (
-                  <tr key={article.id} className="border-b border-border/50 hover:bg-muted/30">
-                    <td className="py-3">
-                      <div className="flex items-center">
-                        <div className="flex h-8 w-8 items-center justify-center rounded-md border border-border bg-muted text-muted-foreground mr-3">
-                          <IoDocument size={18} />
-                        </div>
-                        <Link 
-                          href={`/edit?id=${article.id}`}
-                          className="line-clamp-1 font-medium hover:text-indigo-400 hover:underline"
-                        >
-                          {article.title}
-                        </Link>
-                      </div>
-                    </td>
-                    <td className="py-3">{getStatusBadge(article.status)}</td>
-                    <td className="py-3 text-sm text-muted-foreground">
-                      <div className="flex items-center">
-                        <IoCalendarOutline className="mr-1" size={14} />
-                        {formatDate(article.updatedAt)}
-                      </div>
-                    </td>
-                    <td className="py-3 text-sm text-muted-foreground">{formatDate(article.createdAt)}</td>
-                    <td className="py-3 text-right">
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
-                            <IoEllipsisVertical size={16} />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          <DropdownMenuItem asChild>
-                            <Link href={`/edit?id=${article.id}`} className="flex w-full items-center">
-                              <IoPencil className="mr-2" size={14} /> 編集
-                            </Link>
-                          </DropdownMenuItem>
-                          <DropdownMenuItem asChild>
-                            <Link href={`/view?id=${article.id}`} className="flex w-full items-center">
-                              <IoEyeOutline className="mr-2" size={14} /> プレビュー
-                            </Link>
-                          </DropdownMenuItem>
-                          <DropdownMenuItem className="text-red-500 focus:text-red-500">
-                            <IoTrash className="mr-2" size={14} /> 削除
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </CardContent>
-        <CardFooter className="border-t border-border pt-4">
-          <p className="text-sm text-muted-foreground">過去30日間で合計5件の記事が作成されました。</p>
-        </CardFooter>
-      </Card>
-
-      {/* ヒントカード */}
-      <Card className="bg-gradient-to-br from-indigo-900/20 to-pink-900/20 border-indigo-800/30">
-        <CardHeader>
-          <CardTitle>SEO記事作成のヒント</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-4">
-            <p className="text-muted-foreground">より効果的なSEO記事を作成するためのヒント：</p>
-            <ul className="list-disc pl-5 space-y-1 text-muted-foreground">
-              <li>ターゲットキーワードを明確にし、記事のタイトルと最初の段落に含めましょう</li>
-              <li>読者のニーズに合わせた充実したコンテンツを作成しましょう</li>
-              <li>適切な見出し（H2、H3）を使用して、記事の構造を明確にしましょう</li>
-              <li>適切な内部リンクを追加して、サイト内のナビゲーションを改善しましょう</li>
-            </ul>
-          </div>
-        </CardContent>
-        <CardFooter>
-          <Button variant="outline" asChild>
-            <Link href="/help/seo-tips">詳細なヒントを見る</Link>
+          <p className="text-sm text-purple-800 mb-4">
+            短尺動画コンテンツの需要に応えるため、Instagram Reels用のキャプションとハッシュタグを
+            自動生成する機能を追加しました。ぜひお試しください。
+          </p>
+          <Button variant="outline" className="border-purple-300 text-purple-700 hover:bg-purple-100">
+            詳細を見る
+            <IoArrowForward className="ml-2" size={16} />
           </Button>
-        </CardFooter>
+        </CardContent>
       </Card>
     </div>
   );
