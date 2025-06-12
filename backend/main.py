@@ -21,9 +21,14 @@ app = FastAPI(
 )
 
 # CORS設定
+import os
+
+# 環境変数から許可するオリジンを取得
+allowed_origins = os.getenv("ALLOWED_ORIGINS", "http://localhost:3000").split(",")
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],  # フロントエンドのURL
+    allow_origins=allowed_origins,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
@@ -38,6 +43,17 @@ app.include_router(article_flow_router.router, prefix="/article-flows", tags=["A
 async def read_root():
     """APIのルートエンドポイント。APIが動作しているか確認できます。"""
     return {"message": "Welcome to the SEO Article Generation API (WebSocket)!"}
+
+@app.get("/health", tags=["Health"], summary="ヘルスチェック")
+async def health_check():
+    """APIのヘルスチェックエンドポイント。"""
+    return {"status": "healthy", "message": "API is running", "version": "2.0.0"}
+
+# プリフライトリクエスト用のOPTIONSハンドラー
+@app.options("/{path:path}", tags=["CORS"], summary="CORS プリフライトハンドラー")
+async def options_handler(path: str):
+    """CORS プリフライトリクエストに対応するOPTIONSハンドラー。"""
+    return {"message": "OK"}
 
 # --- テストクライアント用エンドポイント ---
 # test_client.html がプロジェクトルートにあると仮定
