@@ -4,11 +4,12 @@ const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { path: string[] } }
+  { params }: { params: Promise<{ path: string[] }> }
 ) {
-  const path = params.path.join('/');
+  const { path: pathArray } = await params;
+  const pathString = pathArray.join('/');
   const searchParams = request.nextUrl.searchParams.toString();
-  const url = `${API_BASE_URL}/${path}${searchParams ? `?${searchParams}` : ''}`;
+  const url = `${API_BASE_URL}/${pathString}${searchParams ? `?${searchParams}` : ''}`;
 
   try {
     const response = await fetch(url, {
@@ -39,10 +40,11 @@ export async function GET(
 
 export async function POST(
   request: NextRequest,
-  { params }: { params: { path: string[] } }
+  { params }: { params: Promise<{ path: string[] }> }
 ) {
-  const path = params.path.join('/');
-  const url = `${API_BASE_URL}/${path}`;
+  const { path: pathArray } = await params;
+  const pathString = pathArray.join('/');
+  const url = `${API_BASE_URL}/${pathString}`;
   const body = await request.text();
 
   try {
@@ -75,10 +77,11 @@ export async function POST(
 
 export async function PUT(
   request: NextRequest,
-  { params }: { params: { path: string[] } }
+  { params }: { params: Promise<{ path: string[] }> }
 ) {
-  const path = params.path.join('/');
-  const url = `${API_BASE_URL}/${path}`;
+  const { path: pathArray } = await params;
+  const pathString = pathArray.join('/');
+  const url = `${API_BASE_URL}/${pathString}`;
   const body = await request.text();
 
   try {
@@ -111,10 +114,11 @@ export async function PUT(
 
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { path: string[] } }
+  { params }: { params: Promise<{ path: string[] }> }
 ) {
-  const path = params.path.join('/');
-  const url = `${API_BASE_URL}/${path}`;
+  const { path: pathArray } = await params;
+  const pathString = pathArray.join('/');
+  const url = `${API_BASE_URL}/${pathString}`;
 
   try {
     const response = await fetch(url, {

@@ -1,14 +1,14 @@
 'use client';
 
-import { useApiTest } from '@/hooks/useApiTest';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { 
   IoCheckmarkCircle, 
-  IoWarning, 
+  IoInformationCircle, 
   IoRefresh, 
-  IoInformationCircle 
-} from 'react-icons/io5';
+  IoWarning} from 'react-icons/io5';
+
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { useApiTest } from '@/hooks/useApiTest';
 
 export function ApiConnectionStatus() {
   const { isConnected, isLoading, error, apiInfo, testConnection } = useApiTest();
