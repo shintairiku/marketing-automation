@@ -3,23 +3,23 @@ export const groups = [
     title: 'Home',
     links: [
       {
-        href: '/home',
-        label: 'ホーム',
-        sublabel: 'Home',
+        href: '/dashboard',
+        label: 'ダッシュボード',
+        sublabel: 'Dashboard',
         subLinks: [
           {
-            title: 'ダッシュボード',
+            title: 'ホーム',
             links: [
-              { href: '/home/dashboard', label: 'ダッシュボード' },
-              { href: '/home/news', label: '運営からのお知らせ' },
+              { href: '/dashboard', label: 'ダッシュボード' },
+              { href: '/dashboard/news', label: '運営からのお知らせ' },
             ],
           },
           {
             title: 'コンテンツ管理',
             links: [
-              { href: '/home/overview', label: '生成コンテンツ一覧' },
-              { href: '/home/calendar', label: '配信カレンダー' },
-              { href: '/home/performance', label: '全体効果測定' },
+              { href: '/dashboard/overview', label: '生成コンテンツ一覧' },
+              { href: '/dashboard/calendar', label: '配信カレンダー' },
+              { href: '/dashboard/performance', label: '全体効果測定' },
             ],
           },
         ],

@@ -25,13 +25,12 @@ import { groups } from '@/components/constant/route';
 import { ScrollArea } from '@/components/ui/scroll-area';
 
 export const iconMap: Record<string, React.ReactElement<{ size?: number }>> = {
-  /* ───────── 1. Home (Dashboard) ───────── */
-  '/home'                 : <IoHome size={24} />,
-  '/home/dashboard'            : <IoNewspaper size={24} />,
-  '/home/news'         : <IoSettings size={24} />,
-  '/home/overview'        : <IoClipboard size={24} />,
-  '/home/calendar'        : <IoCalendar size={24} />,
-  '/home/performance'     : <IoStatsChart size={24} />,
+  /* ───────── 1. Dashboard ───────── */
+  '/dashboard'                 : <IoHome size={24} />,
+  '/dashboard/news'            : <IoNewspaper size={24} />,
+  '/dashboard/overview'        : <IoClipboard size={24} />,
+  '/dashboard/calendar'        : <IoCalendar size={24} />,
+  '/dashboard/performance'     : <IoStatsChart size={24} />,
 
   /* ───────── 2. Generate / SEO ───────── */
   '/seo/home'              : <IoGlobe size={24} />,
