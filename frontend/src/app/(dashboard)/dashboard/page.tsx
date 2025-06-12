@@ -13,9 +13,7 @@ import {
   IoPencil, 
   IoTimeOutline,
   IoTrash,
-  IoTrendingDown,
   IoTrendingUp} from 'react-icons/io5';
-
 import { Button } from '@/components/ui/button';
 import {
   Card,
@@ -108,10 +106,10 @@ export default function ImprovedDashboardPage() {
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-3xl font-bold mb-1">こんにちは、ユーザーさん</h1>
-          <p className="text-muted-foreground">効果的なSEO記事を作成して、あなたのビジネスを成長させましょう。</p>
+          <p className="text-muted-foreground">効果的なコンテンツを作成して、あなたのビジネスを成長させましょう。</p>
         </div>
         <Button variant="sexy" asChild>
-          <Link href="/generate">
+          <Link href="/seo/generate/new-article">
             <IoAdd className="mr-2" size={18} /> 新しい記事を生成
           </Link>
         </Button>
@@ -212,7 +210,7 @@ export default function ImprovedDashboardPage() {
         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
           <CardTitle>最近の記事</CardTitle>
           <Button variant="outline" asChild>
-            <Link href="/dashboard/articles">すべて表示</Link>
+            <Link href="/seo/manage/list">すべて表示</Link>
           </Button>
         </CardHeader>
         <CardContent>
