@@ -86,15 +86,24 @@ class ArticleGenerationService:
             # 1. 既存プロセスの再開か新規作成かを判定
             if process_id:
                 # 既存プロセスの再開
-                context = await self._load_context_from_db(process_id)
+                context = await self._load_context_from_db(process_id, user_id)
                 if not context:
-                    raise ValueError(f"Process {process_id} not found")
+                    await websocket.send_text(json.dumps({
+                        "type": "server_event",
+                        "payload": {
+                            "error_message": f"Process {process_id} not found or access denied"
+                        }
+                    }))
+                    return
                 
                 # WebSocketオブジェクトを再設定
                 context.websocket = websocket
                 context.user_response_event = asyncio.Event()
                 
                 console.print(f"[green]Resuming process {process_id} from step {context.current_step}[/green]")
+                
+                # プロセス状態を更新（再開中）
+                await self._update_process_status(process_id, 'resuming', context.current_step)
                 
                 # 既存の実行設定を再作成
                 session_id = process_id
@@ -109,7 +118,7 @@ class ArticleGenerationService:
                         "target_length": context.target_length,
                         "persona_type": context.persona_type.value if context.persona_type else None,
                         "company_name": context.company_name,
-                        "session_start_time": time.time(),
+                        "session_start_time": datetime.now(timezone.utc).timestamp(),
                         "workflow_version": "1.0.0",
                         "resumed": True
                     },
@@ -160,7 +169,7 @@ class ArticleGenerationService:
                     "target_length": request.target_length,
                     "persona_type": request.persona_type.value if request.persona_type else None,
                     "company_name": request.company_name,
-                    "session_start_time": time.time(),
+                    "session_start_time": datetime.now(timezone.utc).timestamp(),
                     "workflow_version": "1.0.0",
                     "user_agent": "unknown"  # ユーザーエージェント情報があれば追加
                 },
@@ -179,7 +188,7 @@ class ArticleGenerationService:
                 while not generation_task.done():
                     try:
                         # タイムアウトを設定してクライアントからの応答を待つ (例: 5分)
-                        response_data = await asyncio.wait_for(websocket.receive_json(), timeout=300.0) # TODO: タイムアウト値を設定ファイルなど外部から設定可能にする
+                        response_data = await asyncio.wait_for(websocket.receive_json(), timeout=600.0) # タイムアウトを10分に延長
                         
                         # 初期化完了後のメッセージはクライアント応答として処理
                         if is_initialized:
@@ -281,8 +290,7 @@ class ArticleGenerationService:
                     await generation_task # キャンセル完了を待つ
                 except asyncio.CancelledError:
                     console.print("Generation task cancelled.")
-            if websocket.client_state == WebSocketState.CONNECTED:
-                 await websocket.close()
+            # WebSocket終了処理は既に上で実行済みなので重複を避ける
             console.print("WebSocket connection closed.")
 
 
@@ -290,13 +298,19 @@ class ArticleGenerationService:
         """WebSocket経由でサーバーイベントを送信するヘルパー関数"""
         if context.websocket:
             try:
-                message = ServerEventMessage(payload=payload)
-                await context.websocket.send_json(message.model_dump())
+                # Check WebSocket state before attempting to send
+                if context.websocket.client_state == WebSocketState.CONNECTED:
+                    message = ServerEventMessage(payload=payload)
+                    await context.websocket.send_json(message.model_dump())
+                else:
+                    console.print("[yellow]WebSocket not connected, skipping message send.[/yellow]")
             except WebSocketDisconnect:
                 console.print("[yellow]WebSocket disconnected while trying to send message.[/yellow]")
-                raise # 再送出するか、ここで処理するか検討
+                # Don't re-raise - handle gracefully and continue execution
+                context.websocket = None  # Clear the reference to prevent further attempts
             except Exception as e:
                 console.print(f"[bold red]Error sending WebSocket message: {e}[/bold red]")
+                # Don't re-raise general exceptions either - log and continue
         else:
             console.print(f"[Warning] WebSocket not available. Event discarded: {payload.model_dump_json(indent=2)}")
 
@@ -357,6 +371,15 @@ class ArticleGenerationService:
                         context.current_step = "keyword_analyzed"
                         console.print("[green]SerpAPIキーワード分析が完了しました。[/green]")
                         
+                        # Save context after keyword analysis completion
+                        if process_id and user_id:
+                            try:
+                                await self._save_context_to_db(context, process_id=process_id, user_id=user_id)
+                                logger.info(f"Context saved successfully after keyword analysis completion")
+                            except Exception as save_err:
+                                logger.error(f"Failed to save context after keyword analysis: {save_err}")
+                                # Continue processing even if save fails
+                        
                         # 分析結果をクライアントに送信
                         analysis_data = SerpKeywordAnalysisPayload(
                             search_query=agent_output.search_query,
@@ -393,14 +416,19 @@ class ArticleGenerationService:
                         # 次のステップに進む（ペルソナ生成）
                         context.current_step = "persona_generating"
                         await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message="Keyword analysis completed, proceeding to persona generation."))
+                        
+                        # Save context after step transition
+                        if process_id and user_id:
+                            try:
+                                await self._save_context_to_db(context, process_id=process_id, user_id=user_id)
+                                logger.info(f"Context saved successfully after step transition to persona_generating")
+                            except Exception as save_err:
+                                logger.error(f"Failed to save context after step transition to persona_generating: {save_err}")
                     else:
                         await self._send_error(context, f"SerpAPIキーワード分析中に予期しないエージェント出力タイプ ({type(agent_output)}) を受け取りました。")
                         context.current_step = "error"
                         continue
 
-                elif context.current_step == "keyword_analyzed":
-                    context.current_step = "persona_generating"  # ペルソナ生成ステップに移行
-                    await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message="Proceeding to persona generation."))
                 
                 elif context.current_step == "persona_generating":
                     current_agent = persona_generator_agent
@@ -412,6 +440,14 @@ class ArticleGenerationService:
                         context.generated_detailed_personas = [p.description for p in agent_output.personas]
                         context.current_step = "persona_generated"
                         console.print(f"[cyan]{len(context.generated_detailed_personas)}件の具体的なペルソナを生成しました。クライアントの選択を待ちます...[/cyan]")
+                        
+                        # Save context after persona generation
+                        if process_id and user_id:
+                            try:
+                                await self._save_context_to_db(context, process_id=process_id, user_id=user_id)
+                                logger.info(f"Context saved successfully after persona generation")
+                            except Exception as save_err:
+                                logger.error(f"Failed to save context after persona generation: {save_err}")
                         
                         personas_data_for_client = [GeneratedPersonaData(id=i, description=desc) for i, desc in enumerate(context.generated_detailed_personas)]
                         user_response_message = await self._request_user_input( # ClientResponseMessage全体が返るように変更
@@ -430,6 +466,14 @@ class ArticleGenerationService:
                                     context.current_step = "persona_selected"
                                     console.print(f"[green]クライアントがペルソナID {selected_id} を選択しました。[/green]")
                                     await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message=f"Detailed persona selected: {context.selected_detailed_persona[:50]}..."))
+                                    
+                                    # Save context after user persona selection
+                                    if process_id and user_id:
+                                        try:
+                                            await self._save_context_to_db(context, process_id=process_id, user_id=user_id)
+                                            logger.info(f"Context saved successfully after persona selection")
+                                        except Exception as save_err:
+                                            logger.error(f"Failed to save context after persona selection: {save_err}")
                                 else:
                                     raise ValueError(f"無効なペルソナIDが選択されました: {selected_id}")
                             elif response_type == UserInputType.REGENERATE:
@@ -445,6 +489,14 @@ class ArticleGenerationService:
                                     context.current_step = "persona_selected" # 編集されたもので選択完了扱い
                                     console.print(f"[green]クライアントがペルソナを編集し、選択しました: {context.selected_detailed_persona[:50]}...[/green]")
                                     await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message=f"Detailed persona edited and selected."))
+                                    
+                                    # Save context after user persona editing
+                                    if process_id and user_id:
+                                        try:
+                                            await self._save_context_to_db(context, process_id=process_id, user_id=user_id)
+                                            logger.info(f"Context saved successfully after persona editing and selection")
+                                        except Exception as save_err:
+                                            logger.error(f"Failed to save context after persona editing: {save_err}")
                                 else:
                                     # 不正な編集内容
                                     await self._send_error(context, "Invalid edited persona content.")
@@ -506,6 +558,14 @@ class ArticleGenerationService:
                             context.current_step = "theme_proposed" # ユーザー選択待ちステップへ
                             console.print(f"[cyan]{len(context.generated_themes)}件のテーマ案を生成しました。クライアントの選択を待ちます...[/cyan]")
                             
+                            # Save context after theme generation
+                            if process_id and user_id:
+                                try:
+                                    await self._save_context_to_db(context, process_id=process_id, user_id=user_id)
+                                    logger.info(f"Context saved successfully after theme generation")
+                                except Exception as save_err:
+                                    logger.error(f"Failed to save context after theme generation: {save_err}")
+                            
                             themes_data_for_client = [
                                 ThemeProposalData(title=idea.title, description=idea.description, keywords=idea.keywords)
                                 for idea in context.generated_themes
@@ -526,6 +586,14 @@ class ArticleGenerationService:
                                         context.current_step = "theme_selected"
                                         console.print(f"[green]クライアントがテーマ「{context.selected_theme.title}」を選択しました。[/green]")
                                         await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message=f"Theme selected: {context.selected_theme.title}"))
+                                        
+                                        # Save context after user theme selection
+                                        if process_id and user_id:
+                                            try:
+                                                await self._save_context_to_db(context, process_id=process_id, user_id=user_id)
+                                                logger.info(f"Context saved successfully after theme selection")
+                                            except Exception as save_err:
+                                                logger.error(f"Failed to save context after theme selection: {save_err}")
                                     else:
                                         await self._send_error(context, f"無効なテーマインデックスが選択されました: {selected_index}")
                                         context.current_step = "theme_proposed" 
@@ -546,6 +614,14 @@ class ArticleGenerationService:
                                             context.current_step = "theme_selected"
                                             console.print(f"[green]クライアントがテーマを編集し、選択しました: {context.selected_theme.title}[/green]")
                                             await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message=f"Theme edited and selected."))
+                                            
+                                            # Save context after user theme editing
+                                            if process_id and user_id:
+                                                try:
+                                                    await self._save_context_to_db(context, process_id=process_id, user_id=user_id)
+                                                    logger.info(f"Context saved successfully after theme editing and selection")
+                                                except Exception as save_err:
+                                                    logger.error(f"Failed to save context after theme editing: {save_err}")
                                         else:
                                             await self._send_error(context, "Invalid edited theme content structure.")
                                             context.current_step = "theme_proposed" 
@@ -581,6 +657,81 @@ class ArticleGenerationService:
                     await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message="Moving to research planning."))
                     # エージェント実行なし
 
+                elif context.current_step == "research_plan_generated":
+                    # リサーチ計画生成後、ユーザーの承認を待つ状態
+                    # 実際の処理は research_planning ステップで行われる
+                    # このステップではユーザー入力を待つだけ
+                    plan_data_for_client = ResearchPlanData(
+                        topic=context.research_plan.topic if context.research_plan else "No plan available",
+                        queries=[ResearchPlanQueryData(query=q.query, focus=q.focus) for q in context.research_plan.queries] if context.research_plan else []
+                    )
+                    user_response_message = await self._request_user_input(
+                        context,
+                        UserInputType.APPROVE_PLAN,
+                        ResearchPlanPayload(plan=plan_data_for_client).model_dump()
+                    )
+
+                    if user_response_message:
+                        response_type = user_response_message.response_type
+                        payload = user_response_message.payload
+
+                        if response_type == UserInputType.APPROVE_PLAN and isinstance(payload, ApprovePayload):
+                            if payload.approved:
+                                context.current_step = "research_plan_approved"
+                                console.print("[green]クライアントがリサーチ計画を承認しました。[/green]")
+                                await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message="Research plan approved."))
+                                
+                                # Save context after research plan approval
+                                if process_id and user_id:
+                                    try:
+                                        await self._save_context_to_db(context, process_id=process_id, user_id=user_id)
+                                        logger.info(f"Context saved successfully after research plan approval")
+                                    except Exception as save_err:
+                                        logger.error(f"Failed to save context after research plan approval: {save_err}")
+                            else:
+                                console.print("[yellow]クライアントがリサーチ計画を否認しました。再生成を試みます。[/yellow]")
+                                context.current_step = "research_planning"
+                                context.research_plan = None
+                                continue
+                        elif response_type == UserInputType.REGENERATE:
+                            console.print("[yellow]クライアントがリサーチ計画の再生成を要求しました。[/yellow]")
+                            context.current_step = "research_planning"
+                            context.research_plan = None
+                            continue
+                        elif response_type == UserInputType.EDIT_AND_PROCEED and isinstance(payload, EditAndProceedPayload):
+                            try:
+                                edited_plan_data = payload.edited_content
+                                if isinstance(edited_plan_data.get("topic"), str) and isinstance(edited_plan_data.get("queries"), list):
+                                    context.research_plan = ResearchPlan(
+                                        topic=edited_plan_data['topic'],
+                                        queries=[ResearchQuery(**q_data) for q_data in edited_plan_data['queries']],
+                                        status="research_plan"
+                                    )
+                                    context.current_step = "research_plan_approved"
+                                    console.print(f"[green]クライアントがリサーチ計画を編集し、承認しました。[/green]")
+                                    await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message="Research plan edited and approved."))
+                                    
+                                    # Save context after research plan editing and approval
+                                    if process_id and user_id:
+                                        try:
+                                            await self._save_context_to_db(context, process_id=process_id, user_id=user_id)
+                                            logger.info(f"Context saved successfully after research plan editing and approval")
+                                        except Exception as save_err:
+                                            logger.error(f"Failed to save context after research plan editing: {save_err}")
+                                else:
+                                    await self._send_error(context, "Invalid edited research plan content structure.")
+                                    continue
+                            except (ValidationError, TypeError, AttributeError, KeyError) as e:
+                                await self._send_error(context, f"Error processing edited research plan: {e}")
+                                continue
+                        else:
+                            await self._send_error(context, f"予期しない応答 ({response_type}) がリサーチ計画承認で受信されました。")
+                            continue
+                    else:
+                        console.print("[red]リサーチ計画の承認/編集でクライアントからの応答がありませんでした。[/red]")
+                        # タイムアウトの場合、上位の handle_websocket_connection で処理される
+                        continue
+
                 elif context.current_step == "research_planning":
                     current_agent = research_planner_agent
                     if not context.selected_theme: 
@@ -597,66 +748,16 @@ class ArticleGenerationService:
                         context.current_step = "research_plan_generated" 
                         console.print("[cyan]リサーチ計画を生成しました。クライアントの承認/編集/再生成を待ちます...[/cyan]")
                         
-                        plan_data_for_client = ResearchPlanData(
-                            topic=context.research_plan.topic, # agent_output から context.research_plan に変更
-                            queries=[ResearchPlanQueryData(query=q.query, focus=q.focus) for q in context.research_plan.queries] # agent_output から context.research_plan に変更
-                        )
-                        user_response_message = await self._request_user_input(
-                            context,
-                            UserInputType.APPROVE_PLAN,
-                            ResearchPlanPayload(plan=plan_data_for_client).model_dump()
-                        )
-
-                        if user_response_message:
-                            response_type = user_response_message.response_type
-                            payload = user_response_message.payload
-
-                            if response_type == UserInputType.APPROVE_PLAN and isinstance(payload, ApprovePayload):
-                                if payload.approved:
-                                    # context.research_plan は既に設定済みなので、ここでは何もしない
-                                    context.current_step = "research_plan_approved"
-                                    console.print("[green]クライアントがリサーチ計画を承認しました。[/green]")
-                                    await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message="Research plan approved."))
-                                else:
-                                    console.print("[yellow]クライアントがリサーチ計画を否認しました。再生成を試みます。[/yellow]")
-                                    context.current_step = "research_planning"
-                                    context.research_plan = None # 承認されなかったのでクリア
-                                    continue
-                            elif response_type == UserInputType.REGENERATE:
-                                console.print("[yellow]クライアントがリサーチ計画の再生成を要求しました。[/yellow]")
-                                context.current_step = "research_planning"
-                                context.research_plan = None # 再生成するのでクリア
-                                continue
-                            elif response_type == UserInputType.EDIT_AND_PROCEED and isinstance(payload, EditAndProceedPayload):
-                                try:
-                                    edited_plan_data = payload.edited_content
-                                    if isinstance(edited_plan_data.get("topic"), str) and isinstance(edited_plan_data.get("queries"), list):
-                                        context.research_plan = ResearchPlan(
-                                            topic=edited_plan_data['topic'],
-                                            queries=[ResearchQuery(**q_data) for q_data in edited_plan_data['queries']],
-                                            status="research_plan"  # "approved_by_user_edit" から "research_plan" に修正
-                                        )
-                                        context.current_step = "research_plan_approved"
-                                        console.print(f"[green]クライアントがリサーチ計画を編集し、承認しました。[/green]")
-                                        await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message="Research plan edited and approved."))
-                                    else:
-                                        await self._send_error(context, "Invalid edited research plan content structure.")
-                                        context.current_step = "research_plan_generated" # ユーザーの再操作を待つ
-                                        # context.research_plan はエージェント生成のものが残っているか、Noneのまま
-                                        continue
-                                except (ValidationError, TypeError, AttributeError, KeyError) as e:
-                                    await self._send_error(context, f"Error processing edited research plan: {e}")
-                                    context.current_step = "research_plan_generated" # ユーザーの再操作を待つ
-                                    continue
-                            else:
-                                await self._send_error(context, f"予期しない応答 ({response_type}) がリサーチ計画承認で受信されました。")
-                                context.current_step = "research_plan_generated" # ユーザーの再操作を待つ
-                                continue
-                        else:
-                            console.print("[red]リサーチ計画の承認/編集でクライアントからの応答がありませんでした。[/red]")
-                            context.current_step = "research_plan_generated" # ユーザーの再操作を待つ
-                            # タイムアウトの場合、上位の handle_websocket_connection で処理される
-                            continue
+                        # Save context after research plan generation
+                        if process_id and user_id:
+                            try:
+                                await self._save_context_to_db(context, process_id=process_id, user_id=user_id)
+                                logger.info(f"Context saved successfully after research plan generation")
+                            except Exception as save_err:
+                                logger.error(f"Failed to save context after research plan generation: {save_err}")
+                        
+                        # 次のループで research_plan_generated ステップで処理される
+                        continue
                     elif isinstance(agent_output, ClarificationNeeded):
                         await self._send_error(context, f"リサーチ計画作成で明確化が必要です: {agent_output.message}")
                         context.current_step = "error"
@@ -706,6 +807,14 @@ class ArticleGenerationService:
                                 context.add_query_result(agent_output)
                                 console.print(f"[green]クエリ「{agent_output.query}」の詳細リサーチ結果を処理しました。[/green]")
                                 context.current_research_query_index += 1
+                                
+                                # Save context after each research query completion
+                                if process_id and user_id:
+                                    try:
+                                        await self._save_context_to_db(context, process_id=process_id, user_id=user_id)
+                                        logger.info(f"Context saved successfully after research query {context.current_research_query_index}/{len(context.research_plan.queries)} completion")
+                                    except Exception as save_err:
+                                        logger.error(f"Failed to save context after research query completion: {save_err}")
                             else:
                                 raise ValueError(f"予期しないクエリ「{agent_output.query}」の結果を受け取りました。")
                         else:
@@ -724,6 +833,15 @@ class ArticleGenerationService:
                         # WebSocketでレポートを送信 (承認は求めず、情報提供のみ)
                         report_data = agent_output.model_dump()
                         await self._send_server_event(context, ResearchCompletePayload(report=report_data))
+                        
+                        # Save context after research report generation
+                        if process_id and user_id:
+                            try:
+                                await self._save_context_to_db(context, process_id=process_id, user_id=user_id)
+                                logger.info(f"Context saved successfully after research report generation")
+                            except Exception as save_err:
+                                logger.error(f"Failed to save context after research report generation: {save_err}")
+                        
                         # すぐにアウトライン生成へ
                         context.current_step = "outline_generating" # ★ ステップ名修正
                         await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message="Research report generated, generating outline."))
@@ -758,6 +876,14 @@ class ArticleGenerationService:
                         context.current_step = "outline_generated" 
                         console.print("[cyan]アウトラインを生成しました。クライアントの承認/編集/再生成を待ちます...[/cyan]")
                         
+                        # Save context after outline generation
+                        if process_id and user_id:
+                            try:
+                                await self._save_context_to_db(context, process_id=process_id, user_id=user_id)
+                                logger.info(f"Context saved successfully after outline generation")
+                            except Exception as save_err:
+                                logger.error(f"Failed to save context after outline generation: {save_err}")
+                        
                         def convert_section_to_data(section: OutlineSection) -> OutlineSectionData:
                             return OutlineSectionData(
                                 heading=section.heading,
@@ -786,6 +912,14 @@ class ArticleGenerationService:
                                     context.current_step = "outline_approved"
                                     console.print("[green]クライアントがアウトラインを承認しました。[/green]")
                                     await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message="Outline approved, proceeding to writing."))
+                                    
+                                    # Save context after outline approval
+                                    if process_id and user_id:
+                                        try:
+                                            await self._save_context_to_db(context, process_id=process_id, user_id=user_id)
+                                            logger.info(f"Context saved successfully after outline approval")
+                                        except Exception as save_err:
+                                            logger.error(f"Failed to save context after outline approval: {save_err}")
                                 else:
                                     console.print("[yellow]クライアントがアウトラインを否認しました。再生成を試みます。[/yellow]")
                                     context.current_step = "outline_generating"
@@ -818,6 +952,14 @@ class ArticleGenerationService:
                                         context.current_step = "outline_approved"
                                         console.print(f"[green]クライアントがアウトラインを編集し、承認しました。[/green]")
                                         await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message="Outline edited and approved."))
+                                        
+                                        # Save context after outline editing and approval
+                                        if process_id and user_id:
+                                            try:
+                                                await self._save_context_to_db(context, process_id=process_id, user_id=user_id)
+                                                logger.info(f"Context saved successfully after outline editing and approval")
+                                            except Exception as save_err:
+                                                logger.error(f"Failed to save context after outline editing: {save_err}")
                                     else:
                                         await self._send_error(context, "Invalid edited outline content structure.")
                                         context.current_step = "outline_generated"
@@ -949,6 +1091,14 @@ class ArticleGenerationService:
                                 context.add_to_section_writer_history("user", user_request_text)
                             context.add_to_section_writer_history("assistant", generated_section.html_content)
                             context.current_section_index += 1
+                            
+                            # Save context after each section completion
+                            if process_id and user_id:
+                                try:
+                                    await self._save_context_to_db(context, process_id=process_id, user_id=user_id)
+                                    logger.info(f"Context saved successfully after section {context.current_section_index}/{len(context.generated_outline.sections)} completion")
+                                except Exception as save_err:
+                                    logger.error(f"Failed to save context after section completion: {save_err}")
                         else:
                             raise ValueError(f"セクション {target_index + 1} のHTMLコンテンツが空です。")
 
@@ -964,6 +1114,14 @@ class ArticleGenerationService:
                         context.final_article_html = agent_output.final_html_content
                         context.current_step = "completed"
                         console.print("[green]記事の編集が完了しました！[/green]")
+                        
+                        # Save context after final article completion
+                        if process_id and user_id:
+                            try:
+                                await self._save_context_to_db(context, process_id=process_id, user_id=user_id)
+                                logger.info(f"Context saved successfully after final article completion")
+                            except Exception as save_err:
+                                logger.error(f"Failed to save context after final article completion: {save_err}")
 
                         # --- 1. DBへ保存して article_id を取得 ---
                         article_id: Optional[str] = None
@@ -1239,25 +1397,53 @@ class ArticleGenerationService:
             logger.error(f"Error saving context to database: {e}")
             raise
 
-    async def _load_context_from_db(self, process_id: str) -> Optional[ArticleContext]:
-        """Load ArticleContext from database"""
+    async def _load_context_from_db(self, process_id: str, user_id: str) -> Optional[ArticleContext]:
+        """Load context from database for process persistence"""
         try:
             from services.article_flow_service import get_supabase_client
+            from schemas.request import AgeGroup, PersonaType
             supabase = get_supabase_client()
             
-            result = supabase.table("generated_articles_state").select("*").eq("id", process_id).execute()
+            # Get the process state with user access control
+            result = supabase.table("generated_articles_state").select("*").eq("id", process_id).eq("user_id", user_id).execute()
             
             if not result.data:
+                logger.warning(f"Process {process_id} not found for user {user_id}")
                 return None
             
             state = result.data[0]
-            context_dict = state["article_context"]
+            context_dict = state.get("article_context", {})
+            
+            if not context_dict:
+                logger.warning(f"No context data found for process {process_id}")
+                return None
+            
+            # Helper function to safely convert string to enum
+            def safe_convert_enum(value, enum_class):
+                if value is None:
+                    return None
+                try:
+                    if isinstance(value, str):
+                        # Try to find enum by value
+                        for enum_item in enum_class:
+                            if enum_item.value == value:
+                                return enum_item
+                        # If not found, try direct conversion
+                        return enum_class(value)
+                    return value  # Already an enum or valid type
+                except (ValueError, TypeError) as e:
+                    logger.warning(f"Failed to convert {value} to {enum_class.__name__}: {e}")
+                    return None
+            
+            # Convert enum fields back from strings
+            target_age_group = safe_convert_enum(context_dict.get("target_age_group"), AgeGroup)
+            persona_type = safe_convert_enum(context_dict.get("persona_type"), PersonaType)
             
             # Reconstruct ArticleContext from stored data
             context = ArticleContext(
                 initial_keywords=context_dict.get("initial_keywords", []),
-                target_age_group=context_dict.get("target_age_group"),
-                persona_type=context_dict.get("persona_type"),
+                target_age_group=target_age_group,
+                persona_type=persona_type,
                 custom_persona=context_dict.get("custom_persona"),
                 target_length=context_dict.get("target_length"),
                 num_theme_proposals=context_dict.get("num_theme_proposals", 3),
@@ -1275,26 +1461,34 @@ class ArticleGenerationService:
             context.generated_detailed_personas = context_dict.get("generated_detailed_personas", [])
             context.selected_detailed_persona = context_dict.get("selected_detailed_persona")
             
-            # Restore complex objects
-            if context_dict.get("selected_theme"):
-                from services.models import ThemeIdea
-                context.selected_theme = ThemeIdea(**context_dict["selected_theme"])
-            
-            if context_dict.get("generated_themes"):
-                from services.models import ThemeIdea
-                context.generated_themes = [ThemeIdea(**theme_data) for theme_data in context_dict["generated_themes"]]
+            # Restore complex objects with error handling
+            try:
+                if context_dict.get("selected_theme"):
+                    from services.models import ThemeIdea
+                    context.selected_theme = ThemeIdea(**context_dict["selected_theme"])
                 
-            if context_dict.get("research_plan"):
-                from services.models import ResearchPlan
-                context.research_plan = ResearchPlan(**context_dict["research_plan"])
-                
-            if context_dict.get("research_report"):
-                from services.models import ResearchReport
-                context.research_report = ResearchReport(**context_dict["research_report"])
-                
-            if context_dict.get("generated_outline"):
-                from services.models import Outline
-                context.generated_outline = Outline(**context_dict["generated_outline"])
+                if context_dict.get("generated_themes"):
+                    from services.models import ThemeIdea
+                    context.generated_themes = [ThemeIdea(**theme_data) for theme_data in context_dict["generated_themes"]]
+                    
+                if context_dict.get("research_plan"):
+                    from services.models import ResearchPlan
+                    context.research_plan = ResearchPlan(**context_dict["research_plan"])
+                    
+                if context_dict.get("research_report"):
+                    from services.models import ResearchReport
+                    context.research_report = ResearchReport(**context_dict["research_report"])
+                    
+                if context_dict.get("generated_outline"):
+                    from services.models import Outline
+                    context.generated_outline = Outline(**context_dict["generated_outline"])
+                    
+                if context_dict.get("serp_analysis_report"):
+                    from services.models import SerpKeywordAnalysisReport
+                    context.serp_analysis_report = SerpKeywordAnalysisReport(**context_dict["serp_analysis_report"])
+                    
+            except Exception as e:
+                logger.warning(f"Error restoring complex objects for process {process_id}: {e}")
             
             # Restore other state
             context.research_query_results = context_dict.get("research_query_results", [])
@@ -1304,19 +1498,13 @@ class ArticleGenerationService:
             context.full_draft_html = context_dict.get("full_draft_html")
             context.final_article_html = context_dict.get("final_article_html")
             context.section_writer_history = context_dict.get("section_writer_history", [])
-            
-            # Restore SerpAPI analysis report if available
-            if context_dict.get("serp_analysis_report"):
-                from services.models import SerpKeywordAnalysisReport
-                context.serp_analysis_report = SerpKeywordAnalysisReport(**context_dict["serp_analysis_report"])
-            
-            # Restore other simple fields
             context.expected_user_input = context_dict.get("expected_user_input")
             
+            logger.info(f"Successfully loaded context for process {process_id} from step {context.current_step}")
             return context
             
         except Exception as e:
-            logger.error(f"Error loading context from database: {e}")
+            logger.error(f"Error loading context from database for process {process_id}: {e}")
             return None
 
     async def get_user_articles(
@@ -1429,6 +1617,140 @@ class ArticleGenerationService:
             logger.error(f"Error retrieving article {article_id}: {e}")
             raise
 
+    async def get_all_user_processes(
+        self, 
+        user_id: str, 
+        status_filter: Optional[str] = None,
+        limit: int = 20,
+        offset: int = 0
+    ) -> List[Dict[str, Any]]:
+        """
+        Get all processes (completed articles + in-progress/failed generation processes) for a user.
+        
+        Args:
+            user_id: User ID to filter processes
+            status_filter: Optional status filter ('completed', 'in_progress', 'error', etc.)
+            limit: Maximum number of items to return
+            offset: Number of items to skip for pagination
+            
+        Returns:
+            List of unified process dictionaries (articles + generation processes)
+        """
+        try:
+            from services.article_flow_service import get_supabase_client
+            from datetime import datetime
+            import re
+            supabase = get_supabase_client()
+            
+            all_processes = []
+            
+            # 1. Get completed articles
+            articles_query = supabase.table("articles").select(
+                "id, title, content, keywords, target_audience, status, created_at, updated_at, generation_process_id"
+            ).eq("user_id", user_id)
+            
+            if status_filter and status_filter == "completed":
+                articles_query = articles_query.eq("status", "completed")
+            
+            articles_result = articles_query.order("created_at", desc=True).execute()
+            
+            for article in articles_result.data:
+                # Extract short description from content
+                content = article.get("content", "")
+                plain_text = re.sub(r'<[^>]+>', '', content)
+                short_description = plain_text[:150] + "..." if len(plain_text) > 150 else plain_text
+                
+                all_processes.append({
+                    "id": article["id"],
+                    "process_id": article.get("generation_process_id"),
+                    "title": article["title"],
+                    "shortdescription": short_description,
+                    "postdate": article["created_at"].split("T")[0] if article["created_at"] else None,
+                    "status": "completed",  # Articles are always completed
+                    "process_type": "article",
+                    "keywords": article.get("keywords", []),
+                    "target_audience": article.get("target_audience"),
+                    "updated_at": article["updated_at"],
+                    "can_resume": False,
+                    "is_recoverable": False
+                })
+            
+            # 2. Get generation processes (including incomplete ones)
+            processes_query = supabase.table("generated_articles_state").select(
+                "id, status, article_context, current_step_name, progress_percentage, is_waiting_for_input, created_at, updated_at, error_message"
+            ).eq("user_id", user_id)
+            
+            # Only get non-completed processes (since completed ones have articles)
+            processes_query = processes_query.neq("status", "completed")
+            
+            if status_filter and status_filter != "completed":
+                processes_query = processes_query.eq("status", status_filter)
+            
+            processes_result = processes_query.order("updated_at", desc=True).execute()
+            
+            for process in processes_result.data:
+                context = process.get("article_context", {})
+                keywords = context.get("initial_keywords", [])
+                
+                # Generate title from keywords or step
+                if keywords:
+                    title = f"SEO記事: {', '.join(keywords[:3])}"
+                else:
+                    title = f"記事生成プロセス (ID: {process['id'][:8]}...)"
+                
+                # Generate description based on current step
+                current_step = process.get("current_step_name", "start")
+                step_descriptions = {
+                    "start": "生成開始",
+                    "keyword_analyzing": "キーワード分析中",
+                    "persona_generating": "ペルソナ生成中",
+                    "theme_generating": "テーマ生成中",
+                    "theme_proposed": "テーマ選択待ち",
+                    "research_planning": "リサーチ計画策定中",
+                    "research_plan_generated": "リサーチ計画承認待ち",
+                    "researching": "リサーチ実行中",
+                    "outline_generating": "アウトライン生成中",
+                    "outline_generated": "アウトライン承認待ち",
+                    "writing_sections": "記事執筆中",
+                    "editing": "編集中",
+                    "error": "エラーが発生しました"
+                }
+                description = step_descriptions.get(current_step, f"ステップ: {current_step}")
+                
+                # Determine if process is recoverable
+                is_recoverable = process["status"] in ["user_input_required", "paused", "error"]
+                can_resume = is_recoverable and process.get("is_waiting_for_input", False)
+                
+                all_processes.append({
+                    "id": process["id"],
+                    "process_id": process["id"],
+                    "title": title,
+                    "shortdescription": description,
+                    "postdate": process["created_at"].split("T")[0] if process["created_at"] else None,
+                    "status": process["status"],
+                    "process_type": "generation",
+                    "keywords": keywords,
+                    "target_audience": context.get("custom_persona") or context.get("persona_type"),
+                    "updated_at": process["updated_at"],
+                    "current_step": current_step,
+                    "progress_percentage": process.get("progress_percentage", 0),
+                    "can_resume": can_resume,
+                    "is_recoverable": is_recoverable,
+                    "error_message": process.get("error_message")
+                })
+            
+            # 3. Sort all processes by updated_at (most recent first)
+            all_processes.sort(key=lambda x: x["updated_at"] or "", reverse=True)
+            
+            # 4. Apply pagination
+            paginated_processes = all_processes[offset:offset + limit]
+            
+            return paginated_processes
+            
+        except Exception as e:
+            logger.error(f"Error retrieving all processes for user {user_id}: {e}")
+            raise
+
     async def update_article(
         self, 
         article_id: str, 
@@ -1484,3 +1806,81 @@ class ArticleGenerationService:
         except Exception as e:
             logger.error(f"Error updating article {article_id}: {e}")
             raise
+
+
+    async def _update_process_status(self, process_id: str, status: str, current_step: str = None) -> None:
+        """Update process status in database"""
+        try:
+            from services.article_flow_service import get_supabase_client
+            from datetime import datetime, timezone
+            supabase = get_supabase_client()
+            
+            update_data = {
+                "status": status,
+                "updated_at": datetime.now(timezone.utc).isoformat()
+            }
+            
+            if current_step:
+                update_data["current_step_name"] = current_step
+            
+            result = supabase.table("generated_articles_state").update(update_data).eq("id", process_id).execute()
+            
+            if result.data:
+                logger.info(f"Successfully updated process {process_id} status to {status}")
+                
+                # Add status update to history
+                await self._add_step_to_history(
+                    process_id=process_id,
+                    step_name="status_update",
+                    status=status,
+                    data={"old_status": result.data[0].get("status"), "new_status": status}
+                )
+            else:
+                logger.warning(f"No data returned when updating status for process {process_id}")
+                
+        except Exception as e:
+            logger.error(f"Error updating process status for {process_id}: {e}")
+            raise
+
+    async def _add_step_to_history(self, process_id: str, step_name: str, status: str, data: dict = None) -> None:
+        """Add step to history using database function for process tracking"""
+        try:
+            from services.article_flow_service import get_supabase_client
+            from datetime import datetime, timezone
+            supabase = get_supabase_client()
+            
+            # Safe serialization function for history data
+            def safe_serialize_history_data(value):
+                """Safely serialize data for JSON storage"""
+                if value is None:
+                    return None
+                elif isinstance(value, (str, int, float, bool)):
+                    return value
+                elif isinstance(value, list):
+                    return [safe_serialize_history_data(item) for item in value]
+                elif isinstance(value, dict):
+                    return {k: safe_serialize_history_data(v) for k, v in value.items()}
+                elif hasattr(value, "model_dump"):
+                    return value.model_dump()
+                elif hasattr(value, "__dict__"):
+                    return {k: safe_serialize_history_data(v) for k, v in value.__dict__.items()}
+                else:
+                    return str(value)
+            
+            # Safely serialize the data parameter
+            safe_data = safe_serialize_history_data(data or {})
+            
+            # Use the database function instead of direct table insert
+            result = supabase.rpc('add_step_to_history', {
+                'process_id': process_id,
+                'step_name': step_name,
+                'step_status': status,
+                'step_data': safe_data
+            }).execute()
+            
+            logger.debug(f"Added step {step_name} to history for process {process_id}")
+                
+        except Exception as e:
+            logger.warning(f"Could not add step to history for process {process_id}: {e}")
+            # Don't raise here as this is a non-critical operation
+            pass

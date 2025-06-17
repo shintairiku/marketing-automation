@@ -62,6 +62,40 @@ async def get_articles(
             detail="Failed to retrieve articles"
         )
 
+@router.get("/all-processes", response_model=List[dict], status_code=status.HTTP_200_OK)
+async def get_all_processes(
+    user_id: str = Depends(get_current_user_id_from_token),
+    status_filter: Optional[str] = Query(None, description="Filter by status (completed, in_progress, error, etc.)"),
+    limit: int = Query(20, description="Number of items to return"),
+    offset: int = Query(0, description="Number of items to skip")
+):
+    """
+    Get all processes (completed articles + in-progress/failed generation processes) for the user.
+    
+    **Parameters:**
+    - user_id: User ID (from authentication)
+    - status_filter: Filter by status (optional)
+    - limit: Maximum number of items to return (default: 20)
+    - offset: Number of items to skip for pagination (default: 0)
+    
+    **Returns:**
+    - List of articles and generation processes with unified format
+    """
+    try:
+        processes = await article_service.get_all_user_processes(
+            user_id=user_id,
+            status_filter=status_filter,
+            limit=limit,
+            offset=offset
+        )
+        return processes
+    except Exception as e:
+        logger.error(f"Error getting all processes for user {user_id}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to retrieve processes"
+        )
+
 @router.get("/{article_id}", response_model=dict, status_code=status.HTTP_200_OK)
 async def get_article(
     article_id: str,
