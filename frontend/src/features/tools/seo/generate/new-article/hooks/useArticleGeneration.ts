@@ -80,13 +80,23 @@ export const useArticleGeneration = ({ processId, userId }: UseArticleGeneration
     articleId: undefined,
   });
 
-  const handleMessage = useCallback((message: ServerEventMessage) => {
-    const { payload } = message;
+  const handleMessage = useCallback((message: ServerEventMessage | any) => {
+    // ハートビートメッセージを早期に処理
+    if (message.type === 'heartbeat' || (typeof message === 'string' && message.includes('heartbeat'))) {
+      return;
+    }
+
+    const { payload } = message as ServerEventMessage;
+
+    // payloadが存在しない場合は処理をスキップ
+    if (!payload) {
+      return;
+    }
 
     setState(prev => {
       const newState = { ...prev };
 
-      // ステップ更新処理
+      // ステップ更新処理（stepフィールドが存在する場合のみ）
       if (payload.step) {
         newState.currentStep = payload.step;
         
@@ -117,7 +127,7 @@ export const useArticleGeneration = ({ processId, userId }: UseArticleGeneration
         newState.steps = newState.steps.map((step, index) => {
           if (step.id === mappedStep) {
             // 現在のステップを実行中に
-            return { ...step, status: 'in_progress', message: payload.message };
+            return { ...step, status: 'in_progress', message: payload.message || '' };
           } else if (index < currentStepIndex) {
             // 前のステップを完了に
             return { ...step, status: 'completed' };
@@ -282,23 +292,31 @@ export const useArticleGeneration = ({ processId, userId }: UseArticleGeneration
         newState.inputType = undefined;
       }
       
-      // 「finished」ステップの処理 - 成功時のみ完了扱い
-      if (payload.step === 'finished' && !payload.error_message) {
+      // 「finished」ステップの処理 - 実際に完了した場合のみ処理
+      if (payload.step === 'finished') {
         console.log('useArticleGeneration: Processing finished step', { 
           generatedContent: !!newState.generatedContent, 
-          finalArticle: !!newState.finalArticle 
+          finalArticle: !!newState.finalArticle,
+          currentStep: newState.currentStep,
+          errorMessage: payload.error_message
         });
         
-        if (newState.generatedContent && !newState.finalArticle) {
-          newState.finalArticle = {
-            title: newState.outline?.title || payload.title || 'Generated Article',
-            content: newState.generatedContent,
-          };
-          console.log('useArticleGeneration: Created finalArticle from generatedContent');
+        // エラーメッセージがある場合は完了にしない
+        if (payload.error_message) {
+          console.log('useArticleGeneration: Finished with error, not setting to completed');
+          return newState;
         }
         
-        // エラー状態でない場合のみ完了に設定
-        if (!newState.error) {
+        // 実際に記事が生成されている場合のみ完了にする
+        if (newState.finalArticle || (newState.generatedContent && newState.currentStep === 'completed')) {
+          if (newState.generatedContent && !newState.finalArticle) {
+            newState.finalArticle = {
+              title: newState.outline?.title || payload.title || 'Generated Article',
+              content: newState.generatedContent,
+            };
+            console.log('useArticleGeneration: Created finalArticle from generatedContent');
+          }
+          
           newState.currentStep = 'completed';
           // 全ステップを完了に
           newState.steps = newState.steps.map(step => ({
@@ -308,6 +326,8 @@ export const useArticleGeneration = ({ processId, userId }: UseArticleGeneration
           }));
           newState.isWaitingForInput = false;
           newState.inputType = undefined;
+        } else {
+          console.log('useArticleGeneration: Finished but no final article, maintaining current state');
         }
         
         console.log('useArticleGeneration: Finished step processing complete', { 
