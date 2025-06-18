@@ -36,6 +36,9 @@ class ArticleContext:
     # --- ペルソナ生成関連 (新規追加) ---
     generated_detailed_personas: List[str] = field(default_factory=list) # PersonaGeneratorAgentによって生成された具体的なペルソナ記述のリスト
     selected_detailed_persona: Optional[str] = None # ユーザーによって選択された単一の具体的なペルソナ記述
+    
+    # --- テーマ生成関連 ---
+    generated_themes: List[ThemeIdea] = field(default_factory=list) # テーマ生成エージェントによって生成されたテーマ案のリスト
 
     # --- 生成プロセス状態 ---
     current_step: Literal[
@@ -45,14 +48,16 @@ class ArticleContext:
         "persona_generating", # 新ステップ: 具体的なペルソナ生成中
         "persona_generated",  # 新ステップ: 具体的なペルソナ生成完了、ユーザー選択待ち
         "persona_selected",   # 新ステップ: 具体的なペルソナ選択完了
-        "theme_proposed", # ユーザー選択待ち
+        "theme_generating",   # テーマ生成中
+        "theme_proposed",     # ユーザー選択待ち
         "theme_selected",
         "research_planning",
         "research_plan_generated", # ユーザー承認待ち
+        "research_plan_approved",  # 計画承認済み
         "researching",
         "research_synthesizing",
         "research_report_generated", # 承認は任意
-        "outline_generation",
+        "outline_generating",
         "outline_generated", # ユーザー承認待ち
         "writing_sections",
         "editing",
@@ -73,6 +78,10 @@ class ArticleContext:
     last_agent_output: Optional[Union[AgentOutput, ArticleSection]] = None
     section_writer_history: List[Dict[str, Any]] = field(default_factory=list)
 
+    # --- 進捗追跡関連 ---
+    research_progress: Optional[Dict[str, Any]] = None # リサーチ進捗状況
+    sections_progress: Optional[Dict[str, Any]] = None # セクション執筆進捗状況
+    
     # --- WebSocket/インタラクション用 ---
     websocket: Optional[WebSocket] = None # WebSocket接続オブジェクト
     user_response_event: Optional[asyncio.Event] = None # ユーザー応答待ち用イベント

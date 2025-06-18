@@ -227,7 +227,21 @@ class ArticleGenerationService:
                 
                 # WebSocketなしで処理継続
                 context.websocket = None
-                run_config = RunConfig(runner=Runner(), max_turns=5)
+                
+                # RunConfigを適切に初期化（トレーシング情報を含む）
+                run_config = RunConfig(
+                    workflow_name="SEO記事生成ワークフロー（バックグラウンド）",
+                    trace_id=f"bg_{process_id}",
+                    group_id=process_id,
+                    trace_metadata={
+                        "process_id": process_id,
+                        "background_processing": True,
+                        "current_step": context.current_step
+                    }
+                )
+                
+                # ユーザーIDがcontextに設定されていることを確認
+                user_id = context.user_id or "unknown"
                 
                 while (context.current_step not in USER_INPUT_STEPS and 
                        context.current_step not in ['completed', 'error']):
@@ -235,10 +249,10 @@ class ArticleGenerationService:
                     logger.info(f"Background processing step: {context.current_step}")
                     
                     # ステップを実行
-                    await self._execute_single_step(context, run_config, process_id, user_id=context.user_id)
+                    await self._execute_single_step(context, run_config, process_id, user_id=user_id)
                     
                     # 進捗を保存
-                    await self._save_context_to_db(context, process_id=process_id, user_id=context.user_id)
+                    await self._save_context_to_db(context, process_id=process_id, user_id=user_id)
                     
                     # 小さな遅延を追加（負荷軽減）
                     await asyncio.sleep(1)
@@ -265,9 +279,14 @@ class ArticleGenerationService:
                 logger.info(f"Background processing cancelled for process {process_id}")
             except Exception as e:
                 logger.error(f"Background processing error for process {process_id}: {e}")
+                import traceback
+                traceback.print_exc()
                 context.current_step = 'error'
                 context.error_message = str(e)
-                await self._save_context_to_db(context, process_id=process_id, user_id=context.user_id)
+                try:
+                    await self._save_context_to_db(context, process_id=process_id, user_id=user_id)
+                except Exception as db_error:
+                    logger.error(f"Failed to save error context: {db_error}")
         
         # 既存のバックグラウンドタスクがあればキャンセル
         if process_id in self.background_processes:
@@ -352,17 +371,73 @@ class ArticleGenerationService:
             agent_output = await self._run_agent(current_agent, agent_input, context, run_config)
 
             if isinstance(agent_output, ThemeProposal):
-                context.theme_proposals = agent_output.themes
+                context.generated_themes = agent_output.themes  # theme_proposalsからgenerated_themesに変更
                 context.current_step = "theme_proposed"
-                console.print(f"[cyan]{len(context.theme_proposals)}件のテーマを提案しました。[/cyan]")
-                # ユーザー入力が必要なのでここで停止
-                return
+                console.print(f"[cyan]{len(context.generated_themes)}件のテーマを提案しました。[/cyan]")
+                
+                # Save context after theme generation
+                if process_id and user_id:
+                    try:
+                        await self._save_context_to_db(context, process_id=process_id, user_id=user_id)
+                        logger.info(f"Context saved successfully after theme generation")
+                    except Exception as save_err:
+                        logger.error(f"Failed to save context after theme generation: {save_err}")
+                
+                # ユーザー入力要求を送信
+                themes_data_for_client = [
+                    ThemeProposalData(title=idea.title, description=idea.description, keywords=idea.keywords)
+                    for idea in context.generated_themes
+                ]
+                user_response_message = await self._request_user_input(
+                    context,
+                    UserInputType.SELECT_THEME,
+                    ThemeProposalPayload(themes=themes_data_for_client).model_dump()
+                )
+                
+                # ユーザー応答を処理
+                if user_response_message:
+                    response_type = user_response_message.response_type
+                    payload = user_response_message.payload
+
+                    if response_type == UserInputType.SELECT_THEME and isinstance(payload, SelectThemePayload):
+                        selected_index = payload.selected_index
+                        if 0 <= selected_index < len(context.generated_themes):
+                            context.selected_theme = context.generated_themes[selected_index]
+                            context.current_step = "theme_selected"
+                            console.print(f"[green]クライアントがテーマ「{context.selected_theme.title}」を選択しました。[/green]")
+                            await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message=f"Theme selected: {context.selected_theme.title}"))
+                            
+                            # Save context after user theme selection
+                            if process_id and user_id:
+                                try:
+                                    await self._save_context_to_db(context, process_id=process_id, user_id=user_id)
+                                    logger.info(f"Context saved successfully after theme selection")
+                                except Exception as save_err:
+                                    logger.error(f"Failed to save context after theme selection: {save_err}")
+                            
+                            console.print(f"[blue]テーマ選択処理完了。次のステップ: {context.current_step}[/blue]")
+                            console.print(f"[blue]ループを継続します... (process_id: {process_id})[/blue]")
+                            # ループ継続のため、何もしない（次のイテレーションで theme_selected が処理される）
+                        else:
+                            await self._send_error(context, f"無効なテーマインデックスが選択されました: {selected_index}")
+                            context.current_step = "theme_generating"  # テーマ生成からやり直し
+                    elif response_type == UserInputType.REGENERATE:
+                        console.print("[yellow]クライアントがテーマの再生成を要求しました。[/yellow]")
+                        context.current_step = "theme_generating" 
+                        context.generated_themes = [] 
+                    else:
+                        await self._send_error(context, f"予期しない応答 ({response_type}) がテーマ選択で受信されました。")
+                        context.current_step = "theme_generating"  # テーマ生成からやり直し
+                else:
+                    console.print("[red]テーマ選択でクライアントからの応答がありませんでした。[/red]")
+                    context.current_step = "theme_generating"  # テーマ生成からやり直し
             else:
                 console.print(f"[red]テーマ生成中に予期しないエージェント出力タイプを受け取りました。[/red]")
                 context.current_step = "error"
                 return
 
         elif context.current_step == "research_planning":
+            console.print(f"[blue]research_planningステップを開始します。selected_theme: {context.selected_theme.title if context.selected_theme else 'None'}[/blue]")
             if not context.selected_theme:
                 console.print("[red]テーマが選択されていません。リサーチ計画作成をスキップします。[/red]")
                 context.current_step = "error"
@@ -621,6 +696,10 @@ class ArticleGenerationService:
                 context.websocket = websocket
                 context.user_response_event = asyncio.Event()
                 
+                # ユーザーIDをcontextに設定（バックグラウンド処理で必要）
+                if not context.user_id:
+                    context.user_id = user_id
+                
                 console.print(f"[green]Resuming process {process_id} from step {context.current_step}[/green]")
                 
                 # プロセス状態を更新（再開中）
@@ -713,11 +792,20 @@ class ArticleGenerationService:
                     self._run_generation_loop(context, run_config, process_id, user_id)
                 )
 
-                # 5. クライアントからの応答を待ち受けるループ
-                while not generation_task.done():
+                # 5. クライアントからの応答を待ち受けるループ - generation taskが実行中か完了かに関わらず継続
+                while True:
                     try:
                         # タイムアウトを設定してクライアントからの応答を待つ (例: 5分)
                         response_data = await asyncio.wait_for(websocket.receive_json(), timeout=600.0) # タイムアウトを10分に延長
+                        
+                        # Generation taskが完了している場合は制限された処理のみ
+                        if generation_task.done():
+                            if context.current_step == "completed":
+                                console.print("[green]記事生成が完了済み。接続は維持中...[/green]")
+                                continue  # 完了後は新しいメッセージを無視
+                            elif context.current_step == "error":
+                                console.print("[red]記事生成でエラーが発生済み。[/red]")
+                                break  # エラーの場合は接続を終了
                         
                         # 初期化完了後のメッセージはクライアント応答として処理
                         if is_initialized:
@@ -739,8 +827,11 @@ class ArticleGenerationService:
                                        message.response_type == UserInputType.EDIT_AND_PROCEED:
                                         
                                         console.print(f"[green]応答タイプマッチ！ {message.response_type} を処理します[/green]")
+                                        console.print(f"[yellow]generation_task.done(): {generation_task.done()}[/yellow]")
                                         context.user_response = message # 応答全体をコンテキストに保存 (payloadだけでなくtypeも含む)
+                                        console.print(f"[green]user_response_eventを設定中...[/green]")
                                         context.user_response_event.set() # 待機中のループに応答があったことを通知
+                                        console.print(f"[green]user_response_eventが設定されました！[/green]")
                                     else:
                                         # 期待する具体的な選択/承認タイプと異なる場合 (例: SELECT_THEMEを期待しているときにAPPROVE_PLANが来たなど)
                                         console.print(f"[red]応答タイプ不一致: expected {context.expected_user_input}, got {message.response_type}[/red]")
@@ -769,23 +860,12 @@ class ArticleGenerationService:
                         await self._send_error(context, f"Invalid JSON format: {e}")
                         # 不正なメッセージを受け取った場合、処理を続ける
                     except Exception as e: # その他の予期せぬエラー
-                         await self._send_error(context, f"Error processing client message: {e}")
-                         if generation_task: generation_task.cancel()
-                         break
-
-                # 生成タスクの結果を確認 (例外が発生していないか)
-                if generation_task and generation_task.done() and not generation_task.cancelled():
-                     try:
-                         generation_task.result()
-                     except Exception as e:
-                         # _run_generation_loop内でハンドルされなかった例外
-                         console.print(f"[bold red]Unhandled exception in generation task:[/bold red] {e}")
-                         # WebSocketがまだ接続されていればエラーを送信
-                         if websocket.client_state == WebSocketState.CONNECTED:
-                             await self._send_error(context, f"Internal server error during generation: {e}")
+                        await self._send_error(context, f"Error processing client message: {e}")
+                        if generation_task: generation_task.cancel()
+                        break
 
         except WebSocketDisconnect:
-            console.print("[yellow]WebSocket disconnected.[/yellow]")
+            console.print(f"[yellow]WebSocket disconnected for process {process_id}.[/yellow]")
             if generation_task and not generation_task.done():
                 generation_task.cancel()
         except ValidationError as e: # 初期リクエストのバリデーションエラー
@@ -962,8 +1042,17 @@ class ArticleGenerationService:
                     
             elif context.current_step == "outline_generated":
                 if context.generated_outline:
-                    from schemas.response import OutlineData
-                    outline_data = OutlineData(**context.generated_outline.model_dump())
+                    from schemas.response import OutlineData, OutlineSectionData
+                    outline_data = OutlineData(
+                        title=context.generated_outline.title,
+                        suggested_tone=getattr(context.generated_outline, 'suggested_tone', '丁寧で読みやすい解説調'),
+                        sections=[
+                            OutlineSectionData(
+                                heading=section.heading,
+                                estimated_chars=getattr(section, 'estimated_chars', None)
+                            ) for section in context.generated_outline.sections
+                        ]
+                    )
                     # 復帰時もUserInputRequestPayload形式で送信する
                     payload = UserInputRequestPayload(
                         request_type=UserInputType.APPROVE_OUTLINE,
@@ -1000,12 +1089,242 @@ class ArticleGenerationService:
         await self._send_server_event(context, payload)
 
         # クライアントからの応答を待つ (タイムアウトは handle_websocket_connection で処理)
+        console.print(f"[blue]ユーザー応答を待機中... (request_type: {request_type})[/blue]")
         await context.user_response_event.wait()
+        console.print(f"[blue]ユーザー応答を受信しました！[/blue]")
 
         response = context.user_response
         context.user_response = None # 応答をクリア
         context.expected_user_input = None # 期待する入力をクリア
+        console.print(f"[blue]ユーザー応答処理完了: {response.response_type if response else 'None'}[/blue]")
         return response
+
+    async def _handle_user_input_step(self, context: ArticleContext, process_id: Optional[str] = None, user_id: Optional[str] = None):
+        """ユーザー入力ステップを処理し、適切な次のステップに遷移"""
+        console.print(f"[blue]ユーザー入力ステップを処理中: {context.current_step}[/blue]")
+        
+        if context.current_step == "theme_proposed":
+            if context.generated_themes:
+                themes_data = [
+                    ThemeProposalData(title=theme.title, description=theme.description, keywords=theme.keywords)
+                    for theme in context.generated_themes
+                ]
+                
+                user_response_message = await self._request_user_input(
+                    context,
+                    UserInputType.SELECT_THEME,
+                    ThemeProposalPayload(themes=themes_data).model_dump()
+                )
+                
+                if user_response_message:
+                    response_type = user_response_message.response_type
+                    payload = user_response_message.payload
+
+                    if response_type == UserInputType.SELECT_THEME and isinstance(payload, SelectThemePayload):
+                        selected_index = payload.selected_index
+                        if 0 <= selected_index < len(context.generated_themes):
+                            context.selected_theme = context.generated_themes[selected_index]
+                            context.current_step = "theme_selected"
+                            console.print(f"[green]テーマ「{context.selected_theme.title}」が選択されました。[/green]")
+                            await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message=f"Theme selected: {context.selected_theme.title}"))
+                            
+                            # Save context after theme selection
+                            if process_id and user_id:
+                                try:
+                                    await self._save_context_to_db(context, process_id=process_id, user_id=user_id)
+                                    logger.info(f"Context saved successfully after theme selection")
+                                except Exception as save_err:
+                                    logger.error(f"Failed to save context after theme selection: {save_err}")
+                        else:
+                            await self._send_error(context, f"無効なテーマインデックス: {selected_index}")
+                            context.current_step = "error"
+                    elif response_type == UserInputType.REGENERATE:
+                        console.print("[yellow]テーマの再生成が要求されました。[/yellow]")
+                        context.current_step = "theme_generating"
+                        context.generated_themes = []
+                    elif response_type == UserInputType.EDIT_AND_PROCEED and isinstance(payload, EditAndProceedPayload):
+                        try:
+                            edited_theme_data = payload.edited_content
+                            if isinstance(edited_theme_data.get("title"), str) and \
+                               isinstance(edited_theme_data.get("description"), str) and \
+                               isinstance(edited_theme_data.get("keywords"), list):
+                                context.selected_theme = ThemeIdea(**edited_theme_data)
+                                context.current_step = "theme_selected"
+                                console.print(f"[green]テーマが編集され選択されました: {context.selected_theme.title}[/green]")
+                                await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message="Theme edited and selected."))
+                                
+                                # Save context after theme editing
+                                if process_id and user_id:
+                                    try:
+                                        await self._save_context_to_db(context, process_id=process_id, user_id=user_id)
+                                        logger.info(f"Context saved successfully after theme editing")
+                                    except Exception as save_err:
+                                        logger.error(f"Failed to save context after theme editing: {save_err}")
+                            else:
+                                await self._send_error(context, "編集されたテーマの形式が無効です。")
+                                context.current_step = "error"
+                        except (ValidationError, TypeError, AttributeError) as e:
+                            await self._send_error(context, f"テーマ編集エラー: {e}")
+                            context.current_step = "error"
+                    else:
+                        await self._send_error(context, f"予期しない応答タイプ: {response_type}")
+                        context.current_step = "error"
+                else:
+                    console.print("[red]テーマ選択でユーザー応答がありませんでした。[/red]")
+                    context.current_step = "error"
+            else:
+                console.print("[yellow]テーマが見つからないため生成ステップに戻します。[/yellow]")
+                context.current_step = "theme_generating"
+        
+        elif context.current_step == "outline_generated":
+            if context.generated_outline:
+                from schemas.response import OutlineData, OutlineSectionData
+                outline_data = OutlineData(
+                    title=context.generated_outline.title,
+                    suggested_tone=getattr(context.generated_outline, 'suggested_tone', '丁寧で読みやすい解説調'),
+                    sections=[
+                        OutlineSectionData(
+                            heading=section.heading,
+                            estimated_chars=getattr(section, 'estimated_chars', None)
+                        ) for section in context.generated_outline.sections
+                    ]
+                )
+                
+                user_response_message = await self._request_user_input(
+                    context,
+                    UserInputType.APPROVE_OUTLINE,
+                    OutlinePayload(outline=outline_data).model_dump()
+                )
+                
+                if user_response_message:
+                    response_type = user_response_message.response_type
+                    payload = user_response_message.payload
+
+                    if response_type == UserInputType.APPROVE_OUTLINE and isinstance(payload, ApprovePayload):
+                        if payload.approved:
+                            context.current_step = "outline_approved"
+                            console.print("[green]アウトラインが承認されました。記事執筆を開始します。[/green]")
+                            await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message="Outline approved, starting article writing."))
+                            
+                            # Save context after outline approval
+                            if process_id and user_id:
+                                try:
+                                    await self._save_context_to_db(context, process_id=process_id, user_id=user_id)
+                                    logger.info(f"Context saved successfully after outline approval")
+                                except Exception as save_err:
+                                    logger.error(f"Failed to save context after outline approval: {save_err}")
+                        else:
+                            console.print("[yellow]アウトラインが却下されました。再生成します。[/yellow]")
+                            context.current_step = "outline_generating"
+                    elif response_type == UserInputType.REGENERATE:
+                        console.print("[yellow]アウトラインの再生成が要求されました。[/yellow]")
+                        context.current_step = "outline_generating"
+                    else:
+                        await self._send_error(context, f"予期しない応答タイプ: {response_type}")
+                        context.current_step = "error"
+                else:
+                    console.print("[red]アウトライン承認でユーザー応答がありませんでした。[/red]")
+                    context.current_step = "error"
+            else:
+                console.print("[yellow]アウトラインが見つからないため生成ステップに戻します。[/yellow]")
+                context.current_step = "outline_generating"
+        
+        # 他のユーザー入力ステップも同様に処理
+        elif context.current_step == "persona_generated":
+            if context.generated_detailed_personas:
+                personas_data_for_client = [GeneratedPersonaData(id=i, description=desc) for i, desc in enumerate(context.generated_detailed_personas)]
+                
+                user_response_message = await self._request_user_input(
+                    context,
+                    UserInputType.SELECT_PERSONA,
+                    GeneratedPersonasPayload(personas=personas_data_for_client).model_dump()
+                )
+                
+                if user_response_message:
+                    response_type = user_response_message.response_type
+                    payload = user_response_message.payload
+
+                    if response_type == UserInputType.SELECT_PERSONA and isinstance(payload, SelectPersonaPayload):
+                        selected_id = payload.selected_id
+                        if 0 <= selected_id < len(context.generated_detailed_personas):
+                            context.selected_detailed_persona = context.generated_detailed_personas[selected_id]
+                            context.current_step = "persona_selected"
+                            console.print(f"[green]ペルソナが選択されました: {context.selected_detailed_persona[:100]}...[/green]")
+                            await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message="Persona selected, proceeding to theme generation."))
+                            
+                            # Save context after persona selection
+                            if process_id and user_id:
+                                try:
+                                    await self._save_context_to_db(context, process_id=process_id, user_id=user_id)
+                                    logger.info(f"Context saved successfully after persona selection")
+                                except Exception as save_err:
+                                    logger.error(f"Failed to save context after persona selection: {save_err}")
+                        else:
+                            await self._send_error(context, f"無効なペルソナインデックス: {selected_id}")
+                            context.current_step = "error"
+                    elif response_type == UserInputType.REGENERATE:
+                        console.print("[yellow]ペルソナの再生成が要求されました。[/yellow]")
+                        context.current_step = "persona_generating"
+                        context.generated_detailed_personas = []
+                    else:
+                        await self._send_error(context, f"予期しない応答タイプ: {response_type}")
+                        context.current_step = "error"
+                else:
+                    console.print("[red]ペルソナ選択でユーザー応答がありませんでした。[/red]")
+                    context.current_step = "error"
+            else:
+                console.print("[yellow]ペルソナが見つからないため生成ステップに戻します。[/yellow]")
+                context.current_step = "persona_generating"
+        
+        elif context.current_step == "research_plan_generated":
+            if context.research_plan:
+                from schemas.response import ResearchPlanData
+                plan_data = ResearchPlanData(
+                    topic=context.research_plan.topic,
+                    queries=[{"query": q.query, "focus": q.focus} for q in context.research_plan.queries]
+                )
+                
+                user_response_message = await self._request_user_input(
+                    context,
+                    UserInputType.APPROVE_PLAN,
+                    ResearchPlanPayload(plan=plan_data).model_dump()
+                )
+                
+                if user_response_message:
+                    response_type = user_response_message.response_type
+                    payload = user_response_message.payload
+
+                    if response_type == UserInputType.APPROVE_PLAN and isinstance(payload, ApprovePayload):
+                        if payload.approved:
+                            context.current_step = "research_plan_approved"
+                            console.print("[green]リサーチプランが承認されました。リサーチを開始します。[/green]")
+                            await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message="Research plan approved, starting research."))
+                            
+                            # Save context after plan approval
+                            if process_id and user_id:
+                                try:
+                                    await self._save_context_to_db(context, process_id=process_id, user_id=user_id)
+                                    logger.info(f"Context saved successfully after research plan approval")
+                                except Exception as save_err:
+                                    logger.error(f"Failed to save context after research plan approval: {save_err}")
+                        else:
+                            console.print("[yellow]リサーチプランが却下されました。再生成します。[/yellow]")
+                            context.current_step = "research_planning"
+                    elif response_type == UserInputType.REGENERATE:
+                        console.print("[yellow]リサーチプランの再生成が要求されました。[/yellow]")
+                        context.current_step = "research_planning"
+                    else:
+                        await self._send_error(context, f"予期しない応答タイプ: {response_type}")
+                        context.current_step = "error"
+                else:
+                    console.print("[red]リサーチプラン承認でユーザー応答がありませんでした。[/red]")
+                    context.current_step = "error"
+            else:
+                console.print("[yellow]リサーチプランが見つからないため生成ステップに戻します。[/yellow]")
+                context.current_step = "research_planning"
+        else:
+            console.print(f"[red]未実装のユーザー入力ステップ: {context.current_step}[/red]")
+            context.current_step = "error"
 
 
     async def _run_generation_loop(self, context: ArticleContext, run_config: RunConfig, process_id: Optional[str] = None, user_id: Optional[str] = None):
@@ -1015,6 +1334,11 @@ class ArticleGenerationService:
 
         try:
             while context.current_step not in ["completed", "error"]:
+                console.print(f"[green]生成ループ開始: {context.current_step} (process_id: {process_id})[/green]")
+                
+                # 非同期yield pointを追加してWebSocketループに制御を戻す
+                await asyncio.sleep(0.1)
+                
                 # データベースに現在の状態を保存
                 if process_id and user_id:
                     await self._save_context_to_db(context, process_id=process_id, user_id=user_id)
@@ -1143,6 +1467,7 @@ class ArticleGenerationService:
                                             logger.info(f"Context saved successfully after persona selection")
                                         except Exception as save_err:
                                             logger.error(f"Failed to save context after persona selection: {save_err}")
+                                    continue  # ★重要: continueでループの次のイテレーションへ
                                 else:
                                     raise ValueError(f"無効なペルソナIDが選択されました: {selected_id}")
                             elif response_type == UserInputType.REGENERATE:
@@ -1166,6 +1491,7 @@ class ArticleGenerationService:
                                             logger.info(f"Context saved successfully after persona editing and selection")
                                         except Exception as save_err:
                                             logger.error(f"Failed to save context after persona editing: {save_err}")
+                                    continue  # ★重要: continueでループの次のイテレーションへ
                                 else:
                                     # 不正な編集内容
                                     await self._send_error(context, "Invalid edited persona content.")
@@ -1263,6 +1589,10 @@ class ArticleGenerationService:
                                                 logger.info(f"Context saved successfully after theme selection")
                                             except Exception as save_err:
                                                 logger.error(f"Failed to save context after theme selection: {save_err}")
+                                        
+                                        console.print(f"[blue]テーマ選択処理完了。次のステップ: {context.current_step}[/blue]")
+                                        console.print(f"[blue]ループを継続します... (process_id: {process_id})[/blue]")
+                                        continue  # ★重要: continueでループの次のイテレーションへ
                                     else:
                                         await self._send_error(context, f"無効なテーマインデックスが選択されました: {selected_index}")
                                         context.current_step = "theme_proposed" 
@@ -1291,6 +1621,7 @@ class ArticleGenerationService:
                                                     logger.info(f"Context saved successfully after theme editing and selection")
                                                 except Exception as save_err:
                                                     logger.error(f"Failed to save context after theme editing: {save_err}")
+                                            continue  # ★重要: continueでループの次のイテレーションへ
                                         else:
                                             await self._send_error(context, "Invalid edited theme content structure.")
                                             context.current_step = "theme_proposed" 
@@ -1321,10 +1652,12 @@ class ArticleGenerationService:
                         continue
                 
                 elif context.current_step == "theme_selected":
+                    console.print(f"[blue]theme_selectedステップを処理中... (process_id: {process_id})[/blue]")
                     context.current_step = "research_planning"
-                    console.print("リサーチ計画ステップに進みます...")
+                    console.print("[blue]theme_selectedからresearch_planningに遷移します...[/blue]")
                     await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message="Moving to research planning."))
-                    # エージェント実行なし
+                    console.print(f"[blue]research_planningステップに移行完了。継続中... (process_id: {process_id})[/blue]")
+                    # エージェント実行なし、次のループで research_planning が処理される
 
                 elif context.current_step == "research_plan_generated":
                     # リサーチ計画生成後、ユーザーの承認を待つ状態
@@ -1357,6 +1690,7 @@ class ArticleGenerationService:
                                         logger.info(f"Context saved successfully after research plan approval")
                                     except Exception as save_err:
                                         logger.error(f"Failed to save context after research plan approval: {save_err}")
+                                continue  # ★重要: continueでループの次のイテレーションへ
                             else:
                                 console.print("[yellow]クライアントがリサーチ計画を否認しました。再生成を試みます。[/yellow]")
                                 context.current_step = "research_planning"
@@ -1387,6 +1721,7 @@ class ArticleGenerationService:
                                             logger.info(f"Context saved successfully after research plan editing and approval")
                                         except Exception as save_err:
                                             logger.error(f"Failed to save context after research plan editing: {save_err}")
+                                    continue  # ★重要: continueでループの次のイテレーションへ
                                 else:
                                     await self._send_error(context, "Invalid edited research plan content structure.")
                                     continue
@@ -1589,6 +1924,7 @@ class ArticleGenerationService:
                                             logger.info(f"Context saved successfully after outline approval")
                                         except Exception as save_err:
                                             logger.error(f"Failed to save context after outline approval: {save_err}")
+                                    continue  # ★重要: continueでループの次のイテレーションへ
                                 else:
                                     console.print("[yellow]クライアントがアウトラインを否認しました。再生成を試みます。[/yellow]")
                                     context.current_step = "outline_generating"
@@ -1629,6 +1965,7 @@ class ArticleGenerationService:
                                                 logger.info(f"Context saved successfully after outline editing and approval")
                                             except Exception as save_err:
                                                 logger.error(f"Failed to save context after outline editing: {save_err}")
+                                        continue  # ★重要: continueでループの次のイテレーションへ
                                     else:
                                         await self._send_error(context, "Invalid edited outline content structure.")
                                         context.current_step = "outline_generated"
@@ -1659,8 +1996,8 @@ class ArticleGenerationService:
                     context.current_step = "writing_sections" 
 
                 elif context.current_step == "writing_sections":
-                    if not context.generated_outline: raise ValueError("承認済みアウトラインがありません。") # context.outline_approved から context.generated_outline に変更
-                    if context.current_section_index >= len(context.generated_outline.sections): # context.outline_approved から context.generated_outline に変更
+                    if not context.generated_outline: raise ValueError("承認済みアウトラインがありません。")
+                    if context.current_section_index >= len(context.generated_outline.sections):
                         context.full_draft_html = context.get_full_draft()
                         context.current_step = "editing"
                         console.print("[green]全セクションの執筆が完了しました。編集ステップに移ります。[/green]")
@@ -1822,10 +2159,11 @@ class ArticleGenerationService:
                         raise TypeError(f"予期しないAgent出力タイプ: {type(agent_output)}")
 
                 else:
-                    # ユーザー入力が必要なステップの場合は処理しない
+                    # ユーザー入力が必要なステップの場合、ユーザー応答を待機して処理
                     if context.current_step in USER_INPUT_STEPS:
-                        console.print(f"[yellow]ステップ {context.current_step} はユーザー入力が必要です。バックグラウンド処理を一時停止。[/yellow]")
-                        return
+                        console.print(f"[yellow]ステップ {context.current_step} はユーザー入力が必要です。ユーザー応答を処理します。[/yellow]")
+                        await self._handle_user_input_step(context, process_id, user_id)
+                        continue  # 処理後にループを継続
                     else:
                         raise ValueError(f"未定義のステップ: {context.current_step}")
 

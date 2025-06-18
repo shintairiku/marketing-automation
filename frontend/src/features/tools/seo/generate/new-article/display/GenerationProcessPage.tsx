@@ -160,6 +160,19 @@ export default function GenerationProcessPage({ jobId }: GenerationProcessPagePr
     }, [state.currentStep, state.articleId, state.error, state.steps, router]);
 
     const getProgressPercentage = () => {
+        // ユーザー入力待ちの場合は、実際の進捗を計算
+        if (state.isWaitingForInput) {
+            // ユーザー入力待ちステップごとの進捗を定義
+            const inputStepProgress = {
+                'persona_generated': 20,    // ペルソナ生成完了 -> 20%
+                'theme_proposed': 25,       // テーマ提案完了 -> 25%
+                'research_plan_generated': 40, // リサーチ計画完了 -> 40%
+                'outline_generated': 65,    // アウトライン完了 -> 65%
+            };
+            
+            return inputStepProgress[state.currentStep] || 0;
+        }
+        
         const stepOrder = [
             'start', 'keyword_analyzing', 'keyword_analyzed', 'persona_generating', 'persona_generated',
             'theme_generating', 'theme_proposed', 'research_planning', 'research_plan_generated',
@@ -174,13 +187,27 @@ export default function GenerationProcessPage({ jobId }: GenerationProcessPagePr
         const currentStepIndex = stepOrder.indexOf(state.currentStep);
         if (currentStepIndex === -1) return 0;
         
-        const completedSteps = state.steps.filter(step => step.status === 'completed').length;
-        const inProgressSteps = state.steps.filter(step => step.status === 'in_progress').length;
+        // 各ステップの進捗を手動で定義
+        const stepProgressMap = {
+            'start': 0,
+            'keyword_analyzing': 5,
+            'keyword_analyzed': 10,
+            'persona_generating': 15,
+            'persona_generated': 20,
+            'theme_generating': 20,
+            'theme_proposed': 25,
+            'research_planning': 30,
+            'research_plan_generated': 40,
+            'researching': 50,
+            'research_synthesizing': 60,
+            'outline_generating': 60,
+            'outline_generated': 65,
+            'writing_sections': 80,
+            'editing': 90,
+            'completed': 100
+        };
         
-        const totalProgress = completedSteps + (inProgressSteps * 0.5);
-        const percentage = Math.round((totalProgress / state.steps.length) * 100);
-        
-        return state.currentStep === 'completed' ? 100 : Math.min(percentage, 95);
+        return stepProgressMap[state.currentStep] || 0;
     };
 
     const isGenerating = state.currentStep !== 'start' && state.currentStep !== 'completed' && state.currentStep !== 'error';

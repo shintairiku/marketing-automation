@@ -129,7 +129,8 @@ export default memo(function CompactGenerationFlow({
       hideProcessCards 
     });
     
-    if (currentStep === 'completed' && progressPercentage >= 95 && finalArticle) {
+    // 実際に完了している場合のみアニメーションを表示
+    if (currentStep === 'completed' && finalArticle && progressPercentage === 100) {
       console.log('CompactGenerationFlow: Starting completion animation');
       setShowCompletionAnimation(true);
       // 2秒後に完了アニメーションを隠し、すぐにプロセスカードも隠して記事を表示
@@ -137,7 +138,7 @@ export default memo(function CompactGenerationFlow({
         console.log('CompactGenerationFlow: Hiding completion animation and process cards');
         setShowCompletionAnimation(false);
         setHideProcessCards(true);
-      }, 2000); // 3秒から2秒に短縮
+      }, 2000);
       
       // クリーンアップ関数でタイマーをクリア
       return () => clearTimeout(timer);
