@@ -149,20 +149,34 @@ class ArticleGenerationService:
     def __init__(self):
         self.active_heartbeats: Dict[str, asyncio.Task] = {}
         self.background_processes: Dict[str, asyncio.Task] = {}
+        self.active_connections: Dict[str, WebSocket] = {}  # プロセスIDごとのアクティブ接続
+        self.process_locks: Dict[str, asyncio.Lock] = {}    # プロセスごとのロック
 
     async def _start_heartbeat_monitor(self, websocket: WebSocket, process_id: str, context: "ArticleContext") -> asyncio.Task:
         """WebSocket接続のハートビート監視を開始"""
         async def heartbeat_loop():
+            connection_lost_count = 0
+            max_connection_lost = 3
+            
             try:
                 while websocket.client_state == WebSocketState.CONNECTED:
                     try:
-                        # 30秒間隔でpingを送信
+                        # 30秒間隔でハートビートを送信し、接続を確認
                         await asyncio.sleep(30)
                         if websocket.client_state == WebSocketState.CONNECTED:
-                            await websocket.ping()
+                            # FastAPIのWebSocketではpingメソッドがないため、テキストメッセージを送信
+                            await websocket.send_text('{"type":"heartbeat"}')
+                        else:
+                            logger.info(f"WebSocket not connected for process {process_id}, stopping heartbeat")
+                            break
                     except Exception as e:
                         logger.warning(f"Heartbeat failed for process {process_id}: {e}")
-                        break
+                        connection_lost_count += 1
+                        if connection_lost_count >= max_connection_lost:
+                            logger.error(f"Max connection lost attempts reached for process {process_id}")
+                            break
+                        # 短い間隔で再試行
+                        await asyncio.sleep(5)
                 
                 # 接続が切れた場合の処理
                 await self._handle_disconnection(process_id, context)
@@ -182,15 +196,16 @@ class ArticleGenerationService:
         logger.info(f"Handling disconnection for process {process_id}, current step: {context.current_step}")
         
         try:
-            # プロセス状態を切断として更新
+            # プロセス状態を一時停止として更新（disconnectedの代わりにpausedを使用）
             await self._update_process_status(
                 process_id, 
-                'disconnected',
+                'paused',
                 context.current_step,
                 metadata={
                     'disconnected_at': datetime.now(timezone.utc).isoformat(),
                     'can_auto_resume': is_disconnection_resilient(context.current_step),
-                    'progress_percentage': calculate_progress_percentage(context)
+                    'progress_percentage': calculate_progress_percentage(context),
+                    'reason': 'websocket_disconnected'
                 }
             )
             
@@ -538,27 +553,69 @@ class ArticleGenerationService:
                 context.current_step = "error"
                 return
 
+    async def _get_process_lock(self, process_id: str) -> asyncio.Lock:
+        """プロセスIDに対応するロックを取得または作成"""
+        if process_id not in self.process_locks:
+            self.process_locks[process_id] = asyncio.Lock()
+        return self.process_locks[process_id]
+
+    async def _check_and_manage_existing_connection(self, process_id: str, new_websocket: WebSocket) -> bool:
+        """既存の接続をチェックし、必要に応じて管理する"""
+        if process_id in self.active_connections:
+            existing_ws = self.active_connections[process_id]
+            
+            # 既存の接続が生きている場合
+            if existing_ws.client_state == WebSocketState.CONNECTED:
+                console.print(f"[yellow]Process {process_id} already has an active connection. Closing old connection.[/yellow]")
+                try:
+                    await existing_ws.close(code=status.WS_1008_POLICY_VIOLATION, reason="New connection established")
+                except Exception as e:
+                    logger.warning(f"Failed to close existing WebSocket for process {process_id}: {e}")
+                
+                # 古いハートビートも停止
+                if process_id in self.active_heartbeats:
+                    self.active_heartbeats[process_id].cancel()
+                    del self.active_heartbeats[process_id]
+            
+            # バックグラウンド処理も停止
+            if process_id in self.background_processes:
+                self.background_processes[process_id].cancel()
+                del self.background_processes[process_id]
+        
+        # 新しい接続を登録
+        self.active_connections[process_id] = new_websocket
+        return True
+
     async def handle_websocket_connection(self, websocket: WebSocket, process_id: Optional[str] = None, user_id: Optional[str] = None):
         """WebSocket接続を処理し、記事生成プロセスを実行"""
         await websocket.accept()
         context: Optional[ArticleContext] = None
         run_config: Optional[RunConfig] = None
         generation_task: Optional[asyncio.Task] = None
+        heartbeat_task: Optional[asyncio.Task] = None  # 初期化
         is_initialized = False  # 初期化完了フラグ
+        process_lock: Optional[asyncio.Lock] = None
 
         try:
             # 1. 既存プロセスの再開か新規作成かを判定
             if process_id:
-                # 既存プロセスの再開
-                context = await self._load_context_from_db(process_id, user_id)
-                if not context:
-                    await websocket.send_text(json.dumps({
-                        "type": "server_event",
-                        "payload": {
-                            "error_message": f"Process {process_id} not found or access denied"
-                        }
-                    }))
-                    return
+                # プロセスロックを取得して重複処理を防ぐ
+                process_lock = await self._get_process_lock(process_id)
+                
+                async with process_lock:
+                    # 既存の接続をチェックし、必要に応じて管理
+                    await self._check_and_manage_existing_connection(process_id, websocket)
+                    
+                    # 既存プロセスの再開
+                    context = await self._load_context_from_db(process_id, user_id)
+                    if not context:
+                        await websocket.send_text(json.dumps({
+                            "type": "server_event",
+                            "payload": {
+                                "error_message": f"Process {process_id} not found or access denied"
+                            }
+                        }))
+                        return
                 
                 # WebSocketオブジェクトを再設定
                 context.websocket = websocket
@@ -590,6 +647,9 @@ class ArticleGenerationService:
                     trace_include_sensitive_data=settings.trace_include_sensitive_data
                 )
                 is_initialized = True  # 既存プロセスは既に初期化済み
+                
+                # 復帰時にユーザー入力待ちステップの場合、適切なユーザー入力要求を送信
+                await self._handle_resumed_user_input_step(context, process_id, user_id)
             else:
                 # 新規プロセスの開始
                 # 最初のメッセージ(生成リクエスト)を受信
@@ -644,7 +704,6 @@ class ArticleGenerationService:
                 is_initialized = True  # 初期化完了
 
             # 3. ハートビート監視を開始
-            heartbeat_task = None
             if process_id:
                 heartbeat_task = await self._start_heartbeat_monitor(websocket, process_id, context)
             
@@ -772,7 +831,17 @@ class ArticleGenerationService:
             # タスク辞書からのクリーンアップ
             if process_id:
                 self.active_heartbeats.pop(process_id, None)
-                # バックグラウンドタスクは継続させる場合があるので、ここではクリーンアップしない
+                # アクティブ接続からも削除
+                if process_id in self.active_connections and self.active_connections[process_id] == websocket:
+                    del self.active_connections[process_id]
+                # プロセスロックも必要に応じてクリーンアップ（他の接続がない場合）
+                if process_id in self.process_locks:
+                    try:
+                        # ロックが取得されていないことを確認してから削除
+                        if not self.process_locks[process_id].locked():
+                            del self.process_locks[process_id]
+                    except Exception as e:
+                        logger.warning(f"Error cleaning up process lock for {process_id}: {e}")
                 
             # WebSocket終了処理は既に上で実行済みなので重複を避ける
             console.print("WebSocket connection closed.")
@@ -803,6 +872,122 @@ class ArticleGenerationService:
         current_step = step or (context.current_step if context else "unknown")
         payload = ErrorPayload(step=current_step, error_message=error_message)
         await self._send_server_event(context, payload)
+
+    async def _handle_resumed_user_input_step(self, context: ArticleContext, process_id: str, user_id: str):
+        """復帰時にユーザー入力待ちステップの場合の処理"""
+        from schemas.response import (
+            GeneratedPersonasPayload, GeneratedPersonaData,
+            ThemeProposalPayload, ThemeProposalData,
+            ResearchPlanPayload, OutlinePayload,
+            UserInputRequestPayload, UserInputType
+        )
+        
+        try:
+            # 復帰時に現在ステップを通知
+            await self._send_server_event(context, StatusUpdatePayload(
+                step=context.current_step, 
+                message=f"プロセスが復帰しました。現在のステップ: {context.current_step}"
+            ))
+            
+            # ユーザー入力待ちステップの場合、適切なペイロードを送信
+            if context.current_step == "persona_generated":
+                if context.generated_detailed_personas:
+                    personas_data = [
+                        GeneratedPersonaData(id=i, description=desc) 
+                        for i, desc in enumerate(context.generated_detailed_personas)
+                    ]
+                    # 復帰時もUserInputRequestPayload形式で送信する
+                    payload = UserInputRequestPayload(
+                        request_type=UserInputType.SELECT_PERSONA,
+                        data=GeneratedPersonasPayload(personas=personas_data).model_dump()
+                    )
+                    await self._send_server_event(context, payload)
+                    # 復帰時にexpected_user_inputを設定
+                    context.expected_user_input = UserInputType.SELECT_PERSONA
+                    console.print("[cyan]復帰: ペルソナ選択画面を再表示しました。[/cyan]")
+                else:
+                    # ペルソナがない場合は生成ステップに戻す
+                    console.print("[yellow]復帰: ペルソナが見つからないため、生成ステップに戻します。[/yellow]")
+                    context.current_step = "persona_generating"
+                    await self._send_server_event(context, StatusUpdatePayload(
+                        step=context.current_step, 
+                        message="ペルソナ生成を再開します"
+                    ))
+                    
+            elif context.current_step == "theme_proposed":
+                if context.generated_themes:
+                    themes_data = [
+                        ThemeProposalData(title=theme.title, description=theme.description, keywords=theme.keywords)
+                        for theme in context.generated_themes
+                    ]
+                    # 復帰時もUserInputRequestPayload形式で送信する
+                    payload = UserInputRequestPayload(
+                        request_type=UserInputType.SELECT_THEME,
+                        data=ThemeProposalPayload(themes=themes_data).model_dump()
+                    )
+                    await self._send_server_event(context, payload)
+                    # 復帰時にexpected_user_inputを設定
+                    context.expected_user_input = UserInputType.SELECT_THEME
+                    console.print("[cyan]復帰: テーマ選択画面を再表示しました。[/cyan]")
+                else:
+                    # テーマがない場合は生成ステップに戻す
+                    console.print("[yellow]復帰: テーマが見つからないため、生成ステップに戻します。[/yellow]")
+                    context.current_step = "theme_generating"
+                    await self._send_server_event(context, StatusUpdatePayload(
+                        step=context.current_step, 
+                        message="テーマ生成を再開します"
+                    ))
+                    
+            elif context.current_step == "research_plan_generated":
+                if context.research_plan:
+                    from schemas.response import ResearchPlanData
+                    plan_data = ResearchPlanData(**context.research_plan.model_dump())
+                    # 復帰時もUserInputRequestPayload形式で送信する
+                    payload = UserInputRequestPayload(
+                        request_type=UserInputType.APPROVE_PLAN,
+                        data=ResearchPlanPayload(plan=plan_data).model_dump()
+                    )
+                    await self._send_server_event(context, payload)
+                    # 復帰時にexpected_user_inputを設定
+                    context.expected_user_input = UserInputType.APPROVE_PLAN
+                    console.print("[cyan]復帰: リサーチ計画承認画面を再表示しました。[/cyan]")
+                else:
+                    # リサーチ計画がない場合は生成ステップに戻す
+                    console.print("[yellow]復帰: リサーチ計画が見つからないため、生成ステップに戻します。[/yellow]")
+                    context.current_step = "research_planning"
+                    await self._send_server_event(context, StatusUpdatePayload(
+                        step=context.current_step, 
+                        message="リサーチ計画の生成を再開します"
+                    ))
+                    
+            elif context.current_step == "outline_generated":
+                if context.generated_outline:
+                    from schemas.response import OutlineData
+                    outline_data = OutlineData(**context.generated_outline.model_dump())
+                    # 復帰時もUserInputRequestPayload形式で送信する
+                    payload = UserInputRequestPayload(
+                        request_type=UserInputType.APPROVE_OUTLINE,
+                        data=OutlinePayload(outline=outline_data).model_dump()
+                    )
+                    await self._send_server_event(context, payload)
+                    # 復帰時にexpected_user_inputを設定
+                    context.expected_user_input = UserInputType.APPROVE_OUTLINE
+                    console.print("[cyan]復帰: アウトライン承認画面を再表示しました。[/cyan]")
+                else:
+                    # アウトラインがない場合は生成ステップに戻す
+                    console.print("[yellow]復帰: アウトラインが見つからないため、生成ステップに戻します。[/yellow]")
+                    context.current_step = "outline_generating"
+                    await self._send_server_event(context, StatusUpdatePayload(
+                        step=context.current_step, 
+                        message="アウトライン生成を再開します"
+                    ))
+            
+            # 状態の変更をDBに保存
+            await self._save_context_to_db(context, process_id=process_id, user_id=user_id)
+            
+        except Exception as e:
+            logger.error(f"復帰時のユーザー入力ステップ処理でエラー: {e}")
+            console.print(f"[red]復帰時のユーザー入力ステップ処理でエラー: {e}[/red]")
 
 
     async def _request_user_input(self, context: ArticleContext, request_type: UserInputType, data: Optional[Dict[str, Any]] = None):
@@ -1637,7 +1822,12 @@ class ArticleGenerationService:
                         raise TypeError(f"予期しないAgent出力タイプ: {type(agent_output)}")
 
                 else:
-                    raise ValueError(f"未定義のステップ: {context.current_step}")
+                    # ユーザー入力が必要なステップの場合は処理しない
+                    if context.current_step in USER_INPUT_STEPS:
+                        console.print(f"[yellow]ステップ {context.current_step} はユーザー入力が必要です。バックグラウンド処理を一時停止。[/yellow]")
+                        return
+                    else:
+                        raise ValueError(f"未定義のステップ: {context.current_step}")
 
         except asyncio.CancelledError:
              console.print("[yellow]Generation loop cancelled.[/yellow]")
@@ -1651,11 +1841,14 @@ class ArticleGenerationService:
             # WebSocketでエラーイベントを送信
             await self._send_error(context, error_message, context.current_step) # stepを指定
         finally:
-            # ループ終了時に特別なメッセージを送る (任意)
+            # ループ終了時に特別なメッセージを送る (任意) - ユーザー入力待ちの場合は送信しない
             if context.current_step == "completed":
                  await self._send_server_event(context, StatusUpdatePayload(step="finished", message="Article generation completed successfully."))
             elif context.current_step == "error":
                  await self._send_server_event(context, StatusUpdatePayload(step="finished", message=f"Article generation finished with error: {context.error_message}"))
+            elif context.current_step in USER_INPUT_STEPS:
+                 # ユーザー入力待ちの場合は finished メッセージを送信しない
+                 console.print(f"[yellow]Generation loop stopped at user input step: {context.current_step}[/yellow]")
             else:
                  # キャンセルされた場合など
                  await self._send_server_event(context, StatusUpdatePayload(step="finished", message="Article generation finished unexpectedly."))
@@ -1806,16 +1999,17 @@ class ArticleGenerationService:
             # Map current_step to valid generation_status enum values
             def map_step_to_status(step: str) -> str:
                 """Map context step to valid generation_status enum value"""
-                if step in ["start", "keyword_analysis", "persona_generation", "theme_generation", 
-                           "research_planning", "research_execution", "outline_generation", 
-                           "content_writing", "editing"]:
+                if step in ["start", "keyword_analyzing", "keyword_analyzed", "persona_generating", 
+                           "persona_selected", "theme_generating", "theme_selected", "research_planning", 
+                           "research_plan_approved", "researching", "research_synthesizing", 
+                           "outline_generating", "writing_sections", "editing"]:
                     return "in_progress"
                 elif step == "completed":
                     return "completed"
                 elif step == "error":
                     return "error"
-                elif step in ["persona_selection_required", "theme_selection_required", 
-                             "research_plan_generated", "outline_generated"]:
+                elif step in ["persona_generated", "theme_proposed", "research_plan_generated", 
+                             "outline_generated"]:
                     return "user_input_required"
                 else:
                     return "in_progress"  # Default fallback
@@ -2253,7 +2447,7 @@ class ArticleGenerationService:
             supabase = get_supabase_client()
             
             # Define recoverable statuses
-            recoverable_statuses = ['disconnected', 'user_input_required', 'in_progress', 'error']
+            recoverable_statuses = ['user_input_required', 'paused', 'error', 'resuming', 'auto_progressing']
             
             # Query for recoverable processes
             query = supabase.table("generated_articles_state").select(
@@ -2362,10 +2556,10 @@ class ArticleGenerationService:
         }
         
         try:
-            if status == "disconnected":
-                # Disconnected processes can usually auto-resume from current step
+            if status == "paused":
+                # Paused processes can usually auto-resume from current step
                 metadata["auto_resume_possible"] = True
-                metadata["recovery_notes"] = "接続が切断されました。自動復旧可能です。"
+                metadata["recovery_notes"] = "一時停止中です。自動復旧可能です。"
                 
             elif status == "user_input_required":
                 # User input required - cannot auto-resume
@@ -2474,7 +2668,7 @@ class ArticleGenerationService:
             raise
 
 
-    async def _update_process_status(self, process_id: str, status: str, current_step: str = None) -> None:
+    async def _update_process_status(self, process_id: str, status: str, current_step: str = None, metadata: dict = None) -> None:
         """Update process status in database"""
         try:
             from services.article_flow_service import get_supabase_client
@@ -2488,6 +2682,9 @@ class ArticleGenerationService:
             
             if current_step:
                 update_data["current_step_name"] = current_step
+            
+            if metadata:
+                update_data["process_metadata"] = metadata
             
             result = supabase.table("generated_articles_state").update(update_data).eq("id", process_id).execute()
             
