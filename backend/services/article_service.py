@@ -51,6 +51,24 @@ logger = logging.getLogger(__name__)
 # OpenAIクライアントの初期化 (ファイルスコープに戻す)
 async_client = AsyncOpenAI(api_key=settings.openai_api_key)
 
+# ステップ分類定数
+AUTONOMOUS_STEPS = {
+    'keyword_analyzing', 'persona_generating', 'theme_generating',
+    'research_planning', 'researching', 'research_synthesizing', 
+    'writing_sections', 'editing'
+}
+
+USER_INPUT_STEPS = {
+    'persona_generated', 'theme_proposed', 
+    'research_plan_generated', 'outline_generated'
+}
+
+# 切断後も処理を継続できるステップ
+DISCONNECTION_RESILIENT_STEPS = {
+    'research_planning', 'researching', 'research_synthesizing',
+    'writing_sections', 'editing'
+}
+
 def safe_trace_context(workflow_name: str, trace_id: str, group_id: str):
     """トレーシングエラーを安全にハンドリングするコンテキストマネージャー"""
     try:
@@ -71,8 +89,454 @@ def safe_custom_span(name: str, data: dict[str, Any] | None = None):
         from contextlib import nullcontext
         return nullcontext()
 
+def can_continue_autonomously(step: str) -> bool:
+    """ステップが自動継続可能かどうかを判定"""
+    return step in AUTONOMOUS_STEPS
+
+def is_disconnection_resilient(step: str) -> bool:
+    """WebSocket切断時でも処理継続可能なステップかどうかを判定"""
+    return step in DISCONNECTION_RESILIENT_STEPS
+
+def requires_user_input(step: str) -> bool:
+    """ユーザー入力が必要なステップかどうかを判定"""
+    return step in USER_INPUT_STEPS
+
+def calculate_progress_percentage(context: "ArticleContext") -> int:
+    """プロセスの進捗率を計算（より詳細な計算）"""
+    step_weights = {
+        'start': 0,
+        'keyword_analyzing': 5,
+        'keyword_analyzed': 8,
+        'persona_generating': 10,
+        'persona_generated': 15,
+        'theme_generating': 18,
+        'theme_proposed': 25,
+        'research_planning': 30,
+        'research_plan_generated': 35,
+        'research_plan_approved': 38,
+        'researching': 40,
+        'research_synthesizing': 60,
+        'outline_generating': 65,
+        'outline_generated': 70,
+        'writing_sections': 75,
+        'editing': 95,
+        'completed': 100,
+        'error': 0
+    }
+    
+    base_progress = step_weights.get(context.current_step, 0)
+    
+    # より詳細な進捗計算
+    if context.current_step == 'researching' and hasattr(context, 'research_progress'):
+        # リサーチ進捗を考慮
+        if context.research_progress and 'current_query' in context.research_progress:
+            query_progress = (context.research_progress['current_query'] / 
+                            len(context.research_plan.queries) if context.research_plan else 0) * 20
+            base_progress += query_progress
+    
+    elif context.current_step == 'writing_sections' and hasattr(context, 'sections_progress'):
+        # セクション執筆進捗を考慮
+        if context.sections_progress and 'current_section' in context.sections_progress:
+            section_progress = (context.sections_progress['current_section'] / 
+                              len(context.generated_outline.sections) if context.generated_outline else 0) * 20
+            base_progress += section_progress
+    
+    return min(100, int(base_progress))
+
 class ArticleGenerationService:
     """記事生成のコアロジックを提供し、WebSocket通信を処理するサービスクラス"""
+
+    def __init__(self):
+        self.active_heartbeats: Dict[str, asyncio.Task] = {}
+        self.background_processes: Dict[str, asyncio.Task] = {}
+
+    async def _start_heartbeat_monitor(self, websocket: WebSocket, process_id: str, context: "ArticleContext") -> asyncio.Task:
+        """WebSocket接続のハートビート監視を開始"""
+        async def heartbeat_loop():
+            try:
+                while websocket.client_state == WebSocketState.CONNECTED:
+                    try:
+                        # 30秒間隔でpingを送信
+                        await asyncio.sleep(30)
+                        if websocket.client_state == WebSocketState.CONNECTED:
+                            await websocket.ping()
+                    except Exception as e:
+                        logger.warning(f"Heartbeat failed for process {process_id}: {e}")
+                        break
+                
+                # 接続が切れた場合の処理
+                await self._handle_disconnection(process_id, context)
+                
+            except asyncio.CancelledError:
+                logger.info(f"Heartbeat monitor cancelled for process {process_id}")
+            except Exception as e:
+                logger.error(f"Heartbeat monitor error for process {process_id}: {e}")
+                await self._handle_disconnection(process_id, context)
+        
+        task = asyncio.create_task(heartbeat_loop())
+        self.active_heartbeats[process_id] = task
+        return task
+
+    async def _handle_disconnection(self, process_id: str, context: "ArticleContext"):
+        """WebSocket切断時の処理"""
+        logger.info(f"Handling disconnection for process {process_id}, current step: {context.current_step}")
+        
+        try:
+            # プロセス状態を切断として更新
+            await self._update_process_status(
+                process_id, 
+                'disconnected',
+                context.current_step,
+                metadata={
+                    'disconnected_at': datetime.now(timezone.utc).isoformat(),
+                    'can_auto_resume': is_disconnection_resilient(context.current_step),
+                    'progress_percentage': calculate_progress_percentage(context)
+                }
+            )
+            
+            # 切断耐性があるステップの場合、バックグラウンド処理を継続
+            if is_disconnection_resilient(context.current_step):
+                logger.info(f"Starting background processing for disconnected process {process_id}")
+                await self._start_background_processing(process_id, context)
+            else:
+                logger.info(f"Process {process_id} requires user input, pausing until reconnection")
+                
+        except Exception as e:
+            logger.error(f"Error handling disconnection for process {process_id}: {e}")
+
+    async def _start_background_processing(self, process_id: str, context: "ArticleContext"):
+        """切断されたプロセスのバックグラウンド処理を開始"""
+        async def background_loop():
+            try:
+                logger.info(f"Starting background processing for process {process_id}")
+                
+                # WebSocketなしで処理継続
+                context.websocket = None
+                run_config = RunConfig(runner=Runner(), max_turns=5)
+                
+                while (context.current_step not in USER_INPUT_STEPS and 
+                       context.current_step not in ['completed', 'error']):
+                    
+                    logger.info(f"Background processing step: {context.current_step}")
+                    
+                    # ステップを実行
+                    await self._execute_single_step(context, run_config, process_id, user_id=context.user_id)
+                    
+                    # 進捗を保存
+                    await self._save_context_to_db(context, process_id=process_id, user_id=context.user_id)
+                    
+                    # 小さな遅延を追加（負荷軽減）
+                    await asyncio.sleep(1)
+                
+                # 処理完了またはユーザー入力待ちになった場合
+                if context.current_step in USER_INPUT_STEPS:
+                    await self._update_process_status(
+                        process_id,
+                        'user_input_required',
+                        context.current_step,
+                        metadata={'background_completed_at': datetime.now(timezone.utc).isoformat()}
+                    )
+                    logger.info(f"Background processing paused at user input step: {context.current_step}")
+                elif context.current_step == 'completed':
+                    await self._update_process_status(
+                        process_id,
+                        'completed',
+                        context.current_step,
+                        metadata={'background_completed_at': datetime.now(timezone.utc).isoformat()}
+                    )
+                    logger.info(f"Background processing completed for process {process_id}")
+                
+            except asyncio.CancelledError:
+                logger.info(f"Background processing cancelled for process {process_id}")
+            except Exception as e:
+                logger.error(f"Background processing error for process {process_id}: {e}")
+                context.current_step = 'error'
+                context.error_message = str(e)
+                await self._save_context_to_db(context, process_id=process_id, user_id=context.user_id)
+        
+        # 既存のバックグラウンドタスクがあればキャンセル
+        if process_id in self.background_processes:
+            self.background_processes[process_id].cancel()
+        
+        task = asyncio.create_task(background_loop())
+        self.background_processes[process_id] = task
+        return task
+
+    async def _execute_single_step(self, context: "ArticleContext", run_config: RunConfig, process_id: Optional[str] = None, user_id: Optional[str] = None):
+        """単一ステップの実行（WebSocket不要版）"""
+        current_agent: Optional[Agent["ArticleContext"]] = None
+        agent_input: Union[str, List[Dict[str, Any]]]
+        
+        # データベースに現在の状態を保存
+        if process_id and user_id:
+            await self._save_context_to_db(context, process_id=process_id, user_id=user_id)
+        
+        # WebSocketがある場合のみイベント送信
+        if context.websocket:
+            await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message=f"Starting step: {context.current_step}"))
+        
+        console.rule(f"[bold yellow]Background Step: {context.current_step}[/bold yellow]")
+
+        # --- ステップに応じた処理（WebSocket不要な処理のみ） ---
+        if context.current_step == "start":
+            context.current_step = "keyword_analyzing"
+            if context.websocket:
+                await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message="Starting keyword analysis with SerpAPI..."))
+
+        elif context.current_step == "keyword_analyzing":
+            current_agent = serp_keyword_analysis_agent
+            agent_input = f"キーワード: {', '.join(context.initial_keywords)}"
+            console.print(f"🤖 {current_agent.name} にSerpAPIキーワード分析を依頼します...")
+            agent_output = await self._run_agent(current_agent, agent_input, context, run_config)
+
+            if isinstance(agent_output, SerpKeywordAnalysisReport):
+                context.serp_analysis_report = agent_output
+                context.current_step = "keyword_analyzed"
+                console.print("[green]SerpAPIキーワード分析が完了しました。[/green]")
+                
+                # 推奨目標文字数をコンテキストに設定
+                if not context.target_length:
+                    context.target_length = agent_output.recommended_target_length
+                    console.print(f"[cyan]推奨目標文字数を設定しました: {context.target_length}文字[/cyan]")
+                
+                # 次のステップに進む
+                context.current_step = "persona_generating"
+                if context.websocket:
+                    await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message="Keyword analysis completed, proceeding to persona generation."))
+            else:
+                console.print(f"[red]SerpAPIキーワード分析中に予期しないエージェント出力タイプを受け取りました。[/red]")
+                context.current_step = "error"
+                return
+        
+        elif context.current_step == "persona_generating":
+            current_agent = persona_generator_agent
+            agent_input = f"キーワード: {context.initial_keywords}, 年代: {context.target_age_group}, 属性: {context.persona_type}, 独自ペルソナ: {context.custom_persona}, 生成数: {context.num_persona_examples}"
+            console.print(f"🤖 {current_agent.name} に具体的なペルソナ生成を依頼します...")
+            agent_output = await self._run_agent(current_agent, agent_input, context, run_config)
+
+            if isinstance(agent_output, GeneratedPersonasResponse):
+                context.generated_detailed_personas = [p.description for p in agent_output.personas]
+                context.current_step = "persona_generated"
+                console.print(f"[cyan]{len(context.generated_detailed_personas)}件の具体的なペルソナを生成しました。[/cyan]")
+                # ユーザー入力が必要なのでここで停止
+                return
+            else:
+                console.print(f"[red]ペルソナ生成中に予期しないエージェント出力タイプを受け取りました。[/red]")
+                context.current_step = "error"
+                return
+
+        elif context.current_step == "theme_generating":
+            if not context.selected_detailed_persona:
+                console.print("[red]ペルソナが選択されていません。テーマ生成をスキップします。[/red]")
+                context.current_step = "error"
+                return
+
+            current_agent = theme_agent
+            agent_input = f"選択されたペルソナ「{context.selected_detailed_persona}」に向けた、キーワード「{', '.join(context.initial_keywords)}」に関するテーマを{context.num_theme_proposals}件提案してください。"
+            console.print(f"🤖 {current_agent.name} にテーマ提案を依頼します...")
+            agent_output = await self._run_agent(current_agent, agent_input, context, run_config)
+
+            if isinstance(agent_output, ThemeProposal):
+                context.theme_proposals = agent_output.themes
+                context.current_step = "theme_proposed"
+                console.print(f"[cyan]{len(context.theme_proposals)}件のテーマを提案しました。[/cyan]")
+                # ユーザー入力が必要なのでここで停止
+                return
+            else:
+                console.print(f"[red]テーマ生成中に予期しないエージェント出力タイプを受け取りました。[/red]")
+                context.current_step = "error"
+                return
+
+        elif context.current_step == "research_planning":
+            if not context.selected_theme:
+                console.print("[red]テーマが選択されていません。リサーチ計画作成をスキップします。[/red]")
+                context.current_step = "error"
+                return
+
+            current_agent = research_planner_agent
+            agent_input = f"選択されたテーマ「{context.selected_theme.title}」についてのリサーチ計画を作成してください。"
+            console.print(f"🤖 {current_agent.name} にリサーチ計画作成を依頼します...")
+            agent_output = await self._run_agent(current_agent, agent_input, context, run_config)
+
+            if isinstance(agent_output, ResearchPlan):
+                context.research_plan = agent_output
+                context.current_step = "research_plan_generated"
+                console.print("[cyan]リサーチ計画を生成しました。[/cyan]")
+                # ユーザー入力が必要なのでここで停止
+                return
+            else:
+                console.print(f"[red]リサーチ計画生成中に予期しないエージェント出力タイプを受け取りました。[/red]")
+                context.current_step = "error"
+                return
+
+        elif context.current_step == "researching":
+            if not context.research_plan:
+                console.print("[red]承認されたリサーチ計画がありません。リサーチをスキップします。[/red]")
+                context.current_step = "error"
+                return
+
+            context.research_results = []
+            total_queries = len(context.research_plan.queries)
+            
+            for i, query in enumerate(context.research_plan.queries):
+                console.print(f"🔍 リサーチクエリ {i+1}/{total_queries}: {query.query}")
+                
+                current_agent = researcher_agent
+                agent_input = query.query
+                agent_output = await self._run_agent(current_agent, agent_input, context, run_config)
+
+                if isinstance(agent_output, ResearchQueryResult):
+                    context.research_results.append(agent_output)
+                    console.print(f"[green]クエリ {i+1} のリサーチが完了しました。[/green]")
+                    
+                    # 進捗更新
+                    context.research_progress = {
+                        'current_query': i + 1,
+                        'total_queries': total_queries,
+                        'completed_queries': i + 1
+                    }
+                    
+                    if context.websocket:
+                        await self._send_server_event(context, ResearchProgressPayload(
+                            current_query=i + 1,
+                            total_queries=total_queries,
+                            query_text=query.query,
+                            completed=False
+                        ))
+                else:
+                    console.print(f"[red]リサーチクエリ {i+1} で予期しないエージェント出力タイプを受け取りました。[/red]")
+                    context.current_step = "error"
+                    return
+
+            context.current_step = "research_synthesizing"
+            console.print("[cyan]全てのリサーチクエリが完了しました。[/cyan]")
+
+        elif context.current_step == "research_synthesizing":
+            if not context.research_results:
+                console.print("[red]リサーチ結果がありません。合成をスキップします。[/red]")
+                context.current_step = "error"
+                return
+
+            current_agent = research_synthesizer_agent
+            agent_input = f"テーマ: {context.selected_theme.title}\nリサーチ結果: {json.dumps([r.model_dump() for r in context.research_results], ensure_ascii=False, indent=2)}"
+            console.print(f"🤖 {current_agent.name} にリサーチ結果の統合を依頼します...")
+            agent_output = await self._run_agent(current_agent, agent_input, context, run_config)
+
+            if isinstance(agent_output, ResearchReport):
+                context.research_report = agent_output
+                context.current_step = "outline_generating"
+                console.print("[cyan]リサーチ報告書が完成しました。[/cyan]")
+                if context.websocket:
+                    await self._send_server_event(context, ResearchCompletePayload(
+                        summary=agent_output.summary,
+                        key_findings=agent_output.key_findings,
+                        sources_used=len(context.research_results)
+                    ))
+            else:
+                console.print(f"[red]リサーチ合成中に予期しないエージェント出力タイプを受け取りました。[/red]")
+                context.current_step = "error"
+                return
+
+        elif context.current_step == "outline_generating":
+            if not context.research_report:
+                console.print("[red]リサーチ報告書がありません。アウトライン生成をスキップします。[/red]")
+                context.current_step = "error"
+                return
+
+            current_agent = outline_agent
+            agent_input = f"テーマ: {context.selected_theme.title}\nペルソナ: {context.selected_detailed_persona}\nリサーチ報告書: {context.research_report.model_dump_json(ensure_ascii=False, indent=2)}\n目標文字数: {context.target_length}"
+            console.print(f"🤖 {current_agent.name} にアウトライン生成を依頼します...")
+            agent_output = await self._run_agent(current_agent, agent_input, context, run_config)
+
+            if isinstance(agent_output, Outline):
+                context.generated_outline = agent_output
+                context.current_step = "outline_generated"
+                console.print(f"[cyan]アウトライン（{len(agent_output.sections)}セクション）を生成しました。[/cyan]")
+                # ユーザー入力が必要なのでここで停止
+                return
+            else:
+                console.print(f"[red]アウトライン生成中に予期しないエージェント出力タイプを受け取りました。[/red]")
+                context.current_step = "error"
+                return
+
+        elif context.current_step == "writing_sections":
+            if not context.generated_outline:
+                console.print("[red]承認されたアウトラインがありません。セクション執筆をスキップします。[/red]")
+                context.current_step = "error"
+                return
+
+            context.generated_sections = []
+            sections = context.generated_outline.sections
+            total_sections = len(sections)
+            
+            for i, section in enumerate(sections):
+                console.print(f"✍️ セクション {i+1}/{total_sections}: {section.heading}")
+                
+                current_agent = section_writer_agent
+                agent_input = f"セクション: {section.heading}\n内容: {section.content}\nキーポイント: {', '.join([kp.text for kp in section.key_points])}\nペルソナ: {context.selected_detailed_persona}\nリサーチデータ: {context.research_report.summary if context.research_report else 'なし'}"
+                agent_output = await self._run_agent(current_agent, agent_input, context, run_config)
+
+                if isinstance(agent_output, ArticleSection):
+                    context.generated_sections.append(agent_output)
+                    console.print(f"[green]セクション {i+1} が完了しました。[/green]")
+                    
+                    # 進捗更新
+                    context.sections_progress = {
+                        'current_section': i + 1,
+                        'total_sections': total_sections,
+                        'completed_sections': i + 1
+                    }
+                    
+                    if context.websocket:
+                        await self._send_server_event(context, SectionChunkPayload(
+                            section_index=i,
+                            section_title=section.heading,
+                            content_chunk=agent_output.content[:200] + "..." if len(agent_output.content) > 200 else agent_output.content,
+                            progress=int((i + 1) / total_sections * 100)
+                        ))
+                else:
+                    console.print(f"[red]セクション {i+1} で予期しないエージェント出力タイプを受け取りました。[/red]")
+                    context.current_step = "error"
+                    return
+
+            # 全セクション完了
+            context.current_step = "editing"
+            console.print("[cyan]全セクションの執筆が完了しました。[/cyan]")
+
+        elif context.current_step == "editing":
+            if not context.generated_sections:
+                console.print("[red]生成されたセクションがありません。編集をスキップします。[/red]")
+                context.current_step = "error"
+                return
+
+            current_agent = editor_agent
+            combined_content = "\n\n".join([section.content for section in context.generated_sections])
+            agent_input = f"タイトル: {context.generated_outline.title}\nコンテンツ: {combined_content}\nペルソナ: {context.selected_detailed_persona}\n目標文字数: {context.target_length}"
+            console.print(f"🤖 {current_agent.name} に最終編集を依頼します...")
+            
+            if context.websocket:
+                await self._send_server_event(context, EditingStartPayload(message="記事の最終編集を開始しています..."))
+            
+            agent_output = await self._run_agent(current_agent, agent_input, context, run_config)
+
+            if isinstance(agent_output, RevisedArticle):
+                context.final_article = agent_output
+                context.current_step = "completed"
+                console.print("[green]記事の編集が完了しました！[/green]")
+            else:
+                console.print(f"[red]編集中に予期しないエージェント出力タイプを受け取りました。[/red]")
+                context.current_step = "error"
+                return
+
+        else:
+            # ユーザー入力が必要なステップの場合は処理しない
+            if context.current_step in USER_INPUT_STEPS:
+                console.print(f"[yellow]ステップ {context.current_step} はユーザー入力が必要です。バックグラウンド処理を一時停止。[/yellow]")
+                return
+            else:
+                console.print(f"[red]未定義または処理不可能なステップ: {context.current_step}[/red]")
+                context.current_step = "error"
+                return
 
     async def handle_websocket_connection(self, websocket: WebSocket, process_id: Optional[str] = None, user_id: Optional[str] = None):
         """WebSocket接続を処理し、記事生成プロセスを実行"""
@@ -146,7 +610,8 @@ class ArticleGenerationService:
                 company_description=request.company_description,
                 company_style_guide=request.company_style_guide,
                 websocket=websocket, # WebSocketオブジェクトをコンテキストに追加
-                    user_response_event=asyncio.Event() # ユーザー応答待ちイベント
+                    user_response_event=asyncio.Event(), # ユーザー応答待ちイベント
+                    user_id=user_id # ユーザーIDを設定
                 )
                 
                 # 単一のトレースIDとグループIDを生成して、フロー全体をまとめる
@@ -178,13 +643,18 @@ class ArticleGenerationService:
                 )
                 is_initialized = True  # 初期化完了
 
-            # 3. 単一のトレースコンテキスト内でバックグラウンド生成ループを開始
+            # 3. ハートビート監視を開始
+            heartbeat_task = None
+            if process_id:
+                heartbeat_task = await self._start_heartbeat_monitor(websocket, process_id, context)
+            
+            # 4. 単一のトレースコンテキスト内でバックグラウンド生成ループを開始
             with safe_trace_context("SEO記事生成ワークフロー", trace_id, session_id):
                 generation_task = asyncio.create_task(
                     self._run_generation_loop(context, run_config, process_id, user_id)
                 )
 
-                # 4. クライアントからの応答を待ち受けるループ
+                # 5. クライアントからの応答を待ち受けるループ
                 while not generation_task.done():
                     try:
                         # タイムアウトを設定してクライアントからの応答を待つ (例: 5分)
@@ -290,6 +760,20 @@ class ArticleGenerationService:
                     await generation_task # キャンセル完了を待つ
                 except asyncio.CancelledError:
                     console.print("Generation task cancelled.")
+            
+            # ハートビートタスクのクリーンアップ
+            if heartbeat_task and not heartbeat_task.done():
+                heartbeat_task.cancel()
+                try:
+                    await heartbeat_task
+                except asyncio.CancelledError:
+                    console.print("Heartbeat task cancelled.")
+            
+            # タスク辞書からのクリーンアップ
+            if process_id:
+                self.active_heartbeats.pop(process_id, None)
+                # バックグラウンドタスクは継続させる場合があるので、ここではクリーンアップしない
+                
             # WebSocket終了処理は既に上で実行済みなので重複を避ける
             console.print("WebSocket connection closed.")
 
@@ -1453,7 +1937,8 @@ class ArticleGenerationService:
                 company_description=context_dict.get("company_description"),
                 company_style_guide=context_dict.get("company_style_guide"),
                 websocket=None,  # Will be set when WebSocket connects
-                user_response_event=None  # Will be set when WebSocket connects
+                user_response_event=None,  # Will be set when WebSocket connects
+                user_id=user_id  # Set user_id from method parameter
             )
             
             # Restore other context state
@@ -1750,6 +2235,187 @@ class ArticleGenerationService:
         except Exception as e:
             logger.error(f"Error retrieving all processes for user {user_id}: {e}")
             raise
+
+    async def get_recoverable_processes(self, user_id: str, limit: int = 10) -> List[dict]:
+        """
+        Get processes that can be recovered/resumed for a user.
+        
+        Args:
+            user_id: User ID to filter processes
+            limit: Maximum number of recoverable processes to return
+            
+        Returns:
+            List of recoverable process dictionaries with recovery metadata
+        """
+        try:
+            from services.article_flow_service import get_supabase_client
+            from datetime import datetime, timezone
+            supabase = get_supabase_client()
+            
+            # Define recoverable statuses
+            recoverable_statuses = ['disconnected', 'user_input_required', 'in_progress', 'error']
+            
+            # Query for recoverable processes
+            query = supabase.table("generated_articles_state").select(
+                "id, status, article_context, current_step_name, progress_percentage, "
+                "is_waiting_for_input, created_at, updated_at, error_message, last_activity_at"
+            ).eq("user_id", user_id).in_("status", recoverable_statuses)
+            
+            result = query.order("updated_at", desc=True).limit(limit).execute()
+            
+            recoverable_processes = []
+            current_time = datetime.now(timezone.utc)
+            
+            for process in result.data:
+                context = process.get("article_context", {})
+                keywords = context.get("initial_keywords", [])
+                current_step = process.get("current_step_name", "start")
+                status = process["status"]
+                updated_at = process.get("updated_at")
+                
+                # Calculate time since last activity
+                time_since_activity = None
+                if updated_at:
+                    try:
+                        last_activity = datetime.fromisoformat(updated_at.replace('Z', '+00:00'))
+                        time_since_activity = int((current_time - last_activity).total_seconds())
+                    except (ValueError, TypeError) as e:
+                        logger.warning(f"Error parsing updated_at for process {process['id']}: {e}")
+                        time_since_activity = None
+                
+                # Determine recovery metadata
+                recovery_metadata = self._get_recovery_metadata(status, current_step, process)
+                
+                # Generate title from keywords or context
+                if keywords:
+                    title = f"SEO記事: {', '.join(keywords[:3])}"
+                elif context.get("title"):
+                    title = context["title"]
+                else:
+                    title = f"記事生成プロセス (ID: {process['id'][:8]}...)"
+                
+                # Get step description
+                step_descriptions = {
+                    "start": "生成開始",
+                    "keyword_analyzing": "キーワード分析中",
+                    "persona_generating": "ペルソナ生成中",
+                    "theme_generating": "テーマ生成中",
+                    "theme_proposed": "テーマ選択待ち",
+                    "research_planning": "リサーチ計画策定中",
+                    "research_plan_generated": "リサーチ計画承認待ち",
+                    "researching": "リサーチ実行中",
+                    "outline_generating": "アウトライン生成中",
+                    "outline_generated": "アウトライン承認待ち",
+                    "writing_sections": "記事執筆中",
+                    "editing": "編集中",
+                    "error": "エラーが発生しました"
+                }
+                description = step_descriptions.get(current_step, f"ステップ: {current_step}")
+                
+                process_data = {
+                    "id": process["id"],
+                    "process_id": process["id"],
+                    "title": title,
+                    "description": description,
+                    "status": status,
+                    "current_step": current_step,
+                    "progress_percentage": process.get("progress_percentage", 0),
+                    "keywords": keywords,
+                    "target_audience": context.get("custom_persona") or context.get("persona_type"),
+                    "created_at": process["created_at"],
+                    "updated_at": updated_at,
+                    "time_since_last_activity": time_since_activity,
+                    "error_message": process.get("error_message"),
+                    
+                    # Recovery metadata
+                    "resume_step": recovery_metadata["resume_step"],
+                    "auto_resume_possible": recovery_metadata["auto_resume_possible"],
+                    "recovery_notes": recovery_metadata["recovery_notes"],
+                    "requires_user_input": recovery_metadata["requires_user_input"]
+                }
+                
+                recoverable_processes.append(process_data)
+            
+            return recoverable_processes
+            
+        except Exception as e:
+            logger.error(f"Error retrieving recoverable processes for user {user_id}: {e}")
+            raise
+    
+    def _get_recovery_metadata(self, status: str, current_step: str, process: dict) -> dict:
+        """
+        Generate recovery metadata for a process based on its current state.
+        
+        Args:
+            status: Current process status
+            current_step: Current step name
+            process: Full process data
+            
+        Returns:
+            Dictionary containing recovery metadata
+        """
+        metadata = {
+            "resume_step": current_step,
+            "auto_resume_possible": False,
+            "recovery_notes": "",
+            "requires_user_input": False
+        }
+        
+        try:
+            if status == "disconnected":
+                # Disconnected processes can usually auto-resume from current step
+                metadata["auto_resume_possible"] = True
+                metadata["recovery_notes"] = "接続が切断されました。自動復旧可能です。"
+                
+            elif status == "user_input_required":
+                # User input required - cannot auto-resume
+                metadata["auto_resume_possible"] = False
+                metadata["requires_user_input"] = True
+                
+                # Determine what type of input is needed based on current step
+                if current_step == "theme_proposed":
+                    metadata["recovery_notes"] = "テーマの選択が必要です。"
+                elif current_step == "research_plan_generated":
+                    metadata["recovery_notes"] = "リサーチ計画の承認が必要です。"
+                elif current_step == "outline_generated":
+                    metadata["recovery_notes"] = "アウトラインの承認が必要です。"
+                else:
+                    metadata["recovery_notes"] = "ユーザーの入力が必要です。"
+                    
+            elif status == "in_progress":
+                # In-progress processes might be resumable depending on step
+                if current_step in ["researching", "writing_sections", "editing"]:
+                    metadata["auto_resume_possible"] = True
+                    metadata["recovery_notes"] = "処理が中断されました。自動復旧可能です。"
+                else:
+                    metadata["auto_resume_possible"] = False
+                    metadata["recovery_notes"] = "処理が中断されました。手動での確認が必要です。"
+                    
+            elif status == "error":
+                # Error processes need manual intervention
+                metadata["auto_resume_possible"] = False
+                error_message = process.get("error_message", "")
+                
+                # Try to provide more specific recovery guidance based on error
+                if "connection" in error_message.lower():
+                    metadata["recovery_notes"] = "接続エラーが発生しました。再試行可能です。"
+                    metadata["auto_resume_possible"] = True
+                elif "timeout" in error_message.lower():
+                    metadata["recovery_notes"] = "タイムアウトエラーが発生しました。再試行可能です。"
+                    metadata["auto_resume_possible"] = True
+                elif "authentication" in error_message.lower():
+                    metadata["recovery_notes"] = "認証エラーが発生しました。設定を確認してください。"
+                elif "quota" in error_message.lower() or "limit" in error_message.lower():
+                    metadata["recovery_notes"] = "API制限に達しました。時間をおいて再試行してください。"
+                else:
+                    metadata["recovery_notes"] = f"エラーが発生しました: {error_message[:100]}..."
+            
+            return metadata
+            
+        except Exception as e:
+            logger.warning(f"Error generating recovery metadata: {e}")
+            metadata["recovery_notes"] = "復旧情報の取得中にエラーが発生しました。"
+            return metadata
 
     async def update_article(
         self, 

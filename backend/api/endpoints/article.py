@@ -96,6 +96,34 @@ async def get_all_processes(
             detail="Failed to retrieve processes"
         )
 
+@router.get("/recoverable-processes", response_model=List[dict], status_code=status.HTTP_200_OK)
+async def get_recoverable_processes(
+    user_id: str = Depends(get_current_user_id_from_token),
+    limit: int = Query(10, description="Number of recoverable processes to return"),
+):
+    """
+    Get recoverable processes for the user that can be resumed.
+    
+    **Parameters:**
+    - user_id: User ID (from authentication)
+    - limit: Maximum number of processes to return (default: 10)
+    
+    **Returns:**
+    - List of recoverable generation processes with recovery metadata
+    """
+    try:
+        processes = await article_service.get_recoverable_processes(
+            user_id=user_id,
+            limit=limit
+        )
+        return processes
+    except Exception as e:
+        logger.error(f"Error getting recoverable processes for user {user_id}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to retrieve recoverable processes"
+        )
+
 @router.get("/{article_id}", response_model=dict, status_code=status.HTTP_200_OK)
 async def get_article(
     article_id: str,
