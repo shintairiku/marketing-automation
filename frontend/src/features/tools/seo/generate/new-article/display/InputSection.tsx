@@ -1,6 +1,6 @@
 "use client";
 import { useState } from 'react';
-import { ChevronDown, ChevronUp } from "lucide-react";
+import { ChevronDown, ChevronUp, Plus, X } from "lucide-react";
 import { IoRefresh, IoSparkles } from "react-icons/io5";
 
 import { Badge } from "@/components/ui/badge";
@@ -20,25 +20,59 @@ interface InputSectionProps {
 }
 
 export default function InputSection({ onStartGeneration, isConnected, isGenerating }: InputSectionProps) {
-    const [seoKeyword, setSeoKeyword] = useState('');
+    const [seoKeywords, setSeoKeywords] = useState<string[]>([]);
+    const [currentKeyword, setCurrentKeyword] = useState('');
     const [themeCount, setThemeCount] = useState(3);
+    const [targetAgeGroup, setTargetAgeGroup] = useState('');
     const [personaType, setPersonaType] = useState('');
     const [customPersona, setCustomPersona] = useState('');
     const [targetLength, setTargetLength] = useState(3000);
+    const [researchQueries, setResearchQueries] = useState(3);
+    const [personaExamples, setPersonaExamples] = useState(3);
     const [companyName, setCompanyName] = useState('');
     const [companyDescription, setCompanyDescription] = useState('');
     const [companyStyleGuide, setCompanyStyleGuide] = useState('');
     const [showAdvanced, setShowAdvanced] = useState(false);
 
+    // キーワード追加関数
+    const addKeyword = () => {
+        const trimmedKeyword = currentKeyword.trim();
+        if (trimmedKeyword && !seoKeywords.includes(trimmedKeyword)) {
+            setSeoKeywords([...seoKeywords, trimmedKeyword]);
+            setCurrentKeyword('');
+        }
+    };
+
+    // キーワード削除関数
+    const removeKeyword = (indexToRemove: number) => {
+        setSeoKeywords(seoKeywords.filter((_, index) => index !== indexToRemove));
+    };
+
+    // Enterキーでキーワード追加
+    const handleKeywordKeyPress = (e: React.KeyboardEvent) => {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            addKeyword();
+        }
+    };
+
     const handleStartGeneration = () => {
-        if (!seoKeyword.trim()) {
-            alert('SEOキーワードを入力してください');
+        if (seoKeywords.length === 0) {
+            alert('SEOキーワードを最低1つ入力してください');
+            return;
+        }
+
+        if (!targetAgeGroup) {
+            alert('ターゲット年代層を選択してください');
             return;
         }
 
         const requestData = {
-            initial_keywords: [seoKeyword.trim()],
+            initial_keywords: seoKeywords,
+            target_age_group: targetAgeGroup,
             num_theme_proposals: themeCount,
+            num_research_queries: researchQueries,
+            num_persona_examples: personaExamples,
             persona_type: personaType || null,
             custom_persona: customPersona || null,
             target_length: targetLength,
@@ -61,13 +95,58 @@ export default function InputSection({ onStartGeneration, isConnected, isGenerat
               <CardTitle className="text-lg">リーチしたいSEOワード *</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="space-y-2">
-                <Input
-                  value={seoKeyword}
-                  onChange={(e) => setSeoKeyword(e.target.value)}
-                  placeholder="例: Webマーケティング"
-                  required
-                />
+              <div className="space-y-4">
+                {/* キーワード入力欄 */}
+                <div className="flex gap-2">
+                  <Input
+                    value={currentKeyword}
+                    onChange={(e) => setCurrentKeyword(e.target.value)}
+                    onKeyPress={handleKeywordKeyPress}
+                    placeholder="例: Webマーケティング"
+                    className="flex-1"
+                  />
+                  <Button
+                    type="button"
+                    onClick={addKeyword}
+                    disabled={!currentKeyword.trim() || seoKeywords.includes(currentKeyword.trim())}
+                    size="sm"
+                    className="px-3"
+                  >
+                    <Plus className="h-4 w-4" />
+                  </Button>
+                </div>
+                
+                {/* 追加されたキーワード一覧 */}
+                {seoKeywords.length > 0 && (
+                  <div className="space-y-2">
+                    <Label className="text-sm font-medium">追加されたキーワード ({seoKeywords.length}個)</Label>
+                    <div className="flex flex-wrap gap-2">
+                      {seoKeywords.map((keyword, index) => (
+                        <Badge
+                          key={index}
+                          variant="secondary"
+                          className="flex items-center gap-1 py-1 px-2"
+                        >
+                          {keyword}
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="h-4 w-4 p-0 hover:bg-destructive hover:text-destructive-foreground"
+                            onClick={() => removeKeyword(index)}
+                          >
+                            <X className="h-3 w-3" />
+                          </Button>
+                        </Badge>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                
+                {/* ヘルプテキスト */}
+                <div className="text-sm text-muted-foreground">
+                  キーワードを入力してプラスボタンをクリックするか、Enterキーを押して追加してください
+                </div>
               </div>
             </CardContent>
           </Card>
@@ -99,7 +178,32 @@ export default function InputSection({ onStartGeneration, isConnected, isGenerat
             </CardContent>
           </Card>
 
-          {/* Card3: ペルソナ */}
+          {/* Card3: ターゲット年代層 */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-lg">ターゲット年代層 *</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-4">
+                <Select value={targetAgeGroup} onValueChange={setTargetAgeGroup} required>
+                  <SelectTrigger>
+                    <SelectValue placeholder="年代層を選択" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="10代">10代</SelectItem>
+                    <SelectItem value="20代">20代</SelectItem>
+                    <SelectItem value="30代">30代</SelectItem>
+                    <SelectItem value="40代">40代</SelectItem>
+                    <SelectItem value="50代">50代</SelectItem>
+                    <SelectItem value="60代">60代</SelectItem>
+                    <SelectItem value="70代以上">70代以上</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Card4: ペルソナ */}
           <Card>
             <CardHeader>
               <CardTitle className="text-lg">ペルソナ設定</CardTitle>
@@ -142,7 +246,7 @@ export default function InputSection({ onStartGeneration, isConnected, isGenerat
             </Button>
           </CollapsibleTrigger>
           <CollapsibleContent>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-5 mb-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 mb-6">
               {/* 目標文字数 */}
               <Card>
                 <CardHeader>
@@ -168,13 +272,63 @@ export default function InputSection({ onStartGeneration, isConnected, isGenerat
                 </CardContent>
               </Card>
 
-              {/* 企業情報 */}
+              {/* リサーチクエリ数 */}
               <Card>
+                <CardHeader>
+                  <CardTitle className="text-lg">リサーチクエリ数</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-4">
+                    <div className="text-center text-2xl font-bold text-primary">{researchQueries}</div>
+                    <Slider
+                      value={[researchQueries]}
+                      onValueChange={(value) => setResearchQueries(value[0])}
+                      min={1}
+                      max={10}
+                      step={1}
+                      className="w-full"
+                    />
+                    <div className="flex justify-between text-sm text-gray-500">
+                      <span>1</span>
+                      <span>5</span>
+                      <span>10</span>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* 具体的なペルソナ生成数 */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-lg">ペルソナ生成数</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-4">
+                    <div className="text-center text-2xl font-bold text-primary">{personaExamples}</div>
+                    <Slider
+                      value={[personaExamples]}
+                      onValueChange={(value) => setPersonaExamples(value[0])}
+                      min={1}
+                      max={8}
+                      step={1}
+                      className="w-full"
+                    />
+                    <div className="flex justify-between text-sm text-gray-500">
+                      <span>1</span>
+                      <span>4</span>
+                      <span>8</span>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* 企業情報 */}
+              <Card className="md:col-span-2 lg:col-span-3">
                 <CardHeader>
                   <CardTitle className="text-lg">企業情報</CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <div className="space-y-4">
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                     <div>
                       <Label htmlFor="company-name">企業名</Label>
                       <Input
@@ -184,17 +338,6 @@ export default function InputSection({ onStartGeneration, isConnected, isGenerat
                         placeholder="株式会社サンプル"
                       />
                     </div>
-                  </div>
-                </CardContent>
-              </Card>
-
-              {/* 企業概要・スタイルガイド */}
-              <Card className="md:col-span-2">
-                <CardHeader>
-                  <CardTitle className="text-lg">企業詳細情報</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-4">
                     <div>
                       <Label htmlFor="company-description">企業概要</Label>
                       <Textarea
@@ -202,7 +345,7 @@ export default function InputSection({ onStartGeneration, isConnected, isGenerat
                         value={companyDescription}
                         onChange={(e) => setCompanyDescription(e.target.value)}
                         placeholder="企業の事業内容や特徴を入力してください"
-                        rows={3}
+                        rows={2}
                       />
                     </div>
                     <div>
@@ -211,8 +354,8 @@ export default function InputSection({ onStartGeneration, isConnected, isGenerat
                         id="company-style"
                         value={companyStyleGuide}
                         onChange={(e) => setCompanyStyleGuide(e.target.value)}
-                        placeholder="記事の文体やトーンについての指示（例: 専門用語を避け、温かみのある丁寧語で）"
-                        rows={3}
+                        placeholder="記事の文体やトーンについての指示"
+                        rows={2}
                       />
                     </div>
                   </div>
@@ -225,7 +368,7 @@ export default function InputSection({ onStartGeneration, isConnected, isGenerat
         <div className="mt-auto flex justify-center">
           <Button
             onClick={handleStartGeneration}
-            disabled={!isConnected || isGenerating || !seoKeyword.trim()}
+            disabled={!isConnected || isGenerating || seoKeywords.length === 0 || !targetAgeGroup}
             className="w-full max-w-md"
             size="lg"
           >
