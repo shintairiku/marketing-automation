@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { BarChart3, Calendar, Edit, Eye,User } from "lucide-react";
+import { AlertCircle, BarChart3, Calendar, CheckCircle,Clock, Edit, Eye, Play, User } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -37,7 +37,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { useArticleDetail,useArticles } from "@/hooks/useArticles";
+import { useAllProcesses,useArticleDetail, useArticles } from "@/hooks/useArticles";
 
 const PAGE_SIZE = 20;
 
@@ -47,16 +47,16 @@ export default function IndexPage() {
   const [sheetOpen, setSheetOpen] = useState(false);
   const [statusFilter, setStatusFilter] = useState<string>("");
 
-  // 記事一覧を取得
+  // 全プロセス（記事+未完成プロセス）を取得
   const {
-    articles,
-    loading: articlesLoading,
-    error: articlesError,
+    processes,
+    loading: processesLoading,
+    error: processesError,
     currentPage,
     totalPages,
     setPage,
     refetch
-  } = useArticles(PAGE_SIZE, statusFilter || undefined);
+  } = useAllProcesses(PAGE_SIZE, statusFilter || undefined);
 
   // 選択された記事の詳細を取得
   const {
@@ -80,9 +80,19 @@ export default function IndexPage() {
     setPage(1); // Reset to first page when clearing filter
   };
 
-  const handleEditClick = (articleId: string, e: React.MouseEvent) => {
+  const handleEditClick = (processItem: any, e: React.MouseEvent) => {
     e.stopPropagation(); // カードクリックイベントを防ぐ
-    router.push(`/seo/generate/edit-article/${articleId}`);
+    if (processItem.process_type === 'article') {
+      router.push(`/seo/generate/edit-article/${processItem.id}`);
+    } else {
+      // Generation process - redirect to generation page
+      router.push(`/seo/generate/new-article/${processItem.process_id}`);
+    }
+  };
+
+  const handleResumeClick = (processId: string, e: React.MouseEvent) => {
+    e.stopPropagation(); // カードクリックイベントを防ぐ
+    router.push(`/seo/generate/new-article/${processId}`);
   };
 
   const formatDate = (dateString: string) => {
@@ -101,8 +111,11 @@ export default function IndexPage() {
     switch (status) {
       case 'completed': return '完了';
       case 'in_progress': return '進行中';
+      case 'user_input_required': return '入力待ち';
+      case 'paused': return '一時停止';
       case 'error': return 'エラー';
       case 'cancelled': return 'キャンセル';
+      case 'resuming': return '再開中';
       default: return status;
     }
   };
@@ -111,17 +124,37 @@ export default function IndexPage() {
     switch (status) {
       case 'completed': return 'bg-green-100 text-green-800';
       case 'in_progress': return 'bg-blue-100 text-blue-800';
+      case 'user_input_required': return 'bg-yellow-100 text-yellow-800';
+      case 'paused': return 'bg-gray-100 text-gray-800';
       case 'error': return 'bg-red-100 text-red-800';
+      case 'cancelled': return 'bg-gray-100 text-gray-600';
+      case 'resuming': return 'bg-purple-100 text-purple-800';
       default: return 'bg-gray-100 text-gray-800';
     }
   };
 
-  if (articlesError) {
+  const getStatusIcon = (status: string, processType: string) => {
+    if (processType === 'article') {
+      return <CheckCircle className="w-4 h-4" />;
+    }
+    
+    switch (status) {
+      case 'completed': return <CheckCircle className="w-4 h-4" />;
+      case 'in_progress': return <Clock className="w-4 h-4 animate-pulse" />;
+      case 'user_input_required': return <AlertCircle className="w-4 h-4" />;
+      case 'paused': return <Clock className="w-4 h-4" />;
+      case 'error': return <AlertCircle className="w-4 h-4" />;
+      case 'resuming': return <Play className="w-4 h-4" />;
+      default: return <Clock className="w-4 h-4" />;
+    }
+  };
+
+  if (processesError) {
     return (
       <div className="space-y-6">
         <Card className="p-4">
           <div className="text-center text-red-600">
-            <p>記事の読み込み中にエラーが発生しました: {articlesError}</p>
+            <p>プロセスの読み込み中にエラーが発生しました: {processesError}</p>
             <Button onClick={refetch} className="mt-2">
               再試行
             </Button>
@@ -159,6 +192,8 @@ export default function IndexPage() {
                     <option value="">すべて</option>
                     <option value="completed">完了</option>
                     <option value="in_progress">進行中</option>
+                    <option value="user_input_required">入力待ち</option>
+                    <option value="paused">一時停止</option>
                     <option value="error">エラー</option>
                     <option value="cancelled">キャンセル</option>
                   </select>
@@ -177,43 +212,56 @@ export default function IndexPage() {
       </div>
 
       {/* メインコンテンツエリア */}
-      {articlesLoading ? (
+      {processesLoading ? (
         <div className="flex justify-center items-center py-16">
           <div className="text-center">
             <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-gray-900 mx-auto"></div>
-            <p className="mt-4 text-lg text-gray-600">記事を読み込み中...</p>
+            <p className="mt-4 text-lg text-gray-600">プロセスを読み込み中...</p>
           </div>
         </div>
-      ) : articles.length === 0 ? (
+      ) : processes.length === 0 ? (
         <div className="text-center py-16">
           <div className="max-w-md mx-auto">
             <div className="bg-gray-100 rounded-full w-16 h-16 flex items-center justify-center mx-auto mb-4">
               <Edit className="w-8 h-8 text-gray-600" />
             </div>
-            <h3 className="text-xl font-semibold text-gray-900 mb-2">記事がありません</h3>
+            <h3 className="text-xl font-semibold text-gray-900 mb-2">プロセスがありません</h3>
             <p className="text-gray-600">
-              {statusFilter ? `「${getStatusDisplay(statusFilter)}」ステータスの記事が見つかりません` : "まだ記事が生成されていません"}
+              {statusFilter ? `「${getStatusDisplay(statusFilter)}」ステータスのプロセスが見つかりません` : "まだプロセスが生成されていません"}
             </p>
           </div>
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {articles.map((article) => (
+          {processes.map((process) => (
             <Card 
-              key={article.id} 
+              key={process.id} 
               className="overflow-hidden hover:shadow-lg transition-shadow duration-200 cursor-pointer bg-white"
-              onClick={() => handleRowClick(article.id)}
+              onClick={() => handleRowClick(process.id)}
             >
               {/* カードヘッダー画像風エリア */}
-              <div className="h-48 bg-gradient-to-br from-blue-50 to-indigo-100 relative">
-                <div className="absolute top-4 left-4">
-                  <span className={`px-3 py-1 text-xs font-medium rounded-full ${getStatusColor(article.status)}`}>
-                    {getStatusDisplay(article.status)}
+              <div className={`h-48 relative ${process.process_type === 'article' ? 'bg-gradient-to-br from-green-50 to-emerald-100' : 'bg-gradient-to-br from-blue-50 to-indigo-100'}`}>
+                <div className="absolute top-4 left-4 flex items-center gap-2">
+                  <span className={`px-3 py-1 text-xs font-medium rounded-full flex items-center gap-1 ${getStatusColor(process.status)}`}>
+                    {getStatusIcon(process.status, process.process_type)}
+                    {getStatusDisplay(process.status)}
                   </span>
+                  {process.process_type === 'generation' && (
+                    <span className="px-2 py-1 text-xs bg-purple-100 text-purple-700 rounded">
+                      プロセス
+                    </span>
+                  )}
                 </div>
+                {process.process_type === 'generation' && process.progress_percentage !== undefined && (
+                  <div className="absolute top-4 right-4">
+                    <div className="text-xs text-gray-600 bg-white/80 px-2 py-1 rounded">
+                      {process.progress_percentage}%
+                    </div>
+                  </div>
+                )}
                 <div className="absolute bottom-4 left-4 right-4">
                   <h3 className="text-lg font-bold text-gray-900 line-clamp-2 leading-tight">
-                    {article.title}
+                    {process.title}
                   </h3>
                 </div>
               </div>
@@ -221,45 +269,93 @@ export default function IndexPage() {
               {/* カードコンテンツ */}
               <div className="p-6">
                 <p className="text-gray-600 text-sm line-clamp-3 mb-4">
-                  {article.shortdescription || "記事の概要が設定されていません"}
+                  {process.shortdescription || "概要が設定されていません"}
                 </p>
                 
                 {/* メタ情報 */}
                 <div className="space-y-2 mb-4">
                   <div className="flex items-center text-sm text-gray-500">
                     <Calendar className="w-4 h-4 mr-2" />
-                    <span>{formatDate(article.postdate)}</span>
+                    <span>{formatDate(process.postdate)}</span>
                   </div>
-                  {article.target_audience && (
+                  {process.target_audience && (
                     <div className="flex items-center text-sm text-gray-500">
                       <User className="w-4 h-4 mr-2" />
-                      <span className="line-clamp-1">{article.target_audience}</span>
+                      <span className="line-clamp-1">{process.target_audience}</span>
+                    </div>
+                  )}
+                  {process.current_step && process.process_type === 'generation' && (
+                    <div className="flex items-center text-sm text-gray-500">
+                      <Clock className="w-4 h-4 mr-2" />
+                      <span className="line-clamp-1">ステップ: {process.current_step}</span>
                     </div>
                   )}
                 </div>
                 
                 {/* アクションボタン */}
                 <div className="flex gap-2">
-                  <Button 
-                    size="sm" 
-                    className="flex-1 bg-secondary hover:bg-secondary/90"
-                    onClick={(e) => handleEditClick(article.id, e)}
-                  >
-                    <Edit className="w-4 h-4 mr-1" />
-                    修正
-                  </Button>
-                  <Button 
-                    size="sm" 
-                    variant="outline" 
-                    className="flex-1"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleRowClick(article.id);
-                    }}
-                  >
-                    <Eye className="w-4 h-4 mr-1" />
-                    分析
-                  </Button>
+                  {process.process_type === 'article' ? (
+                    <>
+                      <Button 
+                        size="sm" 
+                        className="flex-1 bg-secondary hover:bg-secondary/90"
+                        onClick={(e) => handleEditClick(process, e)}
+                      >
+                        <Edit className="w-4 h-4 mr-1" />
+                        編集
+                      </Button>
+                      <Button 
+                        size="sm" 
+                        variant="outline" 
+                        className="flex-1"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleRowClick(process.id);
+                        }}
+                      >
+                        <Eye className="w-4 h-4 mr-1" />
+                        表示
+                      </Button>
+                    </>
+                  ) : (
+                    <>
+                      {process.is_recoverable ? (
+                        <Button 
+                          size="sm" 
+                          className="flex-1 bg-blue-600 hover:bg-blue-700 text-white"
+                          onClick={(e) => handleResumeClick(process.process_id!, e)}
+                        >
+                          <Play className="w-4 h-4 mr-1" />
+                          再開
+                        </Button>
+                      ) : (
+                        <Button 
+                          size="sm" 
+                          variant="outline" 
+                          className="flex-1"
+                          onClick={(e) => handleEditClick(process, e)}
+                        >
+                          <Eye className="w-4 h-4 mr-1" />
+                          詳細
+                        </Button>
+                      )}
+                      {process.status === 'error' && (
+                        <Button 
+                          size="sm" 
+                          variant="outline" 
+                          className="flex-1 border-red-200 text-red-600 hover:bg-red-50"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            // エラー詳細を表示するためのアクション
+                            handleRowClick(process.id);
+                          }}
+                        >
+                          <AlertCircle className="w-4 h-4 mr-1" />
+                          エラー
+                        </Button>
+                      )}
+                    </>
+                  )}
                 </div>
               </div>
             </Card>
@@ -268,7 +364,7 @@ export default function IndexPage() {
       )}
 
       {/* 下部：ページネーション */}
-      {articles.length > 0 && (
+      {processes.length > 0 && (
         <div className="flex justify-center items-center gap-2">
           <Pagination>
             <PaginationContent>

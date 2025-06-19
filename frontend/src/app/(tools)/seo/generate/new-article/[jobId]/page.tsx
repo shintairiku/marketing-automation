@@ -1,8 +1,16 @@
 import Header from "@/components/display/header";
 import Sidebar from "@/components/display/sidebar";
-import NewArticleStartPage from "@/features/tools/seo/generate/new-article/display/NewArticleStartPage";
+import GenerationProcessPage from "@/features/tools/seo/generate/new-article/display/GenerationProcessPage";
 
-export default function Page() {
+interface PageProps {
+  params: Promise<{
+    jobId: string;
+  }>;
+}
+
+export default async function Page({ params }: PageProps) {
+  const { jobId } = await params;
+  
   return (
     <div className="min-h-screen bg-[#eeeeee]">
       <Header />
@@ -11,9 +19,9 @@ export default function Page() {
           <Sidebar />
         </div>
         <main className="flex-1 ml-[314px] p-5">
-          <NewArticleStartPage />
+          <GenerationProcessPage jobId={jobId} />
         </main>
       </div>
     </div>
   );
-} 
+}

@@ -128,7 +128,12 @@ class UserInputType(str, Enum):
     APPROVE_OUTLINE = "approve_outline"
     REGENERATE = "regenerate"
     EDIT_AND_PROCEED = "edit_and_proceed"
-    # 今後、他の入力タイプを追加可能
+    # 個別編集系
+    EDIT_PERSONA = "edit_persona"
+    EDIT_THEME = "edit_theme"
+    EDIT_PLAN = "edit_plan"
+    EDIT_OUTLINE = "edit_outline"
+    EDIT_GENERIC = "edit_generic"
 
 class UserInputRequestPayload(BasePayload):
     """ユーザー入力要求ペイロード"""
@@ -188,6 +193,23 @@ class EditAndProceedPayload(BasePayload):
     # edited_step: UserInputType = Field(description="どのステップの内容を編集したか") # server_service側で判断
     edited_content: Dict[str, Any] = Field(description="ユーザーによって編集された内容")
 
+# 個別編集用ペイロード
+class EditPersonaPayload(BasePayload):
+    """ペルソナ編集ペイロード"""
+    edited_persona: Dict[str, Any] = Field(description="編集されたペルソナ")
+
+class EditThemePayload(BasePayload):
+    """テーマ編集ペイロード"""
+    edited_theme: Dict[str, Any] = Field(description="編集されたテーマ")
+
+class EditPlanPayload(BasePayload):
+    """計画編集ペイロード"""
+    edited_plan: Dict[str, Any] = Field(description="編集された計画")
+
+class EditOutlinePayload(BasePayload):
+    """アウトライン編集ペイロード"""
+    edited_outline: Dict[str, Any] = Field(description="編集されたアウトライン")
+
 # クライアントから送信される応答ペイロードのUnion型
 ClientResponsePayload = Union[
     SelectPersonaPayload,
@@ -195,6 +217,10 @@ ClientResponsePayload = Union[
     ApprovePayload,
     RegeneratePayload,
     EditAndProceedPayload,
+    EditPersonaPayload,
+    EditThemePayload,
+    EditPlanPayload,
+    EditOutlinePayload,
 ]
 
 # --- WebSocketメッセージモデル ---

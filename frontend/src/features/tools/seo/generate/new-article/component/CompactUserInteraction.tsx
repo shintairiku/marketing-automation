@@ -75,8 +75,15 @@ export default function CompactUserInteraction({
     setEditMode({ type, index });
     
     // Initialize edit content based on type
-    if (type === 'persona' && index !== undefined && personas) {
-      setEditContent({ description: personas[index].description });
+    if (type === 'persona' && personas) {
+      if (index !== undefined) {
+        // 特定のペルソナを編集
+        setEditContent({ description: personas[index].description });
+      } else {
+        // 選択されたペルソナがある場合はそれを、なければ最初のペルソナを編集
+        const targetIndex = selectedIndex !== null ? selectedIndex : 0;
+        setEditContent({ description: personas[targetIndex]?.description || '' });
+      }
     } else if (type === 'theme' && index !== undefined && themes) {
       setEditContent({
         title: themes[index].title,
@@ -220,7 +227,7 @@ export default function CompactUserInteraction({
                     whileHover={{ scale: 1.02, y: -2 }}
                     whileTap={{ scale: 0.98 }}
                     className={`
-                      relative p-3 rounded-lg border-2 cursor-pointer transition-all duration-300
+                      relative p-3 pb-8 rounded-lg border-2 cursor-pointer transition-all duration-300 group
                       ${selectedIndex === index 
                         ? 'border-primary bg-primary/10 shadow-lg shadow-primary/20' 
                         : 'border-gray-200 hover:border-primary/40 hover:shadow-md'
@@ -246,11 +253,12 @@ export default function CompactUserInteraction({
                     <Button
                       variant="ghost"
                       size="sm"
-                      className="absolute top-2 right-2 w-6 h-6 p-0 opacity-0 group-hover:opacity-100 hover:bg-primary/10"
+                      className="absolute bottom-2 right-2 w-6 h-6 p-0 opacity-70 hover:opacity-100 hover:bg-primary/20 bg-white/90 border border-gray-200 shadow-sm"
                       onClick={(e) => {
                         e.stopPropagation();
                         handleEdit('persona', index);
                       }}
+                      title="このペルソナを編集"
                     >
                       <Edit3 className="w-3 h-3" />
                     </Button>
@@ -388,7 +396,7 @@ export default function CompactUserInteraction({
                     whileHover={{ scale: 1.01 }}
                     whileTap={{ scale: 0.99 }}
                     className={`
-                      relative p-4 rounded-xl border-2 cursor-pointer transition-all duration-300 group
+                      relative p-4 pb-8 rounded-xl border-2 cursor-pointer transition-all duration-300 group
                       ${selectedIndex === index 
                         ? 'border-secondary bg-secondary/5 shadow-lg ring-4 ring-secondary/20' 
                         : 'border-gray-200 hover:border-secondary/40 hover:shadow-md'
@@ -424,11 +432,12 @@ export default function CompactUserInteraction({
                     <Button
                       variant="ghost"
                       size="sm"
-                      className="absolute top-2 right-2 w-6 h-6 p-0 opacity-0 group-hover:opacity-100 hover:bg-secondary/10"
+                      className="absolute bottom-2 right-2 w-6 h-6 p-0 opacity-70 hover:opacity-100 hover:bg-secondary/20 bg-white/90 border border-gray-200 shadow-sm"
                       onClick={(e) => {
                         e.stopPropagation();
                         handleEdit('theme', index);
                       }}
+                      title="このテーマを編集"
                     >
                       <Edit3 className="w-3 h-3" />
                     </Button>

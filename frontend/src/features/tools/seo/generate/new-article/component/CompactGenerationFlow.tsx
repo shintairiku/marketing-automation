@@ -13,10 +13,7 @@ import {
   Eye,
   FileText, 
   Lightbulb, 
-  Pause,
   PenTool,
-  Play,
-  RotateCcw,
   Search, 
   Sparkles,
   Target,
@@ -40,9 +37,6 @@ interface CompactGenerationFlowProps {
   currentStep: string;
   isConnected: boolean;
   isGenerating: boolean;
-  onPause?: () => void;
-  onResume?: () => void;
-  onCancel?: () => void;
   progressPercentage: number;
   finalArticle?: {
     title: string;
@@ -91,9 +85,6 @@ export default memo(function CompactGenerationFlow({
   currentStep,
   isConnected,
   isGenerating,
-  onPause,
-  onResume,
-  onCancel,
   progressPercentage,
   finalArticle,
   currentMessage,
@@ -103,18 +94,8 @@ export default memo(function CompactGenerationFlow({
   researchProgress,
   sectionsProgress
 }: CompactGenerationFlowProps) {
-  const [isPaused, setIsPaused] = useState(false);
   const [showCompletionAnimation, setShowCompletionAnimation] = useState(false);
   const [hideProcessCards, setHideProcessCards] = useState(false);
-
-  const handlePause = () => {
-    setIsPaused(!isPaused);
-    if (isPaused) {
-      onResume?.();
-    } else {
-      onPause?.();
-    }
-  };
 
   // プレビュー表示が必要かどうかを判定
   const shouldShowPreview = currentStep === 'writing_sections' || currentStep === 'editing' || currentStep === 'completed';
@@ -129,7 +110,8 @@ export default memo(function CompactGenerationFlow({
       hideProcessCards 
     });
     
-    if (currentStep === 'completed' && progressPercentage >= 95 && finalArticle) {
+    // 実際に完了している場合のみアニメーションを表示
+    if (currentStep === 'completed' && finalArticle && progressPercentage === 100) {
       console.log('CompactGenerationFlow: Starting completion animation');
       setShowCompletionAnimation(true);
       // 2秒後に完了アニメーションを隠し、すぐにプロセスカードも隠して記事を表示
@@ -137,7 +119,7 @@ export default memo(function CompactGenerationFlow({
         console.log('CompactGenerationFlow: Hiding completion animation and process cards');
         setShowCompletionAnimation(false);
         setHideProcessCards(true);
-      }, 2000); // 3秒から2秒に短縮
+      }, 2000);
       
       // クリーンアップ関数でタイマーをクリア
       return () => clearTimeout(timer);
@@ -215,30 +197,6 @@ export default memo(function CompactGenerationFlow({
               </div>
             </div>
             
-            <div className="flex items-center gap-2">
-              {isGenerating && (
-                <div className="flex gap-1">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={handlePause}
-                    className="flex items-center gap-1 h-8 px-2"
-                  >
-                    {isPaused ? <Play className="w-3 h-3" /> : <Pause className="w-3 h-3" />}
-                    <span className="text-xs">{isPaused ? '再開' : '停止'}</span>
-                  </Button>
-                  <Button
-                    variant="destructive"
-                    size="sm"
-                    onClick={onCancel}
-                    className="flex items-center gap-1 h-8 px-2"
-                  >
-                    <RotateCcw className="w-3 h-3" />
-                    <span className="text-xs">中止</span>
-                  </Button>
-                </div>
-              )}
-            </div>
           </div>
 
           {/* Compact Progress Section */}

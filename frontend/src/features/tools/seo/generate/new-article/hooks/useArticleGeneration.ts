@@ -2,6 +2,8 @@
 
 import { useCallback,useState } from 'react';
 
+import { useAuth } from '@clerk/nextjs';
+
 import { ClientResponseMessage,ServerEventMessage, useWebSocket } from './useWebSocket';
 
 export interface GenerationStep {
@@ -61,7 +63,8 @@ interface UseArticleGenerationOptions {
   userId?: string;
 }
 
-export const useArticleGeneration = ({ processId }: UseArticleGenerationOptions) => {
+export const useArticleGeneration = ({ processId, userId }: UseArticleGenerationOptions) => {
+  const { getToken } = useAuth();
   const [state, setState] = useState<GenerationState>({
     currentStep: 'start',
     steps: [
@@ -78,13 +81,23 @@ export const useArticleGeneration = ({ processId }: UseArticleGenerationOptions)
     articleId: undefined,
   });
 
-  const handleMessage = useCallback((message: ServerEventMessage) => {
-    const { payload } = message;
+  const handleMessage = useCallback((message: ServerEventMessage | any) => {
+    // ハートビートメッセージを早期に処理
+    if (message.type === 'heartbeat' || (typeof message === 'string' && message.includes('heartbeat'))) {
+      return;
+    }
+
+    const { payload } = message as ServerEventMessage;
+
+    // payloadが存在しない場合は処理をスキップ
+    if (!payload) {
+      return;
+    }
 
     setState(prev => {
       const newState = { ...prev };
 
-      // ステップ更新処理
+      // ステップ更新処理（stepフィールドが存在する場合のみ）
       if (payload.step) {
         newState.currentStep = payload.step;
         
@@ -115,7 +128,7 @@ export const useArticleGeneration = ({ processId }: UseArticleGenerationOptions)
         newState.steps = newState.steps.map((step, index) => {
           if (step.id === mappedStep) {
             // 現在のステップを実行中に
-            return { ...step, status: 'in_progress', message: payload.message };
+            return { ...step, status: 'in_progress', message: payload.message || '' };
           } else if (index < currentStepIndex) {
             // 前のステップを完了に
             return { ...step, status: 'completed' };
@@ -264,62 +277,64 @@ export const useArticleGeneration = ({ processId }: UseArticleGenerationOptions)
       }
 
       if (payload.error_message) {
-        // 編集ステップでエラーが発生した場合、既に生成されたコンテンツがあればそれを使用
-        if (payload.step === 'editing' && newState.generatedContent) {
-          newState.finalArticle = {
-            title: newState.outline?.title || 'Generated Article',
-            content: newState.generatedContent,
-          };
-          newState.currentStep = 'completed';
-          // 編集以外のステップを完了に、編集はスキップ
-          newState.steps = newState.steps.map(step => {
-            if (step.id === 'editing') {
-              return { ...step, status: 'completed', message: 'スキップされました' };
-            }
-            return { ...step, status: 'completed' };
-          });
-          newState.isWaitingForInput = false;
-          newState.inputType = undefined;
-        } else {
-          newState.error = payload.error_message;
-          newState.currentStep = 'error';
-          // エラーが発生したステップをエラー状態に
-          if (payload.step) {
-            newState.steps = newState.steps.map(step => 
-              step.id === payload.step ? { ...step, status: 'error', message: payload.error_message } : step
-            );
-          }
+        // エラーメッセージを設定
+        newState.error = payload.error_message;
+        newState.currentStep = 'error';
+        
+        // エラーが発生したステップをエラー状態に
+        if (payload.step) {
+          newState.steps = newState.steps.map(step => 
+            step.id === payload.step ? { ...step, status: 'error', message: payload.error_message } : step
+          );
         }
+        
+        // ユーザー入力待ちをクリア
+        newState.isWaitingForInput = false;
+        newState.inputType = undefined;
       }
       
-      // 「finished」ステップの処理 - 編集がスキップされた場合
+      // 「finished」ステップの処理 - 実際に完了した場合のみ処理
       if (payload.step === 'finished') {
         console.log('useArticleGeneration: Processing finished step', { 
           generatedContent: !!newState.generatedContent, 
-          finalArticle: !!newState.finalArticle 
+          finalArticle: !!newState.finalArticle,
+          currentStep: newState.currentStep,
+          errorMessage: payload.error_message
         });
         
-        if (newState.generatedContent && !newState.finalArticle) {
-          newState.finalArticle = {
-            title: newState.outline?.title || payload.title || 'Generated Article',
-            content: newState.generatedContent,
-          };
-          console.log('useArticleGeneration: Created finalArticle from generatedContent');
+        // エラーメッセージがある場合は完了にしない
+        if (payload.error_message) {
+          console.log('useArticleGeneration: Finished with error, not setting to completed');
+          return newState;
         }
-        newState.currentStep = 'completed';
-        // 全ステップを完了に
-        newState.steps = newState.steps.map(step => ({
-          ...step,
-          status: 'completed',
-          message: step.id === 'editing' ? 'スキップされました' : step.message
-        }));
-        newState.isWaitingForInput = false;
-        newState.inputType = undefined;
-        newState.error = undefined; // エラーをクリア
+        
+        // 実際に記事が生成されている場合のみ完了にする
+        if (newState.finalArticle || (newState.generatedContent && newState.currentStep === 'completed')) {
+          if (newState.generatedContent && !newState.finalArticle) {
+            newState.finalArticle = {
+              title: newState.outline?.title || payload.title || 'Generated Article',
+              content: newState.generatedContent,
+            };
+            console.log('useArticleGeneration: Created finalArticle from generatedContent');
+          }
+          
+          newState.currentStep = 'completed';
+          // 全ステップを完了に
+          newState.steps = newState.steps.map(step => ({
+            ...step,
+            status: 'completed',
+            message: step.id === 'editing' ? 'スキップされました' : step.message
+          }));
+          newState.isWaitingForInput = false;
+          newState.inputType = undefined;
+        } else {
+          console.log('useArticleGeneration: Finished but no final article, maintaining current state');
+        }
         
         console.log('useArticleGeneration: Finished step processing complete', { 
           currentStep: newState.currentStep,
-          finalArticle: !!newState.finalArticle 
+          finalArticle: !!newState.finalArticle,
+          hasError: !!newState.error
         });
 
         // article_id が含まれていれば保存
@@ -498,6 +513,97 @@ export const useArticleGeneration = ({ processId }: UseArticleGenerationOptions)
     startGeneration(requestData);
   }, [startGeneration]);
 
+  // プロセス状態の読み込み機能
+  const loadProcessState = useCallback(async (): Promise<boolean> => {
+    if (!processId || !userId) return false;
+
+    try {
+      const response = await fetch(`/api/articles/generation/${processId}`, {
+        headers: {
+          'Authorization': `Bearer ${await getToken()}`,
+        },
+      });
+
+      if (!response.ok) {
+        return false;
+      }
+
+      const processData = await response.json();
+      
+      // プロセス状態を復元
+      const currentStep = processData.current_step_name || processData.status;
+      const isUserInputStep = ['theme_proposed', 'persona_generated', 'research_plan_generated', 'outline_generated'].includes(currentStep);
+      
+      setState(prev => ({
+        ...prev,
+        currentStep: currentStep,
+        articleId: processData.article_id,
+        error: processData.error_message,
+        isWaitingForInput: processData.is_waiting_for_input || isUserInputStep,
+        inputType: processData.input_type || (isUserInputStep ? getInputTypeForStep(currentStep) : undefined),
+        // generated_contentからの復元
+        personas: processData.generated_content?.personas,
+        themes: processData.generated_content?.themes,
+        researchPlan: processData.generated_content?.research_plan,
+        outline: processData.generated_content?.outline,
+        generatedContent: processData.generated_content?.html_content,
+        finalArticle: processData.generated_content?.final_article,
+        // ステップ状態の復元
+        steps: prev.steps.map(step => {
+          const stepHistory = processData.step_history || [];
+          const stepInfo = stepHistory.find((h: any) => h.step_name === step.id);
+          
+          if (stepInfo) {
+            return {
+              ...step,
+              status: stepInfo.status,
+              message: stepInfo.data?.message || step.message
+            };
+          }
+          
+          // デフォルトのステップ状態推定
+          if (processData.current_step_name === step.id) {
+            return { ...step, status: 'in_progress' };
+          } else if (isStepCompleted(step.id, processData.current_step_name)) {
+            return { ...step, status: 'completed' };
+          }
+          
+          return step;
+        }),
+      }));
+
+      return true;
+    } catch (error) {
+      console.error('Error loading process state:', error);
+      return false;
+    }
+  }, [processId, userId]);
+
+  // ステップに応じた入力タイプを決定するヘルパー関数
+  const getInputTypeForStep = (step: string): string | undefined => {
+    switch (step) {
+      case 'theme_proposed': return 'select_theme';
+      case 'persona_generated': return 'select_persona';
+      case 'research_plan_generated': return 'approve_plan';
+      case 'outline_generated': return 'approve_outline';
+      default: return undefined;
+    }
+  };
+
+  // ステップ完了判定のヘルパー関数
+  const isStepCompleted = (stepId: string, currentStep: string): boolean => {
+    const stepOrder = [
+      'keyword_analyzing', 'persona_generating', 'theme_generating', 
+      'research_planning', 'researching', 'outline_generating', 
+      'writing_sections', 'editing'
+    ];
+    
+    const stepIndex = stepOrder.indexOf(stepId);
+    const currentIndex = stepOrder.indexOf(currentStep);
+    
+    return stepIndex < currentIndex;
+  };
+
   // 新しい記事作成時の完全リセット
   const resetState = useCallback(() => {
     setState({
@@ -545,5 +651,6 @@ export const useArticleGeneration = ({ processId }: UseArticleGenerationOptions)
     regenerate,
     editAndProceed,
     resetState,
+    loadProcessState,
   };
 };
