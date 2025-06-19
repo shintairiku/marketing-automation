@@ -150,6 +150,7 @@ class ArticleGenerationService:
     def __init__(self):
         self.active_heartbeats: Dict[str, asyncio.Task] = {}
         self.background_processes: Dict[str, asyncio.Task] = {}
+        self.background_tasks: Dict[str, asyncio.Task] = {}  # Background generation tasks
         self.active_connections: Dict[str, WebSocket] = {}  # プロセスIDごとのアクティブ接続
         self.process_locks: Dict[str, asyncio.Lock] = {}    # プロセスごとのロック
 
@@ -866,8 +867,36 @@ class ArticleGenerationService:
 
         except WebSocketDisconnect:
             console.print(f"[yellow]WebSocket disconnected for process {process_id}.[/yellow]")
-            if generation_task and not generation_task.done():
-                generation_task.cancel()
+            
+            # Check if current step is disconnection-resilient
+            if context and context.current_step in DISCONNECTION_RESILIENT_STEPS:
+                console.print(f"[cyan]Step '{context.current_step}' is disconnection-resilient. Continuing generation in background...[/cyan]")
+                
+                # Clear WebSocket reference to prevent further send attempts
+                if context.websocket:
+                    context.websocket = None
+                    console.print("[dim]WebSocket reference cleared from context.[/dim]")
+                
+                # Let generation task continue running in background
+                if generation_task and not generation_task.done():
+                    console.print(f"[cyan]Generation task will continue for process {process_id}. Process can be resumed later.[/cyan]")
+                    
+                    # Save current context state for later resumption
+                    if process_id and user_id:
+                        try:
+                            await self._save_context_to_db(context, process_id=process_id, user_id=user_id)
+                            console.print(f"[dim]Context saved for process {process_id} before disconnection.[/dim]")
+                        except Exception as save_err:
+                            console.print(f"[yellow]Warning: Failed to save context before disconnection: {save_err}[/yellow]")
+                    
+                    # Don't cancel the generation task - let it continue
+                    # The finally block will handle cleanup only if the task is already done
+                else:
+                    console.print(f"[yellow]Generation task already completed for process {process_id}.[/yellow]")
+            else:
+                console.print(f"[yellow]Step '{context.current_step if context else 'unknown'}' is not disconnection-resilient. Cancelling generation task.[/yellow]")
+                if generation_task and not generation_task.done():
+                    generation_task.cancel()
         except ValidationError as e: # 初期リクエストのバリデーションエラー
             error_payload = ErrorPayload(step="initialization", error_message=f"Invalid initial request: {e.errors()}")
             # WebSocketが接続状態か確認してから送信
@@ -892,13 +921,29 @@ class ArticleGenerationService:
             if generation_task and not generation_task.done():
                 generation_task.cancel()
         finally:
-            # クリーンアップ
+            # クリーンアップ - 切断耐性ステップでは生成タスクを継続させる
             if generation_task and not generation_task.done():
-                generation_task.cancel()
-                try:
-                    await generation_task # キャンセル完了を待つ
-                except asyncio.CancelledError:
-                    console.print("Generation task cancelled.")
+                # Check if we should let the task continue running in background
+                should_continue_background = (
+                    context and 
+                    context.current_step in DISCONNECTION_RESILIENT_STEPS and
+                    process_id  # Only continue if we have a process_id to track it
+                )
+                
+                if should_continue_background:
+                    console.print(f"[cyan]Leaving generation task running in background for process {process_id}[/cyan]")
+                    # Don't cancel - let it run in background
+                    # Store the task reference for potential cleanup later
+                    if process_id and process_id not in self.background_tasks:
+                        self.background_tasks[process_id] = generation_task
+                        console.print(f"[dim]Background task stored for process {process_id}[/dim]")
+                else:
+                    # Cancel the task as normal
+                    generation_task.cancel()
+                    try:
+                        await generation_task # キャンセル完了を待つ
+                    except asyncio.CancelledError:
+                        console.print("Generation task cancelled.")
             
             # ハートビートタスクのクリーンアップ
             if heartbeat_task and not heartbeat_task.done():
@@ -923,9 +968,48 @@ class ArticleGenerationService:
                     except Exception as e:
                         logger.warning(f"Error cleaning up process lock for {process_id}: {e}")
                 
+            # Clean up completed background tasks
+            await self._cleanup_background_tasks()
+            
             # WebSocket終了処理は既に上で実行済みなので重複を避ける
             console.print("WebSocket connection closed.")
 
+    async def _cleanup_background_tasks(self):
+        """Clean up completed background tasks"""
+        completed_tasks = []
+        for process_id, task in self.background_tasks.items():
+            if task.done():
+                completed_tasks.append(process_id)
+                try:
+                    # Get the result or exception to clean up the task
+                    result = await task
+                    console.print(f"[green]Background task for process {process_id} completed successfully[/green]")
+                except asyncio.CancelledError:
+                    console.print(f"[yellow]Background task for process {process_id} was cancelled[/yellow]")
+                except Exception as e:
+                    logger.warning(f"Background task for process {process_id} completed with error: {e}")
+                    console.print(f"[red]Background task for process {process_id} failed: {e}[/red]")
+        
+        # Remove completed tasks
+        for process_id in completed_tasks:
+            del self.background_tasks[process_id]
+            console.print(f"[dim]Cleaned up completed background task for process {process_id}[/dim]")
+    
+    async def get_background_task_status(self, process_id: str) -> Optional[str]:
+        """Get the status of a background task"""
+        if process_id in self.background_tasks:
+            task = self.background_tasks[process_id]
+            if task.done():
+                try:
+                    await task
+                    return "completed"
+                except asyncio.CancelledError:
+                    return "cancelled"
+                except Exception:
+                    return "error"
+            else:
+                return "running"
+        return None
 
     async def _send_server_event(self, context: ArticleContext, payload: BaseModel): # <<< BaseModel をインポートしたのでOK
         """WebSocket経由でサーバーイベントを送信するヘルパー関数"""
@@ -2397,13 +2481,20 @@ class ArticleGenerationService:
                                     if event.type == "raw_response_event" and isinstance(event.data, ResponseTextDeltaEvent):
                                         delta = event.data.delta
                                         accumulated_html += delta
-                                        # WebSocketでHTMLチャンクを送信
-                                        await self._send_server_event(context, SectionChunkPayload(
-                                            section_index=target_index,
-                                            heading=target_heading,
-                                            html_content_chunk=delta,
-                                            is_complete=False
-                                        ))
+                                        # WebSocketでHTMLチャンクを送信（切断時は無視して継続）
+                                        try:
+                                            await self._send_server_event(context, SectionChunkPayload(
+                                                section_index=target_index,
+                                                heading=target_heading,
+                                                html_content_chunk=delta,
+                                                is_complete=False
+                                            ))
+                                        except Exception as ws_err:
+                                            # WebSocket送信エラーは無視して処理を継続
+                                            console.print(f"[dim]WebSocket送信エラー（処理継続）: {ws_err}[/dim]")
+                                            # WebSocket参照をクリアして今後の送信を防ぐ
+                                            if context.websocket:
+                                                context.websocket = None
                                     elif event.type == "run_item_stream_event" and event.item.type == "tool_call_item":
                                         console.print(f"\n[dim]ツール呼び出し: {event.item.name}[/dim]")
                                     elif event.type == "raw_response_event" and isinstance(event.data, ResponseCompletedEvent):
@@ -2444,9 +2535,12 @@ class ArticleGenerationService:
                             console.print(f"[green]セクション {target_index + 1}「{generated_section.heading}」のHTMLをストリームから構築しました。（{len(accumulated_html)}文字）[/green]")
                             
                             # 完了イベントを送信（WebSocket切断時は無視される）
-                            await self._send_server_event(context, SectionChunkPayload(
-                                section_index=target_index, heading=target_heading, html_content_chunk="", is_complete=True
-                            ))
+                            try:
+                                await self._send_server_event(context, SectionChunkPayload(
+                                    section_index=target_index, heading=target_heading, html_content_chunk="", is_complete=True
+                                ))
+                            except Exception as ws_err:
+                                console.print(f"[dim]セクション完了イベント送信エラー（処理継続）: {ws_err}[/dim]")
                             
                             # セクション内容をcontextに保存
                             if len(context.generated_sections_html) <= target_index:
