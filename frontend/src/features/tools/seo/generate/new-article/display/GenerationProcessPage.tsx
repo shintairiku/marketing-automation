@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { AnimatePresence, motion } from 'framer-motion';
-import { AlertCircle, CheckCircle, ArrowLeft } from 'lucide-react';
+import { AlertCircle, ArrowLeft,CheckCircle } from 'lucide-react';
 
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
@@ -12,9 +12,9 @@ import { useUser } from '@clerk/nextjs';
 
 import CompactGenerationFlow from "../component/CompactGenerationFlow";
 import CompactUserInteraction from "../component/CompactUserInteraction";
+import ErrorRecoveryActions from "../component/ErrorRecoveryActions";
 import GenerationErrorHandler from "../component/GenerationErrorHandler";
 import ProcessRecoveryDialog from "../component/ProcessRecoveryDialog";
-import ErrorRecoveryActions from "../component/ErrorRecoveryActions";
 import { useArticleGeneration } from '../hooks/useArticleGeneration';
 
 interface GenerationProcessPageProps {
@@ -170,7 +170,7 @@ export default function GenerationProcessPage({ jobId }: GenerationProcessPagePr
                 'outline_generated': 65,    // アウトライン完了 -> 65%
             };
             
-            return inputStepProgress[state.currentStep] || 0;
+            return inputStepProgress[state.currentStep as keyof typeof inputStepProgress] || 0;
         }
         
         const stepOrder = [
@@ -207,7 +207,7 @@ export default function GenerationProcessPage({ jobId }: GenerationProcessPagePr
             'completed': 100
         };
         
-        return stepProgressMap[state.currentStep] || 0;
+        return stepProgressMap[state.currentStep as keyof typeof stepProgressMap] || 0;
     };
 
     const isGenerating = state.currentStep !== 'start' && state.currentStep !== 'completed' && state.currentStep !== 'error';

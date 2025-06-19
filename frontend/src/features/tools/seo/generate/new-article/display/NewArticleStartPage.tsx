@@ -1,16 +1,16 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useEffect,useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { useUser } from '@clerk/nextjs';
 import { motion } from 'framer-motion';
 import { AlertCircle, Loader2 } from 'lucide-react';
 
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
+import { useUser } from '@clerk/nextjs';
 
-import InputSection from "./InputSection";
 import ExplainDialog from "./ExplainDialog";
+import InputSection from "./InputSection";
 
 export default function NewArticleStartPage() {
     const { user } = useUser();

@@ -1,13 +1,13 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
-import { AlertCircle, Clock, RotateCcw, XCircle, CheckCircle, Play } from 'lucide-react';
+import { AnimatePresence,motion } from 'framer-motion';
+import { AlertCircle, CheckCircle, Clock, Play,RotateCcw, XCircle } from 'lucide-react';
 
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
 
 interface ProcessRecoveryDialogProps {
     processId: string;

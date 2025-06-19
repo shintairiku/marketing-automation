@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { motion } from 'framer-motion';
-import { AlertTriangle, RotateCcw, Bug, HelpCircle, ExternalLink } from 'lucide-react';
+import { AlertTriangle, Bug, ExternalLink,HelpCircle, RotateCcw } from 'lucide-react';
 
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
