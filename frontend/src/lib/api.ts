@@ -62,13 +62,13 @@ export class ApiClient {
 
   // 記事関連のAPI（将来の拡張用）
   async getArticles(limit: number = 20, offset: number = 0, token?: string) {
-    const headers = token ? { 'Authorization': `Bearer ${token}` } : {};
+    const headers = token ? { 'Authorization': `Bearer ${token}` } : undefined;
     return this.request<any[]>(`/articles/?limit=${limit}&offset=${offset}`, { headers });
   }
 
   // 全プロセス取得（完了済み記事 + 進行中プロセス）
   async getAllProcesses(limit: number = 20, offset: number = 0, token?: string, statusFilter?: string) {
-    const headers = token ? { 'Authorization': `Bearer ${token}` } : {};
+    const headers = token ? { 'Authorization': `Bearer ${token}` } : undefined;
     const query = new URLSearchParams();
     query.append('limit', limit.toString());
     query.append('offset', offset.toString());
@@ -79,7 +79,7 @@ export class ApiClient {
 
   // 復帰可能プロセス取得
   async getRecoverableProcesses(limit: number = 10, token?: string) {
-    const headers = token ? { 'Authorization': `Bearer ${token}` } : {};
+    const headers = token ? { 'Authorization': `Bearer ${token}` } : undefined;
     return this.request<any[]>(`/articles/recoverable-processes?limit=${limit}`, { headers });
   }
 
