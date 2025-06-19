@@ -3066,12 +3066,19 @@ class ArticleGenerationService:
                     "is_recoverable": False
                 })
             
+            # Collect generation_process_ids from articles to avoid duplication
+            existing_process_ids = set()
+            for article in articles_result.data:
+                if article.get("generation_process_id"):
+                    existing_process_ids.add(article["generation_process_id"])
+
             # 2. Get generation processes (including incomplete ones)
             processes_query = supabase.table("generated_articles_state").select(
                 "id, status, article_context, current_step_name, progress_percentage, is_waiting_for_input, created_at, updated_at, error_message"
             ).eq("user_id", user_id)
             
             # Only get non-completed processes (since completed ones have articles)
+            # Also exclude processes that already have corresponding articles
             processes_query = processes_query.neq("status", "completed")
             
             if status_filter and status_filter != "completed":
@@ -3080,6 +3087,13 @@ class ArticleGenerationService:
             processes_result = processes_query.order("updated_at", desc=True).execute()
             
             for process in processes_result.data:
+                # Skip processes that already have corresponding articles
+                if process["id"] in existing_process_ids:
+                    continue
+                    
+                # Skip completed processes (they should have articles)
+                if process["status"] == "completed":
+                    continue
                 context = process.get("article_context", {})
                 keywords = context.get("initial_keywords", [])
                 
