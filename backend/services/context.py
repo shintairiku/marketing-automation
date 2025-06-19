@@ -40,6 +40,7 @@ class ArticleContext:
         "outline_generated", # ユーザー承認待ち
         "writing_sections",
         "editing",
+        "image_generating",
         "completed",
         "error"
     ] = "start"

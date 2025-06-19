@@ -14,4 +14,7 @@ dependencies = [
     "sse-starlette",
     "pydantic-settings",
     "griffe",
+    "google-auth",
+    "google-cloud-aiplatform",
+    "vertexai",
 ]

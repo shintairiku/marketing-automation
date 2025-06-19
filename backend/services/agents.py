@@ -7,7 +7,7 @@ from agents import Agent, RunContextWrapper, ModelSettings
 # from .tools import web_search_tool, analyze_competitors, get_company_data
 # from .context import ArticleContext
 from services.models import AgentOutput, ResearchQueryResult, ResearchReport, Outline, RevisedArticle, ThemeProposal, ResearchPlan, ClarificationNeeded, StatusUpdate, ArticleSection
-from services.tools import web_search_tool, analyze_competitors, get_company_data, available_tools
+from services.tools import web_search_tool, analyze_competitors, get_company_data, imagen3_image_generation, available_tools
 from services.context import ArticleContext
 from core.config import settings # 設定をインポート
 
@@ -294,6 +294,58 @@ def create_editor_instructions(base_prompt: str) -> Callable[[RunContextWrapper[
         return full_prompt
     return dynamic_instructions_func
 
+def create_image_generation_instructions(base_prompt: str) -> Callable[[RunContextWrapper[ArticleContext], Agent[ArticleContext]], Awaitable[str]]:
+    async def dynamic_instructions_func(ctx: RunContextWrapper[ArticleContext], agent: Agent[ArticleContext]) -> str:
+        if not ctx.context.final_article_html:
+            raise ValueError("画像生成対象のHTML記事がありません。")
+            
+        # HTMLからタイトルを抽出する簡単な処理
+        import re
+        title_match = re.search(r'<h1[^>]*>([^<]+)</h1>', ctx.context.final_article_html)
+        title = title_match.group(1) if title_match else "無題の記事"
+
+        full_prompt = f"""{base_prompt}
+
+--- 画像生成対象HTML記事 ---
+記事タイトル: {title}
+
+```html
+{ctx.context.final_article_html[:15000]}
+{ "... (以下省略)" if len(ctx.context.final_article_html) > 15000 else "" }
+```
+
+## 実行指示
+
+1. **HTMLを解析してプレースホルダーを特定**
+最初に、HTMLから全ての画像プレースホルダーを抽出してリスト化します。
+プレースホルダーの形式: `<img class="image-placeholder" alt="[画像の説明]" />`
+
+2. **全てのプレースホルダーに対して画像を生成**
+**重要**: 全てのプレースホルダーに対して順番に画像を生成してください。
+1. 各プレースホルダーに対して画像を生成
+2. 生成された画像ファイルパスでプレースホルダーを置換
+
+3. **最終的なHTMLを構築**
+全ての画像生成が完了したら、各プレースホルダーを生成された画像ファイルパスで置換します。
+
+## 処理の例
+1. HTMLから3つのプレースホルダーを発見
+2. 1つ目: alt="SEOの仕組みを説明する図解" → imagen3_image_generationツールを呼び出し → ファイルパスを取得
+3. 2つ目: alt="検索順位の推移グラフ" → imagen3_image_generationツールを呼び出し → ファイルパスを取得
+4. 3つ目: alt="実際のブログ記事例" → imagen3_image_generationツールを呼び出し → ファイルパスを取得
+5. 元のHTMLの全てのプレースホルダーにsrc属性を追加（ファイルパスを設定）
+
+## 重要な注意事項
+- **全てのプレースホルダーに対して画像を生成してください**
+- **`imagen3_image_generation`ツールは各プレースホルダーごとに1回ずつ使用してください**
+- **`imagen3_image_generation`ツールに渡すプロンプトは記事内容やプレースホルダーをもとに詳細に記述してください。**
+- エラーが発生したプレースホルダーは、そのまま残してください
+- 画像生成の順序は、HTML内での出現順序に従ってください
+"""
+        return full_prompt
+    return dynamic_instructions_func
+
+
 # --- エージェント定義 ---
 
 # 1. テーマ提案エージェント
@@ -379,12 +431,40 @@ SECTION_WRITER_AGENT_BASE_PROMPT = """
 必要に応じて `web_search` ツールで最新情報や詳細情報を調査し、内容を充実させます。
 あなたのタスクは、指示された1つのセクションのHTMLコンテンツを生成することだけです。読者を引きつけ、価値を提供するオリジナルな文章を作成してください。
 """
+
+# 6-2. セクション執筆エージェント（文字+画像）
+SECTION_WRITER_WITH_IMAGES_AGENT_BASE_PROMPT = """
+あなたは指定された記事のセクション（見出し）に関する内容を執筆するプロのライターです。
+あなたの役割は、日本の一般的なブログやコラムのように、自然で人間味あふれる、親しみやすい文章で、割り当てられた特定のセクションの内容をHTML形式で執筆することです。
+記事全体のテーマ、アウトライン、キーワード、トーン、会話履歴（前のセクションを含む完全な文脈）、そして詳細なリサーチレポート（出典情報付き）に基づき、創造的かつSEOを意識して執筆してください。
+リサーチ情報に基づき、必要に応じて信頼できる情報源へのHTMLリンクを自然に含めてください。
+必要に応じて `web_search` ツールで最新情報や詳細情報を調査し、内容を充実させます。
+あなたのタスクは、指示された1つのセクションのHTMLコンテンツを生成することだけです。読者を引きつけ、価値を提供するオリジナルな文章を作成してください。
+
+**画像配置について**
+- 文章の流れに応じて、適切な位置に画像を配置するためのプレースホルダーを挿入してください。
+- １つのセクションにつき１つ以上のプレースホルダーを必ず挿入してください
+- 画像プレースホルダーは以下の形式で記述してください：
+  ```html
+  <img class="image-placeholder" alt="[画像の説明]" />
+  ```
+- **画像の説明は記事の内容をもとに詳細かつ具体的に記述してください。1文ではなく複数文にわたって記述してください**
+
+- 画像は文章の流れを妨げないよう、適切な位置に配置してください。
+"""
+
 section_writer_agent = Agent[ArticleContext](
     name="SectionWriterAgent",
     instructions=create_section_writer_instructions(SECTION_WRITER_AGENT_BASE_PROMPT),
     model=settings.writing_model,
     tools=[web_search_tool],
     # output_type を削除 (構造化出力を強制しない)
+)
+section_writer_with_images_agent = Agent[ArticleContext](
+    name="SectionWriterWithImagesAgent",
+    instructions=create_section_writer_instructions(SECTION_WRITER_WITH_IMAGES_AGENT_BASE_PROMPT),
+    model=settings.writing_model,
+    tools=[web_search_tool],
 )
 
 # 7. 推敲・編集エージェント
@@ -405,6 +485,46 @@ editor_agent = Agent[ArticleContext](
     output_type=RevisedArticle, # 修正: RevisedArticleを返す
 )
 
+# 8. 画像生成エージェント
+IMAGE_GENERATION_AGENT_BASE_PROMPT = """
+あなたは記事の画像挿入エージェントです。与えられた記事(HTML形式)に含まれる画像プレースホルダーの情報に基づいて画像URLを生成し、プレースホルダーにsrcタグを付与することが任務です。
+
+## 重要な処理手順
+
+### ステップ1: HTMLを解析してプレースホルダーを特定
+最初に、HTMLから全ての画像プレースホルダーを抽出してリスト化します。
+プレースホルダーの形式: `<img class="image-placeholder" alt="[画像の説明]" />`
+
+### ステップ2: 全てのプレースホルダーに対して画像を生成
+**重要**: 全てのプレースホルダーに対して順番に画像を生成してください。
+1. 各プレースホルダーに対して画像を生成
+2. 生成された画像ファイルパスでプレースホルダーを置換
+
+3. **最終的なHTMLを構築**
+全ての画像生成が完了したら、各プレースホルダーを生成された画像ファイルパスで置換します。
+
+## 処理の例
+1. HTMLから3つのプレースホルダーを発見
+2. 1つ目: alt="SEOの仕組みを説明する図解" → imagen3_image_generationツールを呼び出し → ファイルパスを取得
+3. 2つ目: alt="検索順位の推移グラフ" → imagen3_image_generationツールを呼び出し → ファイルパスを取得
+4. 3つ目: alt="実際のブログ記事例" → imagen3_image_generationツールを呼び出し → ファイルパスを取得
+5. 元のHTMLの全てのプレースホルダーにsrc属性を追加（ファイルパスを設定）
+
+## 重要な注意事項
+- **全てのプレースホルダーに対して画像を生成してください**
+- **`imagen3_image_generation`ツールは各プレースホルダーごとに1回ずつ使用してください**
+- **`imagen3_image_generation`ツールに渡すプロンプトは記事内容やプレースホルダーをもとに詳細に記述してください。**
+- エラーが発生したプレースホルダーは、そのまま残してください
+- 画像生成の順序は、HTML内での出現順序に従ってください
+"""
+# 画像生成エージェントのツールを置き換え
+image_generation_agent = Agent[ArticleContext](
+    name="ImageGenerationAgent",
+    instructions=create_image_generation_instructions(IMAGE_GENERATION_AGENT_BASE_PROMPT),
+    model=settings.default_model,
+    tools=[imagen3_image_generation], 
+    output_type=RevisedArticle
+)
 # LiteLLMエージェント生成関数 (APIでは直接使わないかもしれないが、念のため残す)
 # 必要に応じてAPIキーの取得方法などを修正する必要がある
 # def get_litellm_agent(...) -> Optional[Agent]: ... (実装は省略)

@@ -28,7 +28,7 @@ from services.models import (
 )
 from services.agents import (
     theme_agent, research_planner_agent, researcher_agent, research_synthesizer_agent,
-    outline_agent, section_writer_agent, editor_agent
+    outline_agent, section_writer_agent, section_writer_with_images_agent, editor_agent, image_generation_agent
 )
 
 console = Console() # ログ出力用
@@ -393,8 +393,9 @@ class ArticleGenerationService:
                             context.current_section_index = 0
                             context.generated_sections_html = []
                             context.clear_section_writer_history()
-                            from services.agents import create_section_writer_instructions, SECTION_WRITER_AGENT_BASE_PROMPT
-                            base_instruction_text = await create_section_writer_instructions(SECTION_WRITER_AGENT_BASE_PROMPT)(RunContextWrapper(context=context), section_writer_agent)
+                            from services.agents import create_section_writer_instructions, SECTION_WRITER_AGENT_BASE_PROMPT, SECTION_WRITER_WITH_IMAGES_AGENT_BASE_PROMPT
+                            # base_instruction_text = await create_section_writer_instructions(SECTION_WRITER_AGENT_BASE_PROMPT)(RunContextWrapper(context=context), section_writer_agent)
+                            base_instruction_text = await create_section_writer_instructions(SECTION_WRITER_WITH_IMAGES_AGENT_BASE_PROMPT)(RunContextWrapper(context=context), section_writer_with_images_agent)
                             context.add_to_section_writer_history("system", base_instruction_text)
                             await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message="Outline approved, starting section writing."))
                         else:
@@ -413,7 +414,8 @@ class ArticleGenerationService:
                         await self._send_server_event(context, EditingStartPayload())
                         continue
 
-                    current_agent = section_writer_agent
+                    # current_agent = section_writer_agent
+                    current_agent = section_writer_with_images_agent
                     target_index = context.current_section_index
                     target_heading = context.generated_outline.sections[target_index].heading
 
@@ -503,7 +505,7 @@ class ArticleGenerationService:
 
                     if isinstance(agent_output, RevisedArticle):
                         context.final_article_html = agent_output.final_html_content
-                        context.current_step = "completed"
+                        context.current_step = "image_generating"
                         console.print("[green]記事の編集が完了しました！[/green]")
                         # WebSocketで最終結果を送信
                         await self._send_server_event(context, FinalResultPayload(
@@ -512,7 +514,52 @@ class ArticleGenerationService:
                         ))
                     else:
                         raise TypeError(f"予期しないAgent出力タイプ: {type(agent_output)}")
+                    
+                elif context.current_step == "image_generating":
+                    current_agent = image_generation_agent
+                    if not context.final_article_html: raise ValueError("生成対象の記事がありません。")
+                    
+                    # 画像生成エージェントに記事のHTMLを渡す
+                    agent_input = f"""完成した記事のプレースホルダーをもとに画像を生成し、srcタグを追加してください。
+以下の形式のプレースホルダーを探してください：
+<img class="image-placeholder" alt="[画像タイプ]:[画像の説明]" />
 
+各プレースホルダーに対して：
+1. alt属性から画像タイプと説明を抽出
+2. 適切なプロンプトを作成
+3. 画像を生成
+4. src属性を追加
+
+最終的な出力は、すべてのプレースホルダーにsrc属性が追加された完全なHTMLを返してください。"""
+                    
+                    console.print(f"🤖 {current_agent.name} に画像生成を依頼します...")
+                    await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message="画像の生成を開始します..."))
+                    
+                    try:
+                        # 画像生成エージェントを実行（より多くのターンを許可）
+                        agent_output = await self._run_agent(current_agent, agent_input, context, run_config)
+
+                        if isinstance(agent_output, RevisedArticle):
+                            # 生成された画像情報を保存
+                            context.final_article_html = agent_output.final_html_content
+                            
+                            # 生成された画像の情報をクライアントに送信
+                            await self._send_server_event(context, FinalResultPayload(
+                                title=agent_output.title,
+                                final_html_content=agent_output.final_html_content
+                            ))
+                            
+                            # ステップを完了に更新
+                            context.current_step = "completed"
+                            console.print("[green]画像の生成と挿入が完了しました！[/green]")
+                            await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message="画像の生成と挿入が完了しました。"))
+                        else:
+                            raise TypeError(f"予期しないAgent出力タイプ: {type(agent_output)}")
+                    except Exception as e:
+                        console.print(f"[bold red]画像生成エラー:[/bold red] {str(e)}")
+                        # エラーが発生しても、元のHTMLをそのまま使用して続行
+                        context.current_step = "completed"
+                        await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message="画像生成に失敗しましたが、記事は完成しています。"))
                 else:
                     raise ValueError(f"未定義のステップ: {context.current_step}")
 
