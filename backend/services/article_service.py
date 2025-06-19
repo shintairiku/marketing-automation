@@ -27,7 +27,8 @@ from schemas.response import (
     SelectThemePayload, ApprovePayload, GeneratedPersonasPayload, SelectPersonaPayload, GeneratedPersonaData, EditAndProceedPayload, RegeneratePayload, ThemeProposalData,
     ResearchPlanData, ResearchPlanQueryData,
     OutlineData, OutlineSectionData, # OutlineData, OutlineSectionData を追加
-    SerpKeywordAnalysisPayload, SerpAnalysisArticleData # SerpAPIキーワード分析用のペイロード追加
+    SerpKeywordAnalysisPayload, SerpAnalysisArticleData, # SerpAPIキーワード分析用のペイロード追加
+    EditPersonaPayload, EditThemePayload, EditPlanPayload, EditOutlinePayload # 個別編集ペイロード追加
 )
 from services.context import ArticleContext
 from services.models import (
@@ -819,12 +820,11 @@ class ArticleGenerationService:
 
                             if context.current_step in ["persona_generated", "theme_proposed", "research_plan_generated", "outline_generated"]:
                                 console.print(f"[blue]ステップ確認OK: {context.current_step} は受け入れ可能なステップです[/blue]")
-                                if message.response_type in [UserInputType.SELECT_PERSONA, UserInputType.SELECT_THEME, UserInputType.APPROVE_PLAN, UserInputType.APPROVE_OUTLINE, UserInputType.REGENERATE, UserInputType.EDIT_AND_PROCEED]:
+                                if message.response_type in [UserInputType.SELECT_PERSONA, UserInputType.SELECT_THEME, UserInputType.APPROVE_PLAN, UserInputType.APPROVE_OUTLINE, UserInputType.REGENERATE, UserInputType.EDIT_AND_PROCEED, UserInputType.EDIT_PERSONA, UserInputType.EDIT_THEME, UserInputType.EDIT_PLAN, UserInputType.EDIT_OUTLINE, UserInputType.EDIT_GENERIC]:
                                     console.print(f"[blue]応答タイプ確認OK: {message.response_type} は有効な応答タイプです[/blue]")
                                     # 期待される応答タイプ、または再生成・編集要求の場合
                                     if context.expected_user_input == message.response_type or \
-                                       message.response_type == UserInputType.REGENERATE or \
-                                       message.response_type == UserInputType.EDIT_AND_PROCEED:
+                                       message.response_type in [UserInputType.REGENERATE, UserInputType.EDIT_AND_PROCEED, UserInputType.EDIT_PERSONA, UserInputType.EDIT_THEME, UserInputType.EDIT_PLAN, UserInputType.EDIT_OUTLINE, UserInputType.EDIT_GENERIC]:
                                         
                                         console.print(f"[green]応答タイプマッチ！ {message.response_type} を処理します[/green]")
                                         console.print(f"[yellow]generation_task.done(): {generation_task.done()}[/yellow]")
@@ -1166,6 +1166,60 @@ class ArticleGenerationService:
                         except (ValidationError, TypeError, AttributeError) as e:
                             await self._send_error(context, f"テーマ編集エラー: {e}")
                             context.current_step = "error"
+                    elif response_type == UserInputType.EDIT_THEME and isinstance(payload, EditThemePayload):
+                        try:
+                            edited_theme_data = payload.edited_theme
+                            if isinstance(edited_theme_data.get("title"), str) and \
+                               isinstance(edited_theme_data.get("description"), str) and \
+                               isinstance(edited_theme_data.get("keywords"), list):
+                                context.selected_theme = ThemeIdea(**edited_theme_data)
+                                context.current_step = "theme_selected"
+                                console.print(f"[green]テーマが編集され選択されました: {context.selected_theme.title}[/green]")
+                                await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message="Theme edited and selected."))
+                                
+                                # Save context after theme editing
+                                if process_id and user_id:
+                                    try:
+                                        await self._save_context_to_db(context, process_id=process_id, user_id=user_id)
+                                        logger.info(f"Context saved successfully after theme editing")
+                                    except Exception as save_err:
+                                        logger.error(f"Failed to save context after theme editing: {save_err}")
+                            else:
+                                await self._send_error(context, "編集されたテーマの形式が無効です。")
+                                context.current_step = "error"
+                        except (ValidationError, TypeError, AttributeError) as e:
+                            await self._send_error(context, f"テーマ編集エラー: {e}")
+                            context.current_step = "error"
+                    elif response_type == UserInputType.EDIT_GENERIC:
+                        try:
+                            # EDIT_GENERIC - generic edit handler for theme step
+                            console.print(f"[yellow]EDIT_GENERIC received for theme step. Payload: {payload}[/yellow]")
+                            if hasattr(payload, 'edited_content'):
+                                edited_theme_data = payload.edited_content
+                                if isinstance(edited_theme_data.get("title"), str) and \
+                                   isinstance(edited_theme_data.get("description"), str) and \
+                                   isinstance(edited_theme_data.get("keywords"), list):
+                                    context.selected_theme = ThemeIdea(**edited_theme_data)
+                                    context.current_step = "theme_selected"
+                                    console.print(f"[green]テーマが編集され選択されました（EDIT_GENERIC）: {context.selected_theme.title}[/green]")
+                                    await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message="Theme edited and selected."))
+                                    
+                                    # Save context after theme editing
+                                    if process_id and user_id:
+                                        try:
+                                            await self._save_context_to_db(context, process_id=process_id, user_id=user_id)
+                                            logger.info(f"Context saved successfully after theme editing")
+                                        except Exception as save_err:
+                                            logger.error(f"Failed to save context after theme editing: {save_err}")
+                                else:
+                                    await self._send_error(context, "EDIT_GENERIC: 編集されたテーマの形式が無効です。")
+                                    context.current_step = "error"
+                            else:
+                                await self._send_error(context, "EDIT_GENERIC: 編集されたテーマの形式が無効です。")
+                                context.current_step = "error"
+                        except Exception as e:
+                            await self._send_error(context, f"EDIT_GENERIC テーマ編集エラー: {e}")
+                            context.current_step = "error"
                     else:
                         await self._send_error(context, f"予期しない応答タイプ: {response_type}")
                         context.current_step = "error"
@@ -1219,6 +1273,127 @@ class ArticleGenerationService:
                     elif response_type == UserInputType.REGENERATE:
                         console.print("[yellow]アウトラインの再生成が要求されました。[/yellow]")
                         context.current_step = "outline_generating"
+                    elif response_type == UserInputType.EDIT_OUTLINE and isinstance(payload, EditOutlinePayload):
+                        try:
+                            edited_outline_data = payload.edited_outline
+                            console.print(f"[green]アウトラインが編集されました（EditOutlinePayload）。[/green]")
+                            # 編集されたアウトラインを適用
+                            if isinstance(edited_outline_data.get("title"), str) and \
+                               isinstance(edited_outline_data.get("sections"), list):
+                                from services.models import Outline, OutlineSection
+                                edited_sections = []
+                                for section_data in edited_outline_data["sections"]:
+                                    if isinstance(section_data.get("heading"), str):
+                                        edited_sections.append(OutlineSection(
+                                            heading=section_data["heading"],
+                                            estimated_chars=section_data.get("estimated_chars", 400)
+                                        ))
+                                
+                                context.generated_outline = Outline(
+                                    status="outline",
+                                    title=edited_outline_data["title"],
+                                    suggested_tone=edited_outline_data.get("suggested_tone", "丁寧で読みやすい解説調"),
+                                    sections=edited_sections
+                                )
+                                context.current_step = "outline_approved"
+                                console.print(f"[green]編集されたアウトラインが適用されました（EditOutlinePayload）。[/green]")
+                                await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message="Edited outline applied and approved."))
+                                
+                                # Save context after outline editing
+                                if process_id and user_id:
+                                    try:
+                                        await self._save_context_to_db(context, process_id=process_id, user_id=user_id)
+                                        logger.info(f"Context saved successfully after outline editing")
+                                    except Exception as save_err:
+                                        logger.error(f"Failed to save context after outline editing: {save_err}")
+                            else:
+                                await self._send_error(context, "編集されたアウトラインの形式が無効です。")
+                                context.current_step = "error"
+                        except (ValidationError, TypeError, AttributeError) as e:
+                            await self._send_error(context, f"アウトライン編集エラー: {e}")
+                            context.current_step = "error"
+                    elif response_type == UserInputType.EDIT_AND_PROCEED and isinstance(payload, EditAndProceedPayload):
+                        try:
+                            edited_outline_data = payload.edited_content
+                            console.print(f"[green]アウトラインが編集されました（EditAndProceedPayload）。[/green]")
+                            # 編集されたアウトラインを適用
+                            if isinstance(edited_outline_data.get("title"), str) and \
+                               isinstance(edited_outline_data.get("sections"), list):
+                                from services.models import Outline, OutlineSection
+                                edited_sections = []
+                                for section_data in edited_outline_data["sections"]:
+                                    if isinstance(section_data.get("heading"), str):
+                                        edited_sections.append(OutlineSection(
+                                            heading=section_data["heading"],
+                                            estimated_chars=section_data.get("estimated_chars", 400)
+                                        ))
+                                
+                                context.generated_outline = Outline(
+                                    status="outline",
+                                    title=edited_outline_data["title"],
+                                    suggested_tone=edited_outline_data.get("suggested_tone", "丁寧で読みやすい解説調"),
+                                    sections=edited_sections
+                                )
+                                context.current_step = "outline_approved"
+                                console.print(f"[green]編集されたアウトラインが適用されました（EditAndProceedPayload）。[/green]")
+                                await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message="Edited outline applied and approved."))
+                                
+                                # Save context after outline editing
+                                if process_id and user_id:
+                                    try:
+                                        await self._save_context_to_db(context, process_id=process_id, user_id=user_id)
+                                        logger.info(f"Context saved successfully after outline editing")
+                                    except Exception as save_err:
+                                        logger.error(f"Failed to save context after outline editing: {save_err}")
+                            else:
+                                await self._send_error(context, "編集されたアウトラインの形式が無効です。")
+                                context.current_step = "error"
+                        except (ValidationError, TypeError, AttributeError) as e:
+                            await self._send_error(context, f"アウトライン編集エラー: {e}")
+                            context.current_step = "error"
+                    elif response_type == UserInputType.EDIT_GENERIC:
+                        try:
+                            # EDIT_GENERIC - generic edit handler for outline step
+                            console.print(f"[yellow]EDIT_GENERIC received for outline step. Payload: {payload}[/yellow]")
+                            if hasattr(payload, 'edited_content'):
+                                edited_outline_data = payload.edited_content
+                                if isinstance(edited_outline_data.get("title"), str) and \
+                                   isinstance(edited_outline_data.get("sections"), list):
+                                    from services.models import Outline, OutlineSection
+                                    edited_sections = []
+                                    for section_data in edited_outline_data["sections"]:
+                                        if isinstance(section_data.get("heading"), str):
+                                            edited_sections.append(OutlineSection(
+                                                heading=section_data["heading"],
+                                                estimated_chars=section_data.get("estimated_chars", 400)
+                                            ))
+                                    
+                                    context.generated_outline = Outline(
+                                        status="outline",
+                                        title=edited_outline_data["title"],
+                                        suggested_tone=edited_outline_data.get("suggested_tone", "丁寧で読みやすい解説調"),
+                                        sections=edited_sections
+                                    )
+                                    context.current_step = "outline_approved"
+                                    console.print(f"[green]編集されたアウトラインが適用されました（EDIT_GENERIC）。[/green]")
+                                    await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message="Edited outline applied and approved."))
+                                    
+                                    # Save context after outline editing
+                                    if process_id and user_id:
+                                        try:
+                                            await self._save_context_to_db(context, process_id=process_id, user_id=user_id)
+                                            logger.info(f"Context saved successfully after outline editing")
+                                        except Exception as save_err:
+                                            logger.error(f"Failed to save context after outline editing: {save_err}")
+                                else:
+                                    await self._send_error(context, "EDIT_GENERIC: 編集されたアウトラインの形式が無効です。")
+                                    context.current_step = "error"
+                            else:
+                                await self._send_error(context, "EDIT_GENERIC: 編集されたアウトラインの形式が無効です。")
+                                context.current_step = "error"
+                        except Exception as e:
+                            await self._send_error(context, f"EDIT_GENERIC アウトライン編集エラー: {e}")
+                            context.current_step = "error"
                     else:
                         await self._send_error(context, f"予期しない応答タイプ: {response_type}")
                         context.current_step = "error"
@@ -1266,6 +1441,103 @@ class ArticleGenerationService:
                         console.print("[yellow]ペルソナの再生成が要求されました。[/yellow]")
                         context.current_step = "persona_generating"
                         context.generated_detailed_personas = []
+                    elif response_type == UserInputType.EDIT_PERSONA and isinstance(payload, EditPersonaPayload):
+                        try:
+                            edited_persona_data = payload.edited_persona
+                            console.print(f"[blue]EditPersonaPayload received: {edited_persona_data}[/blue]")
+                            
+                            # Handle different payload formats
+                            description = None
+                            if isinstance(edited_persona_data, dict):
+                                description = edited_persona_data.get("description")
+                            elif isinstance(edited_persona_data, str):
+                                description = edited_persona_data
+                            
+                            if description and isinstance(description, str) and description.strip():
+                                context.selected_detailed_persona = description.strip()
+                                context.current_step = "persona_selected"
+                                console.print(f"[green]ペルソナが編集され選択されました（EditPersonaPayload）: {description[:100]}...[/green]")
+                                await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message="Persona edited and selected."))
+                                
+                                # Save context after persona editing
+                                if process_id and user_id:
+                                    try:
+                                        await self._save_context_to_db(context, process_id=process_id, user_id=user_id)
+                                        logger.info(f"Context saved successfully after persona editing")
+                                    except Exception as save_err:
+                                        logger.error(f"Failed to save context after persona editing: {save_err}")
+                            else:
+                                await self._send_error(context, f"編集されたペルソナの形式が無効です。受信データ: {edited_persona_data}")
+                                context.current_step = "error"
+                        except (ValidationError, TypeError, AttributeError) as e:
+                            await self._send_error(context, f"ペルソナ編集エラー: {e}")
+                            context.current_step = "error"
+                    elif response_type == UserInputType.EDIT_AND_PROCEED and isinstance(payload, EditAndProceedPayload):
+                        try:
+                            edited_persona_data = payload.edited_content
+                            console.print(f"[blue]EditAndProceedPayload received for persona: {edited_persona_data}[/blue]")
+                            
+                            # Handle different payload formats
+                            description = None
+                            if isinstance(edited_persona_data, dict):
+                                description = edited_persona_data.get("description")
+                            elif isinstance(edited_persona_data, str):
+                                description = edited_persona_data
+                            
+                            if description and isinstance(description, str) and description.strip():
+                                context.selected_detailed_persona = description.strip()
+                                context.current_step = "persona_selected"
+                                console.print(f"[green]ペルソナが編集され選択されました（EditAndProceedPayload）: {description[:100]}...[/green]")
+                                await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message="Persona edited and selected."))
+                                
+                                # Save context after persona editing
+                                if process_id and user_id:
+                                    try:
+                                        await self._save_context_to_db(context, process_id=process_id, user_id=user_id)
+                                        logger.info(f"Context saved successfully after persona editing")
+                                    except Exception as save_err:
+                                        logger.error(f"Failed to save context after persona editing: {save_err}")
+                            else:
+                                await self._send_error(context, f"編集されたペルソナの形式が無効です。受信データ: {edited_persona_data}")
+                                context.current_step = "error"
+                        except (ValidationError, TypeError, AttributeError) as e:
+                            await self._send_error(context, f"ペルソナ編集エラー: {e}")
+                            context.current_step = "error"
+                    elif response_type == UserInputType.EDIT_GENERIC:
+                        try:
+                            # EDIT_GENERIC - generic edit handler for persona step
+                            console.print(f"[yellow]EDIT_GENERIC received for persona step. Payload: {payload}[/yellow]")
+                            
+                            # Handle different payload formats for EDIT_GENERIC
+                            description = None
+                            if hasattr(payload, 'edited_content'):
+                                edited_data = payload.edited_content
+                                if isinstance(edited_data, dict):
+                                    description = edited_data.get("description")
+                                elif isinstance(edited_data, str):
+                                    description = edited_data
+                            elif hasattr(payload, 'description'):
+                                description = payload.description
+                            
+                            if description and isinstance(description, str) and description.strip():
+                                context.selected_detailed_persona = description.strip()
+                                context.current_step = "persona_selected"
+                                console.print(f"[green]ペルソナが編集され選択されました（EDIT_GENERIC）: {description[:100]}...[/green]")
+                                await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message="Persona edited and selected."))
+                                
+                                # Save context after persona editing
+                                if process_id and user_id:
+                                    try:
+                                        await self._save_context_to_db(context, process_id=process_id, user_id=user_id)
+                                        logger.info(f"Context saved successfully after persona editing")
+                                    except Exception as save_err:
+                                        logger.error(f"Failed to save context after persona editing: {save_err}")
+                            else:
+                                await self._send_error(context, f"EDIT_GENERIC: 編集されたペルソナの形式が無効です。受信データ: {payload}")
+                                context.current_step = "error"
+                        except Exception as e:
+                            await self._send_error(context, f"EDIT_GENERIC ペルソナ編集エラー: {e}")
+                            context.current_step = "error"
                     else:
                         await self._send_error(context, f"予期しない応答タイプ: {response_type}")
                         context.current_step = "error"
@@ -1313,6 +1585,91 @@ class ArticleGenerationService:
                     elif response_type == UserInputType.REGENERATE:
                         console.print("[yellow]リサーチプランの再生成が要求されました。[/yellow]")
                         context.current_step = "research_planning"
+                    elif response_type == UserInputType.EDIT_PLAN and isinstance(payload, EditPlanPayload):
+                        try:
+                            edited_plan_data = payload.edited_plan
+                            if isinstance(edited_plan_data.get("topic"), str) and isinstance(edited_plan_data.get("queries"), list):
+                                from services.models import ResearchPlan, ResearchQuery
+                                queries = [ResearchQuery(query=q.get("query", ""), focus=q.get("focus", "")) 
+                                          for q in edited_plan_data["queries"] if isinstance(q, dict)]
+                                context.research_plan = ResearchPlan(
+                                    status="research_plan",
+                                    topic=edited_plan_data["topic"],
+                                    queries=queries
+                                )
+                                context.current_step = "research_plan_approved"
+                                console.print(f"[green]リサーチプランが編集され承認されました。[/green]")
+                                await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message="Research plan edited and approved."))
+                                
+                                # Save context after plan editing
+                                if process_id and user_id:
+                                    try:
+                                        await self._save_context_to_db(context, process_id=process_id, user_id=user_id)
+                                        logger.info(f"Context saved successfully after research plan editing")
+                                    except Exception as save_err:
+                                        logger.error(f"Failed to save context after research plan editing: {save_err}")
+                            else:
+                                await self._send_error(context, "編集されたリサーチプランの形式が無効です。")
+                                context.current_step = "error"
+                        except (ValidationError, TypeError, AttributeError) as e:
+                            await self._send_error(context, f"リサーチプラン編集エラー: {e}")
+                            context.current_step = "error"
+                    elif response_type == UserInputType.EDIT_AND_PROCEED and isinstance(payload, EditAndProceedPayload):
+                        try:
+                            edited_plan_data = payload.edited_content
+                            if isinstance(edited_plan_data.get("topic"), str) and isinstance(edited_plan_data.get("queries"), list):
+                                from services.models import ResearchPlan, ResearchQuery
+                                queries = [ResearchQuery(query=q.get("query", ""), focus=q.get("focus", "")) 
+                                          for q in edited_plan_data["queries"] if isinstance(q, dict)]
+                                context.research_plan = ResearchPlan(
+                                    status="research_plan",
+                                    topic=edited_plan_data["topic"],
+                                    queries=queries
+                                )
+                                context.current_step = "research_plan_approved"
+                                console.print(f"[green]リサーチプランが編集され承認されました（EditAndProceedPayload）。[/green]")
+                                await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message="Research plan edited and approved."))
+                                
+                                # Save context after plan editing
+                                if process_id and user_id:
+                                    try:
+                                        await self._save_context_to_db(context, process_id=process_id, user_id=user_id)
+                                        logger.info(f"Context saved successfully after research plan editing")
+                                    except Exception as save_err:
+                                        logger.error(f"Failed to save context after research plan editing: {save_err}")
+                            else:
+                                await self._send_error(context, "編集されたリサーチプランの形式が無効です。")
+                                context.current_step = "error"
+                        except (ValidationError, TypeError, AttributeError) as e:
+                            await self._send_error(context, f"リサーチプラン編集エラー: {e}")
+                            context.current_step = "error"
+                    elif response_type == UserInputType.EDIT_GENERIC:
+                        try:
+                            # EDIT_GENERIC - generic edit handler for research plan step
+                            console.print(f"[yellow]EDIT_GENERIC received for research plan step. Payload: {payload}[/yellow]")
+                            if hasattr(payload, 'edited_content'):
+                                edited_plan_data = payload.edited_content
+                                if isinstance(edited_plan_data.get("topic"), str) and isinstance(edited_plan_data.get("queries"), list):
+                                    from services.models import ResearchPlan, ResearchQuery
+                                    queries = [ResearchQuery(query=q.get("query", ""), focus=q.get("focus", "")) 
+                                              for q in edited_plan_data["queries"] if isinstance(q, dict)]
+                                    context.research_plan = ResearchPlan(
+                                        status="research_plan",
+                                        topic=edited_plan_data["topic"],
+                                        queries=queries
+                                    )
+                                    context.current_step = "research_plan_approved"
+                                    console.print(f"[green]リサーチプランが編集され承認されました（EDIT_GENERIC）。[/green]")
+                                    await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message="Research plan edited and approved."))
+                                else:
+                                    await self._send_error(context, "EDIT_GENERIC: 編集されたリサーチプランの形式が無効です。")
+                                    context.current_step = "error"
+                            else:
+                                await self._send_error(context, "EDIT_GENERIC: 編集されたリサーチプランの形式が無効です。")
+                                context.current_step = "error"
+                        except Exception as e:
+                            await self._send_error(context, f"EDIT_GENERIC リサーチプラン編集エラー: {e}")
+                            context.current_step = "error"
                     else:
                         await self._send_error(context, f"予期しない応答タイプ: {response_type}")
                         context.current_step = "error"
@@ -2079,34 +2436,51 @@ class ArticleGenerationService:
                         if last_exception: 
                             raise last_exception
 
-                        if accumulated_html:
+                        # セクション完全性をチェック
+                        if accumulated_html and len(accumulated_html.strip()) > 50:  # 最小長チェック
                             generated_section = ArticleSection(
                                 section_index=target_index, heading=target_heading, html_content=accumulated_html.strip()
                             )
-                            console.print(f"[green]セクション {target_index + 1}「{generated_section.heading}」のHTMLをストリームから構築しました。[/green]")
-                            # 完了イベントを送信
+                            console.print(f"[green]セクション {target_index + 1}「{generated_section.heading}」のHTMLをストリームから構築しました。（{len(accumulated_html)}文字）[/green]")
+                            
+                            # 完了イベントを送信（WebSocket切断時は無視される）
                             await self._send_server_event(context, SectionChunkPayload(
                                 section_index=target_index, heading=target_heading, html_content_chunk="", is_complete=True
                             ))
-                            context.generated_sections_html.append(generated_section.html_content)
+                            
+                            # セクション内容をcontextに保存
+                            if len(context.generated_sections_html) <= target_index:
+                                # リストを拡張
+                                context.generated_sections_html.extend([""] * (target_index + 1 - len(context.generated_sections_html)))
+                            
+                            context.generated_sections_html[target_index] = generated_section.html_content
                             context.last_agent_output = generated_section
+                            
                             # 会話履歴更新
                             last_user_request_item = agent_input[-1] if isinstance(agent_input, list) else None
                             if last_user_request_item and last_user_request_item.get('role') == 'user':
                                 user_request_text = last_user_request_item['content'][0]['text']
                                 context.add_to_section_writer_history("user", user_request_text)
                             context.add_to_section_writer_history("assistant", generated_section.html_content)
-                            context.current_section_index += 1
                             
-                            # Save context after each section completion
+                            # セクション完了後にインデックスを更新
+                            context.current_section_index = target_index + 1
+                            
+                            # Save context after each section completion（必須）
                             if process_id and user_id:
                                 try:
                                     await self._save_context_to_db(context, process_id=process_id, user_id=user_id)
                                     logger.info(f"Context saved successfully after section {context.current_section_index}/{len(context.generated_outline.sections)} completion")
                                 except Exception as save_err:
                                     logger.error(f"Failed to save context after section completion: {save_err}")
+                                    # セーブに失敗しても処理は継続
+                            
+                            console.print(f"[blue]セクション {target_index + 1} 完了。次のセクション: {context.current_section_index + 1}[/blue]")
                         else:
-                            raise ValueError(f"セクション {target_index + 1} のHTMLコンテンツが空です。")
+                            # セクションが不完全な場合はエラーとしてリトライ
+                            error_msg = f"セクション {target_index + 1} のHTMLコンテンツが不完全または空です（{len(accumulated_html) if accumulated_html else 0}文字）"
+                            console.print(f"[red]{error_msg}[/red]")
+                            raise ValueError(error_msg)
 
                 elif context.current_step == "editing":
                     current_agent = editor_agent

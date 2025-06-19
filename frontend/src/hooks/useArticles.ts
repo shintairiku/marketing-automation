@@ -66,7 +66,7 @@ interface UseAllProcessesResult {
   refetch: () => Promise<void>;
 }
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8008";
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 
 export function useArticles(pageSize: number = 20, statusFilter?: string): UseArticlesResult {
   const [articles, setArticles] = useState<Article[]>([]);

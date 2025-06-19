@@ -11,49 +11,12 @@ import { Button } from '@/components/ui/button';
 
 import InputSection from "./InputSection";
 import ExplainDialog from "./ExplainDialog";
-import RecoverableProcessesDialog from "../component/RecoverableProcessesDialog";
-import { useRecoverableProcesses } from '@/hooks/useRecoverableProcesses';
 
 export default function NewArticleStartPage() {
     const { user } = useUser();
     const router = useRouter();
     const [isCreating, setIsCreating] = useState(false);
     const [error, setError] = useState<string | null>(null);
-    const [showRecoverableDialog, setShowRecoverableDialog] = useState(false);
-    
-    // 復帰可能プロセスの管理
-    const {
-        recoverableProcesses,
-        isLoading: isLoadingProcesses,
-        error: processesError,
-        hasRecoverableProcesses
-    } = useRecoverableProcesses();
-
-    // 復帰可能プロセスの自動検出
-    useEffect(() => {
-        if (!user?.id || isLoadingProcesses) return;
-        
-        // 復帰可能プロセスがある場合、ダイアログを表示
-        if (hasRecoverableProcesses) {
-            setShowRecoverableDialog(true);
-        }
-    }, [user?.id, hasRecoverableProcesses, isLoadingProcesses]);
-
-    // 復帰処理ハンドラー
-    const handleResumeProcess = (processId: string) => {
-        setShowRecoverableDialog(false);
-        router.push(`/seo/generate/new-article/${processId}`);
-    };
-
-    const handleStartNewProcess = () => {
-        setShowRecoverableDialog(false);
-        // ダイアログを閉じるだけで、通常の新規作成フローを継続
-    };
-
-    const handleCloseRecoverableDialog = () => {
-        setShowRecoverableDialog(false);
-        // ダイアログを閉じるだけで、通常の新規作成フローを継続
-    };
 
     const handleStartGeneration = async (requestData: any) => {
         if (!user?.id) {
@@ -110,7 +73,7 @@ export default function NewArticleStartPage() {
             </motion.div>
 
             {/* エラー表示 */}
-            {(error || processesError) && (
+            {error && (
                 <motion.div
                     initial={{ opacity: 0, height: 0 }}
                     animate={{ opacity: 1, height: 'auto' }}
@@ -119,7 +82,7 @@ export default function NewArticleStartPage() {
                     <Alert className="border-red-200 bg-red-50">
                         <AlertCircle className="h-4 w-4 text-red-600" />
                         <AlertDescription className="text-red-800">
-                            {error || processesError}
+                            {error}
                         </AlertDescription>
                     </Alert>
                 </motion.div>
@@ -153,15 +116,6 @@ export default function NewArticleStartPage() {
                 </motion.div>
             )}
 
-            {/* 復帰可能プロセスダイアログ */}
-            <RecoverableProcessesDialog
-                processes={recoverableProcesses}
-                isOpen={showRecoverableDialog}
-                onResume={handleResumeProcess}
-                onStartNew={handleStartNewProcess}
-                onClose={handleCloseRecoverableDialog}
-                isLoading={isCreating}
-            />
         </div>
     );
 }

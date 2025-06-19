@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { AnimatePresence, motion } from 'framer-motion';
-import { AlertCircle, CheckCircle, Wifi, WifiOff, ArrowLeft } from 'lucide-react';
+import { AlertCircle, CheckCircle, ArrowLeft } from 'lucide-react';
 
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
@@ -302,35 +302,6 @@ export default function GenerationProcessPage({ jobId }: GenerationProcessPagePr
                 </div>
             </motion.div>
 
-            {/* 接続状態表示 */}
-            <motion.div
-                initial={{ opacity: 0, y: -20 }}
-                animate={{ opacity: 1, y: 0 }}
-            >
-                <Alert className={isConnected ? 'border-green-200 bg-green-50' : 'border-red-200 bg-red-50'}>
-                    <div className="flex items-center gap-2">
-                        {isConnected ? (
-                            <><Wifi className="h-4 w-4 text-green-600" />
-                            <AlertDescription className="text-green-800">
-                                サーバーに接続されています
-                            </AlertDescription></>
-                        ) : (
-                            <><WifiOff className="h-4 w-4 text-red-600" />
-                            <AlertDescription className="text-red-800">
-                                サーバーに接続できません
-                                <Button 
-                                    variant="ghost" 
-                                    size="sm" 
-                                    onClick={connect}
-                                    className="ml-2 text-red-800 hover:text-red-900"
-                                >
-                                    再接続
-                                </Button>
-                            </AlertDescription></>
-                        )}
-                    </div>
-                </Alert>
-            </motion.div>
 
             {/* エラー表示 */}
             <AnimatePresence>
