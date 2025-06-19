@@ -1,6 +1,6 @@
 "use client";
 import { useState } from 'react';
-import { ChevronDown, ChevronUp } from "lucide-react";
+import { ChevronDown, ChevronUp, Plus, X } from "lucide-react";
 import { IoRefresh, IoSparkles } from "react-icons/io5";
 
 import { Badge } from "@/components/ui/badge";
@@ -20,7 +20,8 @@ interface InputSectionProps {
 }
 
 export default function InputSection({ onStartGeneration, isConnected, isGenerating }: InputSectionProps) {
-    const [seoKeyword, setSeoKeyword] = useState('');
+    const [seoKeywords, setSeoKeywords] = useState<string[]>([]);
+    const [currentKeyword, setCurrentKeyword] = useState('');
     const [themeCount, setThemeCount] = useState(3);
     const [targetAgeGroup, setTargetAgeGroup] = useState('');
     const [personaType, setPersonaType] = useState('');
@@ -33,9 +34,31 @@ export default function InputSection({ onStartGeneration, isConnected, isGenerat
     const [companyStyleGuide, setCompanyStyleGuide] = useState('');
     const [showAdvanced, setShowAdvanced] = useState(false);
 
+    // キーワード追加関数
+    const addKeyword = () => {
+        const trimmedKeyword = currentKeyword.trim();
+        if (trimmedKeyword && !seoKeywords.includes(trimmedKeyword)) {
+            setSeoKeywords([...seoKeywords, trimmedKeyword]);
+            setCurrentKeyword('');
+        }
+    };
+
+    // キーワード削除関数
+    const removeKeyword = (indexToRemove: number) => {
+        setSeoKeywords(seoKeywords.filter((_, index) => index !== indexToRemove));
+    };
+
+    // Enterキーでキーワード追加
+    const handleKeywordKeyPress = (e: React.KeyboardEvent) => {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            addKeyword();
+        }
+    };
+
     const handleStartGeneration = () => {
-        if (!seoKeyword.trim()) {
-            alert('SEOキーワードを入力してください');
+        if (seoKeywords.length === 0) {
+            alert('SEOキーワードを最低1つ入力してください');
             return;
         }
 
@@ -45,7 +68,7 @@ export default function InputSection({ onStartGeneration, isConnected, isGenerat
         }
 
         const requestData = {
-            initial_keywords: [seoKeyword.trim()],
+            initial_keywords: seoKeywords,
             target_age_group: targetAgeGroup,
             num_theme_proposals: themeCount,
             num_research_queries: researchQueries,
@@ -72,13 +95,58 @@ export default function InputSection({ onStartGeneration, isConnected, isGenerat
               <CardTitle className="text-lg">リーチしたいSEOワード *</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="space-y-2">
-                <Input
-                  value={seoKeyword}
-                  onChange={(e) => setSeoKeyword(e.target.value)}
-                  placeholder="例: Webマーケティング"
-                  required
-                />
+              <div className="space-y-4">
+                {/* キーワード入力欄 */}
+                <div className="flex gap-2">
+                  <Input
+                    value={currentKeyword}
+                    onChange={(e) => setCurrentKeyword(e.target.value)}
+                    onKeyPress={handleKeywordKeyPress}
+                    placeholder="例: Webマーケティング"
+                    className="flex-1"
+                  />
+                  <Button
+                    type="button"
+                    onClick={addKeyword}
+                    disabled={!currentKeyword.trim() || seoKeywords.includes(currentKeyword.trim())}
+                    size="sm"
+                    className="px-3"
+                  >
+                    <Plus className="h-4 w-4" />
+                  </Button>
+                </div>
+                
+                {/* 追加されたキーワード一覧 */}
+                {seoKeywords.length > 0 && (
+                  <div className="space-y-2">
+                    <Label className="text-sm font-medium">追加されたキーワード ({seoKeywords.length}個)</Label>
+                    <div className="flex flex-wrap gap-2">
+                      {seoKeywords.map((keyword, index) => (
+                        <Badge
+                          key={index}
+                          variant="secondary"
+                          className="flex items-center gap-1 py-1 px-2"
+                        >
+                          {keyword}
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="h-4 w-4 p-0 hover:bg-destructive hover:text-destructive-foreground"
+                            onClick={() => removeKeyword(index)}
+                          >
+                            <X className="h-3 w-3" />
+                          </Button>
+                        </Badge>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                
+                {/* ヘルプテキスト */}
+                <div className="text-sm text-muted-foreground">
+                  キーワードを入力してプラスボタンをクリックするか、Enterキーを押して追加してください
+                </div>
               </div>
             </CardContent>
           </Card>
@@ -300,7 +368,7 @@ export default function InputSection({ onStartGeneration, isConnected, isGenerat
         <div className="mt-auto flex justify-center">
           <Button
             onClick={handleStartGeneration}
-            disabled={!isConnected || isGenerating || !seoKeyword.trim() || !targetAgeGroup}
+            disabled={!isConnected || isGenerating || seoKeywords.length === 0 || !targetAgeGroup}
             className="w-full max-w-md"
             size="lg"
           >
