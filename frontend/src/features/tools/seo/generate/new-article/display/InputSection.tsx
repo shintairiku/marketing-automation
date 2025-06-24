@@ -1,6 +1,6 @@
 "use client";
 import { useState } from 'react';
-import { ChevronDown, ChevronUp, Plus, X } from "lucide-react";
+import { ChevronDown, ChevronUp, Image,Plus, X } from "lucide-react";
 import { IoRefresh, IoSparkles } from "react-icons/io5";
 
 import { Badge } from "@/components/ui/badge";
@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Slider } from "@/components/ui/slider";
+import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 
 interface InputSectionProps {
@@ -33,6 +34,10 @@ export default function InputSection({ onStartGeneration, isConnected, isGenerat
     const [companyDescription, setCompanyDescription] = useState('');
     const [companyStyleGuide, setCompanyStyleGuide] = useState('');
     const [showAdvanced, setShowAdvanced] = useState(false);
+    
+    // 画像モード関連の状態
+    const [imageMode, setImageMode] = useState(false);
+    const [imageSettings, setImageSettings] = useState({});
 
     // キーワード追加関数
     const addKeyword = () => {
@@ -79,8 +84,13 @@ export default function InputSection({ onStartGeneration, isConnected, isGenerat
             company_name: companyName || null,
             company_description: companyDescription || null,
             company_style_guide: companyStyleGuide || null,
+            // 画像モード設定を追加
+            image_mode: imageMode,
+            image_settings: imageSettings,
         };
 
+        console.log('📦 Request data being sent:', requestData);
+        console.log('🖼️ Image mode in request data:', imageMode);
         onStartGeneration(requestData);
     };
 
@@ -151,7 +161,59 @@ export default function InputSection({ onStartGeneration, isConnected, isGenerat
             </CardContent>
           </Card>
 
-          {/* Card2: テーマ数 */}
+          {/* Card2: 画像モード */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-lg flex items-center gap-2">
+                <Image className="h-5 w-5" />
+                画像プレースホルダー機能
+                {/* デバッグ用: 現在の状態表示 */}
+                <span className="text-xs bg-gray-100 px-2 py-1 rounded">
+                  DEBUG: {imageMode ? 'ON' : 'OFF'}
+                </span>
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <div className="space-y-1">
+                    <Label className="text-sm font-medium">画像モードを有効にする</Label>
+                    <p className="text-sm text-muted-foreground">
+                      記事に画像プレースホルダーを挿入し、後から画像生成や画像アップロードができます
+                    </p>
+                  </div>
+                  <Switch
+                    checked={imageMode}
+                    onCheckedChange={(value) => {
+                      console.log('🖼️ Image mode toggle changed:', value);
+                      setImageMode(value);
+                    }}
+                  />
+                </div>
+                
+                {imageMode && (
+                  <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                    <div className="flex items-start gap-3">
+                      <IoSparkles className="h-5 w-5 text-blue-600 mt-0.5" />
+                      <div className="space-y-2">
+                        <h4 className="text-sm font-medium text-blue-900">画像モードが有効です</h4>
+                        <p className="text-sm text-blue-800">
+                          AIが記事の適切な箇所に画像プレースホルダーを配置します。生成後の編集画面で：
+                        </p>
+                        <ul className="text-sm text-blue-800 list-disc list-inside ml-2 space-y-1">
+                          <li>Vertex AI Imagen 4.0で自動画像生成</li>
+                          <li>手動での画像アップロード</li>
+                          <li>プレースホルダーと画像の入れ替え</li>
+                        </ul>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Card3: テーマ数 */}
           <Card>
             <CardHeader>
               <CardTitle className="text-lg">生成テーマ数</CardTitle>
@@ -178,7 +240,7 @@ export default function InputSection({ onStartGeneration, isConnected, isGenerat
             </CardContent>
           </Card>
 
-          {/* Card3: ターゲット年代層 */}
+          {/* Card4: ターゲット年代層 */}
           <Card>
             <CardHeader>
               <CardTitle className="text-lg">ターゲット年代層 *</CardTitle>

@@ -35,12 +35,14 @@ from services.models import (
     AgentOutput, ThemeProposal, ResearchPlan, ResearchQueryResult, ResearchReport, Outline, OutlineSection,
     RevisedArticle, ClarificationNeeded, StatusUpdate, ArticleSection, KeyPoint, GeneratedPersonasResponse, GeneratedPersonaItem, ResearchQuery,
     ThemeIdea, # ThemeIdea を追加
-    SerpKeywordAnalysisReport # SerpAPIキーワード分析レポート用のモデル追加
+    SerpKeywordAnalysisReport, # SerpAPIキーワード分析レポート用のモデル追加
+    ArticleSectionWithImages, ImagePlaceholder # 画像プレースホルダー対応モデル追加
 )
 from services.agents import (
     theme_agent, research_planner_agent, researcher_agent, research_synthesizer_agent,
     outline_agent, section_writer_agent, editor_agent, persona_generator_agent, # persona_generator_agent を追加
-    serp_keyword_analysis_agent # SerpAPIキーワード分析エージェント追加
+    serp_keyword_analysis_agent, # SerpAPIキーワード分析エージェント追加
+    section_writer_with_images_agent # 画像プレースホルダー対応セクションライター追加
 )
 from services.serpapi_service import SerpAPIService # SerpAPIサービス追加
 
@@ -309,7 +311,7 @@ class ArticleGenerationService:
         
         # WebSocketがある場合のみイベント送信
         if context.websocket:
-            await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message=f"Starting step: {context.current_step}"))
+            await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message=f"Starting step: {context.current_step}", image_mode=getattr(context, 'image_mode', False)))
         
         console.rule(f"[bold yellow]Background Step: {context.current_step}[/bold yellow]")
 
@@ -317,7 +319,7 @@ class ArticleGenerationService:
         if context.current_step == "start":
             context.current_step = "keyword_analyzing"
             if context.websocket:
-                await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message="Starting keyword analysis with SerpAPI..."))
+                await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message="Starting keyword analysis with SerpAPI...", image_mode=getattr(context, 'image_mode', False)))
 
         elif context.current_step == "keyword_analyzing":
             current_agent = serp_keyword_analysis_agent
@@ -338,7 +340,7 @@ class ArticleGenerationService:
                 # 次のステップに進む
                 context.current_step = "persona_generating"
                 if context.websocket:
-                    await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message="Keyword analysis completed, proceeding to persona generation."))
+                    await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message="Keyword analysis completed, proceeding to persona generation.", image_mode=getattr(context, 'image_mode', False)))
             else:
                 console.print(f"[red]SerpAPIキーワード分析中に予期しないエージェント出力タイプを受け取りました。[/red]")
                 context.current_step = "error"
@@ -407,7 +409,7 @@ class ArticleGenerationService:
                             context.selected_theme = context.generated_themes[selected_index]
                             context.current_step = "theme_selected"
                             console.print(f"[green]クライアントがテーマ「{context.selected_theme.title}」を選択しました。[/green]")
-                            await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message=f"Theme selected: {context.selected_theme.title}"))
+                            await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message=f"Theme selected: {context.selected_theme.title}", image_mode=getattr(context, 'image_mode', False)))
                             
                             # Save context after user theme selection
                             if process_id and user_id:
@@ -561,35 +563,83 @@ class ArticleGenerationService:
             sections = context.generated_outline.sections
             total_sections = len(sections)
             
+            # 画像モードの判定
+            is_image_mode = getattr(context, 'image_mode', False)
+            console.print(f"[cyan]{'画像モード' if is_image_mode else '通常モード'}でセクションを執筆します。[/cyan]")
+            
             for i, section in enumerate(sections):
                 console.print(f"✍️ セクション {i+1}/{total_sections}: {section.heading}")
                 
-                current_agent = section_writer_agent
-                agent_input = f"セクション: {section.heading}\n内容: {section.content}\nキーポイント: {', '.join([kp.text for kp in section.key_points])}\nペルソナ: {context.selected_detailed_persona}\nリサーチデータ: {context.research_report.summary if context.research_report else 'なし'}"
+                # コンテキストの現在のセクションインデックスを設定
+                context.current_section_index = i
+                
+                # 画像モードに応じてエージェントを選択
+                if is_image_mode:
+                    current_agent = section_writer_with_images_agent
+                    console.print(f"[cyan]画像プレースホルダー対応エージェントを使用します。[/cyan]")
+                else:
+                    current_agent = section_writer_agent
+                
+                # エージェント実行に必要な情報をコンテキストに設定
+                agent_input = "セクション執筆を開始します。"  # 動的プロンプトのためダミー入力
                 agent_output = await self._run_agent(current_agent, agent_input, context, run_config)
 
-                if isinstance(agent_output, ArticleSection):
+                # 画像モードの場合はArticleSectionWithImagesを期待
+                if is_image_mode and isinstance(agent_output, ArticleSectionWithImages):
+                    # ArticleSectionWithImagesをArticleSectionに変換
+                    article_section = ArticleSection(
+                        section_index=agent_output.section_index,
+                        heading=agent_output.heading,
+                        html_content=agent_output.html_content
+                    )
+                    context.generated_sections.append(article_section)
+                    
+                    # 画像プレースホルダー情報をコンテキストに保存
+                    if not hasattr(context, 'image_placeholders'):
+                        context.image_placeholders = []
+                    context.image_placeholders.extend(agent_output.image_placeholders)
+                    
+                    console.print(f"[green]セクション {i+1} が完了しました（画像プレースホルダー {len(agent_output.image_placeholders)} 個含む）。[/green]")
+                    
+                elif not is_image_mode and isinstance(agent_output, ArticleSection):
                     context.generated_sections.append(agent_output)
                     console.print(f"[green]セクション {i+1} が完了しました。[/green]")
                     
-                    # 進捗更新
-                    context.sections_progress = {
-                        'current_section': i + 1,
-                        'total_sections': total_sections,
-                        'completed_sections': i + 1
-                    }
+                elif isinstance(agent_output, str):
+                    # 従来のHTML文字列形式の場合（旧形式対応）
+                    article_section = ArticleSection(
+                        section_index=i,
+                        heading=section.heading,
+                        html_content=agent_output
+                    )
+                    context.generated_sections.append(article_section)
+                    console.print(f"[green]セクション {i+1} が完了しました（HTML文字列形式）。[/green]")
                     
-                    if context.websocket:
-                        await self._send_server_event(context, SectionChunkPayload(
-                            section_index=i,
-                            section_title=section.heading,
-                            content_chunk=agent_output.content[:200] + "..." if len(agent_output.content) > 200 else agent_output.content,
-                            progress=int((i + 1) / total_sections * 100)
-                        ))
                 else:
-                    console.print(f"[red]セクション {i+1} で予期しないエージェント出力タイプを受け取りました。[/red]")
+                    console.print(f"[red]セクション {i+1} で予期しないエージェント出力タイプを受け取りました: {type(agent_output)}[/red]")
                     context.current_step = "error"
                     return
+                
+                # 進捗更新
+                context.sections_progress = {
+                    'current_section': i + 1,
+                    'total_sections': total_sections,
+                    'completed_sections': i + 1
+                }
+                
+                if context.websocket:
+                    content_preview = ""
+                    if hasattr(agent_output, 'html_content'):
+                        content_preview = agent_output.html_content[:200] + "..." if len(agent_output.html_content) > 200 else agent_output.html_content
+                    elif isinstance(agent_output, str):
+                        content_preview = agent_output[:200] + "..." if len(agent_output) > 200 else agent_output
+                    
+                    await self._send_server_event(context, SectionChunkPayload(
+                        section_index=i,
+                        section_title=section.heading,
+                        content_chunk=content_preview,
+                        progress=int((i + 1) / total_sections * 100)
+                    ))
 
             # 全セクション完了
             context.current_step = "editing"
@@ -750,10 +800,16 @@ class ArticleGenerationService:
                 company_name=request.company_name,
                 company_description=request.company_description,
                 company_style_guide=request.company_style_guide,
+                # 画像モード設定追加
+                image_mode=request.image_mode,
+                image_settings=request.image_settings or {},
                 websocket=websocket, # WebSocketオブジェクトをコンテキストに追加
                     user_response_event=asyncio.Event(), # ユーザー応答待ちイベント
                     user_id=user_id # ユーザーIDを設定
                 )
+                
+                # デバッグ: 初期化直後のimage_modeの値をログ出力
+                console.print(f"[green]DEBUG: Context initialized with image_mode = {context.image_mode} (from request.image_mode = {request.image_mode})[/green]")
                 
                 # 単一のトレースIDとグループIDを生成して、フロー全体をまとめる
                 import uuid
@@ -1050,7 +1106,8 @@ class ArticleGenerationService:
             # 復帰時に現在ステップを通知
             await self._send_server_event(context, StatusUpdatePayload(
                 step=context.current_step, 
-                message=f"プロセスが復帰しました。現在のステップ: {context.current_step}"
+                message=f"プロセスが復帰しました。現在のステップ: {context.current_step}",
+                image_mode=getattr(context, 'image_mode', False)
             ))
             
             # ユーザー入力待ちステップの場合、適切なペイロードを送信
@@ -1075,7 +1132,8 @@ class ArticleGenerationService:
                     context.current_step = "persona_generating"
                     await self._send_server_event(context, StatusUpdatePayload(
                         step=context.current_step, 
-                        message="ペルソナ生成を再開します"
+                        message="ペルソナ生成を再開します",
+                        image_mode=getattr(context, 'image_mode', False)
                     ))
                     
             elif context.current_step == "theme_proposed":
@@ -1099,7 +1157,8 @@ class ArticleGenerationService:
                     context.current_step = "theme_generating"
                     await self._send_server_event(context, StatusUpdatePayload(
                         step=context.current_step, 
-                        message="テーマ生成を再開します"
+                        message="テーマ生成を再開します",
+                        image_mode=getattr(context, 'image_mode', False)
                     ))
                     
             elif context.current_step == "research_plan_generated":
@@ -1121,7 +1180,8 @@ class ArticleGenerationService:
                     context.current_step = "research_planning"
                     await self._send_server_event(context, StatusUpdatePayload(
                         step=context.current_step, 
-                        message="リサーチ計画の生成を再開します"
+                        message="リサーチ計画の生成を再開します",
+                        image_mode=getattr(context, 'image_mode', False)
                     ))
                     
             elif context.current_step == "outline_generated":
@@ -1152,7 +1212,8 @@ class ArticleGenerationService:
                     context.current_step = "outline_generating"
                     await self._send_server_event(context, StatusUpdatePayload(
                         step=context.current_step, 
-                        message="アウトライン生成を再開します"
+                        message="アウトライン生成を再開します",
+                        image_mode=getattr(context, 'image_mode', False)
                     ))
             
             # 状態の変更をDBに保存
@@ -1210,7 +1271,7 @@ class ArticleGenerationService:
                             context.selected_theme = context.generated_themes[selected_index]
                             context.current_step = "theme_selected"
                             console.print(f"[green]テーマ「{context.selected_theme.title}」が選択されました。[/green]")
-                            await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message=f"Theme selected: {context.selected_theme.title}"))
+                            await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message=f"Theme selected: {context.selected_theme.title}", image_mode=getattr(context, 'image_mode', False)))
                             
                             # Save context after theme selection
                             if process_id and user_id:
@@ -1235,7 +1296,7 @@ class ArticleGenerationService:
                                 context.selected_theme = ThemeIdea(**edited_theme_data)
                                 context.current_step = "theme_selected"
                                 console.print(f"[green]テーマが編集され選択されました: {context.selected_theme.title}[/green]")
-                                await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message="Theme edited and selected."))
+                                await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message="Theme edited and selected.", image_mode=getattr(context, 'image_mode', False)))
                                 
                                 # Save context after theme editing
                                 if process_id and user_id:
@@ -1259,7 +1320,7 @@ class ArticleGenerationService:
                                 context.selected_theme = ThemeIdea(**edited_theme_data)
                                 context.current_step = "theme_selected"
                                 console.print(f"[green]テーマが編集され選択されました: {context.selected_theme.title}[/green]")
-                                await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message="Theme edited and selected."))
+                                await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message="Theme edited and selected.", image_mode=getattr(context, 'image_mode', False)))
                                 
                                 # Save context after theme editing
                                 if process_id and user_id:
@@ -1286,7 +1347,7 @@ class ArticleGenerationService:
                                     context.selected_theme = ThemeIdea(**edited_theme_data)
                                     context.current_step = "theme_selected"
                                     console.print(f"[green]テーマが編集され選択されました（EDIT_GENERIC）: {context.selected_theme.title}[/green]")
-                                    await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message="Theme edited and selected."))
+                                    await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message="Theme edited and selected.", image_mode=getattr(context, 'image_mode', False)))
                                     
                                     # Save context after theme editing
                                     if process_id and user_id:
@@ -1342,7 +1403,7 @@ class ArticleGenerationService:
                         if payload.approved:
                             context.current_step = "outline_approved"
                             console.print("[green]アウトラインが承認されました。記事執筆を開始します。[/green]")
-                            await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message="Outline approved, starting article writing."))
+                            await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message="Outline approved, starting article writing.", image_mode=getattr(context, 'image_mode', False)))
                             
                             # Save context after outline approval
                             if process_id and user_id:
@@ -1381,7 +1442,7 @@ class ArticleGenerationService:
                                 )
                                 context.current_step = "outline_approved"
                                 console.print(f"[green]編集されたアウトラインが適用されました（EditOutlinePayload）。[/green]")
-                                await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message="Edited outline applied and approved."))
+                                await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message="Edited outline applied and approved.", image_mode=getattr(context, 'image_mode', False)))
                                 
                                 # Save context after outline editing
                                 if process_id and user_id:
@@ -1420,7 +1481,7 @@ class ArticleGenerationService:
                                 )
                                 context.current_step = "outline_approved"
                                 console.print(f"[green]編集されたアウトラインが適用されました（EditAndProceedPayload）。[/green]")
-                                await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message="Edited outline applied and approved."))
+                                await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message="Edited outline applied and approved.", image_mode=getattr(context, 'image_mode', False)))
                                 
                                 # Save context after outline editing
                                 if process_id and user_id:
@@ -1460,7 +1521,7 @@ class ArticleGenerationService:
                                     )
                                     context.current_step = "outline_approved"
                                     console.print(f"[green]編集されたアウトラインが適用されました（EDIT_GENERIC）。[/green]")
-                                    await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message="Edited outline applied and approved."))
+                                    await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message="Edited outline applied and approved.", image_mode=getattr(context, 'image_mode', False)))
                                     
                                     # Save context after outline editing
                                     if process_id and user_id:
@@ -1509,7 +1570,7 @@ class ArticleGenerationService:
                             context.selected_detailed_persona = context.generated_detailed_personas[selected_id]
                             context.current_step = "persona_selected"
                             console.print(f"[green]ペルソナが選択されました: {context.selected_detailed_persona[:100]}...[/green]")
-                            await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message="Persona selected, proceeding to theme generation."))
+                            await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message="Persona selected, proceeding to theme generation.", image_mode=getattr(context, 'image_mode', False)))
                             
                             # Save context after persona selection
                             if process_id and user_id:
@@ -1541,7 +1602,7 @@ class ArticleGenerationService:
                                 context.selected_detailed_persona = description.strip()
                                 context.current_step = "persona_selected"
                                 console.print(f"[green]ペルソナが編集され選択されました（EditPersonaPayload）: {description[:100]}...[/green]")
-                                await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message="Persona edited and selected."))
+                                await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message="Persona edited and selected.", image_mode=getattr(context, 'image_mode', False)))
                                 
                                 # Save context after persona editing
                                 if process_id and user_id:
@@ -1572,7 +1633,7 @@ class ArticleGenerationService:
                                 context.selected_detailed_persona = description.strip()
                                 context.current_step = "persona_selected"
                                 console.print(f"[green]ペルソナが編集され選択されました（EditAndProceedPayload）: {description[:100]}...[/green]")
-                                await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message="Persona edited and selected."))
+                                await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message="Persona edited and selected.", image_mode=getattr(context, 'image_mode', False)))
                                 
                                 # Save context after persona editing
                                 if process_id and user_id:
@@ -1607,7 +1668,7 @@ class ArticleGenerationService:
                                 context.selected_detailed_persona = description.strip()
                                 context.current_step = "persona_selected"
                                 console.print(f"[green]ペルソナが編集され選択されました（EDIT_GENERIC）: {description[:100]}...[/green]")
-                                await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message="Persona edited and selected."))
+                                await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message="Persona edited and selected.", image_mode=getattr(context, 'image_mode', False)))
                                 
                                 # Save context after persona editing
                                 if process_id and user_id:
@@ -1654,7 +1715,7 @@ class ArticleGenerationService:
                         if payload.approved:
                             context.current_step = "research_plan_approved"
                             console.print("[green]リサーチプランが承認されました。リサーチを開始します。[/green]")
-                            await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message="Research plan approved, starting research."))
+                            await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message="Research plan approved, starting research.", image_mode=getattr(context, 'image_mode', False)))
                             
                             # Save context after plan approval
                             if process_id and user_id:
@@ -1683,7 +1744,7 @@ class ArticleGenerationService:
                                 )
                                 context.current_step = "research_plan_approved"
                                 console.print(f"[green]リサーチプランが編集され承認されました。[/green]")
-                                await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message="Research plan edited and approved."))
+                                await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message="Research plan edited and approved.", image_mode=getattr(context, 'image_mode', False)))
                                 
                                 # Save context after plan editing
                                 if process_id and user_id:
@@ -1712,7 +1773,7 @@ class ArticleGenerationService:
                                 )
                                 context.current_step = "research_plan_approved"
                                 console.print(f"[green]リサーチプランが編集され承認されました（EditAndProceedPayload）。[/green]")
-                                await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message="Research plan edited and approved."))
+                                await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message="Research plan edited and approved.", image_mode=getattr(context, 'image_mode', False)))
                                 
                                 # Save context after plan editing
                                 if process_id and user_id:
@@ -1744,7 +1805,7 @@ class ArticleGenerationService:
                                     )
                                     context.current_step = "research_plan_approved"
                                     console.print(f"[green]リサーチプランが編集され承認されました（EDIT_GENERIC）。[/green]")
-                                    await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message="Research plan edited and approved."))
+                                    await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message="Research plan edited and approved.", image_mode=getattr(context, 'image_mode', False)))
                                 else:
                                     await self._send_error(context, "EDIT_GENERIC: 編集されたリサーチプランの形式が無効です。")
                                     context.current_step = "error"
@@ -1784,13 +1845,21 @@ class ArticleGenerationService:
                 if process_id and user_id:
                     await self._save_context_to_db(context, process_id=process_id, user_id=user_id)
                 
-                await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message=f"Starting step: {context.current_step}"))
+                await self._send_server_event(context, StatusUpdatePayload(
+                    step=context.current_step, 
+                    message=f"Starting step: {context.current_step}",
+                    image_mode=getattr(context, 'image_mode', False)
+                ))
                 console.rule(f"[bold yellow]API Step: {context.current_step}[/bold yellow]")
 
                 # --- ステップに応じた処理 ---
                 if context.current_step == "start":
                     context.current_step = "keyword_analyzing"  # SerpAPIキーワード分析から開始
-                    await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message="Starting keyword analysis with SerpAPI..."))
+                    await self._send_server_event(context, StatusUpdatePayload(
+                        step=context.current_step, 
+                        message="Starting keyword analysis with SerpAPI...",
+                        image_mode=getattr(context, 'image_mode', False)
+                    ))
                     # エージェント実行なし、次のループで処理
 
                 elif context.current_step == "keyword_analyzing":
@@ -1849,7 +1918,7 @@ class ArticleGenerationService:
                         
                         # 次のステップに進む（ペルソナ生成）
                         context.current_step = "persona_generating"
-                        await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message="Keyword analysis completed, proceeding to persona generation."))
+                        await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message="Keyword analysis completed, proceeding to persona generation.", image_mode=getattr(context, 'image_mode', False)))
                         
                         # Save context after step transition
                         if process_id and user_id:
@@ -1899,7 +1968,7 @@ class ArticleGenerationService:
                                     context.selected_detailed_persona = context.generated_detailed_personas[selected_id]
                                     context.current_step = "persona_selected"
                                     console.print(f"[green]クライアントがペルソナID {selected_id} を選択しました。[/green]")
-                                    await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message=f"Detailed persona selected: {context.selected_detailed_persona[:50]}..."))
+                                    await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message=f"Detailed persona selected: {context.selected_detailed_persona[:50]}...", image_mode=getattr(context, 'image_mode', False)))
                                     
                                     # Save context after user persona selection
                                     if process_id and user_id:
@@ -1923,7 +1992,7 @@ class ArticleGenerationService:
                                     context.selected_detailed_persona = edited_persona_description
                                     context.current_step = "persona_selected" # 編集されたもので選択完了扱い
                                     console.print(f"[green]クライアントがペルソナを編集し、選択しました: {context.selected_detailed_persona[:50]}...[/green]")
-                                    await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message=f"Detailed persona edited and selected."))
+                                    await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message=f"Detailed persona edited and selected.", image_mode=getattr(context, 'image_mode', False)))
                                     
                                     # Save context after user persona editing
                                     if process_id and user_id:
@@ -1952,7 +2021,7 @@ class ArticleGenerationService:
 
                 elif context.current_step == "persona_selected":
                     context.current_step = "theme_generating"  # テーマ生成ステップに移行
-                    await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message="Persona selected, proceeding to theme generation."))
+                    await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message="Persona selected, proceeding to theme generation.", image_mode=getattr(context, 'image_mode', False)))
 
                 elif context.current_step == "theme_generating":
                     current_agent = theme_agent
@@ -2021,7 +2090,7 @@ class ArticleGenerationService:
                                         context.selected_theme = context.generated_themes[selected_index]
                                         context.current_step = "theme_selected"
                                         console.print(f"[green]クライアントがテーマ「{context.selected_theme.title}」を選択しました。[/green]")
-                                        await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message=f"Theme selected: {context.selected_theme.title}"))
+                                        await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message=f"Theme selected: {context.selected_theme.title}", image_mode=getattr(context, 'image_mode', False)))
                                         
                                         # Save context after user theme selection
                                         if process_id and user_id:
@@ -2053,7 +2122,7 @@ class ArticleGenerationService:
                                             context.selected_theme = ThemeIdea(**edited_theme_data)
                                             context.current_step = "theme_selected"
                                             console.print(f"[green]クライアントがテーマを編集し、選択しました: {context.selected_theme.title}[/green]")
-                                            await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message=f"Theme edited and selected."))
+                                            await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message=f"Theme edited and selected.", image_mode=getattr(context, 'image_mode', False)))
                                             
                                             # Save context after user theme editing
                                             if process_id and user_id:
@@ -2096,7 +2165,7 @@ class ArticleGenerationService:
                     console.print(f"[blue]theme_selectedステップを処理中... (process_id: {process_id})[/blue]")
                     context.current_step = "research_planning"
                     console.print("[blue]theme_selectedからresearch_planningに遷移します...[/blue]")
-                    await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message="Moving to research planning."))
+                    await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message="Moving to research planning.", image_mode=getattr(context, 'image_mode', False)))
                     console.print(f"[blue]research_planningステップに移行完了。継続中... (process_id: {process_id})[/blue]")
                     # エージェント実行なし、次のループで research_planning が処理される
 
@@ -2122,7 +2191,7 @@ class ArticleGenerationService:
                             if payload.approved:
                                 context.current_step = "research_plan_approved"
                                 console.print("[green]クライアントがリサーチ計画を承認しました。[/green]")
-                                await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message="Research plan approved."))
+                                await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message="Research plan approved.", image_mode=getattr(context, 'image_mode', False)))
                                 
                                 # Save context after research plan approval
                                 if process_id and user_id:
@@ -2153,7 +2222,7 @@ class ArticleGenerationService:
                                     )
                                     context.current_step = "research_plan_approved"
                                     console.print(f"[green]クライアントがリサーチ計画を編集し、承認しました。[/green]")
-                                    await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message="Research plan edited and approved."))
+                                    await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message="Research plan edited and approved.", image_mode=getattr(context, 'image_mode', False)))
                                     
                                     # Save context after research plan editing and approval
                                     if process_id and user_id:
@@ -2215,7 +2284,7 @@ class ArticleGenerationService:
                 elif context.current_step == "research_plan_approved":
                     context.current_step = "researching"
                     console.print("リサーチ実行ステップに進みます...")
-                    await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message="Moving to research execution."))
+                    await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message="Moving to research execution.", image_mode=getattr(context, 'image_mode', False)))
                     # エージェント実行なし
 
                 elif context.current_step == "researching":
@@ -2223,7 +2292,7 @@ class ArticleGenerationService:
                     if context.current_research_query_index >= len(context.research_plan.queries):
                         context.current_step = "research_synthesizing"
                         console.print("[green]全クエリのリサーチが完了しました。要約ステップに移ります。[/green]")
-                        await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message="All research queries completed, synthesizing results."))
+                        await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message="All research queries completed, synthesizing results.", image_mode=getattr(context, 'image_mode', False)))
                         continue
 
                     current_agent = researcher_agent
@@ -2245,25 +2314,53 @@ class ArticleGenerationService:
                             query=current_query_obj.query
                         ))
 
-                        agent_output = await self._run_agent(current_agent, agent_input, context, run_config)
+                        # --- Retry logic start ---
+                        MAX_RETRY_ATTEMPTS = 3
+                        for attempt in range(1, MAX_RETRY_ATTEMPTS + 1):
+                            agent_output = await self._run_agent(current_agent, agent_input, context, run_config)
 
-                        if isinstance(agent_output, ResearchQueryResult):
-                            if agent_output.query == current_query_obj.query:
+                            # 成功条件: 正しいクエリ結果が返る
+                            if isinstance(agent_output, ResearchQueryResult) and agent_output.query == current_query_obj.query:
                                 context.add_query_result(agent_output)
-                                console.print(f"[green]クエリ「{agent_output.query}」の詳細リサーチ結果を処理しました。[/green]")
+                                console.print(
+                                    f"[green]クエリ「{agent_output.query}」の詳細リサーチ結果を処理しました。[/green]"
+                                )
                                 context.current_research_query_index += 1
-                                
+
                                 # Save context after each research query completion
                                 if process_id and user_id:
                                     try:
-                                        await self._save_context_to_db(context, process_id=process_id, user_id=user_id)
-                                        logger.info(f"Context saved successfully after research query {context.current_research_query_index}/{len(context.research_plan.queries)} completion")
+                                        await self._save_context_to_db(
+                                            context, process_id=process_id, user_id=user_id
+                                        )
+                                        logger.info(
+                                            f"Context saved successfully after research query {context.current_research_query_index}/{len(context.research_plan.queries)} completion"
+                                        )
                                     except Exception as save_err:
-                                        logger.error(f"Failed to save context after research query completion: {save_err}")
-                            else:
-                                raise ValueError(f"予期しないクエリ「{agent_output.query}」の結果を受け取りました。")
-                        else:
-                             raise TypeError(f"予期しないAgent出力タイプ: {type(agent_output)}")
+                                        logger.error(
+                                            f"Failed to save context after research query completion: {save_err}"
+                                        )
+                                # 正常に処理できたので retry ループから抜ける
+                                break
+
+                            # 失敗した場合の処理
+                            console.print(
+                                f"[yellow]予期しないリサーチ結果 (attempt {attempt}/{MAX_RETRY_ATTEMPTS}) を受け取りました。リトライします...[/yellow]"
+                            )
+
+                            # 最後の試行であればエラーを送出
+                            if attempt == MAX_RETRY_ATTEMPTS:
+                                if isinstance(agent_output, ResearchQueryResult):
+                                    error_query = agent_output.query
+                                else:
+                                    error_query = getattr(agent_output, "query", "<unknown>")
+                                raise ValueError(
+                                    f"予期しないクエリ「{error_query}」の結果を {MAX_RETRY_ATTEMPTS} 回受け取りました。処理を中断します。"
+                                )
+
+                            # 少し待ってから再試行（API レート制限などの軽減）
+                            await asyncio.sleep(1)
+                        # --- Retry logic end ---
 
                 elif context.current_step == "research_synthesizing":
                     current_agent = research_synthesizer_agent
@@ -2289,7 +2386,7 @@ class ArticleGenerationService:
                         
                         # すぐにアウトライン生成へ
                         context.current_step = "outline_generating" # ★ ステップ名修正
-                        await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message="Research report generated, generating outline."))
+                        await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message="Research report generated, generating outline.", image_mode=getattr(context, 'image_mode', False)))
                     else:
                         raise TypeError(f"予期しないAgent出力タイプ: {type(agent_output)}")
 
@@ -2356,7 +2453,7 @@ class ArticleGenerationService:
                                     # context.generated_outline は既に設定済みなので、ここでは何もしない
                                     context.current_step = "outline_approved"
                                     console.print("[green]クライアントがアウトラインを承認しました。[/green]")
-                                    await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message="Outline approved, proceeding to writing."))
+                                    await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message="Outline approved, proceeding to writing.", image_mode=getattr(context, 'image_mode', False)))
                                     
                                     # Save context after outline approval
                                     if process_id and user_id:
@@ -2397,7 +2494,7 @@ class ArticleGenerationService:
                                         )
                                         context.current_step = "outline_approved"
                                         console.print(f"[green]クライアントがアウトラインを編集し、承認しました。[/green]")
-                                        await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message="Outline edited and approved."))
+                                        await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message="Outline edited and approved.", image_mode=getattr(context, 'image_mode', False)))
                                         
                                         # Save context after outline editing and approval
                                         if process_id and user_id:
@@ -2445,7 +2542,12 @@ class ArticleGenerationService:
                         await self._send_server_event(context, EditingStartPayload())
                         continue
 
-                    current_agent = section_writer_agent
+                    # 画像モードかどうかでエージェントを選択
+                    if getattr(context, 'image_mode', False):
+                        current_agent = section_writer_with_images_agent
+                        console.print(f"[cyan]画像モードが有効: {current_agent.name} を使用[/cyan]")
+                    else:
+                        current_agent = section_writer_agent
                     target_index = context.current_section_index
                     target_heading = context.generated_outline.sections[target_index].heading # context.outline_approved から context.generated_outline に変更
 
@@ -2460,128 +2562,189 @@ class ArticleGenerationService:
                         current_input_messages.append({"role": "user", "content": [{"type": "input_text", "text": user_request}]})
                         agent_input = current_input_messages
 
-                        console.print(f"🤖 {current_agent.name} にセクション {target_index + 1} の執筆を依頼します (Streaming)...")
-                        await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message=f"Writing section {target_index + 1}: {target_heading}"))
-
-                        accumulated_html = ""
-                        stream_result = None
-                        last_exception = None
-                        start_time = time.time()  # start_time変数を定義
-
-                        for attempt in range(settings.max_retries):
-                            try:
-                                console.print(f"[dim]ストリーミング開始 (試行 {attempt + 1}/{settings.max_retries})...[/dim]")
-                                stream_result = Runner.run_streamed(
-                                    starting_agent=current_agent, input=agent_input, context=context, run_config=run_config, max_turns=10
+                        # 画像モードの場合は通常のエージェント実行、そうでなければストリーミング実行
+                        if getattr(context, 'image_mode', False):
+                            # 画像モード: 通常のエージェント実行（structured output対応）
+                            console.print(f"🤖 {current_agent.name} にセクション {target_index + 1} の執筆を依頼します (画像モード)...")
+                            await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message=f"Writing section {target_index + 1}: {target_heading} (with images)", image_mode=True))
+                            
+                            agent_output = await self._run_agent(current_agent, agent_input, context, run_config)
+                            
+                            if isinstance(agent_output, ArticleSectionWithImages):
+                                # 画像プレースホルダーの必須チェック
+                                if not agent_output.image_placeholders or len(agent_output.image_placeholders) == 0:
+                                    raise ValueError(f"画像モードでセクション {target_index + 1} に画像プレースホルダーが含まれていません。画像プレースホルダーは必須です。")
+                                
+                                # HTMLコンテンツ内にプレースホルダーコメントが含まれているかもチェック
+                                if "IMAGE_PLACEHOLDER:" not in agent_output.html_content:
+                                    raise ValueError(f"画像モードでセクション {target_index + 1} のHTMLに画像プレースホルダーコメントが含まれていません。")
+                                
+                                console.print(f"[cyan]画像プレースホルダー検証OK: {len(agent_output.image_placeholders)}個のプレースホルダーが検出されました[/cyan]")
+                                
+                                generated_section = ArticleSection(
+                                    section_index=target_index, 
+                                    heading=target_heading, 
+                                    html_content=agent_output.html_content
                                 )
-                                console.print(f"[dim]ストリーム開始: セクション {target_index + 1}「{target_heading}」[/dim]")
-                                accumulated_html = ""
-
-                                async for event in stream_result.stream_events():
-                                    if event.type == "raw_response_event" and isinstance(event.data, ResponseTextDeltaEvent):
-                                        delta = event.data.delta
-                                        accumulated_html += delta
-                                        # WebSocketでHTMLチャンクを送信（切断時は無視して継続）
-                                        try:
-                                            await self._send_server_event(context, SectionChunkPayload(
-                                                section_index=target_index,
-                                                heading=target_heading,
-                                                html_content_chunk=delta,
-                                                is_complete=False
-                                            ))
-                                        except Exception as ws_err:
-                                            # WebSocket送信エラーは無視して処理を継続
-                                            console.print(f"[dim]WebSocket送信エラー（処理継続）: {ws_err}[/dim]")
-                                            # WebSocket参照をクリアして今後の送信を防ぐ
-                                            if context.websocket:
-                                                context.websocket = None
-                                    elif event.type == "run_item_stream_event" and event.item.type == "tool_call_item":
-                                        console.print(f"\n[dim]ツール呼び出し: {event.item.name}[/dim]")
-                                    elif event.type == "raw_response_event" and isinstance(event.data, ResponseCompletedEvent):
-                                         console.print(f"\n[dim]レスポンス完了イベント受信[/dim]")
-
-                                console.print(f"\n[dim]ストリーム終了: セクション {target_index + 1}「{target_heading}」[/dim]")
-                                last_exception = None
-                                break
-                            except (InternalServerError, BadRequestError, MaxTurnsExceeded, ModelBehaviorError, AgentsException, UserError, AuthenticationError, Exception) as e:
-                                last_exception = e
-                                attempt_time = time.time() - start_time
-                                error_type = type(e).__name__
+                                console.print(f"[green]セクション {target_index + 1}「{generated_section.heading}」を画像プレースホルダー付きで生成しました。（{len(agent_output.html_content)}文字、画像{len(agent_output.image_placeholders)}個）[/green]")
                                 
-                                # エラーメトリクス記録
-                                logger.warning(f"ストリーミング実行エラー (試行 {attempt + 1}/{settings.max_retries}): {error_type} - {e}, 経過時間: {attempt_time:.2f}秒")
+                                # 画像プレースホルダー情報をコンテキストに保存
+                                if not hasattr(context, 'image_placeholders'):
+                                    context.image_placeholders = []
+                                context.image_placeholders.extend(agent_output.image_placeholders)
                                 
-                                console.print(f"\n[yellow]ストリーミング中にエラー発生 (試行 {attempt + 1}/{settings.max_retries}): {error_type} - {e}[/yellow]")
-                                if isinstance(e, (BadRequestError, MaxTurnsExceeded, ModelBehaviorError, UserError, AuthenticationError)):
-                                    break # リトライしないエラー
-                                if attempt < settings.max_retries - 1:
-                                    delay = settings.initial_retry_delay * (2 ** attempt)
-                                    await asyncio.sleep(delay)
-                                else:
-                                    context.error_message = f"ストリーミングエラー: {str(e)}"
-                                    context.current_step = "error"
-                                    break
-
-                        if context.current_step == "error": 
-                            break
-                        if last_exception: 
-                            raise last_exception
-
-                        # セクション完全性をチェック
-                        if accumulated_html and len(accumulated_html.strip()) > 50:  # 最小長チェック
-                            generated_section = ArticleSection(
-                                section_index=target_index, heading=target_heading, html_content=accumulated_html.strip()
-                            )
-                            console.print(f"[green]セクション {target_index + 1}「{generated_section.heading}」のHTMLをストリームから構築しました。（{len(accumulated_html)}文字）[/green]")
-                            
-                            # 完了イベントを送信（WebSocket切断時は無視される）
-                            try:
-                                await self._send_server_event(context, SectionChunkPayload(
-                                    section_index=target_index, heading=target_heading, html_content_chunk="", is_complete=True
-                                ))
-                            except Exception as ws_err:
-                                console.print(f"[dim]セクション完了イベント送信エラー（処理継続）: {ws_err}[/dim]")
-                            
-                            # セクション内容をcontextに保存
-                            if len(context.generated_sections_html) <= target_index:
-                                # リストを拡張
-                                context.generated_sections_html.extend([""] * (target_index + 1 - len(context.generated_sections_html)))
-                            
-                            context.generated_sections_html[target_index] = generated_section.html_content
-                            context.last_agent_output = generated_section
-                            
-                            # 会話履歴更新
-                            last_user_request_item = agent_input[-1] if isinstance(agent_input, list) else None
-                            if last_user_request_item and last_user_request_item.get('role') == 'user':
-                                user_request_text = last_user_request_item['content'][0]['text']
-                                context.add_to_section_writer_history("user", user_request_text)
-                            context.add_to_section_writer_history("assistant", generated_section.html_content)
-                            
-                            # セクション完了後にインデックスを更新
-                            context.current_section_index = target_index + 1
-                            
-                            # Save context after each section completion（必須）
-                            if process_id and user_id:
-                                try:
-                                    await self._save_context_to_db(context, process_id=process_id, user_id=user_id)
-                                    logger.info(f"Context saved successfully after section {context.current_section_index}/{len(context.generated_outline.sections)} completion")
-                                except Exception as save_err:
-                                    logger.error(f"Failed to save context after section completion: {save_err}")
-                                    # セーブに失敗しても処理は継続
-                            
-                            console.print(f"[blue]セクション {target_index + 1} 完了。次のセクション: {context.current_section_index + 1}[/blue]")
+                                # セクション内容をcontextに保存
+                                if len(context.generated_sections_html) <= target_index:
+                                    context.generated_sections_html.extend([""] * (target_index + 1 - len(context.generated_sections_html)))
+                                
+                                context.generated_sections_html[target_index] = generated_section.html_content
+                                context.last_agent_output = generated_section
+                                
+                                # 会話履歴更新
+                                last_user_request_item = agent_input[-1] if isinstance(agent_input, list) else None
+                                if last_user_request_item and last_user_request_item.get('role') == 'user':
+                                    user_request_text = last_user_request_item['content'][0]['text']
+                                    context.add_to_section_writer_history("user", user_request_text)
+                                context.add_to_section_writer_history("assistant", generated_section.html_content)
+                                
+                                # セクション完了後にインデックスを更新
+                                context.current_section_index = target_index + 1
+                                
+                                # Save context after each section completion（必須）
+                                if process_id and user_id:
+                                    try:
+                                        await self._save_context_to_db(context, process_id=process_id, user_id=user_id)
+                                        logger.info(f"Context saved successfully after section {context.current_section_index}/{len(context.generated_outline.sections)} completion")
+                                    except Exception as save_err:
+                                        logger.error(f"Failed to save context after section completion: {save_err}")
+                                
+                                console.print(f"[blue]セクション {target_index + 1} 完了。次のセクション: {context.current_section_index + 1}[/blue]")
+                            else:
+                                raise TypeError(f"画像モードで予期しないAgent出力タイプ: {type(agent_output)}")
                         else:
-                            # セクションが不完全な場合はエラーとしてリトライ
-                            error_msg = f"セクション {target_index + 1} のHTMLコンテンツが不完全または空です（{len(accumulated_html) if accumulated_html else 0}文字）"
-                            console.print(f"[red]{error_msg}[/red]")
-                            raise ValueError(error_msg)
+                            # 通常モード: ストリーミング実行
+                            console.print(f"🤖 {current_agent.name} にセクション {target_index + 1} の執筆を依頼します (Streaming)...")
+                            await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message=f"Writing section {target_index + 1}: {target_heading}", image_mode=False))
+
+                            accumulated_html = ""
+                            stream_result = None
+                            last_exception = None
+                            start_time = time.time()  # start_time変数を定義
+
+                            for attempt in range(settings.max_retries):
+                                try:
+                                    console.print(f"[dim]ストリーミング開始 (試行 {attempt + 1}/{settings.max_retries})...[/dim]")
+                                    stream_result = Runner.run_streamed(
+                                        starting_agent=current_agent, input=agent_input, context=context, run_config=run_config, max_turns=10
+                                    )
+                                    console.print(f"[dim]ストリーム開始: セクション {target_index + 1}「{target_heading}」[/dim]")
+                                    accumulated_html = ""
+
+                                    async for event in stream_result.stream_events():
+                                        if event.type == "raw_response_event" and isinstance(event.data, ResponseTextDeltaEvent):
+                                            delta = event.data.delta
+                                            accumulated_html += delta
+                                            # WebSocketでHTMLチャンクを送信（切断時は無視して継続）
+                                            try:
+                                                await self._send_server_event(context, SectionChunkPayload(
+                                                    section_index=target_index,
+                                                    heading=target_heading,
+                                                    html_content_chunk=delta,
+                                                    is_complete=False
+                                                ))
+                                            except Exception as ws_err:
+                                                # WebSocket送信エラーは無視して処理を継続
+                                                console.print(f"[dim]WebSocket送信エラー（処理継続）: {ws_err}[/dim]")
+                                                # WebSocket参照をクリアして今後の送信を防ぐ
+                                                if context.websocket:
+                                                    context.websocket = None
+                                        elif event.type == "run_item_stream_event" and event.item.type == "tool_call_item":
+                                            console.print(f"\n[dim]ツール呼び出し: {event.item.name}[/dim]")
+                                        elif event.type == "raw_response_event" and isinstance(event.data, ResponseCompletedEvent):
+                                             console.print(f"\n[dim]レスポンス完了イベント受信[/dim]")
+
+                                    console.print(f"\n[dim]ストリーム終了: セクション {target_index + 1}「{target_heading}」[/dim]")
+                                    last_exception = None
+                                    break
+                                except (InternalServerError, BadRequestError, MaxTurnsExceeded, ModelBehaviorError, AgentsException, UserError, AuthenticationError, Exception) as e:
+                                    last_exception = e
+                                    attempt_time = time.time() - start_time
+                                    error_type = type(e).__name__
+                                    
+                                    # エラーメトリクス記録
+                                    logger.warning(f"ストリーミング実行エラー (試行 {attempt + 1}/{settings.max_retries}): {error_type} - {e}, 経過時間: {attempt_time:.2f}秒")
+                                    
+                                    console.print(f"\n[yellow]ストリーミング中にエラー発生 (試行 {attempt + 1}/{settings.max_retries}): {error_type} - {e}[/yellow]")
+                                    if isinstance(e, (BadRequestError, MaxTurnsExceeded, ModelBehaviorError, UserError, AuthenticationError)):
+                                        break # リトライしないエラー
+                                    if attempt < settings.max_retries - 1:
+                                        delay = settings.initial_retry_delay * (2 ** attempt)
+                                        await asyncio.sleep(delay)
+                                    else:
+                                        context.error_message = f"ストリーミングエラー: {str(e)}"
+                                        context.current_step = "error"
+                                        break
+
+                            if context.current_step == "error": 
+                                break
+                            if last_exception: 
+                                raise last_exception
+
+                            # セクション完全性をチェック
+                            if accumulated_html and len(accumulated_html.strip()) > 50:  # 最小長チェック
+                                generated_section = ArticleSection(
+                                    section_index=target_index, heading=target_heading, html_content=accumulated_html.strip()
+                                )
+                                console.print(f"[green]セクション {target_index + 1}「{generated_section.heading}」のHTMLをストリームから構築しました。（{len(accumulated_html)}文字）[/green]")
+                                
+                                # 完了イベントを送信（WebSocket切断時は無視される）
+                                try:
+                                    await self._send_server_event(context, SectionChunkPayload(
+                                        section_index=target_index, heading=target_heading, html_content_chunk="", is_complete=True
+                                    ))
+                                except Exception as ws_err:
+                                    console.print(f"[dim]セクション完了イベント送信エラー（処理継続）: {ws_err}[/dim]")
+                                
+                                # セクション内容をcontextに保存
+                                if len(context.generated_sections_html) <= target_index:
+                                    # リストを拡張
+                                    context.generated_sections_html.extend([""] * (target_index + 1 - len(context.generated_sections_html)))
+                                
+                                context.generated_sections_html[target_index] = generated_section.html_content
+                                context.last_agent_output = generated_section
+                                
+                                # 会話履歴更新
+                                last_user_request_item = agent_input[-1] if isinstance(agent_input, list) else None
+                                if last_user_request_item and last_user_request_item.get('role') == 'user':
+                                    user_request_text = last_user_request_item['content'][0]['text']
+                                    context.add_to_section_writer_history("user", user_request_text)
+                                context.add_to_section_writer_history("assistant", generated_section.html_content)
+                                
+                                # セクション完了後にインデックスを更新
+                                context.current_section_index = target_index + 1
+                                
+                                # Save context after each section completion（必須）
+                                if process_id and user_id:
+                                    try:
+                                        await self._save_context_to_db(context, process_id=process_id, user_id=user_id)
+                                        logger.info(f"Context saved successfully after section {context.current_section_index}/{len(context.generated_outline.sections)} completion")
+                                    except Exception as save_err:
+                                        logger.error(f"Failed to save context after section completion: {save_err}")
+                                        # セーブに失敗しても処理は継続
+                                
+                                console.print(f"[blue]セクション {target_index + 1} 完了。次のセクション: {context.current_section_index + 1}[/blue]")
+                            else:
+                                # セクションが不完全な場合はエラーとしてリトライ
+                                error_msg = f"セクション {target_index + 1} のHTMLコンテンツが不完全または空です（{len(accumulated_html) if accumulated_html else 0}文字）"
+                                console.print(f"[red]{error_msg}[/red]")
+                                raise ValueError(error_msg)
 
                 elif context.current_step == "editing":
                     current_agent = editor_agent
                     if not context.full_draft_html: raise ValueError("編集対象のドラフトがありません。")
                     agent_input = "記事ドラフト全体をレビューし、詳細リサーチ情報に基づいて推敲・編集してください。特にリンクの適切性を確認してください。"
                     console.print(f"🤖 {current_agent.name} に最終編集を依頼します...")
-                    await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message="Starting final editing..."))
+                    await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message="Starting final editing...", image_mode=getattr(context, 'image_mode', False)))
                     agent_output = await self._run_agent(current_agent, agent_input, context, run_config)
 
                     if isinstance(agent_output, RevisedArticle):
@@ -2649,15 +2812,15 @@ class ArticleGenerationService:
         finally:
             # ループ終了時に特別なメッセージを送る (任意) - ユーザー入力待ちの場合は送信しない
             if context.current_step == "completed":
-                 await self._send_server_event(context, StatusUpdatePayload(step="finished", message="Article generation completed successfully."))
+                 await self._send_server_event(context, StatusUpdatePayload(step="finished", message="Article generation completed successfully.", image_mode=getattr(context, 'image_mode', False)))
             elif context.current_step == "error":
-                 await self._send_server_event(context, StatusUpdatePayload(step="finished", message=f"Article generation finished with error: {context.error_message}"))
+                 await self._send_server_event(context, StatusUpdatePayload(step="finished", message=f"Article generation finished with error: {context.error_message}", image_mode=getattr(context, 'image_mode', False)))
             elif context.current_step in USER_INPUT_STEPS:
                  # ユーザー入力待ちの場合は finished メッセージを送信しない
                  console.print(f"[yellow]Generation loop stopped at user input step: {context.current_step}[/yellow]")
             else:
                  # キャンセルされた場合など
-                 await self._send_server_event(context, StatusUpdatePayload(step="finished", message="Article generation finished unexpectedly."))
+                 await self._send_server_event(context, StatusUpdatePayload(step="finished", message="Article generation finished unexpectedly.", image_mode=getattr(context, 'image_mode', False)))
 
 
     async def _run_agent(
@@ -2702,7 +2865,7 @@ class ArticleGenerationService:
                          # 成功時のメトリクス記録
                          logger.info(f"エージェント {agent.name} 実行成功: {execution_time:.2f}秒, 試行回数: {attempt + 1}")
                          
-                         if isinstance(output, (ThemeProposal, Outline, RevisedArticle, ClarificationNeeded, StatusUpdate, ResearchPlan, ResearchQueryResult, ResearchReport, GeneratedPersonasResponse, SerpKeywordAnalysisReport)):
+                         if isinstance(output, (ThemeProposal, Outline, RevisedArticle, ClarificationNeeded, StatusUpdate, ResearchPlan, ResearchQueryResult, ResearchReport, GeneratedPersonasResponse, SerpKeywordAnalysisReport, ArticleSectionWithImages)):
                              return output
                          elif isinstance(output, str):
                              try:
@@ -2712,7 +2875,8 @@ class ArticleGenerationService:
                                      "theme_proposal": ThemeProposal, "outline": Outline, "revised_article": RevisedArticle,
                                      "clarification_needed": ClarificationNeeded, "status_update": StatusUpdate,
                                      "research_plan": ResearchPlan, "research_query_result": ResearchQueryResult, "research_report": ResearchReport,
-                                     "generated_personas_response": GeneratedPersonasResponse, "serp_keyword_analysis_report": SerpKeywordAnalysisReport
+                                     "generated_personas_response": GeneratedPersonasResponse, "serp_keyword_analysis_report": SerpKeywordAnalysisReport,
+                                     "article_section_with_images": ArticleSectionWithImages
                                  }
                                  if status_val in output_model_map:
                                      model_cls = output_model_map[status_val]
@@ -2791,6 +2955,9 @@ class ArticleGenerationService:
                 if key not in ["websocket", "user_response_event"]:
                     try:
                         context_dict[key] = safe_serialize_value(value)
+                        # デバッグ: image_mode の値をログ出力
+                        if key == "image_mode":
+                            console.print(f"[cyan]DEBUG: Saving image_mode = {value} (type: {type(value)})[/cyan]")
                     except Exception as e:
                         console.print(f"[yellow]Warning: Failed to serialize {key}: {e}. Using string representation.[/yellow]")
                         context_dict[key] = str(value)
@@ -2881,6 +3048,62 @@ class ArticleGenerationService:
             logger.error(f"Error saving context to database: {e}")
             raise
 
+    async def get_generation_process_state(self, process_id: str, user_id: str) -> Optional[Dict[str, Any]]:
+        """Get generation process state from database"""
+        try:
+            from services.article_flow_service import get_supabase_client
+            supabase = get_supabase_client()
+            
+            # Get the process state with user access control
+            result = supabase.table("generated_articles_state").select("*").eq("id", process_id).eq("user_id", user_id).execute()
+            
+            if not result.data:
+                logger.warning(f"Process {process_id} not found for user {user_id}")
+                return None
+            
+            state = result.data[0]
+            context_dict = state.get("article_context", {})
+            
+            # デバッグ: image_mode の値をログ出力 (get_generation_process_state)
+            console.print(f"[magenta]DEBUG (get_generation_process_state): image_mode from DB = {context_dict.get('image_mode')} (type: {type(context_dict.get('image_mode'))})[/magenta]")
+            
+            # Return a formatted response that matches frontend expectations
+            return {
+                "id": state["id"],
+                "flow_id": state.get("flow_id"),
+                "user_id": state["user_id"],
+                "organization_id": state.get("organization_id"),
+                "current_step_id": state.get("current_step_id"),
+                "current_step_name": context_dict.get("current_step", "start"),
+                "status": state.get("status", "in_progress"),
+                "article_context": context_dict,
+                "generated_content": state.get("generated_content", {}),
+                "article_id": state.get("article_id"),
+                "error_message": state.get("error_message"),
+                "is_waiting_for_input": context_dict.get("current_step") in ["persona_generated", "theme_proposed", "research_plan_generated", "outline_generated"],
+                "input_type": self._get_input_type_for_step(context_dict.get("current_step")),
+                # 画像モード関連情報を含める
+                "image_mode": context_dict.get("image_mode", False),
+                "image_settings": context_dict.get("image_settings", {}),
+                "image_placeholders": context_dict.get("image_placeholders", []),
+                "created_at": state.get("created_at"),
+                "updated_at": state.get("updated_at")
+            }
+            
+        except Exception as e:
+            logger.error(f"Error getting generation process state: {e}")
+            raise
+
+    def _get_input_type_for_step(self, step: str) -> Optional[str]:
+        """Get expected input type for a given step"""
+        step_input_map = {
+            "persona_generated": "select_persona",
+            "theme_proposed": "select_theme", 
+            "research_plan_generated": "approve_plan",
+            "outline_generated": "approve_outline"
+        }
+        return step_input_map.get(step)
+
     async def _load_context_from_db(self, process_id: str, user_id: str) -> Optional[ArticleContext]:
         """Load context from database for process persistence"""
         try:
@@ -2897,6 +3120,10 @@ class ArticleGenerationService:
             
             state = result.data[0]
             context_dict = state.get("article_context", {})
+            
+            # デバッグ: image_mode の値をログ出力
+            console.print(f"[cyan]DEBUG: Loading image_mode from DB = {context_dict.get('image_mode')} (type: {type(context_dict.get('image_mode'))})[/cyan]")
+            console.print(f"[cyan]DEBUG: Full context_dict keys = {list(context_dict.keys())}[/cyan]")
             
             if not context_dict:
                 logger.warning(f"No context data found for process {process_id}")
@@ -2936,6 +3163,9 @@ class ArticleGenerationService:
                 company_name=context_dict.get("company_name"),
                 company_description=context_dict.get("company_description"),
                 company_style_guide=context_dict.get("company_style_guide"),
+                # 画像モード関連の復元
+                image_mode=context_dict.get("image_mode", False),
+                image_settings=context_dict.get("image_settings", {}),
                 websocket=None,  # Will be set when WebSocket connects
                 user_response_event=None,  # Will be set when WebSocket connects
                 user_id=user_id  # Set user_id from method parameter

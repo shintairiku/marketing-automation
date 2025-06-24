@@ -344,6 +344,8 @@ export default function GenerationProcessPage({ jobId }: GenerationProcessPagePr
                             outline={state.outline}
                             researchProgress={state.researchProgress}
                             sectionsProgress={state.sectionsProgress}
+                            imageMode={state.imageMode}
+                            imagePlaceholders={state.imagePlaceholders}
                         />
 
                         {/* ユーザーインタラクション */}

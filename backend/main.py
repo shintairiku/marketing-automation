@@ -3,12 +3,15 @@ from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse # <<< HTMLResponse をインポート
 from fastapi.templating import Jinja2Templates # HTMLファイルを使う場合 (今回は直接返す)
 from fastapi.middleware.cors import CORSMiddleware # CORS ミドルウェア追加
+from fastapi.staticfiles import StaticFiles # 静的ファイル配信用
 from pathlib import Path # <<< Path をインポート
 from openai import AsyncOpenAI
+import os
 
 from api.endpoints import article as article_router
 from api.endpoints import organization as organization_router
 from api.endpoints import article_flow as article_flow_router
+from routers import images as images_router
 from core.config import settings
 from core.exceptions import exception_handlers
 
@@ -21,7 +24,6 @@ app = FastAPI(
 )
 
 # CORS設定
-import os
 
 # 環境変数から許可するオリジンを取得
 allowed_origins = os.getenv("ALLOWED_ORIGINS", "http://localhost:3000").split(",")
@@ -38,6 +40,13 @@ app.add_middleware(
 app.include_router(article_router.router, prefix="/articles", tags=["Articles"])
 app.include_router(organization_router.router, prefix="/organizations", tags=["Organizations"])
 app.include_router(article_flow_router.router, prefix="/article-flows", tags=["Article Flows"])
+app.include_router(images_router.router, tags=["Images"])
+
+# 生成された画像の静的ファイル配信
+images_directory = Path(settings.image_storage_path).resolve()
+images_directory.mkdir(exist_ok=True)
+print(f"画像ディレクトリ: {images_directory}")
+app.mount("/images", StaticFiles(directory=str(images_directory)), name="images")
 
 @app.get("/", tags=["Root"], summary="APIルートエンドポイント")
 async def read_root():

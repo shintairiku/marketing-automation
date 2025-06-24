@@ -56,6 +56,14 @@ export interface GenerationState {
     totalSections: number;
     sectionHeading: string;
   };
+  // 画像モード関連
+  imageMode?: boolean;
+  imagePlaceholders?: Array<{
+    placeholder_id: string;
+    description_jp: string;
+    prompt_en: string;
+    alt_text: string;
+  }>;
 }
 
 interface UseArticleGenerationOptions {
@@ -79,6 +87,8 @@ export const useArticleGeneration = ({ processId, userId }: UseArticleGeneration
     ],
     isWaitingForInput: false,
     articleId: undefined,
+    imageMode: false,
+    imagePlaceholders: [],
   });
 
   const handleMessage = useCallback((message: ServerEventMessage | any) => {
@@ -137,6 +147,12 @@ export const useArticleGeneration = ({ processId, userId }: UseArticleGeneration
             return { ...step, status: 'pending' };
           }
         });
+        
+        // 画像モード情報を更新
+        if (payload.image_mode !== undefined) {
+          console.log('🖼️ Image mode received:', payload.image_mode);
+          newState.imageMode = payload.image_mode;
+        }
       }
 
       // UserInputRequestPayload 形式のメッセージ処理
@@ -529,10 +545,18 @@ export const useArticleGeneration = ({ processId, userId }: UseArticleGeneration
       }
 
       const processData = await response.json();
+      console.log('📥 Process data loaded:', processData);
+      console.log('🖼️ Image mode from process data:', processData.image_mode);
+      console.log('🖼️ Article context:', processData.article_context);
+      console.log('🖼️ Image mode from article_context:', processData.article_context?.image_mode);
       
       // プロセス状態を復元
       const currentStep = processData.current_step_name || processData.status;
       const isUserInputStep = ['theme_proposed', 'persona_generated', 'research_plan_generated', 'outline_generated'].includes(currentStep);
+      
+      // 画像モードの値を複数のソースから確実に取得
+      const imageMode = processData.image_mode ?? processData.article_context?.image_mode ?? false;
+      console.log('🖼️ Final image mode value:', imageMode);
       
       setState(prev => ({
         ...prev,
@@ -541,6 +565,9 @@ export const useArticleGeneration = ({ processId, userId }: UseArticleGeneration
         error: processData.error_message,
         isWaitingForInput: processData.is_waiting_for_input || isUserInputStep,
         inputType: processData.input_type || (isUserInputStep ? getInputTypeForStep(currentStep) : undefined),
+        // 画像モード情報の復元
+        imageMode: imageMode,
+        imagePlaceholders: processData.image_placeholders || processData.article_context?.image_placeholders || [],
         // generated_contentからの復元
         personas: processData.generated_content?.personas,
         themes: processData.generated_content?.themes,

@@ -2,7 +2,7 @@
 
 import React, { useCallback, useMemo } from 'react';
 import { useEffect, useState } from 'react';
-import { AlertCircle, Bot, Edit, Save, Trash2, Wand2,X } from 'lucide-react';
+import { AlertCircle, Bot, Copy, Download, Edit, Image, Save, Sparkles, Trash2, Upload, Wand2, X } from 'lucide-react';
 
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
@@ -29,10 +29,17 @@ interface EditArticlePageProps {
 
 interface ArticleBlock {
   id: string;
-  type: 'h1' | 'h2' | 'h3' | 'p' | 'ul' | 'ol' | 'li';
+  type: 'h1' | 'h2' | 'h3' | 'p' | 'ul' | 'ol' | 'li' | 'image_placeholder';
   content: string;
   isEditing: boolean;
   isSelected: boolean;
+  // 画像プレースホルダー専用の追加フィールド
+  placeholderData?: {
+    placeholder_id: string;
+    description_jp: string;
+    prompt_en: string;
+    alt_text?: string;
+  };
 }
 
 interface AiConfirmationState {
@@ -54,6 +61,10 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
   const [hoveredBlockId, setHoveredBlockId] = useState<string | null>(null);
   const [aiEditingLoading, setAiEditingLoading] = useState(false);
   
+  // 画像関連の状態
+  const [imageUploadLoading, setImageUploadLoading] = useState<{ [blockId: string]: boolean }>({});
+  const [imageGenerationLoading, setImageGenerationLoading] = useState<{ [blockId: string]: boolean }>({});
+  
   // AI編集モーダル用state
   const [isAiModalOpen, setIsAiModalOpen] = useState(false);
   const [aiInstruction, setAiInstruction] = useState("");
@@ -65,24 +76,110 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
 
   const selectedBlocksCount = useMemo(() => blocks.filter(b => b.isSelected).length, [blocks]);
 
-  // HTMLコンテンツをブロックに分割
-  const parseHtmlToBlocks = (html: string): ArticleBlock[] => {
-    const parser = new DOMParser();
-    const doc = parser.parseFromString(html, 'text/html');
-    const elements = Array.from(doc.body.children);
-    
-    return elements.map((element, index) => ({
-      id: `block-${index}`,
-      type: element.tagName.toLowerCase() as ArticleBlock['type'],
-      content: element.innerHTML,
-      isEditing: false,
-      isSelected: false,
-    }));
+  // void要素の判定
+  const isVoidElement = (tagName: string): boolean => {
+    const voidElements = ['br', 'hr', 'img', 'input', 'meta', 'link', 'area', 'base', 'col', 'embed', 'source', 'track', 'wbr'];
+    return voidElements.includes(tagName.toLowerCase());
   };
 
-  // ブロックをHTMLに戻す
+  // HTMLコンテンツをブロックに分割（画像プレースホルダー対応）
+  const parseHtmlToBlocks = (html: string): ArticleBlock[] => {
+    const blocks: ArticleBlock[] = [];
+    let blockIndex = 0;
+    
+    // 画像プレースホルダーとHTML要素を混在した状態で処理
+    // HTMLを改行で分割し、各行を個別に処理
+    const segments = html.split('\n').filter(line => line.trim() !== '');
+    
+    for (const segment of segments) {
+      const trimmedSegment = segment.trim();
+      
+      // 画像プレースホルダーかチェック
+      const placeholderMatch = trimmedSegment.match(/<!-- IMAGE_PLACEHOLDER: ([^|]+)\|([^|]+)\|([^>]+) -->/);
+      if (placeholderMatch) {
+        const [fullMatch, placeholderId, descriptionJp, promptEn] = placeholderMatch;
+        
+        blocks.push({
+          id: `placeholder-${blockIndex++}`,
+          type: 'image_placeholder',
+          content: fullMatch,
+          isEditing: false,
+          isSelected: false,
+          placeholderData: {
+            placeholder_id: placeholderId.trim(),
+            description_jp: descriptionJp.trim(),
+            prompt_en: promptEn.trim(),
+            alt_text: descriptionJp.trim(),
+          },
+        });
+        continue;
+      }
+      
+      // HTML要素を解析
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(`<div>${trimmedSegment}</div>`, 'text/html');
+      const container = doc.body.firstElementChild;
+      
+      if (container && container.children.length > 0) {
+        // コンテナ内の要素を順番に処理
+        Array.from(container.children).forEach(element => {
+          const tagName = element.tagName.toLowerCase();
+          
+          blocks.push({
+            id: `block-${blockIndex++}`,
+            type: tagName as ArticleBlock['type'],
+            content: isVoidElement(tagName) ? '' : element.innerHTML, // void要素は空文字
+            isEditing: false,
+            isSelected: false,
+          });
+        });
+      } else if (container && container.textContent?.trim()) {
+        // テキストのみの場合
+        blocks.push({
+          id: `block-${blockIndex++}`,
+          type: 'p',
+          content: container.textContent.trim(),
+          isEditing: false,
+          isSelected: false,
+        });
+      } else {
+        // 直接HTML要素の場合
+        const directParser = new DOMParser();
+        const directDoc = directParser.parseFromString(trimmedSegment, 'text/html');
+        const directElement = directDoc.body.firstElementChild;
+        
+        if (directElement) {
+          const tagName = directElement.tagName.toLowerCase();
+          
+          blocks.push({
+            id: `block-${blockIndex++}`,
+            type: tagName as ArticleBlock['type'],
+            content: isVoidElement(tagName) ? '' : directElement.innerHTML, // void要素は空文字
+            isEditing: false,
+            isSelected: false,
+          });
+        }
+      }
+    }
+    
+    return blocks;
+  };
+
+  // ブロックをHTMLに戻す（画像プレースホルダー対応）
   const blocksToHtml = (blocks: ArticleBlock[]): string => {
-    return blocks.map(block => `<${block.type}>${block.content}</${block.type}>`).join('\n');
+    return blocks.map(block => {
+      if (block.type === 'image_placeholder') {
+        // 画像プレースホルダーはコメント形式でそのまま出力
+        return block.content;
+      }
+      
+      // void要素は自己完結タグとして出力
+      if (isVoidElement(block.type)) {
+        return `<${block.type} />`;
+      }
+      
+      return `<${block.type}>${block.content}</${block.type}>`;
+    }).join('\n');
   };
 
   // 記事データが更新されたときにブロックを再構築
@@ -267,6 +364,157 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
     setAiConfirmations([]);
   };
 
+  // 画像アップロード処理
+  const handleImageUpload = async (blockId: string, file: File) => {
+    const block = blocks.find(b => b.id === blockId);
+    if (!block || !block.placeholderData) return;
+
+    try {
+      setImageUploadLoading(prev => ({ ...prev, [blockId]: true }));
+
+      const token = await getToken();
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('placeholder_id', block.placeholderData.placeholder_id);
+      formData.append('alt_text', block.placeholderData.alt_text || block.placeholderData.description_jp);
+
+      const headers: Record<string, string> = {};
+      if (token) {
+        headers["Authorization"] = `Bearer ${token}`;
+      }
+
+      const response = await fetch(`${API_BASE_URL}/api/images/upload`, {
+        method: 'POST',
+        headers,
+        body: formData,
+      });
+
+      if (!response.ok) {
+        throw new Error(`Upload failed: ${response.status}`);
+      }
+
+      const result = await response.json();
+      
+      // プレースホルダーを実際の画像タグに置換
+      const imageHtml = `<img src="${result.image_url}" alt="${block.placeholderData.alt_text || block.placeholderData.description_jp}" class="article-image" />`;
+      
+      setBlocks(prev => prev.map(b => 
+        b.id === blockId 
+          ? { ...b, type: 'p', content: imageHtml, placeholderData: undefined }
+          : b
+      ));
+
+      alert('画像がアップロードされました！');
+    } catch (error) {
+      console.error('画像アップロードエラー:', error);
+      alert('画像のアップロードに失敗しました。');
+    } finally {
+      setImageUploadLoading(prev => ({ ...prev, [blockId]: false }));
+    }
+  };
+
+  // 画像生成処理
+  const handleImageGeneration = async (blockId: string) => {
+    const block = blocks.find(b => b.id === blockId);
+    if (!block || !block.placeholderData) return;
+
+    try {
+      setImageGenerationLoading(prev => ({ ...prev, [blockId]: true }));
+
+      const token = await getToken();
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+      };
+      if (token) {
+        headers["Authorization"] = `Bearer ${token}`;
+      }
+
+      const response = await fetch(`${API_BASE_URL}/api/images/generate`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          placeholder_id: block.placeholderData.placeholder_id,
+          description_jp: block.placeholderData.description_jp,
+          prompt_en: block.placeholderData.prompt_en,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Generation failed: ${response.status}`);
+      }
+
+      const result = await response.json();
+      
+      // プレースホルダーを実際の画像タグに置換
+      const imageHtml = `<img src="${result.image_url}" alt="${block.placeholderData.alt_text || block.placeholderData.description_jp}" class="article-image" />`;
+      
+      setBlocks(prev => prev.map(b => 
+        b.id === blockId 
+          ? { ...b, type: 'p', content: imageHtml, placeholderData: undefined }
+          : b
+      ));
+
+      alert('画像が生成されました！');
+    } catch (error) {
+      console.error('画像生成エラー:', error);
+      alert('画像の生成に失敗しました。');
+    } finally {
+      setImageGenerationLoading(prev => ({ ...prev, [blockId]: false }));
+    }
+  };
+
+  // ファイル選択のトリガー
+  const triggerFileUpload = (blockId: string) => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'image/*';
+    input.onchange = (e) => {
+      const file = (e.target as HTMLInputElement).files?.[0];
+      if (file) {
+        handleImageUpload(blockId, file);
+      }
+    };
+    input.click();
+  };
+
+  // HTMLエクスポート機能
+  const exportAsHtml = () => {
+    const htmlContent = blocksToHtml(blocks);
+    return htmlContent;
+  };
+
+  // HTMLをクリップボードにコピー
+  const copyHtmlToClipboard = async () => {
+    try {
+      const htmlContent = exportAsHtml();
+      await navigator.clipboard.writeText(htmlContent);
+      alert('HTMLがクリップボードにコピーされました！');
+    } catch (error) {
+      console.error('コピーに失敗しました:', error);
+      alert('コピーに失敗しました。');
+    }
+  };
+
+  // HTMLファイルとしてダウンロード
+  const downloadHtmlFile = () => {
+    try {
+      const htmlContent = exportAsHtml();
+      const blob = new Blob([htmlContent], { type: 'text/html;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `${article?.title || 'article'}.html`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      alert('HTMLファイルがダウンロードされました！');
+    } catch (error) {
+      console.error('ダウンロードに失敗しました:', error);
+      alert('ダウンロードに失敗しました。');
+    }
+  };
+
   // 記事全体の保存
   const saveArticle = async () => {
     if (!article) return;
@@ -317,8 +565,88 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
       case 'p': return 'text-gray-700 mb-4 leading-relaxed';
       case 'ul': return 'list-disc list-inside text-gray-700 mb-4';
       case 'ol': return 'list-decimal list-inside text-gray-700 mb-4';
+      case 'image_placeholder': return 'border-2 border-dashed border-blue-300 bg-blue-50 rounded-lg p-6 mb-4';
       default: return 'text-gray-700 mb-2';
     }
+  };
+
+  // ブロックコンテンツのレンダリング（void要素対応）
+  const renderBlockContent = (block: ArticleBlock) => {
+    const tagName = block.type;
+    const className = getBlockStyles(block.type);
+    
+    // void要素の場合はdangerouslySetInnerHTMLを使わない
+    if (isVoidElement(tagName)) {
+      return React.createElement(tagName, { 
+        className,
+        key: block.id
+      });
+    }
+    
+    // 通常の要素
+    return React.createElement(tagName, {
+      className,
+      dangerouslySetInnerHTML: { __html: block.content },
+      key: block.id
+    });
+  };
+
+  // 画像プレースホルダーブロックのレンダリング
+  const renderImagePlaceholderBlock = (block: ArticleBlock) => {
+    if (!block.placeholderData) return null;
+
+    return (
+      <div className={getBlockStyles('image_placeholder')}>
+        <div className="flex items-center gap-3 mb-3">
+          <Image className="h-6 w-6 text-blue-600" />
+          <div className="flex-1">
+            <h4 className="font-medium text-blue-900">画像プレースホルダー</h4>
+            <p className="text-sm text-blue-700">ID: {block.placeholderData.placeholder_id}</p>
+          </div>
+          <div className="flex gap-2">
+            <Button 
+              size="sm" 
+              variant="outline" 
+              className="text-blue-600 border-blue-300 hover:bg-blue-100"
+              onClick={() => triggerFileUpload(block.id)}
+              disabled={imageUploadLoading[block.id]}
+            >
+              {imageUploadLoading[block.id] ? (
+                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600 mr-1" />
+              ) : (
+                <Upload className="h-4 w-4 mr-1" />
+              )}
+              アップロード
+            </Button>
+            <Button 
+              size="sm" 
+              className="bg-blue-600 hover:bg-blue-700 text-white"
+              onClick={() => handleImageGeneration(block.id)}
+              disabled={imageGenerationLoading[block.id]}
+            >
+              {imageGenerationLoading[block.id] ? (
+                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-1" />
+              ) : (
+                <Sparkles className="h-4 w-4 mr-1" />
+              )}
+              AI生成
+            </Button>
+          </div>
+        </div>
+        <div className="space-y-2 text-sm">
+          <div>
+            <span className="font-medium text-gray-700">説明: </span>
+            <span className="text-gray-600">{block.placeholderData.description_jp}</span>
+          </div>
+          <div>
+            <span className="font-medium text-gray-700">生成プロンプト: </span>
+            <span className="text-gray-600 font-mono text-xs bg-gray-100 px-2 py-1 rounded">
+              {block.placeholderData.prompt_en}
+            </span>
+          </div>
+        </div>
+      </div>
+    );
   };
 
   if (loading) {
@@ -376,6 +704,29 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
               <AlertDescription>{saveError}</AlertDescription>
             </Alert>
           )}
+          
+          {/* HTMLエクスポートボタン */}
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={copyHtmlToClipboard}
+              className="text-blue-600 border-blue-200 hover:bg-blue-50"
+            >
+              <Copy className="h-4 w-4 mr-1" />
+              HTMLコピー
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={downloadHtmlFile}
+              className="text-green-600 border-green-200 hover:bg-green-50"
+            >
+              <Download className="h-4 w-4 mr-1" />
+              HTMLダウンロード
+            </Button>
+          </div>
+          
           <Button 
             onClick={saveArticle} 
             disabled={isSaving}
@@ -460,26 +811,62 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
                   <Popover>
                     <PopoverTrigger asChild>
                       <div className="w-full cursor-pointer p-1 rounded-md hover:bg-gray-100/50">
-                        {React.createElement(
-                          block.type,
-                          {
-                            className: getBlockStyles(block.type),
-                            dangerouslySetInnerHTML: { __html: block.content }
-                          }
+                        {block.type === 'image_placeholder' ? (
+                          renderImagePlaceholderBlock(block)
+                        ) : (
+                          renderBlockContent(block)
                         )}
                       </div>
                     </PopoverTrigger>
                     <PopoverContent className="w-48 p-1" side="right" align="start">
                       <div className="space-y-1">
-                        <Button variant="ghost" className="w-full justify-start" size="sm" onClick={() => openAiModal('single', block)}>
-                          <Bot className="w-4 h-4 mr-2" /> AIに修正を依頼
-                        </Button>
-                        <Button variant="ghost" className="w-full justify-start" size="sm" onClick={() => startEditing(block.id)}>
-                          <Edit className="w-4 h-4 mr-2" /> 自分で修正
-                        </Button>
-                        <Button variant="ghost" className="w-full justify-start text-red-500 hover:text-red-600" size="sm" onClick={() => deleteBlock(block.id)}>
-                          <Trash2 className="w-4 h-4 mr-2" /> 削除
-                        </Button>
+                        {block.type === 'image_placeholder' ? (
+                          <>
+                            <Button 
+                              variant="ghost" 
+                              className="w-full justify-start" 
+                              size="sm"
+                              onClick={() => triggerFileUpload(block.id)}
+                              disabled={imageUploadLoading[block.id]}
+                            >
+                              {imageUploadLoading[block.id] ? (
+                                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-gray-600 mr-2" />
+                              ) : (
+                                <Upload className="w-4 h-4 mr-2" />
+                              )}
+                              画像をアップロード
+                            </Button>
+                            <Button 
+                              variant="ghost" 
+                              className="w-full justify-start" 
+                              size="sm"
+                              onClick={() => handleImageGeneration(block.id)}
+                              disabled={imageGenerationLoading[block.id]}
+                            >
+                              {imageGenerationLoading[block.id] ? (
+                                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-gray-600 mr-2" />
+                              ) : (
+                                <Sparkles className="w-4 h-4 mr-2" />
+                              )}
+                              AI画像生成
+                            </Button>
+                            <Button variant="ghost" className="w-full justify-start text-red-500 hover:text-red-600" size="sm" onClick={() => deleteBlock(block.id)}>
+                              <Trash2 className="w-4 h-4 mr-2" /> 削除
+                            </Button>
+                          </>
+                        ) : (
+                          <>
+                            <Button variant="ghost" className="w-full justify-start" size="sm" onClick={() => openAiModal('single', block)}>
+                              <Bot className="w-4 h-4 mr-2" /> AIに修正を依頼
+                            </Button>
+                            <Button variant="ghost" className="w-full justify-start" size="sm" onClick={() => startEditing(block.id)}>
+                              <Edit className="w-4 h-4 mr-2" /> 自分で修正
+                            </Button>
+                            <Button variant="ghost" className="w-full justify-start text-red-500 hover:text-red-600" size="sm" onClick={() => deleteBlock(block.id)}>
+                              <Trash2 className="w-4 h-4 mr-2" /> 削除
+                            </Button>
+                          </>
+                        )}
                       </div>
                     </PopoverContent>
                   </Popover>

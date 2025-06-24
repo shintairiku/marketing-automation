@@ -12,6 +12,7 @@ import {
   Edit3,
   Eye,
   FileText, 
+  Image,
   Lightbulb, 
   PenTool,
   Search, 
@@ -60,6 +61,13 @@ interface CompactGenerationFlowProps {
     totalSections: number;
     sectionHeading: string;
   };
+  imageMode?: boolean;
+  imagePlaceholders?: Array<{
+    placeholder_id: string;
+    description_jp: string;
+    prompt_en: string;
+    alt_text: string;
+  }>;
 }
 
 const stepIcons = {
@@ -92,7 +100,9 @@ export default memo(function CompactGenerationFlow({
   currentSection,
   outline,
   researchProgress,
-  sectionsProgress
+  sectionsProgress,
+  imageMode,
+  imagePlaceholders
 }: CompactGenerationFlowProps) {
   const [showCompletionAnimation, setShowCompletionAnimation] = useState(false);
   const [hideProcessCards, setHideProcessCards] = useState(false);
@@ -187,12 +197,37 @@ export default memo(function CompactGenerationFlow({
                   >
                     <Zap className="w-4 h-4 text-yellow-500" />
                   </motion.div>
+                  {/* 画像モード表示バッジ */}
+                  {imageMode && (
+                    <motion.div
+                      initial={{ scale: 0 }}
+                      animate={{ scale: 1 }}
+                      transition={{ type: "spring", stiffness: 400, damping: 17 }}
+                    >
+                      <Badge className="bg-purple-100 text-purple-800 border-purple-200 shadow-sm">
+                        <Image className="w-3 h-3 mr-1" />
+                        画像モード
+                      </Badge>
+                    </motion.div>
+                  )}
+                  {/* デバッグ用: 画像モード状態を常に表示 */}
+                  {process.env.NODE_ENV === 'development' && (
+                    <div className="text-xs bg-yellow-100 px-2 py-1 rounded">
+                      DEBUG: imageMode={JSON.stringify(imageMode)}
+                    </div>
+                  )}
                 </h2>
                 <div className="flex items-center gap-2 text-sm text-muted-foreground">
                   <div className={`w-2 h-2 rounded-full ${
                     isConnected ? 'bg-green-500 animate-pulse' : 'bg-red-500'
                   }`} />
                   {isConnected ? 'リアルタイム接続中' : '接続待機中'}
+                  {/* 画像プレースホルダー数表示 */}
+                  {imageMode && imagePlaceholders && imagePlaceholders.length > 0 && (
+                    <div className="text-xs text-purple-600 bg-purple-50 px-2 py-0.5 rounded-full">
+                      📸 {imagePlaceholders.length} 個のプレースホルダー
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
