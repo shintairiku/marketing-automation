@@ -5,7 +5,7 @@ from typing import Optional
 import logging
 
 from core.config import settings
-from services.image_generation_service import ImageGenerationService, imagen_4_service, imagen_3_service
+from services.image_generation_service import ImageGenerationService, image_generation_service
 from core.auth import get_current_user_id_from_token
 
 logger = logging.getLogger(__name__)
@@ -100,7 +100,7 @@ async def test_imagen4(
         logger.info(f"Imagen-4.0テスト - placeholder_id: {request.placeholder_id}, user_id: {current_user_id}")
         
         # 画像生成を実行
-        image_url = await imagen_4_service.generate_image(
+        image_url = await image_generation_service.generate_image(
             prompt=request.prompt_en,
             placeholder_id=request.placeholder_id,
             user_id=current_user_id
@@ -120,37 +120,6 @@ async def test_imagen4(
             detail=f"Imagen-4.0テストに失敗しました: {str(e)}"
         )
 
-@router.post("/test-imagen3", response_model=ImageGenerationResponse)
-async def test_imagen3(
-    request: ImageGenerationRequest,
-    current_user_id: str = Depends(get_current_user_id_from_token)
-):
-    """
-    Imagen-3.0を直接テスト
-    """
-    try:
-        logger.info(f"Imagen-3.0テスト - placeholder_id: {request.placeholder_id}, user_id: {current_user_id}")
-        
-        # 画像生成を実行
-        image_url = await imagen_3_service.generate_image(
-            prompt=request.prompt_en,
-            placeholder_id=request.placeholder_id,
-            user_id=current_user_id
-        )
-        
-        logger.info(f"Imagen-3.0テスト成功 - image_url: {image_url}")
-        
-        return ImageGenerationResponse(
-            image_url=image_url,
-            placeholder_id=request.placeholder_id
-        )
-        
-    except Exception as e:
-        logger.error(f"Imagen-3.0テストエラー - placeholder_id: {request.placeholder_id}, error: {e}")
-        raise HTTPException(
-            status_code=500,
-            detail=f"Imagen-3.0テストに失敗しました: {str(e)}"
-        )
 
 @router.post("/test-direct")
 async def test_direct():
@@ -170,54 +139,32 @@ async def test_direct():
             quality=85
         )
         
-        results = {}
-        
         # Imagen-4.0テスト
         logger.info("Imagen-4.0テスト開始")
         try:
-            imagen4_result = await imagen_4_service.generate_image_detailed(test_request)
-            results["imagen_4"] = {
+            imagen4_result = await image_generation_service.generate_image_detailed(test_request)
+            result = {
                 "success": imagen4_result.success,
                 "model": "imagen-4.0-generate-preview-06-06",
                 "image_url": imagen4_result.image_url if imagen4_result.success else None,
                 "error": imagen4_result.error_message if not imagen4_result.success else None
             }
-            logger.info(f"Imagen-4.0結果: {results['imagen_4']}")
+            logger.info(f"Imagen-4.0結果: {result}")
+            return {
+                "status": "test_completed",
+                "result": result
+            }
         except Exception as e:
-            results["imagen_4"] = {
+            result = {
                 "success": False,
                 "model": "imagen-4.0-generate-preview-06-06",
                 "error": str(e)
             }
             logger.error(f"Imagen-4.0エラー: {e}")
-        
-        # Imagen-3.0テスト
-        logger.info("Imagen-3.0テスト開始")
-        try:
-            imagen3_result = await imagen_3_service.generate_image_detailed(test_request)
-            results["imagen_3"] = {
-                "success": imagen3_result.success,
-                "model": "imagen-3.0-generate-001",
-                "image_url": imagen3_result.image_url if imagen3_result.success else None,
-                "error": imagen3_result.error_message if not imagen3_result.success else None
+            return {
+                "status": "test_failed",
+                "result": result
             }
-            logger.info(f"Imagen-3.0結果: {results['imagen_3']}")
-        except Exception as e:
-            results["imagen_3"] = {
-                "success": False,
-                "model": "imagen-3.0-generate-001",
-                "error": str(e)
-            }
-            logger.error(f"Imagen-3.0エラー: {e}")
-        
-        return {
-            "status": "test_completed",
-            "results": results,
-            "summary": {
-                "imagen_4_working": results.get("imagen_4", {}).get("success", False),
-                "imagen_3_working": results.get("imagen_3", {}).get("success", False)
-            }
-        }
         
     except Exception as e:
         logger.error(f"直接テストエラー: {e}")
