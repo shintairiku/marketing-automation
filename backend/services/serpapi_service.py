@@ -4,7 +4,7 @@ from typing import List, Dict, Any, Optional
 from dataclasses import dataclass
 import requests
 from bs4 import BeautifulSoup, NavigableString
-from serpapi import GoogleSearch
+from serpapi.google_search import GoogleSearch
 from core.config import settings
 import urllib.robotparser
 from urllib.parse import urlparse
