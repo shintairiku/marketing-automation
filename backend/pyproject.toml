@@ -14,11 +14,15 @@ dependencies = [
     "sse-starlette",
     "pydantic-settings",
     "griffe",
-    "serpapi",
     "beautifulsoup4",
     "google-search-results",
     "supabase",
     "pydantic[email]",
     "uuid",
-    "google-generativeai"
+    "google-generativeai",
+    "google-cloud-aiplatform",
+    "google-auth",
+    "pillow",
+    "aiofiles",
+    "google-genai>=1.21.1",
 ]

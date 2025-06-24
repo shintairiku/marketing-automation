@@ -7,7 +7,7 @@ from fastapi import WebSocket # <<< WebSocket をインポート
 
 # 循環参照を避けるため、モデルは直接インポートせず、型ヒントとして文字列を使うか、
 # このファイル内で必要なモデルを再定義/インポートする
-from services.models import ThemeIdea, ResearchPlan, ResearchQueryResult, ResearchReport, Outline, AgentOutput, ArticleSection, SerpKeywordAnalysisReport
+from services.models import ThemeIdea, ResearchPlan, ResearchQueryResult, ResearchReport, Outline, AgentOutput, ArticleSection, SerpKeywordAnalysisReport, ImagePlaceholder
 # WebSocketメッセージスキーマもインポート (型ヒント用)
 from schemas.response import ClientResponsePayload, UserInputType
 from schemas.request import AgeGroup, PersonaType # 追加
@@ -29,6 +29,11 @@ class ArticleContext:
     company_description: Optional[str] = None
     company_style_guide: Optional[str] = None # 文体、トンマナなど
     past_articles_summary: Optional[str] = None # 過去記事の傾向 (ツールで取得想定)
+    
+    # --- 画像モード関連 (新規追加) ---
+    image_mode: bool = False # 画像プレースホルダー機能を使用するかどうか
+    image_settings: Dict[str, Any] = field(default_factory=dict) # 画像生成設定
+    image_placeholders: List[ImagePlaceholder] = field(default_factory=list) # 生成された画像プレースホルダーのリスト
 
     # --- SerpAPI分析関連 (新規追加) ---
     serp_analysis_report: Optional[SerpKeywordAnalysisReport] = None # SerpAPIキーワード分析結果

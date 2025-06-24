@@ -31,6 +31,7 @@ export interface ServerEventMessage extends WebSocketMessage {
     query_index?: number;
     total_queries?: number;
     query?: string;
+    image_mode?: boolean;
     research_progress?: {
       currentQuery: number;
       totalQueries: number;
@@ -144,6 +145,8 @@ export const useWebSocket = ({
 
   const startGeneration = useCallback((requestData: any) => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
+      console.log('🚀 Starting generation with data:', requestData);
+      console.log('🖼️ Image mode in request:', requestData.image_mode);
       wsRef.current.send(JSON.stringify(requestData));
     } else {
       console.error('WebSocket is not connected');

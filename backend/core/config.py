@@ -46,6 +46,14 @@ class Settings(BaseSettings):
 
     # デバッグフラグ
     debug: bool = os.getenv("DEBUG", "false").lower() == "true"
+    
+    # Google Cloud設定 (画像生成用)
+    google_cloud_project: str = Field("", env="GOOGLE_CLOUD_PROJECT")
+    google_cloud_location: str = Field("us-central1", env="GOOGLE_CLOUD_LOCATION")
+    google_service_account_json: str = Field("", env="GOOGLE_SERVICE_ACCOUNT_JSON")
+    
+    # 画像ストレージ設定
+    image_storage_path: str = Field("./generated_images", env="IMAGE_STORAGE_PATH")
 
     # リトライ設定
     max_retries: int = 3

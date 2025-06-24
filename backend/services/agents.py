@@ -6,7 +6,7 @@ from agents import Agent, RunContextWrapper, ModelSettings
 # from .models import AgentOutput, ResearchQueryResult, ResearchReport, Outline, RevisedArticle
 # from .tools import web_search_tool, analyze_competitors, get_company_data
 # from .context import ArticleContext
-from services.models import AgentOutput, ResearchQueryResult, ResearchReport, Outline, RevisedArticle, ThemeProposal, ResearchPlan, ClarificationNeeded, StatusUpdate, ArticleSection, GeneratedPersonasResponse, GeneratedPersonaItem, SerpKeywordAnalysisReport
+from services.models import AgentOutput, ResearchQueryResult, ResearchReport, Outline, RevisedArticle, ThemeProposal, ResearchPlan, ClarificationNeeded, StatusUpdate, ArticleSection, GeneratedPersonasResponse, GeneratedPersonaItem, SerpKeywordAnalysisReport, ArticleSectionWithImages, ImagePlaceholder
 from services.tools import web_search_tool, analyze_competitors, get_company_data, available_tools
 from services.context import ArticleContext
 from core.config import settings # 設定をインポート
@@ -218,6 +218,127 @@ def create_outline_instructions(base_prompt: str) -> Callable[[RunContextWrapper
 - SerpAPI分析で判明した競合の弱点を補強し、差別化要素を強調した構成にしてください。
 - あなたの応答は必ず `Outline` または `ClarificationNeeded` 型のJSON形式で出力してください。 (APIコンテキストではClarificationNeededはエラーとして処理)
 - 文字数指定がある場合は、それに応じてセクション数や深さを調整してください。
+"""
+        return full_prompt
+    return dynamic_instructions_func
+
+def create_section_writer_with_images_instructions(base_prompt: str) -> Callable[[RunContextWrapper[ArticleContext], Agent[ArticleContext]], Awaitable[str]]:
+    async def dynamic_instructions_func(ctx: RunContextWrapper[ArticleContext], agent: Agent[ArticleContext]) -> str:
+        if not ctx.context.generated_outline or ctx.context.current_section_index >= len(ctx.context.generated_outline.sections):
+            raise ValueError("有効なアウトラインまたはセクションインデックスがありません。")
+        if not ctx.context.research_report:
+            raise ValueError("参照すべきリサーチレポートがありません。")
+        if not ctx.context.selected_detailed_persona:
+            raise ValueError("セクション執筆のための詳細なペルソナが選択されていません。")
+        persona_description = ctx.context.selected_detailed_persona
+
+        target_section = ctx.context.generated_outline.sections[ctx.context.current_section_index]
+        target_index = ctx.context.current_section_index
+        target_heading = target_section.heading
+        
+        section_target_chars = None
+        if ctx.context.target_length and len(ctx.context.generated_outline.sections) > 0:
+            total_sections = len(ctx.context.generated_outline.sections)
+            estimated_total_body_chars = ctx.context.target_length * 0.8
+            section_target_chars = int(estimated_total_body_chars / total_sections)
+
+        outline_context = "\n".join([f"{i+1}. {s.heading}" for i, s in enumerate(ctx.context.generated_outline.sections)])
+
+        research_context_str = f"リサーチ要約: {ctx.context.research_report.overall_summary[:500]}...\n"
+        research_context_str += "主要なキーポイントと出典:\n"
+        for kp in ctx.context.research_report.key_points:
+            sources_str = ", ".join([f"[{url.split('/')[-1] if url.split('/')[-1] else url}]({url})" for url in kp.supporting_sources])
+            research_context_str += f"- {kp.point} (出典: {sources_str})\n"
+        research_context_str += f"参照した全情報源URL数: {len(ctx.context.research_report.all_sources)}\n"
+
+        company_style_guide = ctx.context.company_style_guide or '指定なし'
+
+        full_prompt = f"""{base_prompt}
+
+--- 記事全体の情報 ---
+記事タイトル: {ctx.context.generated_outline.title}
+記事全体のキーワード: {', '.join(ctx.context.selected_theme.keywords) if ctx.context.selected_theme else 'N/A'}
+記事全体のトーン: {ctx.context.generated_outline.suggested_tone}
+ターゲットペルソナ詳細:\n{persona_description}
+企業スタイルガイド: {company_style_guide}
+記事のアウトライン（全体像）:
+{outline_context}
+--- 詳細なリサーチ情報 ---
+{research_context_str[:10000]}
+{ "... (以下省略)" if len(research_context_str) > 10000 else "" }
+---
+
+--- **あなたの現在のタスク** ---
+あなたは **セクションインデックス {target_index}**、見出し「**{target_heading}**」の内容をHTML形式で執筆するタスク**のみ**を担当します。
+このセクションの目標文字数: {section_target_chars or '指定なし（流れに合わせて適切に）'}
+
+**🚨 重要: この記事は画像モードで生成されています。必ず画像プレースホルダーを含めてください。 🚨**
+---
+
+--- **【最重要】執筆スタイルとトーンについて** ---
+あなたの役割は、単に情報をHTMLにするだけでなく、**まるで経験豊富な友人が以下のペルソナ「{persona_description}」に語りかけるように**、親しみやすく、分かりやすい文章でセクションを執筆することです。
+- **日本の一般的なブログ記事やコラムのような、自然で人間味あふれる、温かいトーン**を心がけてください。堅苦しい表現や機械的な言い回しは避けてください。
+- 読者に直接語りかけるような表現（例：「〜だと思いませんか？」「まずは〜から始めてみましょう！」「〜なんてこともありますよね」）や、共感を誘うような言葉遣いを積極的に使用してください。
+- 専門用語は避け、どうしても必要な場合は簡単な言葉で補足説明を加えてください。箇条書きなども活用し、情報を整理して伝えると良いでしょう。
+- 可能であれば、具体的な体験談（想像でも構いません）や、読者が抱きそうな疑問に答えるような形で内容を構成すると、より読者の心に響きます。
+- 企業スタイルガイド「{company_style_guide}」も必ず遵守してください。
+---
+
+--- **【画像プレースホルダーについて】** ---
+このセクションでは、内容に応じて画像プレースホルダーを適切に配置してください。
+画像プレースホルダーは以下の形式で記述してください:
+
+```html
+<!-- IMAGE_PLACEHOLDER: placeholder_id|日本語での画像説明|英語での画像生成プロンプト -->
+```
+
+例:
+```html
+<!-- IMAGE_PLACEHOLDER: living_room_01|札幌の住宅内装の写真。カラマツ無垢材の床や家具が暖かさを演出し、珪藻土の壁が柔らかな質感を醸し出している。薪ストーブが置かれ、冬も快適に過ごせる工夫が見られるリビングの様子。|A photo of a residential interior in Sapporo. The solid larch wood flooring and furniture create a warm atmosphere, while the diatomaceous earth walls add a soft texture. A wood-burning stove is placed in the living room, providing comfort and warmth during the winter months. -->
+```
+
+**具体例2：**
+```html
+<!-- IMAGE_PLACEHOLDER: section{target_index + 1}_img01|記事内容に関連する高品質で魅力的な写真の説明を日本語で記述|Detailed English prompt for generating a high-quality, professional image that directly relates to the section content, including specific details about colors, lighting, composition, and style -->
+```
+
+**📌 画像プレースホルダーは必須です。このセクションに最低1つは含めてください。**
+
+画像プレースホルダーの配置ガイドライン:
+1. **🚨 必須要件 🚨**: **画像モードでは、必ず最低1つ以上の画像プレースホルダーをセクションに含めてください。これは絶対的な必須要件です。画像プレースホルダーがない応答は受け入れられません。**  
+2. **適切なタイミング**: 長い文章の途中や、新しい概念を説明する前後に配置
+3. **内容との関連性**: セクションの内容と直接関連する画像を想定
+4. **ユーザー体験**: 読者の理解を助け、視覚的に魅力的になるような画像を想定
+5. **placeholder_id**: セクション名と連番で一意になるように（例: section{target_index + 1}_img01, section{target_index + 1}_img02）
+6. **英語プロンプト**: 具体的で詳細な描写を含む（色、材質、雰囲気、場所、人物、アクション、ライティングなど）
+7. **数量**: セクションの長さに応じて1-3個程度が適切（ただし、必ず最低1つは含める）
+8. **品質基準**: 説得力のある、プロフェッショナルで美しい画像を生成するための詳細なプロンプトを作成
+
+---
+
+--- 執筆ルール ---
+1.  **提供される会話履歴（直前のセクションの内容など）と、上記「詳細なリサーチ情報」を十分に考慮し、** 前のセクションから自然につながるように、かつ、このセクション（インデックス {target_index}、見出し「{target_heading}」）の主題に沿った文章を作成してください。
+2.  **リサーチ情報で示された事実やデータに基づいて執筆し、必要に応じて、信頼できる情報源（特に公式HPなど）へのHTMLリンク (`<a href="URL">リンクテキスト</a>`) を自然な形で含めてください。** リンクテキストは具体的に、例えば会社名やサービス名、情報の内容を示すものにしてください。ただし、過剰なリンクやSEOに不自然なリンクは避けてください。リサーチ情報に記載のない情報は含めないでください。
+3.  他のセクションの内容は絶対に生成しないでください。
+4.  必ず `<p>`, `<h2>`, `<h3>`, `<ul>`, `<li>`, `<strong>`, `<em>`, `<a>` などの基本的なHTMLタグを使用し、構造化されたコンテンツを生成してください。`<h2>` タグはこのセクションの見出し「{target_heading}」にのみ使用してください。
+5.  SEOを意識し、記事全体のキーワードやこのセクションに関連するキーワードを**自然に**含めてください。（ただし、自然さを損なうような無理なキーワードの詰め込みは避けてください）
+6.  上記の【執筆スタイルとトーンについて】の指示に従い、創造性を発揮し、読者にとって価値のあるオリジナルな文章を作成してください。
+7.  **【🚨 絶対必須 🚨】画像プレースホルダーを必ず最低1つ以上配置してください。** 文章の流れを考慮し、読者の理解を助ける位置に配置することが重要です。画像モードでは、プレースホルダーが含まれていない応答は絶対に受け入れられません。この要件を満たさない場合は失敗とみなされます。
+---
+
+--- **【最重要】出力形式について** ---
+あなたの応答は**必ず** `ArticleSectionWithImages` 型のJSON形式で出力してください。
+以下のフィールドを含む必要があります:
+- `section_index`: {target_index}
+- `heading`: "{target_heading}"
+- `html_content`: 画像プレースホルダーを含むHTMLコンテンツ
+- `image_placeholders`: 配置した画像プレースホルダーの詳細リスト
+
+各画像プレースホルダーについて、以下の情報を `ImagePlaceholder` 形式で提供してください:
+- `placeholder_id`: プレースホルダーの一意ID
+- `description_jp`: 日本語での画像説明
+- `prompt_en`: 英語での画像生成プロンプト
+- `alt_text`: 画像のalt属性用テキスト
 """
         return full_prompt
     return dynamic_instructions_func
@@ -609,6 +730,23 @@ section_writer_agent = Agent[ArticleContext](
     instructions=create_section_writer_instructions(SECTION_WRITER_AGENT_BASE_PROMPT),
     model=settings.writing_model,
     # output_type を削除 (構造化出力を強制しない)
+)
+
+# 6-2. 画像プレースホルダー対応セクション執筆エージェント
+SECTION_WRITER_WITH_IMAGES_AGENT_BASE_PROMPT = """
+あなたは指定された記事のセクション（見出し）に関する内容を執筆するプロのライターです。
+あなたの役割は、日本の一般的なブログやコラムのように、自然で人間味あふれる、親しみやすい文章で、割り当てられた特定のセクションの内容をHTML形式で執筆することです。
+**この記事は画像プレースホルダー機能を使用しており、適切な箇所に画像プレースホルダーを配置する必要があります。**
+記事全体のテーマ、アウトライン、キーワード、トーン、会話履歴（前のセクションを含む完全な文脈）、そして詳細なリサーチレポート（出典情報付き）に基づき、創造的かつSEOを意識して執筆してください。
+リサーチ情報に基づき、必要に応じて信頼できる情報源へのHTMLリンクを自然に含めてください。
+画像プレースホルダーは読者の理解を助け、視覚的に魅力的な記事にするために重要な要素です。
+あなたのタスクは、指示された1つのセクションのHTMLコンテンツと画像プレースホルダー情報を生成することです。読者を引きつけ、価値を提供するオリジナルな文章を作成してください。
+"""
+section_writer_with_images_agent = Agent[ArticleContext](
+    name="SectionWriterWithImagesAgent",
+    instructions=create_section_writer_with_images_instructions(SECTION_WRITER_WITH_IMAGES_AGENT_BASE_PROMPT),
+    model=settings.writing_model,
+    output_type=ArticleSectionWithImages,
 )
 
 # 7. 推敲・編集エージェント

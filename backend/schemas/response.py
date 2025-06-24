@@ -13,6 +13,7 @@ class StatusUpdatePayload(BasePayload):
     """ステータス更新ペイロード"""
     step: str = Field(description="現在の処理ステップ名")
     message: str = Field(description="処理状況に関するメッセージ")
+    image_mode: Optional[bool] = Field(None, description="画像モードが有効かどうか")
 
 class ThemeProposalData(BaseModel): # services.models.ThemeIdea と同期
     title: str

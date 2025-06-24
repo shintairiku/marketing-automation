@@ -134,10 +134,26 @@ class SerpKeywordAnalysisReport(BaseModel):
     user_intent_analysis: str = Field(description="検索ユーザーの意図分析")
     content_strategy_recommendations: List[str] = Field(description="コンテンツ戦略の推奨事項")
 
+# --- 画像プレースホルダー関連モデル (新規追加) ---
+class ImagePlaceholder(BaseModel):
+    """画像プレースホルダー情報"""
+    placeholder_id: str = Field(description="プレースホルダーの一意ID")
+    description_jp: str = Field(description="画像の説明（日本語）")
+    prompt_en: str = Field(description="画像生成用の英語プロンプト")
+    alt_text: str = Field(description="画像のalt属性テキスト")
+
+class ArticleSectionWithImages(BaseModel):
+    """画像プレースホルダーを含む記事セクション"""
+    status: Literal["article_section_with_images"] = Field(default="article_section_with_images", description="出力タイプ: 画像付き記事セクション")
+    section_index: int = Field(description="生成対象のセクションインデックス（Outline.sectionsのインデックス、0ベース）")
+    heading: str = Field(description="生成されたセクションの見出し")
+    html_content: str = Field(description="画像プレースホルダーを含むHTMLコンテンツ")
+    image_placeholders: List[ImagePlaceholder] = Field(description="このセクション内の画像プレースホルダーリスト")
+
 # エージェントが出力しうる型のUnion (ArticleSection を削除)
 AgentOutput = Union[
     ThemeProposal, Outline, RevisedArticle, ClarificationNeeded, StatusUpdate,
     ResearchPlan, ResearchQueryResult, ResearchReport, GeneratedPersonasResponse,
-    SerpKeywordAnalysisReport
+    SerpKeywordAnalysisReport, ArticleSectionWithImages
 ]
 
