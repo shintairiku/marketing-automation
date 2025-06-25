@@ -29,7 +29,7 @@ interface EditArticlePageProps {
 
 interface ArticleBlock {
   id: string;
-  type: 'h1' | 'h2' | 'h3' | 'p' | 'ul' | 'ol' | 'li' | 'image_placeholder';
+  type: 'h1' | 'h2' | 'h3' | 'p' | 'ul' | 'ol' | 'li' | 'image_placeholder' | 'replaced_image';
   content: string;
   isEditing: boolean;
   isSelected: boolean;
@@ -40,6 +40,12 @@ interface ArticleBlock {
     prompt_en: string;
     alt_text?: string;
   };
+  // 置き換えられた画像専用の追加フィールド
+  imageData?: {
+    image_id: string;
+    image_url: string;
+    alt_text: string;
+  };
 }
 
 interface AiConfirmationState {
@@ -48,8 +54,6 @@ interface AiConfirmationState {
   originalContent: string;
   newContent: string;
 }
-
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 
 export default function EditArticlePage({ articleId }: EditArticlePageProps) {
   const { getToken } = useAuth();
@@ -114,6 +118,32 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
         });
         continue;
       }
+
+      // 置き換えられた画像（data-placeholder-id属性付き）かチェック
+      const imageMatch = trimmedSegment.match(/<img[^>]*data-placeholder-id="([^"]+)"[^>]*data-image-id="([^"]+)"[^>]*src="([^"]+)"[^>]*alt="([^"]*)"[^>]*\/?>/);
+      if (imageMatch) {
+        const [fullMatch, placeholderId, imageId, imageUrl, altText] = imageMatch;
+        
+        blocks.push({
+          id: `image-${blockIndex++}`,
+          type: 'replaced_image',
+          content: fullMatch,
+          isEditing: false,
+          isSelected: false,
+          placeholderData: {
+            placeholder_id: placeholderId.trim(),
+            description_jp: altText.trim(),
+            prompt_en: '', // 復元時にAPIから取得
+            alt_text: altText.trim(),
+          },
+          imageData: {
+            image_id: imageId,
+            image_url: imageUrl,
+            alt_text: altText,
+          },
+        });
+        continue;
+      }
       
       // HTML要素を解析
       const parser = new DOMParser();
@@ -170,6 +200,11 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
     return blocks.map(block => {
       if (block.type === 'image_placeholder') {
         // 画像プレースホルダーはコメント形式でそのまま出力
+        return block.content;
+      }
+      
+      if (block.type === 'replaced_image') {
+        // 置き換えられた画像はimg タグとして出力
         return block.content;
       }
       
@@ -233,103 +268,124 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
   // AI編集モーダルを開く
   const openAiModal = (mode: 'single' | 'bulk', block?: ArticleBlock) => {
     setAiEditMode(mode);
-    setCurrentBlockForAi(mode === 'single' ? block || null : null);
-    setAiInstruction("");
+    if (mode === 'single' && block) {
+      setCurrentBlockForAi(block);
+    } else {
+      setCurrentBlockForAi(null);
+    }
     setIsAiModalOpen(true);
   };
   
   // AI 編集実行
   const runAiEdit = async () => {
-    const instruction = aiInstruction;
-    if (!instruction) return;
-    
-    const targets = aiEditMode === 'bulk' 
-      ? blocks.filter(b => b.isSelected)
-      : currentBlockForAi ? [currentBlockForAi] : [];
-
-    if (targets.length === 0) return;
-
-    setAiEditingLoading(true);
-    setIsAiModalOpen(false);
-    setLastAiInstruction(instruction);
-
     try {
+      setAiEditingLoading(true);
+      setAiConfirmations([]);
       const token = await getToken();
-      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+      };
       if (token) headers["Authorization"] = `Bearer ${token}`;
 
-      const editPromises = targets.map(block => 
-        fetch(`${API_BASE_URL}/articles/${articleId}/ai-edit`, {
+      if (aiEditMode === 'bulk') {
+        const targets = blocks.filter(b => b.isSelected && !isVoidElement(b.type));
+        const editPromises = targets.map(block => 
+          fetch(`/api/proxy/articles/${articleId}/ai-edit`, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({
+              content: `<${block.type}>${block.content}</${block.type}>`,
+              instruction: aiInstruction
+            })
+          }).then(res => res.json())
+        );
+        const results = await Promise.all(editPromises);
+        
+        const newConfirmations = results.map((result, index) => {
+          const targetBlock = targets[index];
+          return {
+            blockId: targetBlock.id,
+            originalType: targetBlock.type,
+            originalContent: targetBlock.content,
+            newContent: result.edited_content || `AIによる編集に失敗しました: ${result.detail || '不明なエラー'}`
+          };
+        });
+        setAiConfirmations(newConfirmations);
+        
+      } else if (currentBlockForAi) {
+        if (token) headers["Authorization"] = `Bearer ${token}`;
+        
+        const resp = await fetch(`/api/proxy/articles/${articleId}/ai-edit`, {
           method: 'POST',
           headers,
           body: JSON.stringify({
-            content: `<${block.type}>${block.content}</${block.type}>`,
-            instruction
+            content: `<${currentBlockForAi.type}>${currentBlockForAi.content}</${currentBlockForAi.type}>`,
+            instruction: aiInstruction
           })
-        }).then(res => {
-          if (!res.ok) throw new Error(`API Error on block ${block.id}`);
-          return res.json();
-        }).then(data => {
-          const newHtml = data.new_content as string;
-          const regex = new RegExp(`^<${block.type}[^>]*>([\\s\\S]*)<\\/${block.type}>$`, 'i');
-          const match = newHtml.match(regex);
-          const inner = match ? match[1] : newHtml;
-          return {
-            blockId: block.id,
-            originalType: block.type,
-            originalContent: block.content,
-            newContent: inner,
-          };
-        })
-      );
+        });
 
-      const newConfirmations = await Promise.all(editPromises);
-      
-      setAiConfirmations(prev => {
-        const updatedConfirmations = prev.filter(p => !newConfirmations.some(n => n.blockId === p.blockId));
-        return [...updatedConfirmations, ...newConfirmations];
-      });
+        if (!resp.ok) {
+          const errorData = await resp.json().catch(() => ({ detail: 'レスポンスがJSON形式ではありません' }));
+          throw new Error(`AI編集に失敗しました: ${errorData.detail || resp.statusText}`);
+        }
+        
+        const result = await resp.json();
 
-    } catch (e: any) {
-      alert(`AI編集に失敗しました: ${e.message}`);
+        const aiConfirmationState: AiConfirmationState = {
+          blockId: currentBlockForAi.id,
+          originalType: currentBlockForAi.type,
+          originalContent: currentBlockForAi.content,
+          newContent: result.edited_content
+        };
+        setAiConfirmations([aiConfirmationState]);
+      }
+    } catch (error) {
+      console.error('AI編集エラー:', error);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      alert(`AI編集に失敗しました。 ${errorMessage}`);
     } finally {
       setAiEditingLoading(false);
+      setIsAiModalOpen(false);
+      setAiInstruction("");
     }
   };
 
   const handleRegenerate = async (blockId: string) => {
     const confirmation = aiConfirmations.find(c => c.blockId === blockId);
-    const instruction = lastAiInstruction; 
-    if (!confirmation || !instruction) return;
+    if (!confirmation || !lastAiInstruction) return;
 
-    setAiEditingLoading(true);
     try {
+      setAiEditingLoading(true);
       const token = await getToken();
-      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+      };
       if (token) headers["Authorization"] = `Bearer ${token}`;
-      
-      const resp = await fetch(`${API_BASE_URL}/articles/${articleId}/ai-edit`, {
+
+      const resp = await fetch(`/api/proxy/articles/${articleId}/ai-edit`, {
         method: 'POST',
         headers,
         body: JSON.stringify({
           content: `<${confirmation.originalType}>${confirmation.originalContent}</${confirmation.originalType}>`,
-          instruction
+          instruction: lastAiInstruction
         })
       });
-      if (!resp.ok) throw new Error(`API Error: ${resp.statusText}`);
-      
-      const data = await resp.json();
-      const newHtml = data.new_content as string;
-      const regex = new RegExp(`^<${confirmation.originalType}[^>]*>([\\s\\S]*)<\\/${confirmation.originalType}>$`, 'i');
-      const match = newHtml.match(regex);
-      const inner = match ? match[1] : newHtml;
 
+      if (!resp.ok) {
+        const errorData = await resp.json().catch(() => ({ detail: 'レスポンスがJSON形式ではありません' }));
+        throw new Error(`AI再編集に失敗しました: ${errorData.detail || resp.statusText}`);
+      }
+
+      const result = await resp.json();
+      
       setAiConfirmations(prev => prev.map(c => 
-          c.blockId === blockId ? { ...c, newContent: inner } : c
+        c.blockId === blockId ? { ...c, newContent: result.edited_content } : c
       ));
 
-    } catch (e:any) {
-      alert(`AI再生成に失敗しました: ${e.message}`);
+    } catch (error) {
+      console.error('AI再編集エラー:', error);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      alert(`AI再編集に失敗しました。 ${errorMessage}`);
     } finally {
       setAiEditingLoading(false);
     }
@@ -337,25 +393,31 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
 
   const handleApprove = (blockId: string) => {
     const confirmation = aiConfirmations.find(c => c.blockId === blockId);
-    if (!confirmation) return;
-    saveBlock(confirmation.blockId, confirmation.newContent);
-    setAiConfirmations(prev => prev.filter(c => c.blockId !== blockId));
+    if (confirmation) {
+      setBlocks(prev => prev.map(b => 
+        b.id === blockId ? { ...b, content: confirmation.newContent } : b
+      ));
+      setAiConfirmations(prev => prev.filter(c => c.blockId !== blockId));
+    }
   };
-  
+
   const handleCancel = (blockId: string) => {
     setAiConfirmations(prev => prev.filter(c => c.blockId !== blockId));
   };
   
   const handleApproveAll = () => {
     setBlocks(prev => {
-      const newBlocks = [...prev];
-      aiConfirmations.forEach(conf => {
-        const blockIndex = newBlocks.findIndex(b => b.id === conf.blockId);
-        if (blockIndex > -1) {
-          newBlocks[blockIndex].content = conf.newContent;
+      const updatedBlocks = [...prev];
+      aiConfirmations.forEach(confirmation => {
+        const blockIndex = updatedBlocks.findIndex(b => b.id === confirmation.blockId);
+        if (blockIndex !== -1) {
+          updatedBlocks[blockIndex] = {
+            ...updatedBlocks[blockIndex],
+            content: confirmation.newContent,
+          };
         }
       });
-      return newBlocks;
+      return updatedBlocks;
     });
     setAiConfirmations([]);
   };
@@ -364,26 +426,28 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
     setAiConfirmations([]);
   };
 
-  // 画像アップロード処理
   const handleImageUpload = async (blockId: string, file: File) => {
     const block = blocks.find(b => b.id === blockId);
     if (!block || !block.placeholderData) return;
 
     try {
       setImageUploadLoading(prev => ({ ...prev, [blockId]: true }));
-
-      const token = await getToken();
       const formData = new FormData();
       formData.append('file', file);
+      formData.append('article_id', articleId);
       formData.append('placeholder_id', block.placeholderData.placeholder_id);
       formData.append('alt_text', block.placeholderData.alt_text || block.placeholderData.description_jp);
 
+      const token = await getToken();
       const headers: Record<string, string> = {};
       if (token) {
         headers["Authorization"] = `Bearer ${token}`;
       }
 
-      const response = await fetch(`${API_BASE_URL}/api/images/upload`, {
+      // サーバーにアップロードリクエストを送信（Next.jsのAPIルート経由）
+      // TODO: この機能は未実装のエンドポイントを指しているため、一時的にコメントアウトします
+      /*
+      const response = await fetch('/api/images/upload', {
         method: 'POST',
         headers,
         body: formData,
@@ -395,16 +459,24 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
 
       const result = await response.json();
       
-      // プレースホルダーを実際の画像タグに置換
-      const imageHtml = `<img src="${result.image_url}" alt="${block.placeholderData.alt_text || block.placeholderData.description_jp}" class="article-image" />`;
-      
+      // ブロックを置き換えられた画像タイプに更新
       setBlocks(prev => prev.map(b => 
         b.id === blockId 
-          ? { ...b, type: 'p', content: imageHtml, placeholderData: undefined }
+          ? { 
+              ...b, 
+              type: 'replaced_image', 
+              content: result.updated_content.match(new RegExp(`<img[^>]*data-placeholder-id="${block.placeholderData!.placeholder_id}"[^>]*>`))?.[0] || b.content,
+              imageData: {
+                image_id: result.image_id,
+                image_url: result.image_url,
+                alt_text: block.placeholderData.alt_text || block.placeholderData.description_jp,
+              }
+            }
           : b
       ));
+      */
+      alert('画像アップロード機能は現在開発中です。');
 
-      alert('画像がアップロードされました！');
     } catch (error) {
       console.error('画像アップロードエラー:', error);
       alert('画像のアップロードに失敗しました。');
@@ -418,6 +490,8 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
     const block = blocks.find(b => b.id === blockId);
     if (!block || !block.placeholderData) return;
 
+    const placeholderData = block.placeholderData;
+
     try {
       setImageGenerationLoading(prev => ({ ...prev, [blockId]: true }));
 
@@ -429,13 +503,14 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
         headers["Authorization"] = `Bearer ${token}`;
       }
 
-      const response = await fetch(`${API_BASE_URL}/api/images/generate`, {
+      const response = await fetch(`http://localhost:8000/api/images/generate`, {
         method: 'POST',
         headers,
         body: JSON.stringify({
-          placeholder_id: block.placeholderData.placeholder_id,
-          description_jp: block.placeholderData.description_jp,
-          prompt_en: block.placeholderData.prompt_en,
+          placeholder_id: placeholderData.placeholder_id,
+          description_jp: placeholderData.description_jp,
+          prompt_en: placeholderData.prompt_en,
+          alt_text: placeholderData.alt_text || placeholderData.description_jp,
         }),
       });
 
@@ -445,21 +520,97 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
 
       const result = await response.json();
       
-      // プレースホルダーを実際の画像タグに置換
-      const imageHtml = `<img src="${result.image_url}" alt="${block.placeholderData.alt_text || block.placeholderData.description_jp}" class="article-image" />`;
+      // 画像をプレースホルダーで置き換える（新しいAPIエンドポイント使用）
+      const replaceResponse = await fetch(`http://localhost:8000/api/images/replace-placeholder`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { "Authorization": `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({
+          article_id: articleId,
+          placeholder_id: placeholderData.placeholder_id,
+          image_url: result.image_url,
+          alt_text: placeholderData.alt_text || placeholderData.description_jp,
+        }),
+      });
+
+      if (!replaceResponse.ok) {
+        throw new Error(`Replace failed: ${replaceResponse.status}`);
+      }
+
+      const replaceResult = await replaceResponse.json();
       
+      // ブロックを置き換えられた画像タイプに更新
       setBlocks(prev => prev.map(b => 
         b.id === blockId 
-          ? { ...b, type: 'p', content: imageHtml, placeholderData: undefined }
+          ? { 
+              ...b, 
+              type: 'replaced_image', 
+              content: replaceResult.updated_content.match(new RegExp(`<img[^>]*data-placeholder-id="${placeholderData.placeholder_id}"[^>]*>`))?.[0] || b.content,
+              imageData: {
+                image_id: replaceResult.image_id,
+                image_url: result.image_url,
+                alt_text: placeholderData.alt_text || placeholderData.description_jp,
+              }
+            }
           : b
       ));
 
-      alert('画像が生成されました！');
+      alert('画像が生成され、記事に保存されました！');
     } catch (error) {
       console.error('画像生成エラー:', error);
       alert('画像の生成に失敗しました。');
     } finally {
       setImageGenerationLoading(prev => ({ ...prev, [blockId]: false }));
+    }
+  };
+
+  // 画像をプレースホルダーに復元
+  const handleImageRestore = async (blockId: string) => {
+    const block = blocks.find(b => b.id === blockId);
+    if (!block || !block.placeholderData) return;
+
+    try {
+      const token = await getToken();
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+      };
+      if (token) {
+        headers["Authorization"] = `Bearer ${token}`;
+      }
+
+      const response = await fetch(`http://localhost:8000/api/images/restore-placeholder`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          article_id: articleId,
+          placeholder_id: block.placeholderData.placeholder_id,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Restore failed: ${response.status}`);
+      }
+
+      const result = await response.json();
+      
+      // ブロックをプレースホルダータイプに戻す
+      setBlocks(prev => prev.map(b => 
+        b.id === blockId 
+          ? { 
+              ...b, 
+              type: 'image_placeholder', 
+              content: result.updated_content.match(/<!-- IMAGE_PLACEHOLDER: [^>]+ -->/)?.[0] || b.content,
+              imageData: undefined
+            }
+          : b
+      ));
+
+      alert('画像がプレースホルダーに戻されました！');
+    } catch (error) {
+      console.error('画像復元エラー:', error);
+      alert('画像の復元に失敗しました。');
     }
   };
 
@@ -534,8 +685,8 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
 
       const updatedContent = blocksToHtml(blocks);
 
-      const response = await fetch(`${API_BASE_URL}/articles/${articleId}`, {
-        method: "PATCH",
+      const response = await fetch(`/api/proxy/articles/${articleId}`, {
+        method: 'PATCH',
         headers,
         body: JSON.stringify({
           content: updatedContent,
@@ -543,14 +694,17 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
       });
 
       if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+        const errorData = await response.json().catch(() => ({ detail: "レスポンスがJSON形式ではありません" }));
+        throw new Error(`Save failed: ${errorData.detail || response.statusText}`);
       }
-
-      // 成功時は記事データを再取得
+      
       await refetch();
       alert('記事が正常に保存されました！');
-    } catch (err) {
-      setSaveError(err instanceof Error ? err.message : '保存に失敗しました');
+
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error('記事の保存に失敗しました:', errorMessage);
+      setSaveError(errorMessage);
     } finally {
       setIsSaving(false);
     }
@@ -649,6 +803,52 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
     );
   };
 
+  // 置き換えられた画像ブロックのレンダリング
+  const renderReplacedImageBlock = (block: ArticleBlock) => {
+    if (!block.imageData || !block.placeholderData) return null;
+
+    return (
+      <div className="border-2 border-green-300 bg-green-50 rounded-lg p-6 mb-4">
+        <div className="flex items-center gap-3 mb-3">
+          <Image className="h-6 w-6 text-green-600" />
+          <div className="flex-1">
+            <h4 className="font-medium text-green-900">画像 (プレースホルダーから置換済み)</h4>
+            <p className="text-sm text-green-700">ID: {block.placeholderData.placeholder_id}</p>
+          </div>
+          <Button 
+            size="sm" 
+            variant="outline" 
+            className="text-orange-600 border-orange-300 hover:bg-orange-100"
+            onClick={() => handleImageRestore(block.id)}
+          >
+            <Wand2 className="h-4 w-4 mr-1" />
+            プレースホルダーに戻す
+          </Button>
+        </div>
+        <div className="mb-3">
+          <img 
+            src={block.imageData.image_url} 
+            alt={block.imageData.alt_text} 
+            className="max-w-full h-auto rounded-lg shadow-sm"
+            style={{ maxHeight: '300px' }}
+          />
+        </div>
+        <div className="space-y-2 text-sm">
+          <div>
+            <span className="font-medium text-gray-700">Alt Text: </span>
+            <span className="text-gray-600">{block.imageData.alt_text}</span>
+          </div>
+          <div>
+            <span className="font-medium text-gray-700">画像ID: </span>
+            <span className="text-gray-600 font-mono text-xs bg-gray-100 px-2 py-1 rounded">
+              {block.imageData.image_id}
+            </span>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   if (loading) {
     return (
       <div className="flex justify-center items-center py-16">
@@ -661,7 +861,7 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
   }
 
   if (error) {
-    return (
+        return (
       <div className="space-y-6">
         <Alert variant="destructive">
           <AlertCircle className="h-4 w-4" />
@@ -672,12 +872,12 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
         <Button onClick={refetch} className="mt-4">
           再試行
         </Button>
-      </div>
-    );
+          </div>
+        );
   }
 
   if (!article) {
-    return (
+        return (
       <div className="space-y-6">
         <Alert>
           <AlertCircle className="h-4 w-4" />
@@ -685,8 +885,8 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
             記事が見つかりません。
           </AlertDescription>
         </Alert>
-      </div>
-    );
+          </div>
+        );
   }
 
   return (
@@ -813,6 +1013,8 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
                       <div className="w-full cursor-pointer p-1 rounded-md hover:bg-gray-100/50">
                         {block.type === 'image_placeholder' ? (
                           renderImagePlaceholderBlock(block)
+                        ) : block.type === 'replaced_image' ? (
+                          renderReplacedImageBlock(block)
                         ) : (
                           renderBlockContent(block)
                         )}
@@ -849,6 +1051,35 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
                                 <Sparkles className="w-4 h-4 mr-2" />
                               )}
                               AI画像生成
+                            </Button>
+                            <Button variant="ghost" className="w-full justify-start text-red-500 hover:text-red-600" size="sm" onClick={() => deleteBlock(block.id)}>
+                              <Trash2 className="w-4 h-4 mr-2" /> 削除
+                            </Button>
+                          </>
+                        ) : block.type === 'replaced_image' ? (
+                          <>
+                            <Button 
+                              variant="ghost" 
+                              className="w-full justify-start" 
+                              size="sm"
+                              onClick={() => handleImageRestore(block.id)}
+                            >
+                              <Wand2 className="w-4 h-4 mr-2" />
+                              プレースホルダーに戻す
+                            </Button>
+                            <Button 
+                              variant="ghost" 
+                              className="w-full justify-start" 
+                              size="sm"
+                              onClick={() => triggerFileUpload(block.id)}
+                              disabled={imageUploadLoading[block.id]}
+                            >
+                              {imageUploadLoading[block.id] ? (
+                                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-gray-600 mr-2" />
+                              ) : (
+                                <Upload className="w-4 h-4 mr-2" />
+                              )}
+                              別の画像に変更
                             </Button>
                             <Button variant="ghost" className="w-full justify-start text-red-500 hover:text-red-600" size="sm" onClick={() => deleteBlock(block.id)}>
                               <Trash2 className="w-4 h-4 mr-2" /> 削除

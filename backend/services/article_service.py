@@ -3710,11 +3710,72 @@ class ArticleGenerationService:
             if not result.data:
                 raise Exception("Failed to update article")
             
+            # コンテンツが更新された場合、画像プレースホルダーを抽出・保存
+            if "content" in update_fields:
+                try:
+                    await self._extract_and_save_placeholders(supabase, article_id, update_fields["content"])
+                except Exception as e:
+                    logger.warning(f"Failed to extract image placeholders for article {article_id}: {e}")
+            
             # 更新された記事情報を返す
             return await self.get_article(article_id, user_id)
             
         except Exception as e:
             logger.error(f"Error updating article {article_id}: {e}")
+            raise
+
+    async def _extract_and_save_placeholders(self, supabase, article_id: str, content: str) -> None:
+        """
+        記事内容から画像プレースホルダーを抽出してデータベースに保存する
+        
+        Args:
+            supabase: Supabaseクライアント
+            article_id: 記事ID
+            content: 記事内容（HTML）
+        """
+        import re
+        
+        try:
+            # 画像プレースホルダーのパターン: <!-- IMAGE_PLACEHOLDER: id|description_jp|prompt_en -->
+            pattern = r'<!-- IMAGE_PLACEHOLDER: ([^|]+)\|([^|]+)\|([^>]+) -->'
+            matches = re.findall(pattern, content)
+            
+            if not matches:
+                logger.info(f"No image placeholders found in article {article_id}")
+                return
+            
+            logger.info(f"Found {len(matches)} image placeholders in article {article_id}")
+            
+            # 各プレースホルダーをデータベースに保存
+            for index, (placeholder_id, description_jp, prompt_en) in enumerate(matches):
+                placeholder_data = {
+                    "article_id": article_id,
+                    "placeholder_id": placeholder_id.strip(),
+                    "description_jp": description_jp.strip(),
+                    "prompt_en": prompt_en.strip(),
+                    "position_index": index + 1,
+                    "status": "pending"
+                }
+                
+                try:
+                    # ON CONFLICT DO UPDATEでupsert
+                    result = supabase.table("image_placeholders").upsert(
+                        placeholder_data,
+                        on_conflict="article_id,placeholder_id"
+                    ).execute()
+                    
+                    if result.data:
+                        logger.info(f"Saved placeholder {placeholder_id} for article {article_id}")
+                    else:
+                        logger.warning(f"Failed to save placeholder {placeholder_id}: {result}")
+                        
+                except Exception as placeholder_error:
+                    logger.error(f"Error saving placeholder {placeholder_id} for article {article_id}: {placeholder_error}")
+                    # 個別のプレースホルダーエラーは継続可能
+                    continue
+            
+        except Exception as e:
+            logger.error(f"Error extracting placeholders for article {article_id}: {e}")
             raise
 
 
