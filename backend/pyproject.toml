@@ -25,4 +25,5 @@ dependencies = [
     "pillow",
     "aiofiles",
     "google-genai>=1.21.1",
+    "google-cloud-storage>=2.19.0",
 ]

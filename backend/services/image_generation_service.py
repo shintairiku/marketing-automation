@@ -38,6 +38,7 @@ except ImportError:
 
 from core.config import settings
 from core.logger import logger
+from services.gcs_service import gcs_service
 
 
 class ImageGenerationRequest(BaseModel):
@@ -70,6 +71,7 @@ class ImageGenerationService:
         self.project_id = settings.google_cloud_project if hasattr(settings, 'google_cloud_project') else None
         self.location = settings.google_cloud_location if hasattr(settings, 'google_cloud_location') else "us-central1"
         self.service_account_json = settings.google_service_account_json if hasattr(settings, 'google_service_account_json') else None
+        self.service_account_json_file = settings.google_service_account_json_file if hasattr(settings, 'google_service_account_json_file') else None
         self.storage_path = Path(settings.image_storage_path if hasattr(settings, 'image_storage_path') else "./generated_images")
         
         # ストレージディレクトリを作成
@@ -97,13 +99,29 @@ class ImageGenerationService:
             logger.warning("Google Cloud project ID not configured.")
             return
                 
-        if not self.service_account_json:
+        if not self.service_account_json and not self.service_account_json_file:
             logger.warning("Google service account JSON not configured.")
             return
         
         try:
-            # サービスアカウントJSONをパース
-            service_account_info = json.loads(self.service_account_json)
+            # サービスアカウント情報を取得
+            if self.service_account_json_file:
+                # JSONファイルから読み込み
+                json_file_path = Path(self.service_account_json_file)
+                if not json_file_path.is_absolute():
+                    # 相対パスの場合、プロジェクトルートからの相対パスとして解釈
+                    json_file_path = Path(__file__).parent.parent.parent / json_file_path
+                
+                if not json_file_path.exists():
+                    logger.error(f"Service account JSON file not found: {json_file_path}")
+                    return
+                
+                with open(json_file_path, 'r') as f:
+                    service_account_info = json.load(f)
+                logger.info(f"Loaded service account from file: {json_file_path}")
+            else:
+                # 環境変数から直接パース
+                service_account_info = json.loads(self.service_account_json)
             
             # 認証情報を作成
             self._credentials = service_account.Credentials.from_service_account_info(
@@ -232,22 +250,75 @@ class ImageGenerationService:
                 with open(image_path, "wb") as f:
                     f.write(image_data)
             
+            # GCSアップロードを試行
+            gcs_url = None
+            gcs_path = None
+            storage_type = "local"
+            
+            if gcs_service.is_available():
+                try:
+                    # GCSメタデータの準備
+                    gcs_metadata = {
+                        "model": self.model_name,
+                        "prompt": japan_prompt[:500],  # プロンプトを短縮
+                        "aspect_ratio": "4:3",
+                        "format": request.output_format,
+                        "user_generated": "true"
+                    }
+                    
+                    # GCSにアップロード
+                    success, uploaded_gcs_url, uploaded_gcs_path, error = gcs_service.upload_image(
+                        image_data=image_data,
+                        filename=image_filename,
+                        content_type=f"image/{request.output_format.lower()}",
+                        metadata=gcs_metadata
+                    )
+                    
+                    if success:
+                        gcs_url = uploaded_gcs_url
+                        gcs_path = uploaded_gcs_path
+                        storage_type = "hybrid"  # ローカル + GCS
+                        logger.info(f"Image uploaded to GCS: {gcs_url}")
+                    else:
+                        logger.warning(f"GCS upload failed: {error}")
+                        
+                except Exception as e:
+                    logger.error(f"Unexpected error during GCS upload: {e}")
+            else:
+                logger.info("GCS service not available, using local storage only")
+            
+            # 優先URL（GCS URL > ローカルURL）
+            primary_url = gcs_url if gcs_url else f"http://localhost:8008/images/{image_filename}"
+            
+            # メタデータの構築
+            metadata = {
+                "model": self.model_name,
+                "prompt": japan_prompt,
+                "aspect_ratio": "4:3",
+                "safety_filter_level": "block_only_high",
+                "person_generation": "allow_all",
+                "format": request.output_format,
+                "quality": request.quality,
+                "file_size": len(image_data),
+                "sdk": "vertex_ai",
+                "storage_type": storage_type,
+                "local_path": str(image_path),
+                "local_url": f"http://localhost:8008/images/{image_filename}"
+            }
+            
+            # GCS情報を追加
+            if gcs_url:
+                metadata.update({
+                    "gcs_url": gcs_url,
+                    "gcs_path": gcs_path
+                })
+            
             return ImageGenerationResponse(
                 success=True,
                 image_path=str(image_path),
-                image_url=f"http://localhost:8008/images/{image_filename}",
+                image_url=primary_url,  # GCS URL優先
                 image_data=image_data,
-                metadata={
-                    "model": self.model_name,
-                    "prompt": japan_prompt,
-                    "aspect_ratio": "4:3",
-                    "safety_filter_level": "block_only_high",
-                    "person_generation": "allow_all",
-                    "format": request.output_format,
-                    "quality": request.quality,
-                    "file_size": len(image_data),
-                    "sdk": "vertex_ai"
-                }
+                metadata=metadata
             )
             
         except Exception as e:
