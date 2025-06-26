@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, UploadFile, File, Form
 from pydantic import BaseModel
 from typing import Optional
 import logging
@@ -883,3 +883,107 @@ async def get_placeholder_image_history(
     except Exception as e:
         logger.error(f"プレースホルダー画像履歴取得エラー - article_id: {article_id}, placeholder_id: {placeholder_id}, error: {e}")
         raise HTTPException(status_code=500, detail=f"プレースホルダー画像履歴の取得に失敗しました: {str(e)}")
+
+@router.post("/upload")
+async def upload_image(
+    file: UploadFile = File(...),
+    article_id: str = Form(...),
+    placeholder_id: str = Form(...),
+    alt_text: str = Form(...),
+    current_user_id: str = Depends(get_current_user_id_from_token)
+):
+    """
+    画像をアップロードしてGCSに保存し、記事のプレースホルダーを置き換える
+    """
+    try:
+        logger.info(f"画像アップロード開始 - article_id: {article_id}, placeholder_id: {placeholder_id}, filename: {file.filename}")
+
+        if not gcs_service.is_available():
+            raise HTTPException(status_code=500, detail="GCSサービスが利用できません")
+
+        # 画像データを読み込む
+        image_data = await file.read()
+
+        # GCSにアップロード
+        success, gcs_url, gcs_path, error = gcs_service.upload_image(
+            image_data=image_data,
+            filename=file.filename,
+            content_type=file.content_type,
+            metadata={"article_id": article_id, "placeholder_id": placeholder_id, "uploader": current_user_id}
+        )
+
+        if not success:
+            raise HTTPException(status_code=500, detail=f"GCSへのアップロードに失敗しました: {error}")
+
+        # データベースに画像情報を保存
+        image_id = str(uuid.uuid4())
+        db_result = supabase.table("images").insert({
+            "id": image_id,
+            "user_id": current_user_id,
+            "article_id": article_id,
+            "original_filename": file.filename,
+            "file_path": gcs_path,  # NOT NULL制約を満たすためにGCSパスを保存
+            "gcs_url": gcs_url,
+            "gcs_path": gcs_path,
+            "image_type": "uploaded",
+            "alt_text": alt_text,
+            "storage_type": "gcs",
+            "metadata": {"placeholder_id": placeholder_id}
+        }).execute()
+
+        if not db_result.data:
+            raise HTTPException(status_code=500, detail="画像情報のデータベース保存に失敗しました")
+
+        # 記事のコンテンツを取得
+        article_result = supabase.table("articles").select("content").eq("id", article_id).eq("user_id", current_user_id).execute()
+        if not article_result.data:
+            raise HTTPException(status_code=404, detail="記事が見つかりません")
+        
+        current_content = article_result.data[0]['content']
+
+        # プレースホルダーを新しい画像で置き換え
+        import re
+        placeholder_pattern = f'<!-- IMAGE_PLACEHOLDER: {re.escape(placeholder_id)}\|[^>]+ -->'
+        replacement_html = f'<img src="{gcs_url}" alt="{alt_text}" class="article-image" data-placeholder-id="{placeholder_id}" data-image-id="{image_id}" />'
+        updated_content, count = re.subn(placeholder_pattern, replacement_html, current_content)
+
+        if count == 0:
+            # プレースホルダーが見つからない場合でも、画像はアップロードされているのでエラーにはしない
+            logger.warning(f"プレースホルダーが見つからなかったため、記事内容は更新されませんでした。placeholder_id: {placeholder_id}")
+            return {
+                "success": True,
+                "message": "画像はアップロードされましたが、記事内のプレースホルダーが見つかりませんでした。",
+                "image_id": image_id,
+                "image_url": gcs_url,
+                "gcs_path": gcs_path,
+                "updated_content": current_content # 変更なしのコンテンツ
+            }
+
+        # 記事内容を更新
+        update_result = supabase.table("articles").update({"content": updated_content}).eq("id", article_id).execute()
+        if not update_result.data:
+            # ここで失敗した場合は、GCSから画像を削除するなどのロールバック処理を検討する余地あり
+            raise HTTPException(status_code=500, detail="記事の更新に失敗しました")
+
+        # プレースホルダーの状態を更新
+        supabase.table("image_placeholders").update({
+            "replaced_with_image_id": image_id,
+            "status": "replaced"
+        }).eq("article_id", article_id).eq("placeholder_id", placeholder_id).execute()
+
+        logger.info(f"画像アップロード・置き換え成功 - image_id: {image_id}")
+
+        return {
+            "success": True,
+            "message": "画像が正常にアップロードされ、記事が更新されました。",
+            "image_id": image_id,
+            "image_url": gcs_url,
+            "gcs_path": gcs_path,
+            "updated_content": updated_content
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"画像アップロードエラー: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"予期せぬエラーが発生しました: {str(e)}")
