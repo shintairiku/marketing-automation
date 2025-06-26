@@ -4,6 +4,8 @@ import React, { useCallback, useMemo } from 'react';
 import { useEffect, useState } from 'react';
 import { AlertCircle, Bot, Copy, Download, Edit, Image, Save, Sparkles, Trash2, Upload, Wand2, X } from 'lucide-react';
 
+import ArticlePreviewStyles from '../new-article/component/ArticlePreviewStyles';
+
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -171,10 +173,18 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
                          !element.innerHTML.trim().replace(/<\/?li[^>]*>/g, '').trim();
           
           if (!isEmpty) {
+            // 属性を保持するため、void要素以外でも一部の場合はouterHTMLを使用
+            const hasImportantAttributes = element.hasAttribute('class') || 
+                                         element.hasAttribute('id') || 
+                                         element.hasAttribute('style') ||
+                                         element.hasAttribute('href') ||
+                                         element.hasAttribute('src') ||
+                                         element.hasAttribute('target');
+            
             blocks.push({
               id: `block-${blockIndex++}`,
               type: tagName as ArticleBlock['type'],
-              content: isVoidElement(tagName) ? element.outerHTML : element.innerHTML,
+              content: (isVoidElement(tagName) || hasImportantAttributes) ? element.outerHTML : element.innerHTML,
               isEditing: false,
               isSelected: false,
             });
@@ -224,6 +234,11 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
         }
         // その他のvoid要素は自己完結タグとして出力
         return `<${block.type} />`;
+      }
+      
+      // コンテンツが完全なHTMLタグの場合（outerHTMLから来た場合）はそのまま使用
+      if (block.content.startsWith(`<${block.type}`)) {
+        return block.content;
       }
       
       return `<${block.type}>${block.content}</${block.type}>`;
@@ -880,36 +895,43 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
     }
   };
 
-  // ブロックコンテンツのレンダリング（void要素対応）
+  // ブロックコンテンツのレンダリング（リッチプレビュー対応）
   const renderBlockContent = (block: ArticleBlock) => {
     const tagName = block.type;
-    const className = getBlockStyles(block.type);
     
     // 置き換えられた画像の場合は専用レンダリング
     if (block.type === 'replaced_image' && block.imageData) {
       return (
-        <div key={block.id} className={className}>
+        <div key={block.id}>
           <img 
             src={block.imageData.image_url} 
             alt={block.imageData.alt_text} 
-            className="max-w-full h-auto rounded-lg shadow-sm article-image"
+            className="article-image"
             style={{ maxHeight: '400px' }}
           />
         </div>
       );
     }
     
-    // void要素の場合はdangerouslySetInnerHTMLを使わない
+    // void要素の場合は特別処理
     if (isVoidElement(tagName)) {
       return React.createElement(tagName, { 
-        className,
         key: block.id
       });
     }
     
     // 通常の要素
+    // コンテンツが完全なHTMLタグの場合は、直接レンダリング
+    if (block.content.startsWith(`<${tagName}`)) {
+      return (
+        <div 
+          key={block.id}
+          dangerouslySetInnerHTML={{ __html: block.content }}
+        />
+      );
+    }
+    
     return React.createElement(tagName, {
-      className,
       dangerouslySetInnerHTML: { __html: block.content },
       key: block.id
     });
@@ -924,7 +946,7 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
     const isHistoryVisible = imageHistoryVisible[block.id];
 
     return (
-      <div className={getBlockStyles('image_placeholder')}>
+      <div className="border-2 border-dashed border-blue-300 bg-blue-50 rounded-lg p-6 mb-4 not-prose">
         <div className="flex items-center gap-3 mb-3">
           <Image className="h-6 w-6 text-blue-600" />
           <div className="flex-1">
@@ -1026,7 +1048,7 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
     const isHistoryVisible = imageHistoryVisible[block.id];
 
     return (
-      <div className="border-2 border-green-300 bg-green-50 rounded-lg p-6 mb-4">
+      <div className="border-2 border-green-300 bg-green-50 rounded-lg p-6 mb-4 not-prose">
         <div className="flex items-center gap-3 mb-3">
           <Image className="h-6 w-6 text-green-600" />
           <div className="flex-1">
@@ -1213,86 +1235,91 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
 
       {/* Notion風エディタエリア */}
       <Card className="p-4 md:p-8">
-        <div className="max-w-4xl mx-auto space-y-2">
-          {blocks.map((block) => {
-            const confirmationForBlock = aiConfirmations.find(c => c.blockId === block.id);
-            return (
-            <div 
-              key={block.id}
-              className={cn(
-                "group relative flex items-start gap-3 py-1 pr-2 pl-10 rounded-md transition-colors",
-                { 
-                  "bg-blue-50": hoveredBlockId === block.id && !block.isEditing && !confirmationForBlock,
-                  "bg-white": !!confirmationForBlock
-                }
-              )}
-              onMouseEnter={() => !confirmationForBlock && setHoveredBlockId(block.id)}
-              onMouseLeave={() => setHoveredBlockId(null)}
-            >
-              <div className="absolute left-2 top-3 transition-opacity opacity-20 group-hover:opacity-100">
-                <Checkbox
-                  checked={block.isSelected}
-                  onCheckedChange={(checked) => handleSelectionToggle(block.id, checked)}
-                  disabled={!!confirmationForBlock}
-                />
-              </div>
+        <ArticlePreviewStyles>
+          <div className="max-w-4xl mx-auto space-y-2">
+            {blocks.map((block) => {
+              const confirmationForBlock = aiConfirmations.find(c => c.blockId === block.id);
+              return (
+              <div 
+                key={block.id}
+                className={cn(
+                  "group relative flex items-start gap-3 py-1 pr-2 pl-10 rounded-md transition-colors",
+                  { 
+                    "bg-blue-50": hoveredBlockId === block.id && !block.isEditing && !confirmationForBlock,
+                    "bg-white": !!confirmationForBlock
+                  }
+                )}
+                onMouseEnter={() => !confirmationForBlock && setHoveredBlockId(block.id)}
+                onMouseLeave={() => setHoveredBlockId(null)}
+              >
+                <div className="absolute left-2 top-3 transition-opacity opacity-20 group-hover:opacity-100">
+                  <Checkbox
+                    checked={block.isSelected}
+                    onCheckedChange={(checked) => handleSelectionToggle(block.id, checked)}
+                    disabled={!!confirmationForBlock}
+                  />
+                </div>
 
-              <div className="flex-1 w-full">
-                {confirmationForBlock ? (
-                  <div className="border-2 border-blue-200 rounded-lg p-4 my-2 transition-all duration-300 bg-white shadow-md">
-                    <h3 className="text-lg font-semibold text-blue-800 mb-3">AIによる修正提案</h3>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div>
-                        <h4 className="font-bold mb-2 text-sm text-gray-500">変更前</h4>
-                        <div 
-                          className="text-sm border p-3 rounded-md bg-gray-50 max-h-48 overflow-y-auto"
-                          dangerouslySetInnerHTML={{ __html: confirmationForBlock.originalContent }}
-                        />
+                <div className="flex-1 w-full">
+                  {confirmationForBlock ? (
+                    <div className="border-2 border-blue-200 rounded-lg p-4 my-2 transition-all duration-300 bg-white shadow-md">
+                      <h3 className="text-lg font-semibold text-blue-800 mb-3">AIによる修正提案</h3>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                          <h4 className="font-bold mb-2 text-sm text-gray-500">変更前</h4>
+                          <ArticlePreviewStyles>
+                            <div 
+                              className="text-sm border p-3 rounded-md bg-gray-50 max-h-48 overflow-y-auto prose-sm"
+                              dangerouslySetInnerHTML={{ __html: confirmationForBlock.originalContent }}
+                            />
+                          </ArticlePreviewStyles>
+                        </div>
+                        <div>
+                          <h4 className="font-bold mb-2 text-sm text-blue-600">変更後</h4>
+                          <ArticlePreviewStyles>
+                            <div 
+                              className="text-sm border border-blue-200 p-3 rounded-md bg-blue-50 max-h-48 overflow-y-auto prose-sm"
+                              dangerouslySetInnerHTML={{ __html: confirmationForBlock.newContent }}
+                            />
+                          </ArticlePreviewStyles>
+                        </div>
                       </div>
-                      <div>
-                        <h4 className="font-bold mb-2 text-sm text-blue-600">変更後</h4>
-                        <div 
-                          className="text-sm border border-blue-200 p-3 rounded-md bg-blue-50 max-h-48 overflow-y-auto"
-                          dangerouslySetInnerHTML={{ __html: confirmationForBlock.newContent }}
-                        />
+                      <div className="flex justify-end items-center gap-2 mt-4">
+                        {aiEditingLoading && <Bot className="w-4 h-4 animate-spin text-blue-600" />}
+                        <Button variant="outline" size="sm" onClick={() => handleRegenerate(block.id)} disabled={aiEditingLoading}>再生成</Button>
+                        <Button variant="ghost" size="sm" onClick={() => handleCancel(block.id)} disabled={aiEditingLoading}>キャンセル</Button>
+                        <Button size="sm" onClick={() => handleApprove(block.id)} disabled={aiEditingLoading}>承認して反映</Button>
                       </div>
                     </div>
-                    <div className="flex justify-end items-center gap-2 mt-4">
-                      {aiEditingLoading && <Bot className="w-4 h-4 animate-spin text-blue-600" />}
-                      <Button variant="outline" size="sm" onClick={() => handleRegenerate(block.id)} disabled={aiEditingLoading}>再生成</Button>
-                      <Button variant="ghost" size="sm" onClick={() => handleCancel(block.id)} disabled={aiEditingLoading}>キャンセル</Button>
-                      <Button size="sm" onClick={() => handleApprove(block.id)} disabled={aiEditingLoading}>承認して反映</Button>
-                    </div>
-                  </div>
-                ) : block.isEditing ? (
-                  <div>
-                    <Textarea
-                      defaultValue={block.content}
-                      onBlur={(e) => saveBlock(block.id, e.target.value)}
-                      className="w-full p-2 border rounded resize-y min-h-[80px]"
-                      autoFocus
-                    />
-                    <div className="flex justify-end gap-2 mt-2">
-                       <Button size="sm" variant="outline" onClick={() => cancelEditing(block.id)}>キャンセル</Button>
-                       <Button size="sm" onClick={(e) => {
-                         const textarea = (e.target as HTMLElement).closest('div')?.querySelector('textarea');
-                         if(textarea) saveBlock(block.id, textarea.value);
-                       }}>保存</Button>
-                    </div>
-                  </div>
-                ) : (
-                  <Popover>
-                    <PopoverTrigger asChild>
-                      <div className="w-full cursor-pointer p-1 rounded-md hover:bg-gray-100/50">
-                        {block.type === 'image_placeholder' ? (
-                          renderImagePlaceholderBlock(block)
-                        ) : block.type === 'replaced_image' ? (
-                          renderReplacedImageBlock(block)
-                        ) : (
-                          renderBlockContent(block)
-                        )}
+                  ) : block.isEditing ? (
+                    <div>
+                      <Textarea
+                        defaultValue={block.content}
+                        onBlur={(e) => saveBlock(block.id, e.target.value)}
+                        className="w-full p-2 border rounded resize-y min-h-[80px]"
+                        autoFocus
+                      />
+                      <div className="flex justify-end gap-2 mt-2">
+                         <Button size="sm" variant="outline" onClick={() => cancelEditing(block.id)}>キャンセル</Button>
+                         <Button size="sm" onClick={(e) => {
+                           const textarea = (e.target as HTMLElement).closest('div')?.querySelector('textarea');
+                           if(textarea) saveBlock(block.id, textarea.value);
+                         }}>保存</Button>
                       </div>
-                    </PopoverTrigger>
+                    </div>
+                  ) : (
+                    <Popover>
+                      <PopoverTrigger asChild>
+                        <div className="w-full cursor-pointer p-1 rounded-md hover:bg-gray-100/50">
+                          {block.type === 'image_placeholder' ? (
+                            renderImagePlaceholderBlock(block)
+                          ) : block.type === 'replaced_image' ? (
+                            renderReplacedImageBlock(block)
+                          ) : (
+                            renderBlockContent(block)
+                          )}
+                        </div>
+                      </PopoverTrigger>
                     <PopoverContent className="w-48 p-1" side="right" align="start">
                       <div className="space-y-1">
                         {block.type === 'image_placeholder' ? (
@@ -1380,6 +1407,7 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
             );
           })}
         </div>
+        </ArticlePreviewStyles>
       </Card>
       
       {/* 記事メタ情報 */}
