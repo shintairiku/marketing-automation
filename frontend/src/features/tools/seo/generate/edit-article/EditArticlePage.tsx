@@ -499,20 +499,22 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
         headers["Authorization"] = `Bearer ${token}`;
       }
 
-      // サーバーにアップロードリクエストを送信（Next.jsのAPIルート経由）
-      // TODO: この機能は未実装のエンドポイントを指しているため、一時的にコメントアウトします
-      /*
-      const response = await fetch('/api/images/upload', {
+      const response = await fetch(`http://localhost:8000/api/images/upload`, {
         method: 'POST',
         headers,
         body: formData,
       });
 
       if (!response.ok) {
-        throw new Error(`Upload failed: ${response.status}`);
+        const errorData = await response.json().catch(() => ({ detail: 'Failed to parse error response' }));
+        throw new Error(`Upload failed: ${errorData.detail || response.statusText}`);
       }
 
       const result = await response.json();
+
+      if (!result.success) {
+        throw new Error(result.message || 'Upload failed for an unknown reason');
+      }
       
       // ブロックを置き換えられた画像タイプに更新
       setBlocks(prev => prev.map(b => 
@@ -520,7 +522,7 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
           ? { 
               ...b, 
               type: 'replaced_image', 
-              content: result.updated_content.match(new RegExp(`<img[^>]*data-placeholder-id="${block.placeholderData!.placeholder_id}"[^>]*>`))?.[0] || b.content,
+              content: '', // コンテンツはimageDataからレンダリングされる
               imageData: {
                 image_id: result.image_id,
                 image_url: result.image_url,
@@ -529,8 +531,8 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
             }
           : b
       ));
-      */
-      alert('画像アップロード機能は現在開発中です。');
+      
+      alert('画像が正常にアップロードされました！');
 
     } catch (error) {
       console.error('画像アップロードエラー:', error);
