@@ -66,13 +66,21 @@ class ImageGenerationService:
     """Vertex AI Imagen 4.0を使用した画像生成サービス"""
     
     def __init__(self, model_name: Optional[str] = None):
-        # Imagen 4.0 のみ使用
-        self.model_name = model_name or "imagen-4.0-generate-preview-06-06"
-        self.project_id = settings.google_cloud_project if hasattr(settings, 'google_cloud_project') else None
-        self.location = settings.google_cloud_location if hasattr(settings, 'google_cloud_location') else "us-central1"
-        self.service_account_json = settings.google_service_account_json if hasattr(settings, 'google_service_account_json') else None
-        self.service_account_json_file = settings.google_service_account_json_file if hasattr(settings, 'google_service_account_json_file') else None
-        self.storage_path = Path(settings.image_storage_path if hasattr(settings, 'image_storage_path') else "./generated_images")
+        # 環境変数からモデル設定を取得
+        self.model_name = model_name or settings.imagen_model_name
+        self.aspect_ratio = settings.imagen_aspect_ratio
+        self.output_format = settings.imagen_output_format
+        self.quality = settings.imagen_quality
+        self.safety_filter = settings.imagen_safety_filter
+        self.person_generation = settings.imagen_person_generation
+        self.add_japan_prefix = settings.imagen_add_japan_prefix
+        
+        # Google Cloud設定
+        self.project_id = settings.google_cloud_project if settings.google_cloud_project else None
+        self.location = settings.google_cloud_location
+        self.service_account_json = settings.google_service_account_json if settings.google_service_account_json else None
+        self.service_account_json_file = settings.google_service_account_json_file if settings.google_service_account_json_file else None
+        self.storage_path = Path(settings.image_storage_path)
         
         # ストレージディレクトリを作成
         self.storage_path.mkdir(exist_ok=True)
@@ -185,20 +193,24 @@ class ImageGenerationService:
         try:
             logger.info(f"Generating image with Vertex AI SDK using model: {self.model_name}")
             
-            # "In Japan." プレフィックスを追加
-            japan_prompt = f"In Japan. {request.prompt}"
-            logger.info(f"Modified prompt with Japan prefix: {japan_prompt}")
+            # Japanプレフィックスの処理
+            if self.add_japan_prefix:
+                japan_prompt = f"In Japan. {request.prompt}"
+                logger.info(f"Modified prompt with Japan prefix: {japan_prompt}")
+            else:
+                japan_prompt = request.prompt
+                logger.info(f"Using original prompt: {japan_prompt}")
             
             # Imagen 4.0モデルを取得
             model = ImageGenerationModel.from_pretrained(self.model_name)
             
-            # 生成パラメータの準備（テストスクリプトと同じ設定）
+            # 生成パラメータの準備（環境変数から設定を取得）
             generation_params = {
                 "prompt": japan_prompt,
                 "number_of_images": 1,
-                "aspect_ratio": "4:3",  # 必須設定
-                "safety_filter_level": "block_only_high",  # 必須設定
-                "person_generation": "allow_all",  # 必須設定
+                "aspect_ratio": request.aspect_ratio or self.aspect_ratio,
+                "safety_filter_level": self.safety_filter,
+                "person_generation": self.person_generation,
             }
             
             # ネガティブプロンプトの設定
@@ -230,17 +242,19 @@ class ImageGenerationService:
             image_data = generated_image._image_bytes
             
             # 画像を保存
-            image_filename = f"generated_{uuid.uuid4().hex}.{request.output_format.lower()}"
+            output_format = request.output_format or self.output_format
+            image_filename = f"generated_{uuid.uuid4().hex}.{output_format.lower()}"
             image_path = self.storage_path / image_filename
             
             # 画像品質の調整（JPEGの場合）
-            if request.output_format.upper() == "JPEG" and request.quality:
+            quality = request.quality if request.quality is not None else self.quality
+            if output_format.upper() == "JPEG" and quality:
                 # PILを使用して品質を調整
                 pil_image = Image.open(io.BytesIO(image_data))
                 
                 # 品質調整して保存
                 with open(image_path, "wb") as f:
-                    pil_image.save(f, "JPEG", quality=request.quality)
+                    pil_image.save(f, "JPEG", quality=quality)
                 
                 # 調整後の画像データを読み込み
                 with open(image_path, "rb") as f:
@@ -261,8 +275,8 @@ class ImageGenerationService:
                     gcs_metadata = {
                         "model": self.model_name,
                         "prompt": japan_prompt[:500],  # プロンプトを短縮
-                        "aspect_ratio": "4:3",
-                        "format": request.output_format,
+                        "aspect_ratio": generation_params["aspect_ratio"],
+                        "format": output_format,
                         "user_generated": "true"
                     }
                     
@@ -270,7 +284,7 @@ class ImageGenerationService:
                     success, uploaded_gcs_url, uploaded_gcs_path, error = gcs_service.upload_image(
                         image_data=image_data,
                         filename=image_filename,
-                        content_type=f"image/{request.output_format.lower()}",
+                        content_type=f"image/{output_format.lower()}",
                         metadata=gcs_metadata
                     )
                     
@@ -294,11 +308,11 @@ class ImageGenerationService:
             metadata = {
                 "model": self.model_name,
                 "prompt": japan_prompt,
-                "aspect_ratio": "4:3",
-                "safety_filter_level": "block_only_high",
-                "person_generation": "allow_all",
-                "format": request.output_format,
-                "quality": request.quality,
+                "aspect_ratio": generation_params["aspect_ratio"],
+                "safety_filter_level": generation_params["safety_filter_level"],
+                "person_generation": generation_params["person_generation"],
+                "format": output_format,
+                "quality": quality,
                 "file_size": len(image_data),
                 "sdk": "vertex_ai",
                 "storage_type": storage_type,
@@ -340,14 +354,17 @@ class ImageGenerationService:
             raise Exception("Vertex AI not initialized or not available")
         
         try:
-            # "In Japan." プレフィックスを追加
-            japan_prompt = f"In Japan. {prompt}"
+            # Japanプレフィックスの処理
+            if self.add_japan_prefix:
+                final_prompt = f"In Japan. {prompt}"
+            else:
+                final_prompt = prompt
             
             request = ImageGenerationRequest(
-                prompt=japan_prompt,
-                aspect_ratio="4:3",  # 必須設定
-                output_format="JPEG",
-                quality=85
+                prompt=final_prompt,
+                aspect_ratio=self.aspect_ratio,
+                output_format=self.output_format,
+                quality=self.quality
             )
             
             # 非同期でモデルを使用するため、同期処理をthread poolで実行
@@ -372,14 +389,17 @@ class ImageGenerationService:
     ) -> ImageGenerationResponse:
         """画像プレースホルダーから画像を生成する"""
         
-        # "In Japan." プレフィックスを追加
-        japan_prompt = f"In Japan. {prompt_en}"
+        # Japanプレフィックスの処理
+        if self.add_japan_prefix:
+            final_prompt = f"In Japan. {prompt_en}"
+        else:
+            final_prompt = prompt_en
         
         request = ImageGenerationRequest(
-            prompt=japan_prompt,
-            aspect_ratio="4:3",  # 必須設定
-            output_format="JPEG",
-            quality=85
+            prompt=final_prompt,
+            aspect_ratio=self.aspect_ratio,
+            output_format=self.output_format,
+            quality=self.quality
         )
         
         result = await self.generate_image_detailed(request)
@@ -390,7 +410,7 @@ class ImageGenerationService:
                 "placeholder_id": placeholder_id,
                 "description_jp": description_jp,
                 "original_prompt_en": prompt_en,
-                "japan_prompt": japan_prompt
+                "final_prompt": final_prompt
             })
         
         return result
@@ -451,5 +471,5 @@ class ImageGenerationService:
             return None
 
 
-# シングルトンインスタンス（Imagen-4.0を使用）
-image_generation_service = ImageGenerationService("imagen-4.0-generate-preview-06-06")
+# シングルトンインスタンス（環境変数からモデル名を取得）
+image_generation_service = ImageGenerationService()
