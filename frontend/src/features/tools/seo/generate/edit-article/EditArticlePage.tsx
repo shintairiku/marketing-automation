@@ -68,6 +68,8 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
   // 画像関連の状態
   const [imageUploadLoading, setImageUploadLoading] = useState<{ [blockId: string]: boolean }>({});
   const [imageGenerationLoading, setImageGenerationLoading] = useState<{ [blockId: string]: boolean }>({});
+  const [imageHistoryVisible, setImageHistoryVisible] = useState<{ [blockId: string]: boolean }>({});
+  const [imageHistory, setImageHistory] = useState<{ [placeholderId: string]: any[] }>({});
   
   // AI編集モーダル用state
   const [isAiModalOpen, setIsAiModalOpen] = useState(false);
@@ -91,108 +93,114 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
     const blocks: ArticleBlock[] = [];
     let blockIndex = 0;
     
-    // 画像プレースホルダーとHTML要素を混在した状態で処理
-    // HTMLを改行で分割し、各行を個別に処理
-    const segments = html.split('\n').filter(line => line.trim() !== '');
+    // DOMParserを使って正確にHTMLを解析
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(`<div>${html}</div>`, 'text/html');
+    const container = doc.body.firstElementChild;
     
-    for (const segment of segments) {
-      const trimmedSegment = segment.trim();
-      
-      // 画像プレースホルダーかチェック
-      const placeholderMatch = trimmedSegment.match(/<!-- IMAGE_PLACEHOLDER: ([^|]+)\|([^|]+)\|([^>]+) -->/);
-      if (placeholderMatch) {
-        const [fullMatch, placeholderId, descriptionJp, promptEn] = placeholderMatch;
+    if (!container) return blocks;
+    
+    // 子要素を順番に処理
+    Array.from(container.childNodes).forEach((node) => {
+      if (node.nodeType === Node.COMMENT_NODE) {
+        // コメントノード（画像プレースホルダー）の処理
+        const commentContent = node.textContent?.trim() || '';
+        const placeholderMatch = commentContent.match(/IMAGE_PLACEHOLDER: ([^|]+)\|([^|]+)\|([^>]+)/);
         
-        blocks.push({
-          id: `placeholder-${blockIndex++}`,
-          type: 'image_placeholder',
-          content: fullMatch,
-          isEditing: false,
-          isSelected: false,
-          placeholderData: {
-            placeholder_id: placeholderId.trim(),
-            description_jp: descriptionJp.trim(),
-            prompt_en: promptEn.trim(),
-            alt_text: descriptionJp.trim(),
-          },
-        });
-        continue;
-      }
-
-      // 置き換えられた画像（data-placeholder-id属性付き）かチェック
-      const imageMatch = trimmedSegment.match(/<img[^>]*data-placeholder-id="([^"]+)"[^>]*data-image-id="([^"]+)"[^>]*src="([^"]+)"[^>]*alt="([^"]*)"[^>]*\/?>/);
-      if (imageMatch) {
-        const [fullMatch, placeholderId, imageId, imageUrl, altText] = imageMatch;
-        
-        blocks.push({
-          id: `image-${blockIndex++}`,
-          type: 'replaced_image',
-          content: fullMatch,
-          isEditing: false,
-          isSelected: false,
-          placeholderData: {
-            placeholder_id: placeholderId.trim(),
-            description_jp: altText.trim(),
-            prompt_en: '', // 復元時にAPIから取得
-            alt_text: altText.trim(),
-          },
-          imageData: {
-            image_id: imageId,
-            image_url: imageUrl,
-            alt_text: altText,
-          },
-        });
-        continue;
-      }
-      
-      // HTML要素を解析
-      const parser = new DOMParser();
-      const doc = parser.parseFromString(`<div>${trimmedSegment}</div>`, 'text/html');
-      const container = doc.body.firstElementChild;
-      
-      if (container && container.children.length > 0) {
-        // コンテナ内の要素を順番に処理
-        Array.from(container.children).forEach(element => {
-          const tagName = element.tagName.toLowerCase();
+        if (placeholderMatch) {
+          const [, placeholderId, descriptionJp, promptEn] = placeholderMatch;
           
           blocks.push({
-            id: `block-${blockIndex++}`,
-            type: tagName as ArticleBlock['type'],
-            content: isVoidElement(tagName) ? '' : element.innerHTML, // void要素は空文字
+            id: `placeholder-${blockIndex++}`,
+            type: 'image_placeholder',
+            content: `<!-- ${commentContent} -->`,
             isEditing: false,
             isSelected: false,
+            placeholderData: {
+              placeholder_id: placeholderId.trim(),
+              description_jp: descriptionJp.trim(),
+              prompt_en: promptEn.trim(),
+              alt_text: descriptionJp.trim(),
+            },
           });
-        });
-      } else if (container && container.textContent?.trim()) {
-        // テキストのみの場合
-        blocks.push({
-          id: `block-${blockIndex++}`,
-          type: 'p',
-          content: container.textContent.trim(),
-          isEditing: false,
-          isSelected: false,
-        });
-      } else {
-        // 直接HTML要素の場合
-        const directParser = new DOMParser();
-        const directDoc = directParser.parseFromString(trimmedSegment, 'text/html');
-        const directElement = directDoc.body.firstElementChild;
+        }
+      } else if (node.nodeType === Node.ELEMENT_NODE) {
+        const element = node as Element;
+        const tagName = element.tagName.toLowerCase();
         
-        if (directElement) {
-          const tagName = directElement.tagName.toLowerCase();
+        // 画像要素の特別処理
+        if (tagName === 'img') {
+          const placeholderIdAttr = element.getAttribute('data-placeholder-id');
+          const imageIdAttr = element.getAttribute('data-image-id');
+          const srcAttr = element.getAttribute('src');
+          const altAttr = element.getAttribute('alt');
           
+          if (placeholderIdAttr && imageIdAttr && srcAttr) {
+            // 置き換えられた画像
+            blocks.push({
+              id: `image-${blockIndex++}`,
+              type: 'replaced_image',
+              content: element.outerHTML,
+              isEditing: false,
+              isSelected: false,
+              placeholderData: {
+                placeholder_id: placeholderIdAttr,
+                description_jp: altAttr || '',
+                prompt_en: '', // 復元時にAPIから取得
+                alt_text: altAttr || '',
+              },
+              imageData: {
+                image_id: imageIdAttr,
+                image_url: srcAttr,
+                alt_text: altAttr || '',
+              },
+            });
+          } else {
+            // 通常の画像
+            blocks.push({
+              id: `block-${blockIndex++}`,
+              type: 'img',
+              content: element.outerHTML,
+              isEditing: false,
+              isSelected: false,
+            });
+          }
+        } else {
+          // その他の要素
+          const isEmpty = (tagName === 'ul' || tagName === 'ol') && 
+                         !element.innerHTML.trim().replace(/<\/?li[^>]*>/g, '').trim();
+          
+          if (!isEmpty) {
+            blocks.push({
+              id: `block-${blockIndex++}`,
+              type: tagName as ArticleBlock['type'],
+              content: isVoidElement(tagName) ? element.outerHTML : element.innerHTML,
+              isEditing: false,
+              isSelected: false,
+            });
+          }
+        }
+      } else if (node.nodeType === Node.TEXT_NODE) {
+        // テキストノードの処理
+        const textContent = node.textContent?.trim();
+        if (textContent) {
           blocks.push({
             id: `block-${blockIndex++}`,
-            type: tagName as ArticleBlock['type'],
-            content: isVoidElement(tagName) ? '' : directElement.innerHTML, // void要素は空文字
+            type: 'p',
+            content: textContent,
             isEditing: false,
             isSelected: false,
           });
         }
       }
-    }
+    });
     
-    return blocks;
+    return blocks.filter(block => {
+      // 空のブロックや無効なブロックを除外
+      if (!block.content || !block.content.trim()) return false;
+      if (block.content === '<br>' || block.content === '<br />') return false;
+      return true;
+    });
   };
 
   // ブロックをHTMLに戻す（画像プレースホルダー対応）
@@ -203,13 +211,18 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
         return block.content;
       }
       
-      if (block.type === 'replaced_image') {
-        // 置き換えられた画像はimg タグとして出力
-        return block.content;
+      if (block.type === 'replaced_image' && block.imageData) {
+        // 置き換えられた画像は最新の画像データでimgタグを生成
+        return `<img src="${block.imageData.image_url}" alt="${block.imageData.alt_text}" class="article-image" data-placeholder-id="${block.placeholderData?.placeholder_id}" data-image-id="${block.imageData.image_id}">`;
       }
       
-      // void要素は自己完結タグとして出力
+      // void要素の特別な処理
       if (isVoidElement(block.type)) {
+        // imgタグの場合、contentにすべての属性が含まれているはず
+        if (block.type === 'img' && block.content) {
+          return block.content;
+        }
+        // その他のvoid要素は自己完結タグとして出力
         return `<${block.type} />`;
       }
       
@@ -217,12 +230,54 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
     }).join('\n');
   };
 
-  // 記事データが更新されたときにブロックを再構築
+  // 記事データが更新されたときにブロックを再構築（画像復元含む）
   useEffect(() => {
     if (article?.content) {
-      setBlocks(parseHtmlToBlocks(article.content));
+      restoreArticleImages();
     }
   }, [article]);
+
+  // 記事の画像を復元する関数
+  const restoreArticleImages = async () => {
+    if (!article?.id) return;
+    
+    try {
+      const token = await getToken();
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+      };
+      if (token) {
+        headers["Authorization"] = `Bearer ${token}`;
+      }
+
+      // 記事に関連する画像とプレースホルダー情報を取得
+      const response = await fetch(`http://localhost:8000/api/images/article-images/${article.id}`, {
+        method: 'GET',
+        headers,
+      });
+
+      if (response.ok) {
+        const imageData = await response.json();
+        
+        // 復元されたコンテンツがある場合は使用、なければ元のコンテンツを使用
+        const contentToUse = imageData.restored_content || article.content;
+        setBlocks(parseHtmlToBlocks(contentToUse));
+        
+        console.log('画像復元完了:', {
+          placeholders: imageData.placeholders?.length || 0,
+          images: imageData.all_images?.length || 0
+        });
+      } else {
+        // APIエラーの場合は元のコンテンツを使用
+        console.warn('画像復元APIエラー、元のコンテンツを使用します');
+        setBlocks(parseHtmlToBlocks(article.content));
+      }
+    } catch (error) {
+      console.error('画像復元エラー:', error);
+      // エラーの場合は元のコンテンツを使用
+      setBlocks(parseHtmlToBlocks(article.content));
+    }
+  };
 
   const handleSelectionToggle = (blockId: string, checked: boolean | 'indeterminate') => {
     setBlocks(prev => 
@@ -485,7 +540,7 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
     }
   };
 
-  // 画像生成処理
+  // 画像生成処理（新しいAPIを使用）
   const handleImageGeneration = async (blockId: string) => {
     const block = blocks.find(b => b.id === blockId);
     if (!block || !block.placeholderData) return;
@@ -503,7 +558,8 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
         headers["Authorization"] = `Bearer ${token}`;
       }
 
-      const response = await fetch(`http://localhost:8000/api/images/generate`, {
+      // 新しいAPIを使用：画像生成してプレースホルダーと関連付け（記事更新はしない）
+      const response = await fetch(`http://localhost:8000/api/images/generate-and-link`, {
         method: 'POST',
         headers,
         body: JSON.stringify({
@@ -511,6 +567,7 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
           description_jp: placeholderData.description_jp,
           prompt_en: placeholderData.prompt_en,
           alt_text: placeholderData.alt_text || placeholderData.description_jp,
+          article_id: articleId,
         }),
       });
 
@@ -520,44 +577,23 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
 
       const result = await response.json();
       
-      // 画像をプレースホルダーで置き換える（新しいAPIエンドポイント使用）
-      const replaceResponse = await fetch(`http://localhost:8000/api/images/replace-placeholder`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(token ? { "Authorization": `Bearer ${token}` } : {}),
-        },
-        body: JSON.stringify({
-          article_id: articleId,
-          placeholder_id: placeholderData.placeholder_id,
-          image_url: result.image_url,
-          alt_text: placeholderData.alt_text || placeholderData.description_jp,
-        }),
-      });
-
-      if (!replaceResponse.ok) {
-        throw new Error(`Replace failed: ${replaceResponse.status}`);
-      }
-
-      const replaceResult = await replaceResponse.json();
-      
       // ブロックを置き換えられた画像タイプに更新
       setBlocks(prev => prev.map(b => 
         b.id === blockId 
           ? { 
               ...b, 
               type: 'replaced_image', 
-              content: replaceResult.updated_content.match(new RegExp(`<img[^>]*data-placeholder-id="${placeholderData.placeholder_id}"[^>]*>`))?.[0] || b.content,
+              content: `<img src="${result.image_url}" alt="${result.alt_text}" class="article-image" data-placeholder-id="${placeholderData.placeholder_id}" data-image-id="${result.image_id}" />`,
               imageData: {
-                image_id: replaceResult.image_id,
+                image_id: result.image_id,
                 image_url: result.image_url,
-                alt_text: placeholderData.alt_text || placeholderData.description_jp,
+                alt_text: result.alt_text,
               }
             }
           : b
       ));
 
-      alert('画像が生成され、記事に保存されました！');
+      alert('画像が生成されました！保存ボタンを押すか、別の画像を生成することもできます。');
     } catch (error) {
       console.error('画像生成エラー:', error);
       alert('画像の生成に失敗しました。');
@@ -612,6 +648,112 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
       console.error('画像復元エラー:', error);
       alert('画像の復元に失敗しました。');
     }
+  };
+
+  // 画像履歴を取得
+  const fetchImageHistory = async (placeholderId: string) => {
+    try {
+      const token = await getToken();
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+      };
+      if (token) {
+        headers["Authorization"] = `Bearer ${token}`;
+      }
+
+      const response = await fetch(`http://localhost:8000/api/images/placeholder-history/${articleId}/${placeholderId}`, {
+        method: 'GET',
+        headers,
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setImageHistory(prev => ({
+          ...prev,
+          [placeholderId]: data.images_history || []
+        }));
+        return data.images_history || [];
+      } else {
+        console.warn('画像履歴の取得に失敗しました');
+        return [];
+      }
+    } catch (error) {
+      console.error('画像履歴取得エラー:', error);
+      return [];
+    }
+  };
+
+  // 過去の画像を選択してプレースホルダーに適用
+  const applyHistoryImage = async (blockId: string, imageData: any) => {
+    const block = blocks.find(b => b.id === blockId);
+    if (!block || !block.placeholderData) return;
+
+    try {
+      const token = await getToken();
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+      };
+      if (token) {
+        headers["Authorization"] = `Bearer ${token}`;
+      }
+
+      // 画像をプレースホルダーで置き換え
+      const response = await fetch(`http://localhost:8000/api/images/replace-placeholder`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          article_id: articleId,
+          placeholder_id: block.placeholderData.placeholder_id,
+          image_url: imageData.gcs_url || imageData.file_path,
+          alt_text: imageData.alt_text || block.placeholderData.description_jp,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Replace failed: ${response.status}`);
+      }
+
+      const result = await response.json();
+      
+      // ブロックを置き換えられた画像タイプに更新
+      setBlocks(prev => prev.map(b => 
+        b.id === blockId 
+          ? { 
+              ...b, 
+              type: 'replaced_image', 
+              content: result.updated_content.match(new RegExp(`<img[^>]*data-placeholder-id="${block.placeholderData!.placeholder_id}"[^>]*>`))?.[0] || b.content,
+              imageData: {
+                image_id: result.image_id,
+                image_url: imageData.gcs_url || imageData.file_path,
+                alt_text: imageData.alt_text || block.placeholderData!.description_jp,
+              }
+            }
+          : b
+      ));
+
+      // 画像履歴を非表示にする
+      setImageHistoryVisible(prev => ({ ...prev, [blockId]: false }));
+      
+      alert('過去の画像が適用されました！');
+    } catch (error) {
+      console.error('画像適用エラー:', error);
+      alert('画像の適用に失敗しました。');
+    }
+  };
+
+  // 画像履歴の表示切り替え
+  const toggleImageHistory = async (blockId: string, placeholderId: string) => {
+    const isVisible = imageHistoryVisible[blockId];
+    
+    if (!isVisible) {
+      // 履歴を表示する場合は、データを取得
+      await fetchImageHistory(placeholderId);
+    }
+    
+    setImageHistoryVisible(prev => ({
+      ...prev,
+      [blockId]: !isVisible
+    }));
   };
 
   // ファイル選択のトリガー
@@ -684,6 +826,13 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
       }
 
       const updatedContent = blocksToHtml(blocks);
+      
+      // 空のimgタグを含むコンテンツの保存を防ぐ
+      if (updatedContent.includes('<img />') || updatedContent.includes('<img/>')) {
+        console.warn('Preventing save of content with empty img tags');
+        alert('空の画像タグが含まれているため、保存できません。画像を正しく設定してください。');
+        return;
+      }
 
       const response = await fetch(`/api/proxy/articles/${articleId}`, {
         method: 'PATCH',
@@ -717,9 +866,14 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
       case 'h2': return 'text-2xl font-semibold text-gray-800 mb-3';
       case 'h3': return 'text-xl font-medium text-gray-700 mb-2';
       case 'p': return 'text-gray-700 mb-4 leading-relaxed';
-      case 'ul': return 'list-disc list-inside text-gray-700 mb-4';
-      case 'ol': return 'list-decimal list-inside text-gray-700 mb-4';
+      case 'ul': return 'list-disc list-inside text-gray-700 mb-4 space-y-1';
+      case 'ol': return 'list-decimal list-inside text-gray-700 mb-4 space-y-1';
+      case 'li': return 'text-gray-700';
+      case 'strong': return 'font-bold';
+      case 'em': return 'italic';
+      case 'a': return 'text-blue-600 hover:text-blue-800 underline';
       case 'image_placeholder': return 'border-2 border-dashed border-blue-300 bg-blue-50 rounded-lg p-6 mb-4';
+      case 'replaced_image': return 'mb-4';
       default: return 'text-gray-700 mb-2';
     }
   };
@@ -728,6 +882,20 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
   const renderBlockContent = (block: ArticleBlock) => {
     const tagName = block.type;
     const className = getBlockStyles(block.type);
+    
+    // 置き換えられた画像の場合は専用レンダリング
+    if (block.type === 'replaced_image' && block.imageData) {
+      return (
+        <div key={block.id} className={className}>
+          <img 
+            src={block.imageData.image_url} 
+            alt={block.imageData.alt_text} 
+            className="max-w-full h-auto rounded-lg shadow-sm article-image"
+            style={{ maxHeight: '400px' }}
+          />
+        </div>
+      );
+    }
     
     // void要素の場合はdangerouslySetInnerHTMLを使わない
     if (isVoidElement(tagName)) {
@@ -749,6 +917,10 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
   const renderImagePlaceholderBlock = (block: ArticleBlock) => {
     if (!block.placeholderData) return null;
 
+    const placeholderId = block.placeholderData.placeholder_id;
+    const historyImages = imageHistory[placeholderId] || [];
+    const isHistoryVisible = imageHistoryVisible[block.id];
+
     return (
       <div className={getBlockStyles('image_placeholder')}>
         <div className="flex items-center gap-3 mb-3">
@@ -758,6 +930,14 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
             <p className="text-sm text-blue-700">ID: {block.placeholderData.placeholder_id}</p>
           </div>
           <div className="flex gap-2">
+            <Button 
+              size="sm" 
+              variant="outline" 
+              className="text-purple-600 border-purple-300 hover:bg-purple-100"
+              onClick={() => toggleImageHistory(block.id, placeholderId)}
+            >
+              {isHistoryVisible ? '履歴を隠す' : `履歴 (${historyImages.length})`}
+            </Button>
             <Button 
               size="sm" 
               variant="outline" 
@@ -787,6 +967,38 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
             </Button>
           </div>
         </div>
+        
+        {/* 画像履歴表示 */}
+        {isHistoryVisible && (
+          <div className="mb-4 p-3 bg-purple-50 border border-purple-200 rounded-lg">
+            <h5 className="font-medium text-purple-900 mb-2">生成済み画像履歴</h5>
+            {historyImages.length > 0 ? (
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                {historyImages.map((image, index) => (
+                  <div key={image.id} className="relative group">
+                    <img 
+                      src={image.gcs_url || image.file_path} 
+                      alt={image.alt_text || `生成画像 ${index + 1}`}
+                      className="w-full h-24 object-cover rounded-lg cursor-pointer hover:opacity-80 transition-opacity"
+                      onClick={() => applyHistoryImage(block.id, image)}
+                    />
+                    <div className="absolute bottom-1 right-1 bg-black bg-opacity-60 text-white text-xs px-1 py-0.5 rounded">
+                      {new Date(image.created_at).toLocaleDateString()}
+                    </div>
+                    <div className="absolute inset-0 bg-blue-500 bg-opacity-0 hover:bg-opacity-20 transition-all duration-200 rounded-lg flex items-center justify-center">
+                      <span className="text-white font-medium opacity-0 group-hover:opacity-100 transition-opacity">
+                        選択
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-purple-600 text-sm">まだ画像が生成されていません</p>
+            )}
+          </div>
+        )}
+
         <div className="space-y-2 text-sm">
           <div>
             <span className="font-medium text-gray-700">説明: </span>
@@ -807,6 +1019,10 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
   const renderReplacedImageBlock = (block: ArticleBlock) => {
     if (!block.imageData || !block.placeholderData) return null;
 
+    const placeholderId = block.placeholderData.placeholder_id;
+    const historyImages = imageHistory[placeholderId] || [];
+    const isHistoryVisible = imageHistoryVisible[block.id];
+
     return (
       <div className="border-2 border-green-300 bg-green-50 rounded-lg p-6 mb-4">
         <div className="flex items-center gap-3 mb-3">
@@ -815,16 +1031,71 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
             <h4 className="font-medium text-green-900">画像 (プレースホルダーから置換済み)</h4>
             <p className="text-sm text-green-700">ID: {block.placeholderData.placeholder_id}</p>
           </div>
-          <Button 
-            size="sm" 
-            variant="outline" 
-            className="text-orange-600 border-orange-300 hover:bg-orange-100"
-            onClick={() => handleImageRestore(block.id)}
-          >
-            <Wand2 className="h-4 w-4 mr-1" />
-            プレースホルダーに戻す
-          </Button>
+          <div className="flex gap-2">
+            <Button 
+              size="sm" 
+              variant="outline" 
+              className="text-purple-600 border-purple-300 hover:bg-purple-100"
+              onClick={() => toggleImageHistory(block.id, placeholderId)}
+            >
+              {isHistoryVisible ? '履歴を隠す' : `他の画像 (${historyImages.length})`}
+            </Button>
+            <Button 
+              size="sm" 
+              className="bg-blue-600 hover:bg-blue-700 text-white"
+              onClick={() => handleImageGeneration(block.id)}
+              disabled={imageGenerationLoading[block.id]}
+            >
+              {imageGenerationLoading[block.id] ? (
+                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-1" />
+              ) : (
+                <Sparkles className="h-4 w-4 mr-1" />
+              )}
+              新しい画像を生成
+            </Button>
+            <Button 
+              size="sm" 
+              variant="outline" 
+              className="text-orange-600 border-orange-300 hover:bg-orange-100"
+              onClick={() => handleImageRestore(block.id)}
+            >
+              <Wand2 className="h-4 w-4 mr-1" />
+              プレースホルダーに戻す
+            </Button>
+          </div>
         </div>
+        
+        {/* 画像履歴表示 */}
+        {isHistoryVisible && (
+          <div className="mb-4 p-3 bg-purple-50 border border-purple-200 rounded-lg">
+            <h5 className="font-medium text-purple-900 mb-2">他の生成済み画像</h5>
+            {historyImages.length > 0 ? (
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                {historyImages.map((image, index) => (
+                  <div key={image.id} className="relative group">
+                    <img 
+                      src={image.gcs_url || image.file_path} 
+                      alt={image.alt_text || `生成画像 ${index + 1}`}
+                      className="w-full h-20 object-cover rounded-lg cursor-pointer hover:opacity-80 transition-opacity"
+                      onClick={() => applyHistoryImage(block.id, image)}
+                    />
+                    <div className="absolute bottom-1 right-1 bg-black bg-opacity-60 text-white text-xs px-1 py-0.5 rounded">
+                      {new Date(image.created_at).toLocaleDateString()}
+                    </div>
+                    <div className="absolute inset-0 bg-blue-500 bg-opacity-0 hover:bg-opacity-20 transition-all duration-200 rounded-lg flex items-center justify-center">
+                      <span className="text-white font-medium opacity-0 group-hover:opacity-100 transition-opacity">
+                        変更
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-purple-600 text-sm">他に生成された画像はありません</p>
+            )}
+          </div>
+        )}
+
         <div className="mb-3">
           <img 
             src={block.imageData.image_url} 

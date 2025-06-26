@@ -53,6 +53,15 @@ class Settings(BaseSettings):
     google_service_account_json: str = Field("", env="GOOGLE_SERVICE_ACCOUNT_JSON")
     google_service_account_json_file: str = Field("", env="GOOGLE_SERVICE_ACCOUNT_JSON_FILE")
     
+    # 画像生成モデル設定
+    imagen_model_name: str = Field("imagen-4.0-generate-preview-06-06", env="IMAGEN_MODEL_NAME")
+    imagen_aspect_ratio: str = Field("4:3", env="IMAGEN_ASPECT_RATIO")
+    imagen_output_format: str = Field("JPEG", env="IMAGEN_OUTPUT_FORMAT")
+    imagen_quality: int = Field(85, env="IMAGEN_QUALITY")
+    imagen_safety_filter: str = Field("block_only_high", env="IMAGEN_SAFETY_FILTER")
+    imagen_person_generation: str = Field("allow_all", env="IMAGEN_PERSON_GENERATION")
+    imagen_add_japan_prefix: bool = Field(True, env="IMAGEN_ADD_JAPAN_PREFIX")
+    
     # 画像ストレージ設定
     image_storage_path: str = Field("./generated_images", env="IMAGE_STORAGE_PATH")
     

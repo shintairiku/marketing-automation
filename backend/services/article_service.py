@@ -2536,6 +2536,13 @@ class ArticleGenerationService:
                 elif context.current_step == "writing_sections":
                     if not context.generated_outline: raise ValueError("承認済みアウトラインがありません。")
                     if context.current_section_index >= len(context.generated_outline.sections):
+                        # 画像モードの場合は記事全体に最低1つの画像プレースホルダーがあることを確認
+                        if getattr(context, 'image_mode', False):
+                            total_placeholders = len(getattr(context, 'image_placeholders', []))
+                            if total_placeholders == 0:
+                                raise ValueError("画像モードで記事を生成しましたが、記事全体に画像プレースホルダーが1つも含まれていません。記事全体で最低1つの画像プレースホルダーが必要です。")
+                            console.print(f"[green]画像プレースホルダー検証OK: 記事全体で{total_placeholders}個のプレースホルダーが含まれています[/green]")
+                        
                         context.full_draft_html = context.get_full_draft()
                         context.current_step = "editing"
                         console.print("[green]全セクションの執筆が完了しました。編集ステップに移ります。[/green]")
@@ -2571,15 +2578,11 @@ class ArticleGenerationService:
                             agent_output = await self._run_agent(current_agent, agent_input, context, run_config)
                             
                             if isinstance(agent_output, ArticleSectionWithImages):
-                                # 画像プレースホルダーの必須チェック
-                                if not agent_output.image_placeholders or len(agent_output.image_placeholders) == 0:
-                                    raise ValueError(f"画像モードでセクション {target_index + 1} に画像プレースホルダーが含まれていません。画像プレースホルダーは必須です。")
-                                
-                                # HTMLコンテンツ内にプレースホルダーコメントが含まれているかもチェック
-                                if "IMAGE_PLACEHOLDER:" not in agent_output.html_content:
-                                    raise ValueError(f"画像モードでセクション {target_index + 1} のHTMLに画像プレースホルダーコメントが含まれていません。")
-                                
-                                console.print(f"[cyan]画像プレースホルダー検証OK: {len(agent_output.image_placeholders)}個のプレースホルダーが検出されました[/cyan]")
+                                # 画像プレースホルダーが含まれている場合はログ出力するが、必須ではない
+                                if agent_output.image_placeholders and len(agent_output.image_placeholders) > 0:
+                                    console.print(f"[cyan]セクション {target_index + 1} に画像プレースホルダーが含まれています: {len(agent_output.image_placeholders)}個[/cyan]")
+                                else:
+                                    console.print(f"[yellow]セクション {target_index + 1} には画像プレースホルダーが含まれていません（記事全体で1つ以上あれば問題ありません）[/yellow]")
                                 
                                 generated_section = ArticleSection(
                                     section_index=target_index, 
@@ -2592,6 +2595,9 @@ class ArticleGenerationService:
                                 if not hasattr(context, 'image_placeholders'):
                                     context.image_placeholders = []
                                 context.image_placeholders.extend(agent_output.image_placeholders)
+                                
+                                # プレースホルダー情報をデータベースに保存
+                                await self._save_image_placeholders_to_db(context, agent_output.image_placeholders, target_index)
                                 
                                 # セクション内容をcontextに保存
                                 if len(context.generated_sections_html) <= target_index:
@@ -3001,7 +3007,6 @@ class ArticleGenerationService:
                     
                 # Add final article if completed
                 if context.current_step == "completed" and hasattr(context, 'final_article_html'):
-                    # Create article record
                     article_data = {
                         "user_id": user_id,
                         "organization_id": organization_id,
@@ -3013,9 +3018,38 @@ class ArticleGenerationService:
                         "status": "completed"
                     }
                     
-                    article_result = supabase.table("articles").insert(article_data).execute()
-                    if article_result.data:
-                        update_data["article_id"] = article_result.data[0]["id"]
+                    try:
+                        # Use UPSERT to prevent duplicates with ON CONFLICT
+                        console.print(f"[cyan]Saving final article for process {process_id} using UPSERT[/cyan]")
+                        article_result = supabase.table("articles").upsert(
+                            article_data,
+                            on_conflict="generation_process_id"
+                        ).execute()
+                        
+                        if article_result.data:
+                            article_id = article_result.data[0]["id"]
+                            update_data["article_id"] = article_id
+                            console.print(f"[green]Successfully saved article {article_id} for process {process_id}[/green]")
+                        else:
+                            console.print(f"[red]Failed to save article for process {process_id}: {article_result}[/red]")
+                            
+                    except Exception as article_save_error:
+                        console.print(f"[red]Error saving article for process {process_id}: {article_save_error}[/red]")
+                        # If UPSERT fails due to missing constraint, fall back to manual check
+                        try:
+                            existing_article = supabase.table("articles").select("id").eq("generation_process_id", process_id).execute()
+                            if existing_article.data and len(existing_article.data) > 0:
+                                # Update existing article
+                                article_id = existing_article.data[0]["id"]
+                                article_result = supabase.table("articles").update(article_data).eq("id", article_id).execute()
+                                update_data["article_id"] = article_id
+                            else:
+                                # Create new article
+                                article_result = supabase.table("articles").insert(article_data).execute()
+                                if article_result.data:
+                                    update_data["article_id"] = article_result.data[0]["id"]
+                        except Exception as fallback_error:
+                            console.print(f"[red]Fallback article save also failed: {fallback_error}[/red]")
                 
                 supabase.table("generated_articles_state").update(update_data).eq("id", process_id).execute()
                 return process_id
@@ -3303,10 +3337,24 @@ class ArticleGenerationService:
             # Query for article with user access control
             result = supabase.table("articles").select("*").eq("id", article_id).eq("user_id", user_id).execute()
             
+            # If no direct match, check if this might be a generation_process_id
+            if not result.data:
+                # Try to find by generation_process_id (in case user is using wrong ID)
+                process_result = supabase.table("articles").select("*").eq("generation_process_id", article_id).eq("user_id", user_id).order("updated_at", desc=True).execute()
+                if process_result.data:
+                    result = process_result
+            
             if not result.data:
                 return None
             
-            article = result.data[0]
+            # If multiple articles exist for the same generation_process_id (shouldn't happen with constraint),
+            # select the one with the most content
+            articles = result.data
+            if len(articles) > 1:
+                logger.warning(f"Multiple articles found for ID {article_id}, selecting the most complete one")
+                articles.sort(key=lambda x: (len(x.get("content", "")), x.get("updated_at", "")), reverse=True)
+            
+            article = articles[0]
             
             # Extract short description from content
             content = article.get("content", "")
@@ -3704,16 +3752,35 @@ class ArticleGenerationService:
             if not update_fields:
                 return await self.get_article(article_id, user_id)
             
+            # **重要**: コンテンツの更新で空のimgタグを上書きしないようにチェック
+            if "content" in update_fields:
+                new_content = update_fields["content"]
+                # 空のimgタグを含むコンテンツのチェック
+                if "<img />" in new_content or "<img/>" in new_content:
+                    existing_article = existing_result.data[0]
+                    existing_content = existing_article.get("content", "")
+                    
+                    # 既存のコンテンツの方が充実している場合は更新しない
+                    if len(existing_content) > len(new_content) and "data-image-id" in existing_content:
+                        logger.warning(f"Preventing content update with empty img tags for article {article_id}. Existing content is more complete.")
+                        del update_fields["content"]
+                        
+                        # コンテント以外のフィールドだけ更新
+                        if len(update_fields) == 1:  # updated_atだけ残っている場合
+                            return await self.get_article(article_id, user_id)
+            
             # データベースを更新
+            logger.info(f"Updating article {article_id} with fields: {list(update_fields.keys())}")
             result = supabase.table("articles").update(update_fields).eq("id", article_id).eq("user_id", user_id).execute()
             
             if not result.data:
-                raise Exception("Failed to update article")
+                raise Exception(f"Failed to update article {article_id} - no rows affected")
             
             # コンテンツが更新された場合、画像プレースホルダーを抽出・保存
             if "content" in update_fields:
                 try:
                     await self._extract_and_save_placeholders(supabase, article_id, update_fields["content"])
+                    logger.info(f"Successfully extracted and saved placeholders for article {article_id}")
                 except Exception as e:
                     logger.warning(f"Failed to extract image placeholders for article {article_id}: {e}")
             
@@ -3858,3 +3925,123 @@ class ArticleGenerationService:
             logger.warning(f"Could not add step to history for process {process_id}: {e}")
             # Don't raise here as this is a non-critical operation
             pass
+
+    async def _save_image_placeholders_to_db(self, context: ArticleContext, image_placeholders: list, section_index: int):
+        """
+        画像プレースホルダー情報をデータベースに保存
+        """
+        try:
+            from core.config import get_supabase_client
+            supabase = get_supabase_client()
+            from datetime import datetime, timezone
+            
+            # 記事IDを取得（完成した記事から、または生成プロセスIDから推測）
+            article_id = getattr(context, 'final_article_id', None)
+            generation_process_id = getattr(context, 'process_id', None)
+            
+            for i, placeholder in enumerate(image_placeholders):
+                try:
+                    placeholder_data = {
+                        "article_id": article_id,
+                        "generation_process_id": generation_process_id,
+                        "placeholder_id": placeholder.placeholder_id,
+                        "description_jp": placeholder.description_jp,
+                        "prompt_en": placeholder.prompt_en,
+                        "position_index": (section_index * 100) + i,  # セクション内での相対位置
+                        "status": "pending",
+                        "metadata": {
+                            "section_index": section_index,
+                            "section_position": i,
+                            "generated_at": datetime.now(timezone.utc).isoformat()
+                        }
+                    }
+                    
+                    # プレースホルダーをデータベースに保存（UPSERT）
+                    result = supabase.table("image_placeholders").upsert(
+                        placeholder_data,
+                        on_conflict="generation_process_id,placeholder_id"
+                    ).execute()
+                    
+                    if result.data:
+                        logger.info(f"Image placeholder saved to database - placeholder_id: {placeholder.placeholder_id}")
+                    else:
+                        logger.warning(f"Image placeholder save returned no data - placeholder_id: {placeholder.placeholder_id}")
+                        
+                except Exception as placeholder_error:
+                    logger.error(f"Failed to save individual placeholder - placeholder_id: {placeholder.placeholder_id}, error: {placeholder_error}")
+                    continue
+                    
+        except Exception as e:
+            logger.error(f"Failed to save image placeholders to database - section_index: {section_index}, error: {e}")
+            # プレースホルダー保存エラーは非致命的なので、エラーを投げずに続行
+
+    async def _save_final_article_with_placeholders(self, context: ArticleContext, process_id: str, user_id: str) -> str:
+        """
+        最終記事をデータベースに保存し、プレースホルダー情報も更新
+        """
+        try:
+            from core.config import get_supabase_client
+            supabase = get_supabase_client()
+            import uuid
+            from datetime import datetime, timezone
+            
+            # 記事データを準備
+            article_data = {
+                "id": str(uuid.uuid4()),
+                "user_id": user_id,
+                "title": context.selected_theme.title if context.selected_theme else "タイトル未設定",
+                "content": context.full_draft_html,
+                "status": "draft",
+                "target_audience": context.selected_detailed_persona if hasattr(context, 'selected_detailed_persona') else None,
+                "keywords": context.initial_keywords,
+                "seo_analysis": context.serp_analysis_report.dict() if hasattr(context, 'serp_analysis_report') and context.serp_analysis_report else None,
+                "generation_process_id": process_id,
+                "metadata": {
+                    "image_mode": getattr(context, 'image_mode', False),
+                    "image_settings": getattr(context, 'image_settings', {}),
+                    "generated_at": datetime.now(timezone.utc).isoformat(),
+                    "total_sections": len(context.generated_sections_html) if hasattr(context, 'generated_sections_html') else 0,
+                    "total_placeholders": len(context.image_placeholders) if hasattr(context, 'image_placeholders') else 0
+                }
+            }
+            
+            # 記事をデータベースに保存
+            result = supabase.table("articles").insert(article_data).execute()
+            
+            if not result.data:
+                raise Exception("記事の保存に失敗しました")
+            
+            article_id = result.data[0]["id"]
+            context.final_article_id = article_id
+            
+            # プレースホルダー情報のarticle_idを更新
+            if hasattr(context, 'image_placeholders') and context.image_placeholders:
+                await self._update_placeholders_article_id(context, article_id, process_id)
+            
+            logger.info(f"Final article saved successfully - article_id: {article_id}, process_id: {process_id}")
+            return article_id
+            
+        except Exception as e:
+            logger.error(f"Failed to save final article - process_id: {process_id}, error: {e}")
+            raise
+
+    async def _update_placeholders_article_id(self, context: ArticleContext, article_id: str, process_id: str):
+        """
+        プレースホルダーのarticle_idを更新
+        """
+        try:
+            from core.config import get_supabase_client
+            supabase = get_supabase_client()
+            
+            # generation_process_idで検索してarticle_idを更新
+            result = supabase.table("image_placeholders").update({
+                "article_id": article_id
+            }).eq("generation_process_id", process_id).execute()
+            
+            if result.data:
+                logger.info(f"Updated {len(result.data)} placeholders with article_id - article_id: {article_id}")
+            else:
+                logger.warning(f"No placeholders found to update - process_id: {process_id}")
+                
+        except Exception as e:
+            logger.error(f"Failed to update placeholders article_id - article_id: {article_id}, process_id: {process_id}, error: {e}")
