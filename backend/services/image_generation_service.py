@@ -30,8 +30,6 @@ try:
     import vertexai
     from vertexai.preview.vision_models import ImageGenerationModel
     from google.cloud import aiplatform
-    from google.auth import default
-    from google.oauth2 import service_account
     VERTEX_AI_AVAILABLE = True
 except ImportError:
     VERTEX_AI_AVAILABLE = False
@@ -39,6 +37,7 @@ except ImportError:
 from core.config import settings
 from core.logger import logger
 from services.gcs_service import gcs_service
+from utils.gcp_auth import get_aiplatform_credentials, initialize_aiplatform
 
 
 class ImageGenerationRequest(BaseModel):
@@ -76,10 +75,7 @@ class ImageGenerationService:
         self.add_japan_prefix = settings.imagen_add_japan_prefix
         
         # Google Cloud設定
-        self.project_id = settings.google_cloud_project if settings.google_cloud_project else None
         self.location = settings.google_cloud_location
-        self.service_account_json = settings.google_service_account_json if settings.google_service_account_json else None
-        self.service_account_json_file = settings.google_service_account_json_file if settings.google_service_account_json_file else None
         self.storage_path = Path(settings.image_storage_path)
         
         # ストレージディレクトリを作成
@@ -87,7 +83,6 @@ class ImageGenerationService:
         
         # Vertex AI の初期化
         self._initialized = False
-        self._credentials = None
         self._initialize_service()
     
     def _initialize_service(self):
@@ -103,48 +98,11 @@ class ImageGenerationService:
     
     def _initialize_vertex_ai(self):
         """Vertex AI の初期化"""
-        if not self.project_id:
-            logger.warning("Google Cloud project ID not configured.")
-            return
-                
-        if not self.service_account_json and not self.service_account_json_file:
-            logger.warning("Google service account JSON not configured.")
-            return
-        
         try:
-            # サービスアカウント情報を取得
-            if self.service_account_json_file:
-                # JSONファイルから読み込み
-                json_file_path = Path(self.service_account_json_file)
-                if not json_file_path.is_absolute():
-                    # 相対パスの場合、プロジェクトルートからの相対パスとして解釈
-                    json_file_path = Path(__file__).parent.parent.parent / json_file_path
-                
-                if not json_file_path.exists():
-                    logger.error(f"Service account JSON file not found: {json_file_path}")
-                    return
-                
-                with open(json_file_path, 'r') as f:
-                    service_account_info = json.load(f)
-                logger.info(f"Loaded service account from file: {json_file_path}")
-            else:
-                # 環境変数から直接パース
-                service_account_info = json.loads(self.service_account_json)
-            
-            # 認証情報を作成
-            self._credentials = service_account.Credentials.from_service_account_info(
-                service_account_info,
-                scopes=['https://www.googleapis.com/auth/cloud-platform']
-            )
-            
-            # Vertex AIを初期化
-            vertexai.init(
-                project=self.project_id, 
-                location=self.location,
-                credentials=self._credentials
-            )
+            # 統一認証システムを使用してVertex AIを初期化
+            initialize_aiplatform(location=self.location)
             self._initialized = True
-            logger.info(f"Vertex AI initialized for project: {self.project_id}")
+            logger.info(f"Vertex AI initialized for location: {self.location}")
             
         except Exception as e:
             logger.error(f"Failed to initialize Vertex AI: {e}")

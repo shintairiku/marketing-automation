@@ -11,12 +11,11 @@ from typing import Optional, Tuple, Dict, Any
 from pathlib import Path
 import mimetypes
 
-from google.cloud import storage
-from google.oauth2 import service_account
 from google.api_core import exceptions as gcs_exceptions
 
 from core.config import settings
 from core.logger import logger
+from utils.gcp_auth import get_storage_client
 
 
 class GCSService:
@@ -25,9 +24,6 @@ class GCSService:
     def __init__(self):
         self.bucket_name = settings.gcs_bucket_name if hasattr(settings, 'gcs_bucket_name') else None
         self.public_url_base = settings.gcs_public_url_base if hasattr(settings, 'gcs_public_url_base') else None
-        self.project_id = settings.google_cloud_project if hasattr(settings, 'google_cloud_project') else None
-        self.service_account_json = settings.google_service_account_json if hasattr(settings, 'google_service_account_json') else None
-        self.service_account_json_file = settings.google_service_account_json_file if hasattr(settings, 'google_service_account_json_file') else None
         
         self._client = None
         self._bucket = None
@@ -39,47 +35,10 @@ class GCSService:
         if not self.bucket_name:
             logger.warning("GCS bucket name not configured")
             return
-            
-        if not self.project_id:
-            logger.warning("Google Cloud project ID not configured")
-            return
-            
-        if not self.service_account_json and not self.service_account_json_file:
-            logger.warning("Google service account JSON not configured")
-            return
         
         try:
-            # サービスアカウント情報を取得
-            if self.service_account_json_file:
-                # JSONファイルから読み込み
-                from pathlib import Path
-                json_file_path = Path(self.service_account_json_file)
-                if not json_file_path.is_absolute():
-                    # 相対パスの場合、プロジェクトルートからの相対パスとして解釈
-                    json_file_path = Path(__file__).parent.parent.parent / json_file_path
-                
-                if not json_file_path.exists():
-                    logger.error(f"Service account JSON file not found: {json_file_path}")
-                    return
-                
-                with open(json_file_path, 'r') as f:
-                    service_account_info = json.load(f)
-                logger.info(f"Loaded service account from file: {json_file_path}")
-            else:
-                # 環境変数から直接パース
-                service_account_info = json.loads(self.service_account_json)
-            
-            # 認証情報を作成
-            credentials = service_account.Credentials.from_service_account_info(
-                service_account_info,
-                scopes=['https://www.googleapis.com/auth/cloud-platform']
-            )
-            
-            # GCSクライアントを初期化
-            self._client = storage.Client(
-                project=self.project_id,
-                credentials=credentials
-            )
+            # 統一認証システムを使用してGCSクライアントを取得
+            self._client = get_storage_client()
             
             # バケットを取得
             self._bucket = self._client.bucket(self.bucket_name)

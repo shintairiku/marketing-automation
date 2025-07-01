@@ -604,7 +604,7 @@ export const useArticleGeneration = ({ processId, userId }: UseArticleGeneration
       console.error('Error loading process state:', error);
       return false;
     }
-  }, [processId, userId]);
+  }, [processId, userId, getToken]);
 
   // ステップに応じた入力タイプを決定するヘルパー関数
   const getInputTypeForStep = (step: string): string | undefined => {

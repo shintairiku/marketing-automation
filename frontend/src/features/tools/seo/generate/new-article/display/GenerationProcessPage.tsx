@@ -147,7 +147,7 @@ export default function GenerationProcessPage({ jobId }: GenerationProcessPagePr
         }
         
         setThinkingMessages(messages);
-    }, [state.currentStep, state.researchProgress, state.sectionsProgress, state.steps]);
+    }, [state.currentStep, state.researchProgress, state.sectionsProgress, state.steps, state.error]);
 
     // 生成完了後に編集ページへ遷移（エラー状態でない場合のみ）
     useEffect(() => {

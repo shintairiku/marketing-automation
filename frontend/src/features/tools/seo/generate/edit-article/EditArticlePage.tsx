@@ -2,9 +2,8 @@
 
 import React, { useCallback, useMemo } from 'react';
 import { useEffect, useState } from 'react';
+import NextImage from 'next/image';
 import { AlertCircle, Bot, Copy, Download, Edit, Image, Save, Sparkles, Trash2, Upload, Wand2, X } from 'lucide-react';
-
-import ArticlePreviewStyles from '../new-article/component/ArticlePreviewStyles';
 
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
@@ -25,13 +24,15 @@ import { useArticleDetail } from '@/hooks/useArticles';
 import { cn } from "@/utils/cn";
 import { useAuth } from '@clerk/nextjs';
 
+import ArticlePreviewStyles from '../new-article/component/ArticlePreviewStyles';
+
 interface EditArticlePageProps {
   articleId: string;
 }
 
 interface ArticleBlock {
   id: string;
-  type: 'h1' | 'h2' | 'h3' | 'p' | 'ul' | 'ol' | 'li' | 'image_placeholder' | 'replaced_image';
+  type: 'h1' | 'h2' | 'h3' | 'p' | 'ul' | 'ol' | 'li' | 'img' | 'image_placeholder' | 'replaced_image';
   content: string;
   isEditing: boolean;
   isSelected: boolean;
@@ -56,6 +57,45 @@ interface AiConfirmationState {
   originalContent: string;
   newContent: string;
 }
+
+// Safe Image component that falls back to regular img on error
+const SafeImage = ({ src, alt, className, style, width, height, onClick }: {
+  src: string;
+  alt: string;
+  className?: string;
+  style?: React.CSSProperties;
+  width?: number;
+  height?: number;
+  onClick?: () => void;
+}) => {
+  const [imageError, setImageError] = useState(false);
+
+  if (imageError) {
+    return (
+      <img
+        src={src}
+        alt={alt}
+        className={className}
+        style={{ objectFit: 'contain', ...style }}
+        onClick={onClick}
+        onError={() => console.warn('Image failed to load:', src)}
+      />
+    );
+  }
+
+  return (
+    <NextImage
+      src={src}
+      alt={alt}
+      width={width || 400}
+      height={height || 300}
+      className={className}
+      style={{ objectFit: 'contain', ...style }}
+      onClick={onClick}
+      onError={() => setImageError(true)}
+    />
+  );
+};
 
 export default function EditArticlePage({ articleId }: EditArticlePageProps) {
   const { getToken } = useAuth();
@@ -217,7 +257,10 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
   const blocksToHtml = (blocks: ArticleBlock[]): string => {
     return blocks.map(block => {
       if (block.type === 'image_placeholder') {
-        // 画像プレースホルダーはコメント形式でそのまま出力
+        // 画像プレースホルダーは完全な情報を含むコメント形式で出力
+        if (block.placeholderData) {
+          return `<!-- IMAGE_PLACEHOLDER: ${block.placeholderData.placeholder_id}|${block.placeholderData.description_jp}|${block.placeholderData.prompt_en} -->`;
+        }
         return block.content;
       }
       
@@ -245,15 +288,8 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
     }).join('\n');
   };
 
-  // 記事データが更新されたときにブロックを再構築（画像復元含む）
-  useEffect(() => {
-    if (article?.content) {
-      restoreArticleImages();
-    }
-  }, [article]);
-
   // 記事の画像を復元する関数
-  const restoreArticleImages = async () => {
+  const restoreArticleImages = useCallback(async () => {
     if (!article?.id) return;
     
     try {
@@ -276,7 +312,52 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
         
         // 復元されたコンテンツがある場合は使用、なければ元のコンテンツを使用
         const contentToUse = imageData.restored_content || article.content;
-        setBlocks(parseHtmlToBlocks(contentToUse));
+        const parsedBlocks = parseHtmlToBlocks(contentToUse);
+        
+        // APIから取得したプレースホルダー情報でブロックデータを補完
+        const enhancedBlocks = parsedBlocks.map(block => {
+          if (block.type === 'image_placeholder' && block.placeholderData) {
+            // APIデータからマッチするプレースホルダーを検索
+            const matchingPlaceholder = imageData.placeholders?.find(
+              (p: any) => p.placeholder_id === block.placeholderData?.placeholder_id
+            );
+            
+            if (matchingPlaceholder) {
+              return {
+                ...block,
+                placeholderData: {
+                  ...block.placeholderData,
+                  prompt_en: matchingPlaceholder.prompt_en || block.placeholderData.prompt_en,
+                  description_jp: matchingPlaceholder.description_jp || block.placeholderData.description_jp,
+                  alt_text: matchingPlaceholder.alt_text || block.placeholderData.alt_text,
+                },
+              };
+            }
+          }
+          
+          if (block.type === 'replaced_image' && block.placeholderData) {
+            // 置き換えられた画像の場合も、プレースホルダー情報を補完
+            const matchingPlaceholder = imageData.placeholders?.find(
+              (p: any) => p.placeholder_id === block.placeholderData?.placeholder_id
+            );
+            
+            if (matchingPlaceholder) {
+              return {
+                ...block,
+                placeholderData: {
+                  ...block.placeholderData,
+                  prompt_en: matchingPlaceholder.prompt_en || block.placeholderData.prompt_en,
+                  description_jp: matchingPlaceholder.description_jp || block.placeholderData.description_jp,
+                  alt_text: matchingPlaceholder.alt_text || block.placeholderData.alt_text,
+                },
+              };
+            }
+          }
+          
+          return block;
+        });
+        
+        setBlocks(enhancedBlocks);
         
         console.log('画像復元完了:', {
           placeholders: imageData.placeholders?.length || 0,
@@ -292,7 +373,14 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
       // エラーの場合は元のコンテンツを使用
       setBlocks(parseHtmlToBlocks(article.content));
     }
-  };
+  }, [article?.id, getToken]);
+
+  // 記事データが更新されたときにブロックを再構築（画像復元含む）
+  useEffect(() => {
+    if (article?.content) {
+      restoreArticleImages();
+    }
+  }, [article, restoreArticleImages]);
 
   const handleSelectionToggle = (blockId: string, checked: boolean | 'indeterminate') => {
     setBlocks(prev => 
@@ -541,7 +629,7 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
               imageData: {
                 image_id: result.image_id,
                 image_url: result.image_url,
-                alt_text: block.placeholderData.alt_text || block.placeholderData.description_jp,
+                alt_text: block.placeholderData?.alt_text || block.placeholderData?.description_jp || '',
               }
             }
           : b
@@ -648,13 +736,14 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
 
       const result = await response.json();
       
-      // ブロックをプレースホルダータイプに戻す
+      // ブロックをプレースホルダータイプに戻す（元のプレースホルダーデータを保持）
       setBlocks(prev => prev.map(b => 
         b.id === blockId 
           ? { 
               ...b, 
               type: 'image_placeholder', 
               content: result.updated_content.match(/<!-- IMAGE_PLACEHOLDER: [^>]+ -->/)?.[0] || b.content,
+              // placeholderDataは保持する
               imageData: undefined
             }
           : b
@@ -876,24 +965,6 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
     }
   };
 
-  // タグタイプに応じたスタイルクラス
-  const getBlockStyles = (type: string) => {
-    switch (type) {
-      case 'h1': return 'text-3xl font-bold text-gray-900 mb-4';
-      case 'h2': return 'text-2xl font-semibold text-gray-800 mb-3';
-      case 'h3': return 'text-xl font-medium text-gray-700 mb-2';
-      case 'p': return 'text-gray-700 mb-4 leading-relaxed';
-      case 'ul': return 'list-disc list-inside text-gray-700 mb-4 space-y-1';
-      case 'ol': return 'list-decimal list-inside text-gray-700 mb-4 space-y-1';
-      case 'li': return 'text-gray-700';
-      case 'strong': return 'font-bold';
-      case 'em': return 'italic';
-      case 'a': return 'text-blue-600 hover:text-blue-800 underline';
-      case 'image_placeholder': return 'border-2 border-dashed border-blue-300 bg-blue-50 rounded-lg p-6 mb-4';
-      case 'replaced_image': return 'mb-4';
-      default: return 'text-gray-700 mb-2';
-    }
-  };
 
   // ブロックコンテンツのレンダリング（リッチプレビュー対応）
   const renderBlockContent = (block: ArticleBlock) => {
@@ -903,11 +974,13 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
     if (block.type === 'replaced_image' && block.imageData) {
       return (
         <div key={block.id}>
-          <img 
+          <SafeImage 
             src={block.imageData.image_url} 
             alt={block.imageData.alt_text} 
             className="article-image"
             style={{ maxHeight: '400px' }}
+            width={800}
+            height={400}
           />
         </div>
       );
@@ -1000,11 +1073,13 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
               <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
                 {historyImages.map((image, index) => (
                   <div key={image.id} className="relative group">
-                    <img 
+                    <SafeImage 
                       src={image.gcs_url || image.file_path} 
                       alt={image.alt_text || `生成画像 ${index + 1}`}
                       className="w-full h-24 object-cover rounded-lg cursor-pointer hover:opacity-80 transition-opacity"
                       onClick={() => applyHistoryImage(block.id, image)}
+                      width={100}
+                      height={96}
                     />
                     <div className="absolute bottom-1 right-1 bg-black bg-opacity-60 text-white text-xs px-1 py-0.5 rounded">
                       {new Date(image.created_at).toLocaleDateString()}
@@ -1097,11 +1172,13 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                 {historyImages.map((image, index) => (
                   <div key={image.id} className="relative group">
-                    <img 
+                    <SafeImage 
                       src={image.gcs_url || image.file_path} 
                       alt={image.alt_text || `生成画像 ${index + 1}`}
                       className="w-full h-20 object-cover rounded-lg cursor-pointer hover:opacity-80 transition-opacity"
                       onClick={() => applyHistoryImage(block.id, image)}
+                      width={80}
+                      height={80}
                     />
                     <div className="absolute bottom-1 right-1 bg-black bg-opacity-60 text-white text-xs px-1 py-0.5 rounded">
                       {new Date(image.created_at).toLocaleDateString()}
@@ -1121,11 +1198,13 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
         )}
 
         <div className="mb-3">
-          <img 
+          <SafeImage 
             src={block.imageData.image_url} 
             alt={block.imageData.alt_text} 
             className="max-w-full h-auto rounded-lg shadow-sm"
             style={{ maxHeight: '300px' }}
+            width={600}
+            height={300}
           />
         </div>
         <div className="space-y-2 text-sm">
