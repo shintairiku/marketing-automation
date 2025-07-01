@@ -71,12 +71,23 @@ class OutlinePayload(BasePayload):
     """アウトラインペイロード (承認要求時に使用)"""
     outline: OutlineData = Field(description="生成されたアウトライン")
 
+class ImagePlaceholderData(BaseModel):
+    """画像プレースホルダー情報（WebSocket用）"""
+    placeholder_id: str = Field(description="プレースホルダーの一意ID")
+    description_jp: str = Field(description="画像の説明（日本語）")
+    prompt_en: str = Field(description="画像生成用の英語プロンプト")
+    alt_text: str = Field(description="画像のalt属性テキスト")
+
 class SectionChunkPayload(BasePayload):
     """セクションHTMLチャンクペイロード (ストリーミング用)"""
     section_index: int = Field(description="生成中のセクションインデックス (0ベース)")
     heading: str = Field(description="生成中のセクションの見出し")
     html_content_chunk: str = Field(description="生成されたHTMLコンテンツの断片")
     is_complete: bool = Field(False, description="このセクションの生成が完了したか")
+    # 画像モード対応: セクション完了時の追加情報
+    section_complete_content: Optional[str] = Field(None, description="セクション完了時の完全なHTMLコンテンツ（画像モード用）")
+    image_placeholders: Optional[List[ImagePlaceholderData]] = Field(None, description="このセクション内の画像プレースホルダー（画像モード用）")
+    is_image_mode: bool = Field(False, description="画像モードかどうか")
 
 class EditingStartPayload(BasePayload):
     """編集開始ペイロード"""

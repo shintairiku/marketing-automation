@@ -64,6 +64,18 @@ export interface GenerationState {
     prompt_en: string;
     alt_text: string;
   }>;
+  // セクション別完了情報（画像モード用）
+  completedSections?: Array<{
+    index: number;
+    heading: string;
+    content: string;
+    imagePlaceholders?: Array<{
+      placeholder_id: string;
+      description_jp: string;
+      prompt_en: string;
+      alt_text: string;
+    }>;
+  }>;
 }
 
 interface UseArticleGenerationOptions {
@@ -238,18 +250,50 @@ export const useArticleGeneration = ({ processId, userId }: UseArticleGeneration
         );
       }
 
-      if (payload.html_content_chunk) {
-        if (!newState.generatedContent) {
-          newState.generatedContent = '';
+      // SectionChunkPayloadの処理（画像モード対応）
+      if (payload.html_content_chunk !== undefined || payload.is_complete) {
+        // 画像モードの場合の処理
+        if ((payload as any).is_image_mode && payload.is_complete && (payload as any).section_complete_content) {
+          // 完了したセクションを追加
+          if (!newState.completedSections) {
+            newState.completedSections = [];
+          }
+          
+          const completedSection = {
+            index: payload.section_index || 0,
+            heading: payload.heading || `セクション ${(payload.section_index || 0) + 1}`,
+            content: (payload as any).section_complete_content,
+            imagePlaceholders: (payload as any).image_placeholders || []
+          };
+          
+          // 同じインデックスのセクションが既に存在する場合は更新、そうでなければ追加
+          const existingIndex = newState.completedSections.findIndex(section => section.index === completedSection.index);
+          if (existingIndex >= 0) {
+            newState.completedSections[existingIndex] = completedSection;
+          } else {
+            newState.completedSections.push(completedSection);
+          }
+          
+          // 全完了セクションの内容を結合してgeneratedContentを更新
+          newState.generatedContent = newState.completedSections
+            .sort((a, b) => a.index - b.index)
+            .map(section => section.content)
+            .join('\n\n');
+            
+        } else if (!(payload as any).is_image_mode && payload.html_content_chunk) {
+          // 通常モード（ストリーミング）の処理
+          if (!newState.generatedContent) {
+            newState.generatedContent = '';
+          }
+          newState.generatedContent += payload.html_content_chunk;
         }
-        newState.generatedContent += payload.html_content_chunk;
         
         // セクション情報を更新
         if (payload.section_index !== undefined && payload.heading) {
           newState.currentSection = {
             index: payload.section_index,
             heading: payload.heading,
-            content: payload.html_content_chunk,
+            content: payload.html_content_chunk || '',
           };
         }
         

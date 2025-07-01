@@ -68,6 +68,17 @@ interface CompactGenerationFlowProps {
     prompt_en: string;
     alt_text: string;
   }>;
+  completedSections?: Array<{
+    index: number;
+    heading: string;
+    content: string;
+    imagePlaceholders?: Array<{
+      placeholder_id: string;
+      description_jp: string;
+      prompt_en: string;
+      alt_text: string;
+    }>;
+  }>;
 }
 
 const stepIcons = {
@@ -102,7 +113,8 @@ export default memo(function CompactGenerationFlow({
   researchProgress,
   sectionsProgress,
   imageMode,
-  imagePlaceholders
+  imagePlaceholders,
+  completedSections,
 }: CompactGenerationFlowProps) {
   const [showCompletionAnimation, setShowCompletionAnimation] = useState(false);
   const [hideProcessCards, setHideProcessCards] = useState(false);
@@ -480,7 +492,7 @@ export default memo(function CompactGenerationFlow({
                           />
                         </ArticlePreviewStyles>
                       </motion.div>
-                    ) : generatedContent ? (
+                    ) : (generatedContent || (imageMode && completedSections && completedSections.length > 0)) ? (
                       <div className="space-y-3">
                         <div className="flex items-center space-x-2 text-sm text-gray-600 pb-2 border-b bg-blue-50/50 rounded p-2">
                           <motion.div 
@@ -497,17 +509,71 @@ export default memo(function CompactGenerationFlow({
                               {currentSection.heading}
                             </span>
                           )}
+                          {imageMode && (
+                            <motion.div
+                              initial={{ scale: 0 }}
+                              animate={{ scale: 1 }}
+                              transition={{ type: "spring", stiffness: 400, damping: 17 }}
+                            >
+                              <Badge className="bg-purple-100 text-purple-800 border-purple-200 shadow-sm">
+                                <Image className="w-3 h-3 mr-1" />
+                                画像モード
+                              </Badge>
+                            </motion.div>
+                          )}
                         </div>
-                        <ArticlePreviewStyles>
-                          <motion.div 
-                            dangerouslySetInnerHTML={{ 
-                              __html: generatedContent || '<p>記事を生成中...</p>' 
-                            }}
-                            initial={{ opacity: 0 }}
-                            animate={{ opacity: 1 }}
-                            transition={{ duration: 0.3 }}
-                          />
-                        </ArticlePreviewStyles>
+                        
+                        {/* 画像モードの場合：セクション別表示 */}
+                        {imageMode && completedSections && completedSections.length > 0 ? (
+                          <div className="space-y-4">
+                            {completedSections
+                              .sort((a, b) => a.index - b.index)
+                              .map((section, index) => (
+                                <motion.div
+                                  key={section.index}
+                                  initial={{ opacity: 0, y: 20 }}
+                                  animate={{ opacity: 1, y: 0 }}
+                                  transition={{ duration: 0.5, delay: index * 0.1 }}
+                                  className="border border-green-200 bg-green-50/50 rounded-lg p-3"
+                                >
+                                  <div className="flex items-center justify-between mb-2">
+                                    <h3 className="font-medium text-gray-800">{section.heading}</h3>
+                                    <Badge variant="secondary" className="text-xs bg-green-100 text-green-700">
+                                      <Check className="w-3 h-3 mr-1" />
+                                      完了
+                                    </Badge>
+                                  </div>
+                                  
+                                  {/* 画像プレースホルダー情報 */}
+                                  {section.imagePlaceholders && section.imagePlaceholders.length > 0 && (
+                                    <div className="mb-2 text-xs text-purple-600 bg-purple-50 rounded px-2 py-1">
+                                      <Image className="w-3 h-3 inline mr-1" />
+                                      画像プレースホルダー {section.imagePlaceholders.length}個含む
+                                    </div>
+                                  )}
+                                  
+                                  <ArticlePreviewStyles>
+                                    <div 
+                                      dangerouslySetInnerHTML={{ __html: section.content }}
+                                      className="text-sm"
+                                    />
+                                  </ArticlePreviewStyles>
+                                </motion.div>
+                              ))}
+                          </div>
+                        ) : (
+                          /* 通常モード：ストリーミング表示 */
+                          <ArticlePreviewStyles>
+                            <motion.div 
+                              dangerouslySetInnerHTML={{ 
+                                __html: generatedContent || '<p>記事を生成中...</p>' 
+                              }}
+                              initial={{ opacity: 0 }}
+                              animate={{ opacity: 1 }}
+                              transition={{ duration: 0.3 }}
+                            />
+                          </ArticlePreviewStyles>
+                        )}
                       </div>
                     ) : steps.some(step => step.status === 'error') ? (
                       <div className="flex items-center justify-center h-32 text-red-500">
