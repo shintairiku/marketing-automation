@@ -627,19 +627,46 @@ class ArticleGenerationService:
                     'completed_sections': i + 1
                 }
                 
+                # WebSocketでセクション完了を通知（画像モード対応）
                 if context.websocket:
-                    content_preview = ""
-                    if hasattr(agent_output, 'html_content'):
-                        content_preview = agent_output.html_content[:200] + "..." if len(agent_output.html_content) > 200 else agent_output.html_content
-                    elif isinstance(agent_output, str):
-                        content_preview = agent_output[:200] + "..." if len(agent_output) > 200 else agent_output
-                    
-                    await self._send_server_event(context, SectionChunkPayload(
-                        section_index=i,
-                        section_title=section.heading,
-                        content_chunk=content_preview,
-                        progress=int((i + 1) / total_sections * 100)
-                    ))
+                    if is_image_mode and isinstance(agent_output, ArticleSectionWithImages):
+                        # 画像モードの場合：セクション完了時に完全なコンテンツと画像プレースホルダー情報を送信
+                        from schemas.response import ImagePlaceholderData
+                        
+                        image_placeholders_data = [
+                            ImagePlaceholderData(
+                                placeholder_id=placeholder.placeholder_id,
+                                description_jp=placeholder.description_jp,
+                                prompt_en=placeholder.prompt_en,
+                                alt_text=placeholder.alt_text
+                            )
+                            for placeholder in agent_output.image_placeholders
+                        ]
+                        
+                        await self._send_server_event(context, SectionChunkPayload(
+                            section_index=i,
+                            heading=section.heading,
+                            html_content_chunk="",  # 画像モードではチャンクではなく完了時に送信
+                            is_complete=True,
+                            section_complete_content=agent_output.html_content,
+                            image_placeholders=image_placeholders_data,
+                            is_image_mode=True
+                        ))
+                    else:
+                        # 通常モードの場合：従来通りのプレビュー送信
+                        content_preview = ""
+                        if hasattr(agent_output, 'html_content'):
+                            content_preview = agent_output.html_content[:200] + "..." if len(agent_output.html_content) > 200 else agent_output.html_content
+                        elif isinstance(agent_output, str):
+                            content_preview = agent_output[:200] + "..." if len(agent_output) > 200 else agent_output
+                        
+                        await self._send_server_event(context, SectionChunkPayload(
+                            section_index=i,
+                            heading=section.heading,
+                            html_content_chunk=content_preview,
+                            is_complete=True,
+                            is_image_mode=False
+                        ))
 
             # 全セクション完了
             context.current_step = "editing"
