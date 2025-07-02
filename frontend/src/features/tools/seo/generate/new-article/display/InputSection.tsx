@@ -236,10 +236,6 @@ export default function InputSection({ onStartGeneration, isConnected, isGenerat
               <CardTitle className="text-lg flex items-center gap-2">
                 <Image className="h-5 w-5" />
                 画像プレースホルダー機能
-                {/* デバッグ用: 現在の状態表示 */}
-                <span className="text-xs bg-gray-100 px-2 py-1 rounded">
-                  DEBUG: {imageMode ? 'ON' : 'OFF'}
-                </span>
               </CardTitle>
             </CardHeader>
             <CardContent>

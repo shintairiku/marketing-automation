@@ -222,12 +222,6 @@ export default memo(function CompactGenerationFlow({
                       </Badge>
                     </motion.div>
                   )}
-                  {/* デバッグ用: 画像モード状態を常に表示 */}
-                  {process.env.NODE_ENV === 'development' && (
-                    <div className="text-xs bg-yellow-100 px-2 py-1 rounded">
-                      DEBUG: imageMode={JSON.stringify(imageMode)}
-                    </div>
-                  )}
                 </h2>
                 <div className="flex items-center gap-2 text-sm text-muted-foreground">
                   <div className={`w-2 h-2 rounded-full ${
