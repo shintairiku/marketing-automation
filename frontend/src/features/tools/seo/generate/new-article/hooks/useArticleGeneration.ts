@@ -540,23 +540,24 @@ export const useArticleGeneration = ({ processId, userId }: UseArticleGeneration
     // 入力タイプに応じてレスポンスタイプとペイロードを設定
     switch (inputType) {
       case 'select_persona':
-        responseType = 'edit_persona';
-        payload = { edited_persona: editedContent };
+        responseType = 'edit_and_proceed';
+        payload = { edited_content: editedContent };
         break;
       case 'select_theme':
-        responseType = 'edit_theme';
-        payload = { edited_theme: editedContent };
+        responseType = 'edit_and_proceed';
+        payload = { edited_content: editedContent };
         break;
       case 'approve_plan':
-        responseType = 'edit_plan';
-        payload = { edited_plan: editedContent };
+        responseType = 'edit_and_proceed';
+        payload = { edited_content: editedContent };
         break;
       case 'approve_outline':
-        responseType = 'edit_outline';
-        payload = { edited_outline: editedContent };
+        responseType = 'edit_and_proceed';
+        payload = { edited_content: editedContent };
         break;
       default:
-        responseType = 'edit_generic';
+        responseType = 'edit_and_proceed';
+        payload = { edited_content: editedContent };
         break;
     }
 

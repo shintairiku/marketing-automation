@@ -1285,9 +1285,96 @@ class ArticleGenerationService:
 
     async def _handle_user_input_step(self, context: ArticleContext, process_id: Optional[str] = None, user_id: Optional[str] = None):
         """ユーザー入力ステップを処理し、適切な次のステップに遷移"""
+        from schemas.response import (
+            GeneratedPersonasPayload, GeneratedPersonaData,
+            ThemeProposalPayload, ThemeProposalData,
+            ResearchPlanPayload, OutlinePayload,
+            UserInputRequestPayload, UserInputType,
+            SelectPersonaPayload, SelectThemePayload, ApprovePayload,
+            EditAndProceedPayload
+        )
+        from pydantic import ValidationError
+        
         console.print(f"[blue]ユーザー入力ステップを処理中: {context.current_step}[/blue]")
         
-        if context.current_step == "theme_proposed":
+        if context.current_step == "persona_generated":
+            if context.generated_detailed_personas:
+                personas_data_for_client = [GeneratedPersonaData(id=i, description=desc) for i, desc in enumerate(context.generated_detailed_personas)]
+                
+                user_response_message = await self._request_user_input(
+                    context,
+                    UserInputType.SELECT_PERSONA,
+                    GeneratedPersonasPayload(personas=personas_data_for_client).model_dump()
+                )
+                
+                if user_response_message:
+                    response_type = user_response_message.response_type
+                    payload = user_response_message.payload
+
+                    if response_type == UserInputType.SELECT_PERSONA and isinstance(payload, SelectPersonaPayload):
+                        selected_id = payload.selected_id
+                        if 0 <= selected_id < len(context.generated_detailed_personas):
+                            context.selected_detailed_persona = context.generated_detailed_personas[selected_id]
+                            context.current_step = "persona_selected"
+                            console.print(f"[green]ペルソナが選択されました: {context.selected_detailed_persona[:100]}...[/green]")
+                            await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message="Persona selected, proceeding to theme generation.", image_mode=getattr(context, 'image_mode', False)))
+                            
+                            # Save context after persona selection
+                            if process_id and user_id:
+                                try:
+                                    await self._save_context_to_db(context, process_id=process_id, user_id=user_id)
+                                    logger.info(f"Context saved successfully after persona selection")
+                                except Exception as save_err:
+                                    logger.error(f"Failed to save context after persona selection: {save_err}")
+                        else:
+                            await self._send_error(context, f"無効なペルソナインデックス: {selected_id}")
+                            context.current_step = "error"
+                    elif response_type == UserInputType.REGENERATE:
+                        console.print("[yellow]ペルソナの再生成が要求されました。[/yellow]")
+                        context.current_step = "persona_generating"
+                        context.generated_detailed_personas = []
+                    elif response_type == UserInputType.EDIT_AND_PROCEED and isinstance(payload, EditAndProceedPayload):
+                        try:
+                            edited_persona_data = payload.edited_content
+                            console.print(f"[blue]EditAndProceedPayload received for persona: {edited_persona_data}[/blue]")
+                            
+                            # Handle different payload formats
+                            description = None
+                            if isinstance(edited_persona_data, dict):
+                                description = edited_persona_data.get("description")
+                            elif isinstance(edited_persona_data, str):
+                                description = edited_persona_data
+                            
+                            if description and isinstance(description, str) and description.strip():
+                                context.selected_detailed_persona = description.strip()
+                                context.current_step = "persona_selected"
+                                console.print(f"[green]ペルソナが編集され選択されました: {description[:100]}...[/green]")
+                                await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message="Persona edited and selected.", image_mode=getattr(context, 'image_mode', False)))
+                                
+                                # Save context after persona editing
+                                if process_id and user_id:
+                                    try:
+                                        await self._save_context_to_db(context, process_id=process_id, user_id=user_id)
+                                        logger.info(f"Context saved successfully after persona editing")
+                                    except Exception as save_err:
+                                        logger.error(f"Failed to save context after persona editing: {save_err}")
+                            else:
+                                await self._send_error(context, f"編集されたペルソナの形式が無効です。受信データ: {edited_persona_data}")
+                                context.current_step = "error"
+                        except (ValidationError, TypeError, AttributeError) as e:
+                            await self._send_error(context, f"ペルソナ編集エラー: {e}")
+                            context.current_step = "error"
+                    else:
+                        await self._send_error(context, f"予期しない応答タイプ: {response_type}")
+                        context.current_step = "error"
+                else:
+                    console.print("[red]ペルソナ選択でユーザー応答がありませんでした。[/red]")
+                    context.current_step = "error"
+            else:
+                console.print("[yellow]ペルソナが見つからないため生成ステップに戻します。[/yellow]")
+                context.current_step = "persona_generating"
+        
+        elif context.current_step == "theme_proposed":
             if context.generated_themes:
                 themes_data = [
                     ThemeProposalData(title=theme.title, description=theme.description, keywords=theme.keywords)
@@ -1588,149 +1675,6 @@ class ArticleGenerationService:
                 console.print("[yellow]アウトラインが見つからないため生成ステップに戻します。[/yellow]")
                 context.current_step = "outline_generating"
         
-        # 他のユーザー入力ステップも同様に処理
-        elif context.current_step == "persona_generated":
-            if context.generated_detailed_personas:
-                personas_data_for_client = [GeneratedPersonaData(id=i, description=desc) for i, desc in enumerate(context.generated_detailed_personas)]
-                
-                user_response_message = await self._request_user_input(
-                    context,
-                    UserInputType.SELECT_PERSONA,
-                    GeneratedPersonasPayload(personas=personas_data_for_client).model_dump()
-                )
-                
-                if user_response_message:
-                    response_type = user_response_message.response_type
-                    payload = user_response_message.payload
-
-                    if response_type == UserInputType.SELECT_PERSONA and isinstance(payload, SelectPersonaPayload):
-                        selected_id = payload.selected_id
-                        if 0 <= selected_id < len(context.generated_detailed_personas):
-                            context.selected_detailed_persona = context.generated_detailed_personas[selected_id]
-                            context.current_step = "persona_selected"
-                            console.print(f"[green]ペルソナが選択されました: {context.selected_detailed_persona[:100]}...[/green]")
-                            await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message="Persona selected, proceeding to theme generation.", image_mode=getattr(context, 'image_mode', False)))
-                            
-                            # Save context after persona selection
-                            if process_id and user_id:
-                                try:
-                                    await self._save_context_to_db(context, process_id=process_id, user_id=user_id)
-                                    logger.info(f"Context saved successfully after persona selection")
-                                except Exception as save_err:
-                                    logger.error(f"Failed to save context after persona selection: {save_err}")
-                        else:
-                            await self._send_error(context, f"無効なペルソナインデックス: {selected_id}")
-                            context.current_step = "error"
-                    elif response_type == UserInputType.REGENERATE:
-                        console.print("[yellow]ペルソナの再生成が要求されました。[/yellow]")
-                        context.current_step = "persona_generating"
-                        context.generated_detailed_personas = []
-                    elif response_type == UserInputType.EDIT_PERSONA and isinstance(payload, EditPersonaPayload):
-                        try:
-                            edited_persona_data = payload.edited_persona
-                            console.print(f"[blue]EditPersonaPayload received: {edited_persona_data}[/blue]")
-                            
-                            # Handle different payload formats
-                            description = None
-                            if isinstance(edited_persona_data, dict):
-                                description = edited_persona_data.get("description")
-                            elif isinstance(edited_persona_data, str):
-                                description = edited_persona_data
-                            
-                            if description and isinstance(description, str) and description.strip():
-                                context.selected_detailed_persona = description.strip()
-                                context.current_step = "persona_selected"
-                                console.print(f"[green]ペルソナが編集され選択されました（EditPersonaPayload）: {description[:100]}...[/green]")
-                                await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message="Persona edited and selected.", image_mode=getattr(context, 'image_mode', False)))
-                                
-                                # Save context after persona editing
-                                if process_id and user_id:
-                                    try:
-                                        await self._save_context_to_db(context, process_id=process_id, user_id=user_id)
-                                        logger.info(f"Context saved successfully after persona editing")
-                                    except Exception as save_err:
-                                        logger.error(f"Failed to save context after persona editing: {save_err}")
-                            else:
-                                await self._send_error(context, f"編集されたペルソナの形式が無効です。受信データ: {edited_persona_data}")
-                                context.current_step = "error"
-                        except (ValidationError, TypeError, AttributeError) as e:
-                            await self._send_error(context, f"ペルソナ編集エラー: {e}")
-                            context.current_step = "error"
-                    elif response_type == UserInputType.EDIT_AND_PROCEED and isinstance(payload, EditAndProceedPayload):
-                        try:
-                            edited_persona_data = payload.edited_content
-                            console.print(f"[blue]EditAndProceedPayload received for persona: {edited_persona_data}[/blue]")
-                            
-                            # Handle different payload formats
-                            description = None
-                            if isinstance(edited_persona_data, dict):
-                                description = edited_persona_data.get("description")
-                            elif isinstance(edited_persona_data, str):
-                                description = edited_persona_data
-                            
-                            if description and isinstance(description, str) and description.strip():
-                                context.selected_detailed_persona = description.strip()
-                                context.current_step = "persona_selected"
-                                console.print(f"[green]ペルソナが編集され選択されました（EditAndProceedPayload）: {description[:100]}...[/green]")
-                                await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message="Persona edited and selected.", image_mode=getattr(context, 'image_mode', False)))
-                                
-                                # Save context after persona editing
-                                if process_id and user_id:
-                                    try:
-                                        await self._save_context_to_db(context, process_id=process_id, user_id=user_id)
-                                        logger.info(f"Context saved successfully after persona editing")
-                                    except Exception as save_err:
-                                        logger.error(f"Failed to save context after persona editing: {save_err}")
-                            else:
-                                await self._send_error(context, f"編集されたペルソナの形式が無効です。受信データ: {edited_persona_data}")
-                                context.current_step = "error"
-                        except (ValidationError, TypeError, AttributeError) as e:
-                            await self._send_error(context, f"ペルソナ編集エラー: {e}")
-                            context.current_step = "error"
-                    elif response_type == UserInputType.EDIT_GENERIC:
-                        try:
-                            # EDIT_GENERIC - generic edit handler for persona step
-                            console.print(f"[yellow]EDIT_GENERIC received for persona step. Payload: {payload}[/yellow]")
-                            
-                            # Handle different payload formats for EDIT_GENERIC
-                            description = None
-                            if hasattr(payload, 'edited_content'):
-                                edited_data = payload.edited_content
-                                if isinstance(edited_data, dict):
-                                    description = edited_data.get("description")
-                                elif isinstance(edited_data, str):
-                                    description = edited_data
-                            elif hasattr(payload, 'description'):
-                                description = payload.description
-                            
-                            if description and isinstance(description, str) and description.strip():
-                                context.selected_detailed_persona = description.strip()
-                                context.current_step = "persona_selected"
-                                console.print(f"[green]ペルソナが編集され選択されました（EDIT_GENERIC）: {description[:100]}...[/green]")
-                                await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message="Persona edited and selected.", image_mode=getattr(context, 'image_mode', False)))
-                                
-                                # Save context after persona editing
-                                if process_id and user_id:
-                                    try:
-                                        await self._save_context_to_db(context, process_id=process_id, user_id=user_id)
-                                        logger.info(f"Context saved successfully after persona editing")
-                                    except Exception as save_err:
-                                        logger.error(f"Failed to save context after persona editing: {save_err}")
-                            else:
-                                await self._send_error(context, f"EDIT_GENERIC: 編集されたペルソナの形式が無効です。受信データ: {payload}")
-                                context.current_step = "error"
-                        except Exception as e:
-                            await self._send_error(context, f"EDIT_GENERIC ペルソナ編集エラー: {e}")
-                            context.current_step = "error"
-                    else:
-                        await self._send_error(context, f"予期しない応答タイプ: {response_type}")
-                        context.current_step = "error"
-                else:
-                    console.print("[red]ペルソナ選択でユーザー応答がありませんでした。[/red]")
-                    context.current_step = "error"
-            else:
-                console.print("[yellow]ペルソナが見つからないため生成ステップに戻します。[/yellow]")
-                context.current_step = "persona_generating"
         
         elif context.current_step == "research_plan_generated":
             if context.research_plan:
@@ -1863,6 +1807,105 @@ class ArticleGenerationService:
             else:
                 console.print("[yellow]リサーチプランが見つからないため生成ステップに戻します。[/yellow]")
                 context.current_step = "research_planning"
+        
+        elif context.current_step == "outline_generated":
+            if context.generated_outline:
+                from schemas.response import OutlineData, OutlineSectionData
+                outline_data = OutlineData(
+                    title=context.generated_outline.title,
+                    suggested_tone=getattr(context.generated_outline, 'suggested_tone', '丁寧で読みやすい解説調'),
+                    sections=[
+                        OutlineSectionData(
+                            heading=section.heading,
+                            estimated_chars=getattr(section, 'estimated_chars', None),
+                            subsections=[
+                                OutlineSectionData(
+                                    heading=sub.heading,
+                                    estimated_chars=getattr(sub, 'estimated_chars', None)
+                                ) for sub in (section.subsections or [])
+                            ] if hasattr(section, 'subsections') and section.subsections else None
+                        ) for section in context.generated_outline.sections
+                    ]
+                )
+                
+                user_response_message = await self._request_user_input(
+                    context,
+                    UserInputType.APPROVE_OUTLINE,
+                    OutlinePayload(outline=outline_data).model_dump()
+                )
+                
+                if user_response_message:
+                    response_type = user_response_message.response_type
+                    payload = user_response_message.payload
+
+                    if response_type == UserInputType.APPROVE_OUTLINE and isinstance(payload, ApprovePayload):
+                        if payload.approved:
+                            context.current_step = "outline_approved"
+                            console.print(f"[green]アウトラインが承認されました。[/green]")
+                            await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message="Outline approved, proceeding to content generation.", image_mode=getattr(context, 'image_mode', False)))
+                            
+                            # Save context after outline approval
+                            if process_id and user_id:
+                                try:
+                                    await self._save_context_to_db(context, process_id=process_id, user_id=user_id)
+                                    logger.info(f"Context saved successfully after outline approval")
+                                except Exception as save_err:
+                                    logger.error(f"Failed to save context after outline approval: {save_err}")
+                        else:
+                            console.print(f"[yellow]アウトラインが承認されませんでした。再生成します。[/yellow]")
+                            context.current_step = "outline_generating"
+                            context.generated_outline = None
+                    elif response_type == UserInputType.REGENERATE:
+                        console.print("[yellow]アウトラインの再生成が要求されました。[/yellow]")
+                        context.current_step = "outline_generating"
+                        context.generated_outline = None
+                    elif response_type == UserInputType.EDIT_AND_PROCEED and isinstance(payload, EditAndProceedPayload):
+                        try:
+                            edited_outline_data = payload.edited_content
+                            from services.models import Outline, OutlineSection
+                            def convert_edited_section_to_model(data):
+                                subsections_data = data.get('subsections', [])
+                                return OutlineSection(
+                                    heading=data['heading'],
+                                    estimated_chars=data.get('estimated_chars'),
+                                    subsections=[convert_edited_section_to_model(s) for s in subsections_data] if subsections_data else None
+                                )
+                            if isinstance(edited_outline_data.get("title"), str) and \
+                               isinstance(edited_outline_data.get("suggested_tone"), str) and \
+                               isinstance(edited_outline_data.get("sections"), list):
+                                context.generated_outline = Outline(
+                                    title=edited_outline_data['title'],
+                                    suggested_tone=edited_outline_data['suggested_tone'],
+                                    sections=[convert_edited_section_to_model(s_data) for s_data in edited_outline_data['sections']],
+                                    status="outline"
+                                )
+                                context.current_step = "outline_approved"
+                                console.print(f"[green]アウトラインが編集され承認されました。[/green]")
+                                await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message="Outline edited and approved.", image_mode=getattr(context, 'image_mode', False)))
+                                
+                                # Save context after outline editing
+                                if process_id and user_id:
+                                    try:
+                                        await self._save_context_to_db(context, process_id=process_id, user_id=user_id)
+                                        logger.info(f"Context saved successfully after outline editing")
+                                    except Exception as save_err:
+                                        logger.error(f"Failed to save context after outline editing: {save_err}")
+                            else:
+                                await self._send_error(context, "編集されたアウトラインの形式が無効です。")
+                                context.current_step = "error"
+                        except (ValidationError, TypeError, AttributeError) as e:
+                            await self._send_error(context, f"アウトライン編集エラー: {e}")
+                            context.current_step = "error"
+                    else:
+                        await self._send_error(context, f"予期しない応答タイプ: {response_type}")
+                        context.current_step = "error"
+                else:
+                    console.print("[red]アウトライン承認でユーザー応答がありませんでした。[/red]")
+                    context.current_step = "error"
+            else:
+                console.print("[yellow]アウトラインが見つからないため生成ステップに戻します。[/yellow]")
+                context.current_step = "outline_generating"
+        
         else:
             console.print(f"[red]未実装のユーザー入力ステップ: {context.current_step}[/red]")
             context.current_step = "error"
