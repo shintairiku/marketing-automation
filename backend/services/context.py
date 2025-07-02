@@ -50,6 +50,10 @@ class ArticleContext:
     image_mode: bool = False # 画像プレースホルダー機能を使用するかどうか
     image_settings: Dict[str, Any] = field(default_factory=dict) # 画像生成設定
     image_placeholders: List[ImagePlaceholder] = field(default_factory=list) # 生成された画像プレースホルダーのリスト
+    
+    # --- スタイルテンプレート関連 (新規追加) ---
+    style_template_id: Optional[str] = None # 使用するスタイルテンプレートのID
+    style_template_settings: Dict[str, Any] = field(default_factory=dict) # スタイルテンプレートの設定内容
 
     # --- SerpAPI分析関連 (新規追加) ---
     serp_analysis_report: Optional[SerpKeywordAnalysisReport] = None # SerpAPIキーワード分析結果

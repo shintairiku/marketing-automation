@@ -11,12 +11,20 @@ export async function GET(
   const searchParams = request.nextUrl.searchParams.toString();
   const url = `${API_BASE_URL}/${pathString}${searchParams ? `?${searchParams}` : ''}`;
 
+  // Forward Authorization header if present
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  };
+  
+  const authHeader = request.headers.get('Authorization');
+  if (authHeader) {
+    headers.Authorization = authHeader;
+  }
+
   try {
     const response = await fetch(url, {
       method: 'GET',
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers,
     });
 
     const data = await response.json();
@@ -47,12 +55,20 @@ export async function POST(
   const url = `${API_BASE_URL}/${pathString}`;
   const body = await request.text();
 
+  // Forward Authorization header if present
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  };
+  
+  const authHeader = request.headers.get('Authorization');
+  if (authHeader) {
+    headers.Authorization = authHeader;
+  }
+
   try {
     const response = await fetch(url, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers,
       body,
     });
 
@@ -84,12 +100,20 @@ export async function PUT(
   const url = `${API_BASE_URL}/${pathString}`;
   const body = await request.text();
 
+  // Forward Authorization header if present
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  };
+  
+  const authHeader = request.headers.get('Authorization');
+  if (authHeader) {
+    headers.Authorization = authHeader;
+  }
+
   try {
     const response = await fetch(url, {
       method: 'PUT',
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers,
       body,
     });
 
@@ -120,12 +144,20 @@ export async function DELETE(
   const pathString = pathArray.join('/');
   const url = `${API_BASE_URL}/${pathString}`;
 
+  // Forward Authorization header if present
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  };
+  
+  const authHeader = request.headers.get('Authorization');
+  if (authHeader) {
+    headers.Authorization = authHeader;
+  }
+
   try {
     const response = await fetch(url, {
       method: 'DELETE',
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers,
     });
 
     const data = await response.json();

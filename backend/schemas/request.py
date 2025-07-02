@@ -39,6 +39,9 @@ class GenerateArticleRequest(BaseModel):
     # --- 画像モード関連 (新規追加) ---
     image_mode: bool = Field(False, description="画像プレースホルダー機能を使用するかどうか")
     image_settings: Optional[dict] = Field(None, description="画像生成設定")
+    
+    # --- スタイルテンプレート関連 (新規追加) ---
+    style_template_id: Optional[str] = Field(None, description="使用するスタイルテンプレートのID")
 
     class Config:
         json_schema_extra = {

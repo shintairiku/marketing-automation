@@ -12,6 +12,7 @@ from api.endpoints import article as article_router
 from api.endpoints import organization as organization_router
 from api.endpoints import article_flow as article_flow_router
 from api.endpoints import company as company_router
+from api.endpoints import style_templates as style_templates_router
 from routers import images as images_router
 from core.config import settings
 from core.exceptions import exception_handlers
@@ -42,6 +43,7 @@ app.include_router(article_router.router, prefix="/articles", tags=["Articles"])
 app.include_router(organization_router.router, prefix="/organizations", tags=["Organizations"])
 app.include_router(article_flow_router.router, prefix="/article-flows", tags=["Article Flows"])
 app.include_router(company_router.router, prefix="/companies", tags=["Companies"])
+app.include_router(style_templates_router.router, prefix="/style-templates", tags=["Style Templates"])
 app.include_router(images_router.router, tags=["Images"])
 
 # 生成された画像の静的ファイル配信
