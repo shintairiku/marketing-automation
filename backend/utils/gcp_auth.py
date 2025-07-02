@@ -34,22 +34,63 @@ class GCPAuthManager:
             json_file_path = os.getenv('GOOGLE_SERVICE_ACCOUNT_JSON_FILE')
             json_content = os.getenv('GOOGLE_SERVICE_ACCOUNT_JSON')
             
+            logger.info(f"Environment check - JSON_FILE: {json_file_path}, JSON_CONTENT: {'Present' if json_content else 'None'}")
+            
+            # If relative path, make it absolute from the project root
+            if json_file_path and not os.path.isabs(json_file_path):
+                # Get project root (go up from backend to project root)
+                current_dir = os.path.dirname(os.path.abspath(__file__))
+                project_root = os.path.dirname(os.path.dirname(current_dir))
+                old_path = json_file_path
+                json_file_path = os.path.join(project_root, json_file_path)
+                logger.info(f"Path resolution: '{old_path}' -> '{json_file_path}'")
+            
             if json_file_path and os.path.exists(json_file_path):
-                logger.info("Using service account JSON file for authentication")
+                file_size = os.path.getsize(json_file_path)
+                logger.info(f"Using service account JSON file for authentication: {json_file_path} (size: {file_size} bytes)")
+                
+                # First, validate the JSON file content
+                try:
+                    with open(json_file_path, 'r', encoding='utf-8') as f:
+                        service_account_info = json.load(f)
+                        required_fields = ['type', 'project_id', 'private_key_id', 'private_key', 'client_email']
+                        missing_fields = [field for field in required_fields if field not in service_account_info]
+                        if missing_fields:
+                            raise ValueError(f"Missing required fields in service account JSON: {missing_fields}")
+                        
+                        self._project_id = service_account_info.get('project_id')
+                        logger.info(f"Validated JSON file for project: {self._project_id}")
+                
+                except json.JSONDecodeError as e:
+                    raise ValueError(f"Invalid JSON format in service account file: {e}")
+                except Exception as e:
+                    raise ValueError(f"Error reading service account file: {e}")
+                
+                # Now create credentials
                 self._credentials = service_account.Credentials.from_service_account_file(
                     json_file_path
                 )
-                with open(json_file_path, 'r') as f:
-                    service_account_info = json.load(f)
-                    self._project_id = service_account_info.get('project_id')
                     
             elif json_content:
                 logger.info("Using service account JSON content for authentication")
-                service_account_info = json.loads(json_content)
-                self._credentials = service_account.Credentials.from_service_account_info(
-                    service_account_info
-                )
-                self._project_id = service_account_info.get('project_id')
+                try:
+                    service_account_info = json.loads(json_content)
+                    required_fields = ['type', 'project_id', 'private_key_id', 'private_key', 'client_email']
+                    missing_fields = [field for field in required_fields if field not in service_account_info]
+                    if missing_fields:
+                        raise ValueError(f"Missing required fields in service account JSON content: {missing_fields}")
+                    
+                    self._project_id = service_account_info.get('project_id')
+                    logger.info(f"Validated JSON content for project: {self._project_id}")
+                    
+                    self._credentials = service_account.Credentials.from_service_account_info(
+                        service_account_info
+                    )
+                    
+                except json.JSONDecodeError as e:
+                    raise ValueError(f"Invalid JSON format in service account content: {e}")
+                except Exception as e:
+                    raise ValueError(f"Error parsing service account content: {e}")
                 
             else:
                 # Use default credentials (Cloud Run, Compute Engine, etc.)
