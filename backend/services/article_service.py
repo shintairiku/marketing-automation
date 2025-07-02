@@ -823,6 +823,18 @@ class ArticleGenerationService:
                 initial_data = await websocket.receive_json()
                 request = GenerateArticleRequest(**initial_data) # バリデーション
 
+                # スタイルテンプレートの取得と設定
+                style_template_settings = {}
+                if request.style_template_id:
+                    try:
+                        from database.supabase_client import supabase
+                        result = supabase.table("style_guide_templates").select("settings").eq("id", request.style_template_id).execute()
+                        if result.data:
+                            style_template_settings = result.data[0].get("settings", {})
+                            console.print(f"[cyan]Loaded style template {request.style_template_id} with settings: {style_template_settings}[/cyan]")
+                    except Exception as e:
+                        logger.warning(f"Failed to load style template {request.style_template_id}: {e}")
+
                 # コンテキストと実行設定を初期化
                 context = ArticleContext(
                 initial_keywords=request.initial_keywords,
@@ -839,6 +851,9 @@ class ArticleGenerationService:
                 # 画像モード設定追加
                 image_mode=request.image_mode,
                 image_settings=request.image_settings or {},
+                # スタイルテンプレート設定追加
+                style_template_id=request.style_template_id,
+                style_template_settings=style_template_settings,
                 websocket=websocket, # WebSocketオブジェクトをコンテキストに追加
                     user_response_event=asyncio.Event(), # ユーザー応答待ちイベント
                     user_id=user_id # ユーザーIDを設定
@@ -3314,6 +3329,9 @@ class ArticleGenerationService:
                 # 画像モード関連の復元
                 image_mode=context_dict.get("image_mode", False),
                 image_settings=context_dict.get("image_settings", {}),
+                # スタイルテンプレート関連の復元
+                style_template_id=context_dict.get("style_template_id"),
+                style_template_settings=context_dict.get("style_template_settings", {}),
                 websocket=None,  # Will be set when WebSocket connects
                 user_response_event=None,  # Will be set when WebSocket connects
                 user_id=user_id  # Set user_id from method parameter

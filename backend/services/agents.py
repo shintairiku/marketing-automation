@@ -26,6 +26,43 @@ def get_current_date_context() -> str:
     except Exception as e:
         return f"現在の日時: {datetime.now().strftime('%Y年%m月%d日')}"
 
+def build_style_context(ctx: ArticleContext) -> str:
+    """スタイルガイドコンテキストを構築（カスタムテンプレート優先）"""
+    if hasattr(ctx, 'style_template_settings') and ctx.style_template_settings:
+        # カスタムスタイルテンプレートが設定されている場合
+        style_parts = ["=== カスタムスタイルガイド ==="]
+        
+        if ctx.style_template_settings.get('tone'):
+            style_parts.append(f"トーン・調子: {ctx.style_template_settings['tone']}")
+        
+        if ctx.style_template_settings.get('style'):
+            style_parts.append(f"文体: {ctx.style_template_settings['style']}")
+        
+        if ctx.style_template_settings.get('approach'):
+            style_parts.append(f"アプローチ・方針: {ctx.style_template_settings['approach']}")
+        
+        if ctx.style_template_settings.get('vocabulary'):
+            style_parts.append(f"語彙・表現の指針: {ctx.style_template_settings['vocabulary']}")
+        
+        if ctx.style_template_settings.get('structure'):
+            style_parts.append(f"記事構成の指針: {ctx.style_template_settings['structure']}")
+        
+        if ctx.style_template_settings.get('special_instructions'):
+            style_parts.append(f"特別な指示: {ctx.style_template_settings['special_instructions']}")
+        
+        style_parts.append("")
+        style_parts.append("**重要: 上記のカスタムスタイルガイドに従って執筆してください。従来のデフォルトスタイルは適用せず、このカスタム設定を優先してください。**")
+        
+        return "\n".join(style_parts)
+    
+    elif hasattr(ctx, 'company_style_guide') and ctx.company_style_guide:
+        # 従来の会社スタイルガイドがある場合
+        return f"=== 会社スタイルガイド ===\n文体・トンマナ: {ctx.company_style_guide}"
+    
+    else:
+        # デフォルトスタイル
+        return "=== デフォルトスタイルガイド ===\n親しみやすく分かりやすい文章で、読者に寄り添うトーン。専門用語を避け、日本の一般的なブログやコラムのような自然で人間味あふれる表現を使用。"
+
 def build_enhanced_company_context(ctx: ArticleContext) -> str:
     """拡張された会社情報コンテキストを構築"""
     if not hasattr(ctx, 'company_name') or not ctx.company_name:
@@ -68,10 +105,6 @@ def build_enhanced_company_context(ctx: ArticleContext) -> str:
     
     if hasattr(ctx, 'company_target_area') and ctx.company_target_area:
         company_parts.append(f"対象エリア: {ctx.company_target_area}")
-    
-    # 文体ガイド（従来）
-    if hasattr(ctx, 'company_style_guide') and ctx.company_style_guide:
-        company_parts.append(f"文体・トンマナ: {ctx.company_style_guide}")
     
     if hasattr(ctx, 'past_articles_summary') and ctx.past_articles_summary:
         company_parts.append(f"過去記事傾向: {ctx.past_articles_summary}")
@@ -331,7 +364,8 @@ def create_section_writer_with_images_instructions(base_prompt: str) -> Callable
             research_context_str += f"- {kp.point} (出典: {sources_str})\n"
         research_context_str += f"参照した全情報源URL数: {len(ctx.context.research_report.all_sources)}\n"
 
-        company_style_guide = ctx.context.company_style_guide or '指定なし'
+        # スタイルガイドコンテキストを構築
+        style_guide_context = build_style_context(ctx.context)
 
         full_prompt = f"""{base_prompt}
 
@@ -340,7 +374,8 @@ def create_section_writer_with_images_instructions(base_prompt: str) -> Callable
 記事全体のキーワード: {', '.join(ctx.context.selected_theme.keywords) if ctx.context.selected_theme else 'N/A'}
 記事全体のトーン: {ctx.context.generated_outline.suggested_tone}
 ターゲットペルソナ詳細:\n{persona_description}
-企業スタイルガイド: {company_style_guide}
+
+{style_guide_context}
 記事のアウトライン（全体像）:
 {outline_context}
 --- 詳細なリサーチ情報 ---
@@ -455,6 +490,9 @@ def create_section_writer_instructions(base_prompt: str) -> Callable[[RunContext
         # 拡張された会社情報コンテキストを使用
         company_info_str = build_enhanced_company_context(ctx.context)
         
+        # スタイルガイドコンテキストを構築
+        style_guide_context = build_style_context(ctx.context)
+        
         # 日付コンテキストを追加
         date_context = get_current_date_context()
 
@@ -470,6 +508,8 @@ def create_section_writer_instructions(base_prompt: str) -> Callable[[RunContext
 
 === 企業情報 ===
 {company_info_str}
+
+{style_guide_context}
 記事のアウトライン（全体像）:
 {outline_context}
 --- 詳細なリサーチ情報 ---
@@ -530,6 +570,9 @@ def create_editor_instructions(base_prompt: str) -> Callable[[RunContextWrapper[
         # 拡張された会社情報コンテキストを使用
         company_info_str = build_enhanced_company_context(ctx.context)
         
+        # スタイルガイドコンテキストを構築
+        style_guide_context = build_style_context(ctx.context)
+        
         # 日付コンテキストを追加
         date_context = get_current_date_context()
 
@@ -553,6 +596,8 @@ def create_editor_instructions(base_prompt: str) -> Callable[[RunContextWrapper[
 
 === 企業情報 ===
 {company_info_str}
+
+{style_guide_context}
 --- 詳細なリサーチ情報 ---
 {research_context_str[:10000]}
 { "... (以下省略)" if len(research_context_str) > 10000 else "" }

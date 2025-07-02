@@ -1,6 +1,6 @@
 "use client";
 import { useState, useEffect } from 'react';
-import { ChevronDown, ChevronUp, Image, Plus, X, Settings } from "lucide-react";
+import { ChevronDown, ChevronUp, Image, Plus, X, Settings, Palette } from "lucide-react";
 import { IoRefresh, IoSparkles } from "react-icons/io5";
 import Link from 'next/link';
 
@@ -15,6 +15,7 @@ import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { useDefaultCompany } from '@/hooks/useDefaultCompany';
+import { useAuth } from '@clerk/nextjs';
 
 interface InputSectionProps {
   onStartGeneration: (data: any) => void;
@@ -23,6 +24,7 @@ interface InputSectionProps {
 }
 
 export default function InputSection({ onStartGeneration, isConnected, isGenerating }: InputSectionProps) {
+    const { getToken } = useAuth();
     const [seoKeywords, setSeoKeywords] = useState<string[]>([]);
     const [currentKeyword, setCurrentKeyword] = useState('');
     const [themeCount, setThemeCount] = useState(3);
@@ -38,6 +40,10 @@ export default function InputSection({ onStartGeneration, isConnected, isGenerat
     const [imageMode, setImageMode] = useState(false);
     const [imageSettings, setImageSettings] = useState({});
     
+    // スタイルテンプレート関連の状態
+    const [styleTemplates, setStyleTemplates] = useState([]);
+    const [selectedStyleTemplate, setSelectedStyleTemplate] = useState('');
+    
     // デフォルト会社情報を取得
     const { company, loading: companyLoading, hasCompany } = useDefaultCompany();
 
@@ -47,6 +53,39 @@ export default function InputSection({ onStartGeneration, isConnected, isGenerat
             setPersonaType('会社設定');
         }
     }, [company?.target_persona, personaType]);
+
+    // スタイルテンプレートを取得
+    useEffect(() => {
+        const fetchStyleTemplates = async () => {
+            try {
+                const token = await getToken();
+                const headers: Record<string, string> = {
+                    'Content-Type': 'application/json',
+                };
+                
+                if (token) {
+                    headers.Authorization = `Bearer ${token}`;
+                }
+                
+                const response = await fetch('/api/proxy/style-templates', {
+                    headers,
+                });
+                if (response.ok) {
+                    const templates = await response.json();
+                    setStyleTemplates(templates);
+                    // デフォルトテンプレートがあれば自動選択
+                    const defaultTemplate = templates.find(t => t.is_default);
+                    if (defaultTemplate) {
+                        setSelectedStyleTemplate(defaultTemplate.id);
+                    }
+                }
+            } catch (error) {
+                console.error('スタイルテンプレートの取得に失敗しました:', error);
+            }
+        };
+        
+        fetchStyleTemplates();
+    }, [getToken]);
 
     // キーワード追加関数
     const addKeyword = () => {
@@ -115,6 +154,8 @@ export default function InputSection({ onStartGeneration, isConnected, isGenerat
             // 画像モード設定を追加
             image_mode: imageMode,
             image_settings: imageSettings,
+            // スタイルテンプレート設定を追加
+            style_template_id: (selectedStyleTemplate && selectedStyleTemplate !== 'default') ? selectedStyleTemplate : null,
         };
 
         console.log('📦 Request data being sent:', requestData);
@@ -241,7 +282,70 @@ export default function InputSection({ onStartGeneration, isConnected, isGenerat
             </CardContent>
           </Card>
 
-          {/* Card3: テーマ数 */}
+          {/* Card3: スタイルテンプレート */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-lg flex items-center gap-2">
+                <Palette className="h-5 w-5" />
+                記事スタイル設定
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-4">
+                <Select value={selectedStyleTemplate} onValueChange={setSelectedStyleTemplate}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="スタイルテンプレートを選択" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="default">デフォルトスタイル</SelectItem>
+                    {styleTemplates.map((template) => (
+                      <SelectItem key={template.id} value={template.id}>
+                        {template.name}
+                        {template.is_default && " (デフォルト)"}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                
+                {selectedStyleTemplate && selectedStyleTemplate !== 'default' && (
+                  <div className="p-3 bg-purple-50 border border-purple-200 rounded-lg">
+                    {(() => {
+                      const template = styleTemplates.find(t => t.id === selectedStyleTemplate);
+                      return template ? (
+                        <div className="space-y-2">
+                          <div className="text-sm font-medium text-purple-900">{template.name}</div>
+                          {template.description && (
+                            <div className="text-sm text-purple-800">{template.description}</div>
+                          )}
+                          <div className="text-xs text-purple-700 space-y-1">
+                            {template.settings.tone && <div>トーン: {template.settings.tone}</div>}
+                            {template.settings.style && <div>文体: {template.settings.style}</div>}
+                            {template.settings.approach && <div>アプローチ: {template.settings.approach}</div>}
+                          </div>
+                        </div>
+                      ) : null;
+                    })()}
+                  </div>
+                )}
+                
+                {(!selectedStyleTemplate || selectedStyleTemplate === 'default') && (
+                  <div className="p-3 bg-gray-50 border border-gray-200 rounded-lg">
+                    <div className="text-sm text-gray-800">
+                      デフォルトスタイル: 親しみやすく分かりやすい文章で、読者に寄り添うトーン
+                    </div>
+                  </div>
+                )}
+                
+                <div className="text-xs text-gray-500">
+                  <Link href="/settings/style-guide" className="text-blue-600 hover:text-blue-800 underline">
+                    スタイルテンプレートを管理
+                  </Link>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Card4: テーマ数 */}
           <Card>
             <CardHeader>
               <CardTitle className="text-lg">生成テーマ数</CardTitle>
@@ -268,7 +372,7 @@ export default function InputSection({ onStartGeneration, isConnected, isGenerat
             </CardContent>
           </Card>
 
-          {/* Card4: ターゲット年代層 */}
+          {/* Card5: ターゲット年代層 */}
           <Card>
             <CardHeader>
               <CardTitle className="text-lg">ターゲット年代層 *</CardTitle>
@@ -293,7 +397,7 @@ export default function InputSection({ onStartGeneration, isConnected, isGenerat
             </CardContent>
           </Card>
 
-          {/* Card4: ペルソナ */}
+          {/* Card6: ペルソナ */}
           <Card>
             <CardHeader>
               <CardTitle className="text-lg">ペルソナ設定</CardTitle>
