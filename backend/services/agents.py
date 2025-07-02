@@ -2,6 +2,8 @@
 # 既存のスクリプトからエージェント定義とプロンプト生成関数をここに移動・整理
 from typing import List, Dict, Union, Optional, Tuple, Any, Literal, Callable, Awaitable
 from agents import Agent, RunContextWrapper, ModelSettings
+from datetime import datetime, timezone
+import locale
 # 循環参照を避けるため、モデル、ツール、コンテキストは直接インポートしない
 # from .models import AgentOutput, ResearchQueryResult, ResearchReport, Outline, RevisedArticle
 # from .tools import web_search_tool, analyze_competitors, get_company_data
@@ -13,6 +15,69 @@ from core.config import settings # 設定をインポート
 from schemas.request import PersonaType # 修正
 from openai import AsyncOpenAI
 
+# --- ヘルパー関数 ---
+
+def get_current_date_context() -> str:
+    """現在の日付コンテキストを取得"""
+    try:
+        now = datetime.now(timezone.utc)
+        japan_time = now.astimezone()
+        return f"現在の日時: {japan_time.strftime('%Y年%m月%d日')}"
+    except Exception as e:
+        return f"現在の日時: {datetime.now().strftime('%Y年%m月%d日')}"
+
+def build_enhanced_company_context(ctx: ArticleContext) -> str:
+    """拡張された会社情報コンテキストを構築"""
+    if not hasattr(ctx, 'company_name') or not ctx.company_name:
+        return "企業情報: 未設定（一般的な記事として作成）"
+    
+    company_parts = []
+    
+    # 基本情報
+    company_parts.append(f"企業名: {ctx.company_name}")
+    
+    if hasattr(ctx, 'company_description') and ctx.company_description:
+        company_parts.append(f"概要: {ctx.company_description}")
+    
+    if hasattr(ctx, 'company_usp') and ctx.company_usp:
+        company_parts.append(f"USP・強み: {ctx.company_usp}")
+    
+    if hasattr(ctx, 'company_website_url') and ctx.company_website_url:
+        company_parts.append(f"ウェブサイト: {ctx.company_website_url}")
+    
+    if hasattr(ctx, 'company_target_persona') and ctx.company_target_persona:
+        company_parts.append(f"主要ターゲット: {ctx.company_target_persona}")
+    
+    # ブランディング情報
+    if hasattr(ctx, 'company_brand_slogan') and ctx.company_brand_slogan:
+        company_parts.append(f"ブランドスローガン: {ctx.company_brand_slogan}")
+    
+    # SEO・コンテンツ戦略
+    if hasattr(ctx, 'company_target_keywords') and ctx.company_target_keywords:
+        company_parts.append(f"重要キーワード: {ctx.company_target_keywords}")
+    
+    if hasattr(ctx, 'company_industry_terms') and ctx.company_industry_terms:
+        company_parts.append(f"業界専門用語: {ctx.company_industry_terms}")
+    
+    if hasattr(ctx, 'company_avoid_terms') and ctx.company_avoid_terms:
+        company_parts.append(f"避けるべき表現: {ctx.company_avoid_terms}")
+    
+    # コンテンツ参考情報
+    if hasattr(ctx, 'company_popular_articles') and ctx.company_popular_articles:
+        company_parts.append(f"人気記事参考: {ctx.company_popular_articles}")
+    
+    if hasattr(ctx, 'company_target_area') and ctx.company_target_area:
+        company_parts.append(f"対象エリア: {ctx.company_target_area}")
+    
+    # 文体ガイド（従来）
+    if hasattr(ctx, 'company_style_guide') and ctx.company_style_guide:
+        company_parts.append(f"文体・トンマナ: {ctx.company_style_guide}")
+    
+    if hasattr(ctx, 'past_articles_summary') and ctx.past_articles_summary:
+        company_parts.append(f"過去記事傾向: {ctx.past_articles_summary}")
+    
+    return "\n".join(company_parts)
+
 # --- 動的プロンプト生成関数 ---
 # (既存のスクリプトからコピーし、インポートパスを修正)
 
@@ -21,7 +86,12 @@ def create_theme_instructions(base_prompt: str) -> Callable[[RunContextWrapper[A
         if not ctx.context.selected_detailed_persona:
             raise ValueError("テーマ提案のための詳細なペルソナが選択されていません。")
         persona_description = ctx.context.selected_detailed_persona
-        company_info_str = f"企業名: {ctx.context.company_name}\n概要: {ctx.context.company_description}\n文体ガイド: {ctx.context.company_style_guide}\n過去記事傾向: {ctx.context.past_articles_summary}" if ctx.context.company_name else "企業情報なし"
+        
+        # 拡張された会社情報コンテキストを使用
+        company_info_str = build_enhanced_company_context(ctx.context)
+        
+        # 日付コンテキストを追加
+        date_context = get_current_date_context()
         
         # SerpAPI分析結果を含める
         seo_analysis_str = ""
@@ -46,13 +116,23 @@ def create_theme_instructions(base_prompt: str) -> Callable[[RunContextWrapper[A
         
         full_prompt = f"""{base_prompt}
 
+{date_context}
+
 --- 入力情報 ---
 キーワード: {', '.join(ctx.context.initial_keywords)}
 ターゲットペルソナ詳細:\n{persona_description}
 提案するテーマ数: {ctx.context.num_theme_proposals}
-企業情報:\n{company_info_str}
+
+=== 企業情報 ===
+{company_info_str}
+
 {seo_analysis_str}
 ---
+
+**重要な注意事項:**
+- 企業情報を活用して、その企業らしさが出るテーマを提案してください
+- 日付情報を考慮し、季節やタイミングに適したコンテンツを提案してください
+- 企業のターゲット顧客や強みを反映した独自性のあるアプローチを心がけてください
 
 あなたの応答は必ず `ThemeProposal` または `ClarificationNeeded` 型のJSON形式で出力してください。
 """
@@ -281,7 +361,7 @@ def create_section_writer_with_images_instructions(base_prompt: str) -> Callable
 - 読者に直接語りかけるような表現（例：「〜だと思いませんか？」「まずは〜から始めてみましょう！」「〜なんてこともありますよね」）や、共感を誘うような言葉遣いを積極的に使用してください。
 - 専門用語は避け、どうしても必要な場合は簡単な言葉で補足説明を加えてください。箇条書きなども活用し、情報を整理して伝えると良いでしょう。
 - 可能であれば、具体的な体験談（想像でも構いません）や、読者が抱きそうな疑問に答えるような形で内容を構成すると、より読者の心に響きます。
-- 企業スタイルガイド「{company_style_guide}」も必ず遵守してください。
+- 企業情報に記載された文体・トンマナ要件も必ず遵守してください。
 ---
 
 --- **【画像プレースホルダーについて】** ---
@@ -372,16 +452,24 @@ def create_section_writer_instructions(base_prompt: str) -> Callable[[RunContext
             research_context_str += f"- {kp.point} (出典: {sources_str})\n"
         research_context_str += f"参照した全情報源URL数: {len(ctx.context.research_report.all_sources)}\n"
 
-        company_style_guide = ctx.context.company_style_guide or '指定なし'
+        # 拡張された会社情報コンテキストを使用
+        company_info_str = build_enhanced_company_context(ctx.context)
+        
+        # 日付コンテキストを追加
+        date_context = get_current_date_context()
 
         full_prompt = f"""{base_prompt}
+
+{date_context}
 
 --- 記事全体の情報 ---
 記事タイトル: {ctx.context.generated_outline.title}
 記事全体のキーワード: {', '.join(ctx.context.selected_theme.keywords) if ctx.context.selected_theme else 'N/A'}
 記事全体のトーン: {ctx.context.generated_outline.suggested_tone}
 ターゲットペルソナ詳細:\n{persona_description}
-企業スタイルガイド: {company_style_guide}
+
+=== 企業情報 ===
+{company_info_str}
 記事のアウトライン（全体像）:
 {outline_context}
 --- 詳細なリサーチ情報 ---
@@ -400,7 +488,7 @@ def create_section_writer_instructions(base_prompt: str) -> Callable[[RunContext
 - 読者に直接語りかけるような表現（例：「〜だと思いませんか？」「まずは〜から始めてみましょう！」「〜なんてこともありますよね」）や、共感を誘うような言葉遣いを積極的に使用してください。
 - 専門用語は避け、どうしても必要な場合は簡単な言葉で補足説明を加えてください。箇条書きなども活用し、情報を整理して伝えると良いでしょう。
 - 可能であれば、具体的な体験談（想像でも構いません）や、読者が抱きそうな疑問に答えるような形で内容を構成すると、より読者の心に響きます。
-- 企業スタイルガイド「{company_style_guide}」も必ず遵守してください。
+- 企業情報に記載された文体・トンマナ要件も必ず遵守してください。
 ---
 
 --- 執筆ルール ---
@@ -439,7 +527,15 @@ def create_editor_instructions(base_prompt: str) -> Callable[[RunContextWrapper[
             research_context_str += f"- {kp.point} (出典: {sources_str})\n"
         research_context_str += f"参照した全情報源URL数: {len(ctx.context.research_report.all_sources)}\n"
 
+        # 拡張された会社情報コンテキストを使用
+        company_info_str = build_enhanced_company_context(ctx.context)
+        
+        # 日付コンテキストを追加
+        date_context = get_current_date_context()
+
         full_prompt = f"""{base_prompt}
+
+{date_context}
 
 --- 編集対象記事ドラフト (HTML) ---
 ```html
@@ -454,7 +550,9 @@ def create_editor_instructions(base_prompt: str) -> Callable[[RunContextWrapper[
 ターゲットペルソナ詳細:\n{persona_description}
 目標文字数: {ctx.context.target_length or '指定なし'}
 トーン: {ctx.context.generated_outline.suggested_tone if ctx.context.generated_outline else 'N/A'}
-企業スタイルガイド: {ctx.context.company_style_guide or '指定なし'}
+
+=== 企業情報 ===
+{company_info_str}
 --- 詳細なリサーチ情報 ---
 {research_context_str[:10000]}
 { "... (以下省略)" if len(research_context_str) > 10000 else "" }
@@ -729,6 +827,7 @@ section_writer_agent = Agent[ArticleContext](
     name="SectionWriterAgent",
     instructions=create_section_writer_instructions(SECTION_WRITER_AGENT_BASE_PROMPT),
     model=settings.writing_model,
+    model_settings=ModelSettings(max_tokens=32768),  # 最大出力トークン数設定
     # output_type を削除 (構造化出力を強制しない)
 )
 
@@ -746,6 +845,7 @@ section_writer_with_images_agent = Agent[ArticleContext](
     name="SectionWriterWithImagesAgent",
     instructions=create_section_writer_with_images_instructions(SECTION_WRITER_WITH_IMAGES_AGENT_BASE_PROMPT),
     model=settings.writing_model,
+    model_settings=ModelSettings(max_tokens=32768),  # 最大出力トークン数設定
     output_type=ArticleSectionWithImages,
 )
 
@@ -757,12 +857,18 @@ EDITOR_AGENT_BASE_PROMPT = """
 リサーチ情報との整合性、事実確認、含まれるHTMLリンクの適切性も厳しくチェックします。
 文章の流れ、一貫性、正確性、文法、読みやすさ、独創性、そしてSEO最適化の観点から、最高品質の記事に仕上げることを目指します。
 必要であれば `web_search` ツールでファクトチェックや追加情報を調査します。
+
+**重要な制約事項:**
+- JSON出力時は、HTMLコンテンツ内のダブルクォート（"）をエスケープし、改行は\\nで表現する
+- 完全で有効なJSONフォーマットで出力することを厳守する
+
 最終的な成果物として、編集済みの完全なHTMLコンテンツを出力します。
 """
 editor_agent = Agent[ArticleContext](
     name="EditorAgent",
     instructions=create_editor_instructions(EDITOR_AGENT_BASE_PROMPT),
     model=settings.editing_model,
+    model_settings=ModelSettings(max_tokens=32768),  # 最大出力トークン数設定
     tools=[web_search_tool],
     output_type=RevisedArticle, # 修正: RevisedArticleを返す
 )

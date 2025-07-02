@@ -25,9 +25,25 @@ class ArticleContext:
     vector_store_id: Optional[str] = None # File Search用
     num_research_queries: int = 5 # リサーチクエリ数の上限
     num_persona_examples: int = 3 # 追加: 生成する具体的なペルソナの数
+    # 会社情報 - 基本情報
     company_name: Optional[str] = None
     company_description: Optional[str] = None
+    company_usp: Optional[str] = None
+    company_website_url: Optional[str] = None
+    company_target_persona: Optional[str] = None
+    
+    # 会社情報 - ブランディング
+    company_brand_slogan: Optional[str] = None
     company_style_guide: Optional[str] = None # 文体、トンマナなど
+    
+    # 会社情報 - SEO・コンテンツ戦略
+    company_target_keywords: Optional[str] = None
+    company_industry_terms: Optional[str] = None
+    company_avoid_terms: Optional[str] = None
+    company_popular_articles: Optional[str] = None
+    company_target_area: Optional[str] = None
+    
+    # 過去記事情報
     past_articles_summary: Optional[str] = None # 過去記事の傾向 (ツールで取得想定)
     
     # --- 画像モード関連 (新規追加) ---

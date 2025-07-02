@@ -22,7 +22,7 @@ from schemas.request import GenerateArticleRequest
 from schemas.response import (
     WebSocketMessage, ServerEventMessage, ClientResponseMessage, UserActionPayload,
     StatusUpdatePayload, ThemeProposalPayload, ResearchPlanPayload, ResearchProgressPayload,
-    ResearchCompletePayload, OutlinePayload, SectionChunkPayload, EditingStartPayload,
+    ResearchCompletePayload, OutlinePayload, SectionChunkPayload, EditingStartPayload, ImagePlaceholderData,
     FinalResultPayload, ErrorPayload, UserInputRequestPayload, UserInputType,
     SelectThemePayload, ApprovePayload, GeneratedPersonasPayload, SelectPersonaPayload, GeneratedPersonaData, EditAndProceedPayload, RegeneratePayload, ThemeProposalData,
     ResearchPlanData, ResearchPlanQueryData,
@@ -638,7 +638,6 @@ class ArticleGenerationService:
                 if context.websocket:
                     if is_image_mode and isinstance(agent_output, ArticleSectionWithImages):
                         # 画像モードの場合：セクション完了時に完全なコンテンツと画像プレースホルダー情報を送信
-                        from schemas.response import ImagePlaceholderData
                         
                         image_placeholders_data = [
                             ImagePlaceholderData(
@@ -1111,9 +1110,7 @@ class ArticleGenerationService:
                 # Check WebSocket state before attempting to send
                 if context.websocket.client_state == WebSocketState.CONNECTED:
                     message = ServerEventMessage(payload=payload)
-                    console.print(f"[cyan]📤 Sending WebSocket message: {type(payload).__name__}[/cyan]")
                     await context.websocket.send_json(message.model_dump())
-                    console.print(f"[cyan]✅ Message sent successfully[/cyan]")
                 else:
                     console.print("[yellow]WebSocket not connected, skipping message send.[/yellow]")
             except WebSocketDisconnect:
@@ -2712,7 +2709,6 @@ class ArticleGenerationService:
                                 console.print(f"[magenta]🔍 WebSocket notification check: websocket={context.websocket is not None}, target_index={target_index}, target_heading='{target_heading}'[/magenta]")
                                 if context.websocket:
                                     try:
-                                        from schemas.response import ImagePlaceholderData, SectionChunkPayload
                                         
                                         console.print(f"[magenta]🔍 Agent output has image_placeholders: {hasattr(agent_output, 'image_placeholders')}, count: {len(getattr(agent_output, 'image_placeholders', []))}[/magenta]")
                                         

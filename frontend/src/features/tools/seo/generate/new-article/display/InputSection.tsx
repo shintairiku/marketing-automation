@@ -1,7 +1,8 @@
 "use client";
-import { useState } from 'react';
-import { ChevronDown, ChevronUp, Image,Plus, X } from "lucide-react";
+import { useState, useEffect } from 'react';
+import { ChevronDown, ChevronUp, Image, Plus, X, Settings } from "lucide-react";
 import { IoRefresh, IoSparkles } from "react-icons/io5";
+import Link from 'next/link';
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -13,6 +14,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
+import { useDefaultCompany } from '@/hooks/useDefaultCompany';
 
 interface InputSectionProps {
   onStartGeneration: (data: any) => void;
@@ -30,14 +32,21 @@ export default function InputSection({ onStartGeneration, isConnected, isGenerat
     const [targetLength, setTargetLength] = useState(3000);
     const [researchQueries, setResearchQueries] = useState(3);
     const [personaExamples, setPersonaExamples] = useState(3);
-    const [companyName, setCompanyName] = useState('');
-    const [companyDescription, setCompanyDescription] = useState('');
-    const [companyStyleGuide, setCompanyStyleGuide] = useState('');
     const [showAdvanced, setShowAdvanced] = useState(false);
     
     // 画像モード関連の状態
     const [imageMode, setImageMode] = useState(false);
     const [imageSettings, setImageSettings] = useState({});
+    
+    // デフォルト会社情報を取得
+    const { company, loading: companyLoading, hasCompany } = useDefaultCompany();
+
+    // 会社のペルソナをデフォルト選択として設定
+    useEffect(() => {
+        if (company?.target_persona && !personaType) {
+            setPersonaType('会社設定');
+        }
+    }, [company?.target_persona, personaType]);
 
     // キーワード追加関数
     const addKeyword = () => {
@@ -72,18 +81,37 @@ export default function InputSection({ onStartGeneration, isConnected, isGenerat
             return;
         }
 
+        // ペルソナ設定の処理
+        let effectivePersonaType = personaType;
+        let effectiveCustomPersona = customPersona;
+        
+        // 会社設定のペルソナが選択されている場合
+        if (personaType === '会社設定' && company?.target_persona) {
+            effectivePersonaType = 'その他'; // バックエンドでは「その他」として扱う
+            effectiveCustomPersona = company.target_persona; // 会社のペルソナをカスタムペルソナとして使用
+        }
+
         const requestData = {
             initial_keywords: seoKeywords,
             target_age_group: targetAgeGroup,
             num_theme_proposals: themeCount,
             num_research_queries: researchQueries,
             num_persona_examples: personaExamples,
-            persona_type: personaType || null,
-            custom_persona: customPersona || null,
+            persona_type: effectivePersonaType || null,
+            custom_persona: effectiveCustomPersona || null,
             target_length: targetLength,
-            company_name: companyName || null,
-            company_description: companyDescription || null,
-            company_style_guide: companyStyleGuide || null,
+            // 会社情報をデフォルト会社から自動設定
+            company_name: company?.name || null,
+            company_description: company?.description || null,
+            company_usp: company?.usp || null,
+            company_website_url: company?.website_url || null,
+            company_target_persona: company?.target_persona || null,
+            company_brand_slogan: company?.brand_slogan || null,
+            company_target_keywords: company?.target_keywords || null,
+            company_industry_terms: company?.industry_terms || null,
+            company_avoid_terms: company?.avoid_terms || null,
+            company_popular_articles: company?.popular_articles || null,
+            company_target_area: company?.target_area || null,
             // 画像モード設定を追加
             image_mode: imageMode,
             image_settings: imageSettings,
@@ -277,6 +305,11 @@ export default function InputSection({ onStartGeneration, isConnected, isGenerat
                     <SelectValue placeholder="ペルソナを選択" />
                   </SelectTrigger>
                   <SelectContent>
+                    {hasCompany && company?.target_persona && (
+                      <SelectItem value="会社設定">
+                        会社設定のペルソナ（推奨）
+                      </SelectItem>
+                    )}
                     <SelectItem value="主婦">主婦</SelectItem>
                     <SelectItem value="学生">学生</SelectItem>
                     <SelectItem value="社会人">社会人</SelectItem>
@@ -286,6 +319,12 @@ export default function InputSection({ onStartGeneration, isConnected, isGenerat
                     <SelectItem value="その他">その他</SelectItem>
                   </SelectContent>
                 </Select>
+                {personaType === '会社設定' && hasCompany && company?.target_persona && (
+                  <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                    <div className="text-sm font-medium text-blue-900 mb-2">会社設定のペルソナ:</div>
+                    <div className="text-sm text-blue-800">{company.target_persona}</div>
+                  </div>
+                )}
                 {personaType === 'その他' && (
                   <Textarea
                     value={customPersona}
@@ -298,6 +337,45 @@ export default function InputSection({ onStartGeneration, isConnected, isGenerat
             </CardContent>
           </Card>
         </div>
+
+        {/* 会社情報ステータス */}
+        <Card className="mb-6">
+          <CardContent className="pt-6">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center space-x-3">
+                <Settings className="h-5 w-5 text-gray-500" />
+                <div>
+                  <h3 className="font-medium">会社情報設定</h3>
+                  {companyLoading ? (
+                    <p className="text-sm text-gray-500">読み込み中...</p>
+                  ) : hasCompany ? (
+                    <p className="text-sm text-gray-500">
+                      {company?.name} の情報を使用します
+                    </p>
+                  ) : (
+                    <p className="text-sm text-yellow-600">
+                      会社情報が未設定です。設定することでより適切な記事が生成されます。
+                    </p>
+                  )}
+                </div>
+              </div>
+              <Link href="/settings/company">
+                <Button variant="outline" size="sm">
+                  {hasCompany ? '編集' : '設定'}
+                </Button>
+              </Link>
+            </div>
+            {hasCompany && company && (
+              <div className="mt-4 p-3 bg-gray-50 rounded-lg">
+                <div className="grid grid-cols-2 gap-2 text-sm">
+                  <div><span className="font-medium">企業名:</span> {company.name}</div>
+                  <div><span className="font-medium">ターゲット:</span> {company.target_persona}</div>
+                  <div className="col-span-2"><span className="font-medium">概要:</span> {company.description.substring(0, 100)}{company.description.length > 100 ? '...' : ''}</div>
+                </div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
 
         {/* 高度な設定 */}
         <Collapsible open={showAdvanced} onOpenChange={setShowAdvanced}>
@@ -384,45 +462,6 @@ export default function InputSection({ onStartGeneration, isConnected, isGenerat
                 </CardContent>
               </Card>
 
-              {/* 企業情報 */}
-              <Card className="md:col-span-2 lg:col-span-3">
-                <CardHeader>
-                  <CardTitle className="text-lg">企業情報</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <div>
-                      <Label htmlFor="company-name">企業名</Label>
-                      <Input
-                        id="company-name"
-                        value={companyName}
-                        onChange={(e) => setCompanyName(e.target.value)}
-                        placeholder="株式会社サンプル"
-                      />
-                    </div>
-                    <div>
-                      <Label htmlFor="company-description">企業概要</Label>
-                      <Textarea
-                        id="company-description"
-                        value={companyDescription}
-                        onChange={(e) => setCompanyDescription(e.target.value)}
-                        placeholder="企業の事業内容や特徴を入力してください"
-                        rows={2}
-                      />
-                    </div>
-                    <div>
-                      <Label htmlFor="company-style">文体・トンマナガイド</Label>
-                      <Textarea
-                        id="company-style"
-                        value={companyStyleGuide}
-                        onChange={(e) => setCompanyStyleGuide(e.target.value)}
-                        placeholder="記事の文体やトーンについての指示"
-                        rows={2}
-                      />
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
             </div>
           </CollapsibleContent>
         </Collapsible>
