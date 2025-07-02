@@ -25,6 +25,9 @@ import { cn } from "@/utils/cn";
 import { useAuth } from '@clerk/nextjs';
 
 import ArticlePreviewStyles from '../new-article/component/ArticlePreviewStyles';
+import BlockInsertButton from './components/BlockInsertButton';
+import ContentSelectorDialog from './components/ContentSelectorDialog';
+import TableOfContentsDialog from './components/TableOfContentsDialog';
 
 interface EditArticlePageProps {
   articleId: string;
@@ -32,7 +35,7 @@ interface EditArticlePageProps {
 
 interface ArticleBlock {
   id: string;
-  type: 'h1' | 'h2' | 'h3' | 'p' | 'ul' | 'ol' | 'li' | 'img' | 'image_placeholder' | 'replaced_image';
+  type: 'h1' | 'h2' | 'h3' | 'p' | 'ul' | 'ol' | 'li' | 'img' | 'image_placeholder' | 'replaced_image' | 'div';
   content: string;
   isEditing: boolean;
   isSelected: boolean;
@@ -121,6 +124,11 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
   const [aiEditMode, setAiEditMode] = useState<'single' | 'bulk'>('single');
 
   const [aiConfirmations, setAiConfirmations] = useState<AiConfirmationState[]>([]);
+
+  // コンテンツ挿入関連のstate
+  const [contentSelectorOpen, setContentSelectorOpen] = useState(false);
+  const [tocDialogOpen, setTocDialogOpen] = useState(false);
+  const [insertPosition, setInsertPosition] = useState<number>(0);
 
   const selectedBlocksCount = useMemo(() => blocks.filter(b => b.isSelected).length, [blocks]);
 
@@ -388,6 +396,37 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
         block.id === blockId ? { ...block, isSelected: !!checked } : block
       )
     );
+  };
+
+  // コンテンツ挿入の処理
+  const handleInsertContent = (type: string, position: number) => {
+    setInsertPosition(position);
+    if (type === 'selector') {
+      setContentSelectorOpen(true);
+    }
+  };
+
+  // コンテンツタイプ選択の処理
+  const handleSelectContentType = (type: string) => {
+    if (type === 'table-of-contents') {
+      setTocDialogOpen(true);
+    }
+  };
+
+  // 目次の挿入
+  const handleInsertToc = (tocHtml: string) => {
+    const newBlock: ArticleBlock = {
+      id: `toc-${Date.now()}`,
+      type: 'div' as any, // 目次はdivとして扱う
+      content: tocHtml,
+      isEditing: false,
+      isSelected: false
+    };
+
+    const newBlocks = [...blocks];
+    newBlocks.splice(insertPosition, 0, newBlock);
+    setBlocks(newBlocks);
+    setTocDialogOpen(false);
   };
   
   // ブロック編集の開始
@@ -1316,11 +1355,17 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
       <Card className="p-4 md:p-8">
         <ArticlePreviewStyles>
           <div className="max-w-4xl mx-auto space-y-2">
-            {blocks.map((block) => {
+            {blocks.map((block, index) => {
               const confirmationForBlock = aiConfirmations.find(c => c.blockId === block.id);
               return (
-              <div 
-                key={block.id}
+              <React.Fragment key={block.id}>
+                {/* ブロック間の挿入ボタン */}
+                <BlockInsertButton
+                  onInsertContent={handleInsertContent}
+                  position={index}
+                />
+                
+                <div
                 className={cn(
                   "group relative flex items-start gap-3 py-1 pr-2 pl-10 rounded-md transition-colors",
                   { 
@@ -1483,8 +1528,15 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
                 )}
               </div>
             </div>
+              </React.Fragment>
             );
           })}
+          
+          {/* 最後のブロックの後に挿入ボタンを追加 */}
+          <BlockInsertButton
+            onInsertContent={handleInsertContent}
+            position={blocks.length}
+          />
         </div>
         </ArticlePreviewStyles>
       </Card>
@@ -1588,6 +1640,22 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* コンテンツ選択ダイアログ */}
+      <ContentSelectorDialog
+        isOpen={contentSelectorOpen}
+        onClose={() => setContentSelectorOpen(false)}
+        onSelectContent={handleSelectContentType}
+        position={insertPosition}
+      />
+
+      {/* 目次作成ダイアログ */}
+      <TableOfContentsDialog
+        isOpen={tocDialogOpen}
+        onClose={() => setTocDialogOpen(false)}
+        onInsertToc={handleInsertToc}
+        htmlContent={blocksToHtml(blocks)}
+      />
     </div>
   );
 } 
