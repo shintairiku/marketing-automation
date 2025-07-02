@@ -101,6 +101,7 @@ export const useArticleGeneration = ({ processId, userId }: UseArticleGeneration
     articleId: undefined,
     imageMode: false,
     imagePlaceholders: [],
+    completedSections: [],
   });
 
   const handleMessage = useCallback((message: ServerEventMessage | any) => {
@@ -252,6 +253,19 @@ export const useArticleGeneration = ({ processId, userId }: UseArticleGeneration
 
       // SectionChunkPayloadの処理（画像モード対応）
       if (payload.html_content_chunk !== undefined || payload.is_complete) {
+        console.log('🔍 SectionChunkPayload received:', { 
+          is_image_mode: (payload as any).is_image_mode, 
+          is_complete: payload.is_complete, 
+          has_section_complete_content: !!(payload as any).section_complete_content,
+          section_index: payload.section_index,
+          heading: payload.heading,
+          html_content_chunk: payload.html_content_chunk ? payload.html_content_chunk.substring(0, 100) + '...' : 'none'
+        });
+        
+        // completedSectionsの状態をログ出力
+        console.log('🔍 Current completedSections:', newState.completedSections?.length || 0);
+        console.log('🔍 Current imageMode:', newState.imageMode);
+        
         // 画像モードの場合の処理
         if ((payload as any).is_image_mode && payload.is_complete && (payload as any).section_complete_content) {
           // 完了したセクションを追加
@@ -269,10 +283,14 @@ export const useArticleGeneration = ({ processId, userId }: UseArticleGeneration
           // 同じインデックスのセクションが既に存在する場合は更新、そうでなければ追加
           const existingIndex = newState.completedSections.findIndex(section => section.index === completedSection.index);
           if (existingIndex >= 0) {
+            console.log('🔄 Updating existing section:', completedSection.index, completedSection.heading);
             newState.completedSections[existingIndex] = completedSection;
           } else {
+            console.log('✅ Adding new completed section:', completedSection.index, completedSection.heading);
             newState.completedSections.push(completedSection);
           }
+          
+          console.log('🔍 Updated completedSections count:', newState.completedSections.length);
           
           // 全完了セクションの内容を結合してgeneratedContentを更新
           newState.generatedContent = newState.completedSections
@@ -569,6 +587,7 @@ export const useArticleGeneration = ({ processId, userId }: UseArticleGeneration
       error: undefined,
       researchProgress: undefined,
       sectionsProgress: undefined,
+      completedSections: [],
     }));
     startGeneration(requestData);
   }, [startGeneration]);
@@ -701,6 +720,7 @@ export const useArticleGeneration = ({ processId, userId }: UseArticleGeneration
       error: undefined,
       researchProgress: undefined,
       sectionsProgress: undefined,
+      completedSections: [],
     });
   }, []);
 

@@ -576,15 +576,21 @@ class ArticleGenerationService:
                 # 画像モードに応じてエージェントを選択
                 if is_image_mode:
                     current_agent = section_writer_with_images_agent
-                    console.print(f"[cyan]画像プレースホルダー対応エージェントを使用します。[/cyan]")
+                    console.print(f"[cyan]画像プレースホルダー対応エージェント ({current_agent.name}) を使用します。[/cyan]")
                 else:
                     current_agent = section_writer_agent
+                    console.print(f"[cyan]通常エージェント ({current_agent.name}) を使用します。[/cyan]")
                 
                 # エージェント実行に必要な情報をコンテキストに設定
                 agent_input = "セクション執筆を開始します。"  # 動的プロンプトのためダミー入力
                 agent_output = await self._run_agent(current_agent, agent_input, context, run_config)
 
                 # 画像モードの場合はArticleSectionWithImagesを期待
+                console.print(f"[yellow]🔍 Agent output type: {type(agent_output)}, is_image_mode: {is_image_mode}[/yellow]")
+                if hasattr(agent_output, 'html_content'):
+                    console.print(f"[yellow]🔍 Agent output html_content length: {len(agent_output.html_content)}[/yellow]")
+                if hasattr(agent_output, 'image_placeholders'):
+                    console.print(f"[yellow]🔍 Agent output image_placeholders count: {len(agent_output.image_placeholders)}[/yellow]")
                 if is_image_mode and isinstance(agent_output, ArticleSectionWithImages):
                     # ArticleSectionWithImagesをArticleSectionに変換
                     article_section = ArticleSection(
@@ -628,6 +634,7 @@ class ArticleGenerationService:
                 }
                 
                 # WebSocketでセクション完了を通知（画像モード対応）
+                console.print(f"[yellow]🔍 WebSocket check: websocket={context.websocket is not None}, is_image_mode={is_image_mode}, is_ArticleSectionWithImages={isinstance(agent_output, ArticleSectionWithImages)}[/yellow]")
                 if context.websocket:
                     if is_image_mode and isinstance(agent_output, ArticleSectionWithImages):
                         # 画像モードの場合：セクション完了時に完全なコンテンツと画像プレースホルダー情報を送信
@@ -643,7 +650,7 @@ class ArticleGenerationService:
                             for placeholder in agent_output.image_placeholders
                         ]
                         
-                        await self._send_server_event(context, SectionChunkPayload(
+                        payload = SectionChunkPayload(
                             section_index=i,
                             heading=section.heading,
                             html_content_chunk="",  # 画像モードではチャンクではなく完了時に送信
@@ -651,8 +658,11 @@ class ArticleGenerationService:
                             section_complete_content=agent_output.html_content,
                             image_placeholders=image_placeholders_data,
                             is_image_mode=True
-                        ))
+                        )
+                        console.print(f"[cyan]📤 Sending SectionChunkPayload for image mode: section_index={i}, heading='{section.heading}', is_image_mode=True, content_length={len(agent_output.html_content)}, placeholders={len(image_placeholders_data)}[/cyan]")
+                        await self._send_server_event(context, payload)
                     else:
+                        console.print(f"[yellow]⚠️ Not sending SectionChunkPayload - falling back to normal mode. is_image_mode={is_image_mode}, agent_output_type={type(agent_output)}[/yellow]")
                         # 通常モードの場合：従来通りのプレビュー送信
                         content_preview = ""
                         if hasattr(agent_output, 'html_content'):
@@ -1101,7 +1111,9 @@ class ArticleGenerationService:
                 # Check WebSocket state before attempting to send
                 if context.websocket.client_state == WebSocketState.CONNECTED:
                     message = ServerEventMessage(payload=payload)
+                    console.print(f"[cyan]📤 Sending WebSocket message: {type(payload).__name__}[/cyan]")
                     await context.websocket.send_json(message.model_dump())
+                    console.print(f"[cyan]✅ Message sent successfully[/cyan]")
                 else:
                     console.print("[yellow]WebSocket not connected, skipping message send.[/yellow]")
             except WebSocketDisconnect:
@@ -2652,6 +2664,42 @@ class ArticleGenerationService:
                                         logger.error(f"Failed to save context after section completion: {save_err}")
                                 
                                 console.print(f"[blue]セクション {target_index + 1} 完了。次のセクション: {context.current_section_index + 1}[/blue]")
+                                
+                                # WebSocketでセクション完了を通知（画像モード）
+                                console.print(f"[magenta]🔍 WebSocket notification check: websocket={context.websocket is not None}, target_index={target_index}, target_heading='{target_heading}'[/magenta]")
+                                if context.websocket:
+                                    try:
+                                        from schemas.response import ImagePlaceholderData, SectionChunkPayload
+                                        
+                                        console.print(f"[magenta]🔍 Agent output has image_placeholders: {hasattr(agent_output, 'image_placeholders')}, count: {len(getattr(agent_output, 'image_placeholders', []))}[/magenta]")
+                                        
+                                        image_placeholders_data = [
+                                            ImagePlaceholderData(
+                                                placeholder_id=placeholder.placeholder_id,
+                                                description_jp=placeholder.description_jp,
+                                                prompt_en=placeholder.prompt_en,
+                                                alt_text=placeholder.alt_text
+                                            )
+                                            for placeholder in agent_output.image_placeholders
+                                        ]
+                                        
+                                        payload = SectionChunkPayload(
+                                            section_index=target_index,
+                                            heading=target_heading,
+                                            html_content_chunk="",  # 画像モードではチャンクではなく完了時に送信
+                                            is_complete=True,
+                                            section_complete_content=generated_section.html_content,
+                                            image_placeholders=image_placeholders_data,
+                                            is_image_mode=True
+                                        )
+                                        console.print(f"[cyan]📤 Sending SectionChunkPayload for image mode: section_index={target_index}, heading='{target_heading}', is_image_mode=True, content_length={len(generated_section.html_content)}, placeholders={len(image_placeholders_data)}[/cyan]")
+                                        await self._send_server_event(context, payload)
+                                        console.print(f"[green]✅ SectionChunkPayload sent successfully for section {target_index}[/green]")
+                                    except Exception as e:
+                                        console.print(f"[red]❌ Failed to send SectionChunkPayload for section {target_index}: {e}[/red]")
+                                        console.print(f"[red]Traceback: {traceback.format_exc()}[/red]")
+                                else:
+                                    console.print(f"[yellow]⚠️ No WebSocket connection available for section {target_index} notification[/yellow]")
                             else:
                                 raise TypeError(f"画像モードで予期しないAgent出力タイプ: {type(agent_output)}")
                         else:
