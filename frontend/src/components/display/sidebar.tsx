@@ -19,7 +19,7 @@ IoDocumentText,   IoGitBranch,
   IoLogoInstagram, IoNewspaper, IoPencil, IoPerson,
 IoPricetag, IoSettings, IoSparkles,
 IoStatsChart,
-  IoSync, IoText} from 'react-icons/io5';
+  IoSync, IoText, IoHelp, IoPeople, IoCash, IoLinkSharp, IoSchool, IoMail, IoBug, IoCode, IoMegaphone} from 'react-icons/io5';
 
 import { groups } from '@/components/constant/route';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -76,6 +76,26 @@ export const iconMap: Record<string, React.ReactElement<{ size?: number }>> = {
   '/line/analyze/feedback'        : <IoChatbubbles size={24} />,
 
   '/line/input/persona'         : <IoPerson size={24} />,
+
+  /* ───────── 4. Settings ───────── */
+  '/settings/home'              : <IoSettings size={24} />,
+  '/settings/account'           : <IoPerson size={24} />,
+  '/settings/members'           : <IoPeople size={24} />,
+  '/settings/billing'           : <IoCash size={24} />,
+  '/settings/company'           : <IoClipboard size={24} />,
+  '/settings/style-guide'       : <IoPencil size={24} />,
+  '/settings/integrations/wordpress' : <IoLinkSharp size={24} />,
+  '/settings/integrations/instagram' : <IoLogoInstagram size={24} />,
+  '/settings/integrations/line'      : <IoChat size={24} />,
+
+  /* ───────── 5. Help ───────── */
+  '/help/home'                  : <IoHelp size={24} />,
+  '/help/getting-started'       : <IoSchool size={24} />,
+  '/help/faq'                   : <IoChatbubbles size={24} />,
+  '/help/contact'               : <IoMail size={24} />,
+  '/help/tutorials'             : <IoSchool size={24} />,
+  '/help/api-docs'              : <IoCode size={24} />,
+  '/help/release-notes'         : <IoMegaphone size={24} />,
 };
 
 function findSelectedMenu(pathname: string) {
@@ -109,6 +129,18 @@ function findSelectedMenu(pathname: string) {
   
   if (pathname.startsWith('/line/')) {
     menu = groups.flatMap(g => g.links).find(l => l.href === '/line/home');
+    if (menu) return menu;
+  }
+
+  // 6. 設定ページの判定
+  if (pathname.startsWith('/settings/')) {
+    menu = groups.flatMap(g => g.links).find(l => l.href === '/settings/home');
+    if (menu) return menu;
+  }
+
+  // 7. ヘルプページの判定
+  if (pathname.startsWith('/help/')) {
+    menu = groups.flatMap(g => g.links).find(l => l.href === '/help/home');
     if (menu) return menu;
   }
 
@@ -182,25 +214,41 @@ export default function Sidebar() {
                 <div className='h-[1px] bg-primary flex-1'></div>
               </div>
               <div className="flex flex-col">
-                {section.links.map((link) => (
-                  <Link
-                    key={link.href}
-                    href={link.href}
-                    className={clsx(
-                      "flex items-center gap-2 p-[8px] rounded-lg",
-                      pathname === link.href
-                        ? "bg-primary/10 text-primary"
-                        : "hover:bg-gray-100"
-                    )}
-                  >
-                    <div className="text-foreground">
-                      {iconMap[link.href]}
-                    </div>
-                    <span className="text-sm text-foreground whitespace-nowrap transition-opacity duration-300 group-hover:opacity-0">
+                {section.links.map((link) => {
+                  const isDisabled = link.disabled;
+                  const LinkComponent = isDisabled ? 'div' : Link;
+                  return (
+                    <LinkComponent
+                      key={link.href}
+                      {...(!isDisabled && { href: link.href })}
+                      className={clsx(
+                        "flex items-center gap-2 p-[8px] rounded-lg",
+                        isDisabled
+                          ? "opacity-50 cursor-not-allowed text-gray-400"
+                          : pathname === link.href
+                          ? "bg-primary/10 text-primary"
+                          : "hover:bg-gray-100 cursor-pointer"
+                      )}
+                    >
+                      <div className={clsx(
+                        isDisabled ? "text-gray-400" : "text-foreground"
+                      )}>
+                        {iconMap[link.href]}
+                      </div>
+                      <span className={clsx(
+                        "text-sm whitespace-nowrap",
+                        isDisabled ? "text-gray-400" : "text-foreground"
+                      )}>
                       {link.label}
-                    </span>
-                  </Link>
-                ))}
+                      </span>
+                      {isDisabled && (
+                        <span className="ml-auto text-xs text-gray-400 bg-gray-200 px-2 py-1 rounded">
+                          開発中
+                        </span>
+                      )}
+                    </LinkComponent>
+                  );
+                })}
               </div>
             </div>
           ))}

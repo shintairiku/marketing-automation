@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import { Montserrat, Montserrat_Alternates } from 'next/font/google';
 
 import { Toaster } from '@/components/ui/toaster';
+import { Toaster as SonnerToaster } from 'sonner';
 import { cn } from '@/utils/cn';
 import { jaJP } from "@clerk/localizations";
 import { ClerkProvider } from '@clerk/nextjs';
@@ -38,6 +39,7 @@ export default function RootLayout({
         <body className={cn('font-sans antialiased', montserrat.variable, montserratAlternates.variable)}>
           {children}
           <Toaster />
+          <SonnerToaster position="top-right" />
           <Analytics />
         </body>
       </html>
