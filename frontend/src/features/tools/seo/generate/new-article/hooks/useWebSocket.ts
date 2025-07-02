@@ -99,6 +99,12 @@ export const useWebSocket = ({
       ws.onmessage = (event) => {
         try {
           const message: ServerEventMessage = JSON.parse(event.data);
+          console.log('📥 WebSocket message received:', {
+            type: message.type,
+            payload_type: message.payload?.constructor?.name || 'unknown',
+            payload_keys: Object.keys(message.payload || {}),
+            raw_data: event.data.substring(0, 200) + (event.data.length > 200 ? '...' : '')
+          });
           onMessage?.(message);
         } catch (err) {
           console.error('Failed to parse WebSocket message:', err);
