@@ -100,12 +100,19 @@ class ImageGenerationService:
         """Vertex AI の初期化"""
         try:
             # 統一認証システムを使用してVertex AIを初期化
+            from utils.gcp_auth import get_auth_manager
+            auth_manager = get_auth_manager()
+            logger.info(f"Initializing Vertex AI with project: {auth_manager.project_id}, location: {self.location}")
+            
             initialize_aiplatform(location=self.location)
             self._initialized = True
-            logger.info(f"Vertex AI initialized for location: {self.location}")
+            logger.info(f"Vertex AI initialized successfully for location: {self.location}")
             
         except Exception as e:
+            import traceback
             logger.error(f"Failed to initialize Vertex AI: {e}")
+            logger.error(f"Traceback: {traceback.format_exc()}")
+            self._initialized = False
     
     async def generate_image(self, request: ImageGenerationRequest) -> ImageGenerationResponse:
         """画像を生成する"""
