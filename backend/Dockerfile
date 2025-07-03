@@ -15,10 +15,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 # アプリケーションコードをコピー
 COPY . .
 
-# ポート開放 (FastAPIのデフォルトは8000)
+# ポート開放 (Cloud Runでは動的に設定される)
 EXPOSE 8000
 
 # アプリケーションの起動コマンド
-# Uvicornを使用してmain.py内のappオブジェクトを起動
-# 開発時には --reload オプションを付けるとコード変更時に自動リロードされて便利です
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"] 
+# Cloud RunではPORT環境変数が動的に設定されるため、それを使用
+CMD ["sh", "-c", "uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000}"] 

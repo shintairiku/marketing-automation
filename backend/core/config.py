@@ -4,24 +4,28 @@ from pydantic_settings import BaseSettings
 from pydantic import Field
 from dotenv import load_dotenv
 
-# .env ファイルを読み込む
-load_dotenv()
+# .env ファイルを読み込む（ファイルが存在しない場合はスキップ）
+try:
+    load_dotenv()
+except:
+    pass
 
 class Settings(BaseSettings):
     """アプリケーション設定を管理するクラス"""
-    openai_api_key: str = Field(..., env="OPENAI_API_KEY")
+    # 必須環境変数をオプショナルにして起動エラーを防ぐ
+    openai_api_key: str = Field("", env="OPENAI_API_KEY")
     # SerpAPI設定
     serpapi_key: str = Field("", env="SERPAPI_API_KEY")
     
-    gemini_api_key: str = Field(..., env="GEMINI_API_KEY")
+    gemini_api_key: str = Field("", env="GEMINI_API_KEY")
     # 他のAPIキーが必要な場合は追加
     # anthropic_api_key: Optional[str] = Field(None, env="ANTHROPIC_API_KEY")
     # gemini_api_key: Optional[str] = Field(None, env="GEMINI_API_KEY")
 
     # Supabase設定
-    supabase_url: str = Field(..., env="SUPABASE_URL")
-    supabase_key: str = Field(..., env="SUPABASE_ANON_KEY")
-    supabase_service_role_key: str = Field(..., env="SUPABASE_SERVICE_ROLE_KEY")
+    supabase_url: str = Field("", env="SUPABASE_URL")
+    supabase_key: str = Field("", env="SUPABASE_ANON_KEY")
+    supabase_service_role_key: str = Field("", env="SUPABASE_SERVICE_ROLE_KEY")
 
     # Clerk設定 (optional)
     clerk_secret_key: str = Field("", env="CLERK_SECRET_KEY")
@@ -36,7 +40,7 @@ class Settings(BaseSettings):
     research_model: str = os.getenv("RESEARCH_MODEL", "gpt-4o-mini")
     writing_model: str = os.getenv("WRITING_MODEL", "gpt-4o-mini")
     editing_model: str = os.getenv("EDITING_MODEL", "gpt-4o-mini")
-    serpapi_key: str = os.getenv("SERPAPI_KEY")
+    serpapi_key: str = os.getenv("SERPAPI_KEY", "")
 
     # Scraping settings
     scraping_timeout: int = int(os.getenv("SCRAPING_TIMEOUT", "10"))
@@ -62,8 +66,8 @@ class Settings(BaseSettings):
     imagen_person_generation: str = Field("allow_all", env="IMAGEN_PERSON_GENERATION")
     imagen_add_japan_prefix: bool = Field(True, env="IMAGEN_ADD_JAPAN_PREFIX")
     
-    # 画像ストレージ設定
-    image_storage_path: str = Field("./generated_images", env="IMAGE_STORAGE_PATH")
+    # 画像ストレージ設定（Cloud Run対応）
+    image_storage_path: str = Field("/tmp/images", env="IMAGE_STORAGE_PATH")
     
     # Google Cloud Storage設定
     gcs_bucket_name: str = Field("", env="GCS_BUCKET_NAME")
@@ -90,6 +94,11 @@ settings = Settings()
 def setup_agents_sdk():
     """OpenAI Agents SDKのセットアップ"""
     try:
+        # API キーが設定されていない場合はスキップ
+        if not settings.openai_api_key:
+            print("OpenAI API キーが設定されていません。SDK設定をスキップします。")
+            return
+
         from agents import (
             set_default_openai_key, 
             set_tracing_disabled,
