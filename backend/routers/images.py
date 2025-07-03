@@ -943,7 +943,7 @@ async def upload_image(
 
         # プレースホルダーを新しい画像で置き換え
         import re
-        placeholder_pattern = f'<!-- IMAGE_PLACEHOLDER: {re.escape(placeholder_id)}\|[^>]+ -->'
+        placeholder_pattern = f'<!-- IMAGE_PLACEHOLDER: {re.escape(placeholder_id)}\\|[^>]+ -->'
         replacement_html = f'<img src="{gcs_url}" alt="{alt_text}" class="article-image" data-placeholder-id="{placeholder_id}" data-image-id="{image_id}" />'
         updated_content, count = re.subn(placeholder_pattern, replacement_html, current_content)
 
