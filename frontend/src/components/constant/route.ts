@@ -1,4 +1,28 @@
-export const groups = [
+interface SubLink {
+  href: string;
+  label: string;
+  disabled?: boolean;
+}
+
+interface LinkSection {
+  title: string;
+  links: SubLink[];
+}
+
+interface MainLink {
+  href: string;
+  label: string;
+  sublabel: string;
+  imageurl?: string;
+  subLinks: LinkSection[];
+}
+
+interface Group {
+  title: string;
+  links: MainLink[];
+}
+
+export const groups: Group[] = [
   {
     title: 'Home',
     links: [
@@ -145,24 +169,62 @@ export const groups = [
     ],
   },
   {
-    title: 'Information',
+    title: 'Settings',
     links: [
       {
-        href: '/Information/home',
-        label: 'インフォメーション',
-        sublabel: 'Information',
+        href: '/settings/home',
+        label: '設定',
+        sublabel: 'Settings',
         subLinks: [
           {
-            title: '会社概要',
+            title: '基本設定',
             links: [
-              { href: '/company/about', label: '会社概要' },
-              { href: '/company/news', label: '運営からのお知らせ' },
+              { href: '/settings/account', label: 'アカウント設定' },
+              { href: '/settings/members', label: 'メンバー設定' },
+              { href: '/settings/billing', label: '請求&契約設定' },
             ],
           },
           {
-            title: '運営からのお知らせ',
+            title: '会社情報設定',
             links: [
-              { href: '/company/news', label: '運営からのお知らせ' },
+              { href: '/settings/company', label: '会社情報設定' },
+              { href: '/settings/style-guide', label: 'スタイルガイド設定' },
+            ],
+          },
+          {
+            title: 'サービス連携設定',
+            links: [
+              { href: '/settings/integrations/wordpress', label: 'ワードプレス連携設定', disabled: true },
+              { href: '/settings/integrations/instagram', label: 'Instagram連携設定', disabled: true },
+              { href: '/settings/integrations/line', label: 'LINE連携設定', disabled: true },
+            ],
+          },
+        ],
+      },
+    ],
+  },
+  {
+    title: 'Help',
+    links: [
+      {
+        href: '/help/home',
+        label: 'ヘルプ',
+        sublabel: 'Help & Support',
+        subLinks: [
+          {
+            title: 'サポート',
+            links: [
+              { href: '/help/getting-started', label: 'はじめに' },
+              { href: '/help/faq', label: 'よくある質問' },
+              { href: '/help/contact', label: 'お問い合わせ' },
+            ],
+          },
+          {
+            title: 'ドキュメント',
+            links: [
+              { href: '/help/tutorials', label: 'チュートリアル' },
+              { href: '/help/api-docs', label: 'API ドキュメント' },
+              { href: '/help/release-notes', label: 'リリースノート' },
             ],
           },
         ],

@@ -56,6 +56,26 @@ export interface GenerationState {
     totalSections: number;
     sectionHeading: string;
   };
+  // 画像モード関連
+  imageMode?: boolean;
+  imagePlaceholders?: Array<{
+    placeholder_id: string;
+    description_jp: string;
+    prompt_en: string;
+    alt_text: string;
+  }>;
+  // セクション別完了情報（画像モード用）
+  completedSections?: Array<{
+    index: number;
+    heading: string;
+    content: string;
+    imagePlaceholders?: Array<{
+      placeholder_id: string;
+      description_jp: string;
+      prompt_en: string;
+      alt_text: string;
+    }>;
+  }>;
 }
 
 interface UseArticleGenerationOptions {
@@ -79,6 +99,9 @@ export const useArticleGeneration = ({ processId, userId }: UseArticleGeneration
     ],
     isWaitingForInput: false,
     articleId: undefined,
+    imageMode: false,
+    imagePlaceholders: [],
+    completedSections: [],
   });
 
   const handleMessage = useCallback((message: ServerEventMessage | any) => {
@@ -137,6 +160,12 @@ export const useArticleGeneration = ({ processId, userId }: UseArticleGeneration
             return { ...step, status: 'pending' };
           }
         });
+        
+        // 画像モード情報を更新
+        if (payload.image_mode !== undefined) {
+          console.log('🖼️ Image mode received:', payload.image_mode);
+          newState.imageMode = payload.image_mode;
+        }
       }
 
       // UserInputRequestPayload 形式のメッセージ処理
@@ -222,18 +251,67 @@ export const useArticleGeneration = ({ processId, userId }: UseArticleGeneration
         );
       }
 
-      if (payload.html_content_chunk) {
-        if (!newState.generatedContent) {
-          newState.generatedContent = '';
+      // SectionChunkPayloadの処理（画像モード対応）
+      if (payload.html_content_chunk !== undefined || payload.is_complete) {
+        console.log('🔍 SectionChunkPayload received:', { 
+          is_image_mode: (payload as any).is_image_mode, 
+          is_complete: payload.is_complete, 
+          has_section_complete_content: !!(payload as any).section_complete_content,
+          section_index: payload.section_index,
+          heading: payload.heading,
+          html_content_chunk: payload.html_content_chunk ? payload.html_content_chunk.substring(0, 100) + '...' : 'none'
+        });
+        
+        // completedSectionsの状態をログ出力
+        console.log('🔍 Current completedSections:', newState.completedSections?.length || 0);
+        console.log('🔍 Current imageMode:', newState.imageMode);
+        
+        // 画像モードの場合の処理
+        if ((payload as any).is_image_mode && payload.is_complete && (payload as any).section_complete_content) {
+          // 完了したセクションを追加
+          if (!newState.completedSections) {
+            newState.completedSections = [];
+          }
+          
+          const completedSection = {
+            index: payload.section_index || 0,
+            heading: payload.heading || `セクション ${(payload.section_index || 0) + 1}`,
+            content: (payload as any).section_complete_content,
+            imagePlaceholders: (payload as any).image_placeholders || []
+          };
+          
+          // 同じインデックスのセクションが既に存在する場合は更新、そうでなければ追加
+          const existingIndex = newState.completedSections.findIndex(section => section.index === completedSection.index);
+          if (existingIndex >= 0) {
+            console.log('🔄 Updating existing section:', completedSection.index, completedSection.heading);
+            newState.completedSections[existingIndex] = completedSection;
+          } else {
+            console.log('✅ Adding new completed section:', completedSection.index, completedSection.heading);
+            newState.completedSections.push(completedSection);
+          }
+          
+          console.log('🔍 Updated completedSections count:', newState.completedSections.length);
+          
+          // 全完了セクションの内容を結合してgeneratedContentを更新
+          newState.generatedContent = newState.completedSections
+            .sort((a, b) => a.index - b.index)
+            .map(section => section.content)
+            .join('\n\n');
+            
+        } else if (!(payload as any).is_image_mode && payload.html_content_chunk) {
+          // 通常モード（ストリーミング）の処理
+          if (!newState.generatedContent) {
+            newState.generatedContent = '';
+          }
+          newState.generatedContent += payload.html_content_chunk;
         }
-        newState.generatedContent += payload.html_content_chunk;
         
         // セクション情報を更新
         if (payload.section_index !== undefined && payload.heading) {
           newState.currentSection = {
             index: payload.section_index,
             heading: payload.heading,
-            content: payload.html_content_chunk,
+            content: payload.html_content_chunk || '',
           };
         }
         
@@ -462,23 +540,24 @@ export const useArticleGeneration = ({ processId, userId }: UseArticleGeneration
     // 入力タイプに応じてレスポンスタイプとペイロードを設定
     switch (inputType) {
       case 'select_persona':
-        responseType = 'edit_persona';
-        payload = { edited_persona: editedContent };
+        responseType = 'edit_and_proceed';
+        payload = { edited_content: editedContent };
         break;
       case 'select_theme':
-        responseType = 'edit_theme';
-        payload = { edited_theme: editedContent };
+        responseType = 'edit_and_proceed';
+        payload = { edited_content: editedContent };
         break;
       case 'approve_plan':
-        responseType = 'edit_plan';
-        payload = { edited_plan: editedContent };
+        responseType = 'edit_and_proceed';
+        payload = { edited_content: editedContent };
         break;
       case 'approve_outline':
-        responseType = 'edit_outline';
-        payload = { edited_outline: editedContent };
+        responseType = 'edit_and_proceed';
+        payload = { edited_content: editedContent };
         break;
       default:
-        responseType = 'edit_generic';
+        responseType = 'edit_and_proceed';
+        payload = { edited_content: editedContent };
         break;
     }
 
@@ -509,6 +588,7 @@ export const useArticleGeneration = ({ processId, userId }: UseArticleGeneration
       error: undefined,
       researchProgress: undefined,
       sectionsProgress: undefined,
+      completedSections: [],
     }));
     startGeneration(requestData);
   }, [startGeneration]);
@@ -529,10 +609,18 @@ export const useArticleGeneration = ({ processId, userId }: UseArticleGeneration
       }
 
       const processData = await response.json();
+      console.log('📥 Process data loaded:', processData);
+      console.log('🖼️ Image mode from process data:', processData.image_mode);
+      console.log('🖼️ Article context:', processData.article_context);
+      console.log('🖼️ Image mode from article_context:', processData.article_context?.image_mode);
       
       // プロセス状態を復元
       const currentStep = processData.current_step_name || processData.status;
       const isUserInputStep = ['theme_proposed', 'persona_generated', 'research_plan_generated', 'outline_generated'].includes(currentStep);
+      
+      // 画像モードの値を複数のソースから確実に取得
+      const imageMode = processData.image_mode ?? processData.article_context?.image_mode ?? false;
+      console.log('🖼️ Final image mode value:', imageMode);
       
       setState(prev => ({
         ...prev,
@@ -541,6 +629,9 @@ export const useArticleGeneration = ({ processId, userId }: UseArticleGeneration
         error: processData.error_message,
         isWaitingForInput: processData.is_waiting_for_input || isUserInputStep,
         inputType: processData.input_type || (isUserInputStep ? getInputTypeForStep(currentStep) : undefined),
+        // 画像モード情報の復元
+        imageMode: imageMode,
+        imagePlaceholders: processData.image_placeholders || processData.article_context?.image_placeholders || [],
         // generated_contentからの復元
         personas: processData.generated_content?.personas,
         themes: processData.generated_content?.themes,
@@ -577,7 +668,7 @@ export const useArticleGeneration = ({ processId, userId }: UseArticleGeneration
       console.error('Error loading process state:', error);
       return false;
     }
-  }, [processId, userId]);
+  }, [processId, userId, getToken]);
 
   // ステップに応じた入力タイプを決定するヘルパー関数
   const getInputTypeForStep = (step: string): string | undefined => {
@@ -630,6 +721,7 @@ export const useArticleGeneration = ({ processId, userId }: UseArticleGeneration
       error: undefined,
       researchProgress: undefined,
       sectionsProgress: undefined,
+      completedSections: [],
     });
   }, []);
 

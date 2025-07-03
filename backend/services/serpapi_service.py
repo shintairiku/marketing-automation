@@ -4,9 +4,10 @@ from typing import List, Dict, Any, Optional
 from dataclasses import dataclass
 import requests
 from bs4 import BeautifulSoup, NavigableString
-from serpapi import GoogleSearch
+from serpapi.google_search import GoogleSearch
 from core.config import settings
 import urllib.robotparser
+from utils.gcp_auth import setup_genai_client
 from urllib.parse import urlparse
 import time # ★ 追加: 時間計測用
 from openai import AsyncOpenAI, APIError # ★ 追加: OpenAI API用
@@ -392,7 +393,7 @@ class SerpAPIService:
             return structured_headings
 
         try:
-            genai.configure(api_key=settings.gemini_api_key)
+            setup_genai_client()
         except Exception as e:
             print(f"Gemini APIキーの設定に失敗しました: {e}")
             for heading in structured_headings: # フォールバック
