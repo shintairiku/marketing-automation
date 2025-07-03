@@ -15,20 +15,19 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import {
+  Drawer,
+  DrawerClose,
+  DrawerContent,
+  DrawerHeader,
+  DrawerTitle,
+} from "@/components/ui/drawer";
+import {
   Pagination,
   PaginationContent,
   PaginationItem,
   PaginationNext,
   PaginationPrevious,
 } from "@/components/ui/pagination";
-import {
-  Sheet,
-  SheetClose,
-  SheetContent,
-  SheetHeader,
-  SheetTitle,
-  SheetTrigger,
-} from "@/components/ui/sheet";
 import {
   Table,
   TableBody,
@@ -44,7 +43,7 @@ const PAGE_SIZE = 20;
 export default function IndexPage() {
   const router = useRouter();
   const [selectedArticleId, setSelectedArticleId] = useState<string | null>(null);
-  const [sheetOpen, setSheetOpen] = useState(false);
+  const [drawerOpen, setDrawerOpen] = useState(false);
   const [statusFilter, setStatusFilter] = useState<string>("");
 
   // 全プロセス（記事+未完成プロセス）を取得
@@ -67,7 +66,7 @@ export default function IndexPage() {
 
   const handleRowClick = (articleId: string) => {
     setSelectedArticleId(articleId);
-    setSheetOpen(true);
+    setDrawerOpen(true);
   };
 
   const handleFilterApply = (filter: string) => {
@@ -390,68 +389,108 @@ export default function IndexPage() {
         </div>
       )}
 
-      {/* サイドシート（記事プレビュー） */}
-      <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
-        <SheetContent side="right" className="max-w-xl w-full">
-          <SheetHeader>
-            <SheetTitle>記事プレビュー</SheetTitle>
-          </SheetHeader>
-          <div className="mt-4">
+      {/* ボトムドロワー（記事プレビュー） */}
+      <Drawer open={drawerOpen} onOpenChange={setDrawerOpen}>
+        <DrawerContent className="h-[90vh] flex flex-col">
+          <DrawerHeader className="border-b pb-4">
+            <DrawerTitle>記事プレビュー</DrawerTitle>
+          </DrawerHeader>
+          
+          <div className="flex-1 overflow-hidden p-6">
             {articleLoading ? (
-              <div className="flex justify-center items-center py-8">
+              <div className="flex justify-center items-center h-full">
                 <div className="text-center">
-                  <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-gray-900 mx-auto"></div>
-                  <p className="mt-2 text-sm text-gray-600">記事を読み込み中...</p>
+                  <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-gray-900 mx-auto"></div>
+                  <p className="mt-4 text-lg text-gray-600">記事を読み込み中...</p>
                 </div>
               </div>
             ) : articleError ? (
-              <div className="text-center text-red-600 py-4">
-                <p>記事の読み込みに失敗しました: {articleError}</p>
+              <div className="flex justify-center items-center h-full">
+                <div className="text-center text-red-600">
+                  <p className="text-lg">記事の読み込みに失敗しました</p>
+                  <p className="text-sm mt-2">{articleError}</p>
+                </div>
               </div>
             ) : selectedArticle ? (
-              <div className="space-y-4">
-                <div>
-                  <h3 className="text-lg font-semibold">{selectedArticle.title}</h3>
-                  <p className="text-sm text-gray-600 mt-1">
-                    投稿日: {selectedArticle.postdate} | ステータス: {selectedArticle.status}
-                  </p>
-                </div>
-                
-                <div className="prose prose-sm max-w-none">
-                  <div dangerouslySetInnerHTML={{ __html: selectedArticle.content }} />
-                </div>
-                
-                {selectedArticle.keywords && selectedArticle.keywords.length > 0 && (
-                  <div>
-                    <h4 className="text-sm font-medium mb-2">キーワード:</h4>
-                    <div className="flex flex-wrap gap-1">
-                      {selectedArticle.keywords.map((keyword, index) => (
-                        <span key={index} className="px-2 py-1 bg-gray-100 text-xs rounded">
-                          {keyword}
-                        </span>
-                      ))}
+              <div className="h-full overflow-y-auto">
+                <div className="max-w-4xl mx-auto space-y-6">
+                  {/* 記事ヘッダー情報 */}
+                  <div className="bg-gray-50 rounded-lg p-6">
+                    <h1 className="text-2xl font-bold text-gray-900 mb-3">{selectedArticle.title}</h1>
+                    <div className="flex flex-wrap gap-4 text-sm text-gray-600">
+                      <span>投稿日: {selectedArticle.postdate}</span>
+                      <span>ステータス: {selectedArticle.status}</span>
+                      {selectedArticle.target_audience && (
+                        <span>ターゲット: {selectedArticle.target_audience}</span>
+                      )}
                     </div>
                   </div>
-                )}
-                
-                {selectedArticle.target_audience && (
-                  <div>
-                    <h4 className="text-sm font-medium mb-2">ターゲット:</h4>
-                    <p className="text-sm text-gray-700">{selectedArticle.target_audience}</p>
+                  
+                  {/* キーワード */}
+                  {selectedArticle.keywords && selectedArticle.keywords.length > 0 && (
+                    <div className="bg-white border rounded-lg p-4">
+                      <h4 className="text-sm font-semibold mb-3 text-gray-900">キーワード</h4>
+                      <div className="flex flex-wrap gap-2">
+                        {selectedArticle.keywords.map((keyword, index) => (
+                          <span key={index} className="px-3 py-1 bg-blue-100 text-blue-800 text-sm rounded-full">
+                            {keyword}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  
+                  {/* 記事コンテンツ */}
+                  <div className="bg-white border rounded-lg p-6">
+                    <h4 className="text-lg font-semibold mb-4 text-gray-900">記事コンテンツ</h4>
+                    <div className="prose prose-lg max-w-none">
+                      <div 
+                        dangerouslySetInnerHTML={{ __html: selectedArticle.content }} 
+                        className="leading-relaxed"
+                      />
+                    </div>
                   </div>
-                )}
+                </div>
               </div>
             ) : (
-              <p className="text-gray-600">記事を選択してください</p>
+              <div className="flex justify-center items-center h-full">
+                <p className="text-gray-600 text-lg">記事を選択してください</p>
+              </div>
             )}
           </div>
-          <SheetClose asChild>
-            <Button className="mt-6 w-full" variant="outline">
-              閉じる
-            </Button>
-          </SheetClose>
-        </SheetContent>
-      </Sheet>
+          
+          {/* フッター */}
+          <div className="border-t p-6 bg-gray-50">
+            <div className="max-w-4xl mx-auto flex justify-between items-center">
+              <div className="text-sm text-gray-600">
+                {selectedArticle && (
+                  <span>最終更新: {new Date(selectedArticle.postdate).toLocaleDateString('ja-JP')}</span>
+                )}
+              </div>
+              <div className="flex gap-3">
+                {selectedArticle && (
+                  <Button
+                    onClick={() => {
+                      // 記事編集ページに遷移
+                      const editUrl = `/seo/generate/edit-article/${selectedArticle.id}`;
+                      window.open(editUrl, '_blank');
+                    }}
+                    className="bg-blue-600 hover:bg-blue-700 text-white"
+                  >
+                    <Edit className="h-4 w-4 mr-2" />
+                    編集
+                  </Button>
+                )}
+                <DrawerClose asChild>
+                  <Button variant="outline">
+                    閉じる
+                  </Button>
+                </DrawerClose>
+              </div>
+            </div>
+          </div>
+        </DrawerContent>
+      </Drawer>
     </div>
   );
 }

@@ -9,7 +9,7 @@ interface ArticlePreviewStylesProps {
 
 export default function ArticlePreviewStyles({ children, isFullscreen = false }: ArticlePreviewStylesProps) {
   return (
-    <div className={`prose prose-gray max-w-none ${isFullscreen ? 'prose-lg' : ''}`}>
+    <div className={`prose prose-gray max-w-none ${isFullscreen ? 'prose-lg' : ''} article-preview-content`}>
       <style jsx>{`
         .prose {
           font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
@@ -183,22 +183,42 @@ export default function ArticlePreviewStyles({ children, isFullscreen = false }:
         }
         
         .prose a {
-          color: #667eea;
-          text-decoration: none;
-          font-weight: 600;
-          background: linear-gradient(135deg, #667eea, #764ba2);
-          -webkit-background-clip: text;
-          -webkit-text-fill-color: transparent;
-          background-clip: text;
-          border-bottom: 2px solid transparent;
-          border-image: linear-gradient(135deg, #667eea, #764ba2) 1;
-          transition: all 0.3s ease;
-          position: relative;
+          color: #667eea !important;
+          text-decoration: none !important;
+          font-weight: 600 !important;
+          background: linear-gradient(135deg, #667eea, #764ba2) !important;
+          -webkit-background-clip: text !important;
+          -webkit-text-fill-color: transparent !important;
+          background-clip: text !important;
+          border-bottom: 2px solid transparent !important;
+          border-image: linear-gradient(135deg, #667eea, #764ba2) 1 !important;
+          transition: all 0.3s ease !important;
+          position: relative !important;
         }
         
         .prose a:hover {
-          border-bottom: 2px solid #667eea;
-          transform: translateY(-1px);
+          border-bottom: 2px solid #667eea !important;
+          transform: translateY(-1px) !important;
+        }
+        
+        /* 追加のリンクスタイル - 確実に適用するため */
+        .article-preview-content a {
+          color: #667eea !important;
+          text-decoration: none !important;
+          font-weight: 600 !important;
+          background: linear-gradient(135deg, #667eea, #764ba2) !important;
+          -webkit-background-clip: text !important;
+          -webkit-text-fill-color: transparent !important;
+          background-clip: text !important;
+          border-bottom: 2px solid transparent !important;
+          border-image: linear-gradient(135deg, #667eea, #764ba2) 1 !important;
+          transition: all 0.3s ease !important;
+          position: relative !important;
+        }
+        
+        .article-preview-content a:hover {
+          border-bottom: 2px solid #667eea !important;
+          transform: translateY(-1px) !important;
         }
         
         .prose img {

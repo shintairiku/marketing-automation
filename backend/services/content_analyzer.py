@@ -10,6 +10,7 @@ import datetime # ★ Added for timestamp in exports
 # 実際のプロジェクト構成によっては、共通の型定義ファイルなどに移動することも検討
 from backend.services.serpapi_service import ScrapedArticle, SerpAnalysisResult # ScrapedArticleに加えてSerpAnalysisResultもインポート（テストデータ作成のため）
 import asyncio
+from utils.gcp_auth import setup_genai_client
 
 class ContentAnalyzer:
     """
@@ -429,7 +430,7 @@ class ContentAnalyzer:
                     "error": "Gemini API key not configured."
                 }
             
-            genai.configure(api_key=settings.gemini_api_key)
+            setup_genai_client()
             model = genai.GenerativeModel('gemini-1.5-flash-latest')
             
             # 見出しリストの準備
@@ -1168,7 +1169,7 @@ class ContentAnalyzer:
             if not settings.gemini_api_key:
                 raise ValueError("Gemini APIキーが設定されていません。")
             
-            genai.configure(api_key=settings.gemini_api_key)
+            setup_genai_client()
             model = genai.GenerativeModel('gemini-2.0-flash')
 
             # データ収集
@@ -1287,7 +1288,7 @@ class ContentAnalyzer:
                     "error": "Gemini API key not configured."
                 }
             
-            genai.configure(api_key=settings.gemini_api_key)
+            setup_genai_client()
             model = genai.GenerativeModel('gemini-2.0-flash')
             
         except Exception as e:

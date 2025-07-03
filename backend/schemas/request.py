@@ -35,6 +35,13 @@ class GenerateArticleRequest(BaseModel):
     company_description: Optional[str] = Field(None, description="クライアント企業概要（指定があれば）")
     company_style_guide: Optional[str] = Field(None, description="クライアント企業の文体・トンマナガイド（指定があれば）")
     # vector_store_id: Optional[str] = Field(None, description="File Searchで使用するVector Store ID") # 必要なら追加
+    
+    # --- 画像モード関連 (新規追加) ---
+    image_mode: bool = Field(False, description="画像プレースホルダー機能を使用するかどうか")
+    image_settings: Optional[dict] = Field(None, description="画像生成設定")
+    
+    # --- スタイルテンプレート関連 (新規追加) ---
+    style_template_id: Optional[str] = Field(None, description="使用するスタイルテンプレートのID")
 
     class Config:
         json_schema_extra = {
@@ -49,6 +56,8 @@ class GenerateArticleRequest(BaseModel):
                 "num_persona_examples": 3,
                 "company_name": "株式会社ナチュラルホームズ札幌",
                 "company_description": "札幌を拠点に、自然素材を活かした健康で快適な注文住宅を提供しています。",
+                "image_mode": False,
+                "image_settings": {},
                 "company_style_guide": "専門用語を避け、温かみのある丁寧語（ですます調）で。子育て世代の読者に寄り添い、安心感を与えるようなトーンを心がける。"
             }
         }

@@ -100,6 +100,7 @@ class GeneratedArticleStateRead(BaseModel):
     error_message: Optional[str]
     created_at: datetime
     updated_at: datetime
+    image_mode: Optional[bool] = False
 
 class FlowExecutionRequest(BaseModel):
     flow_id: str
@@ -323,7 +324,14 @@ class ArticleFlowService:
                 else:
                     return None
             
-            return GeneratedArticleStateRead(**state)
+            # Extract image_mode from article_context
+            image_mode = False
+            if state.get("article_context") and isinstance(state["article_context"], dict):
+                image_mode = state["article_context"].get("image_mode", False)
+            
+            # Create response with image_mode field
+            response_data = {**state, "image_mode": image_mode}
+            return GeneratedArticleStateRead(**response_data)
             
         except Exception as e:
             logger.error(f"Error getting generation state {process_id}: {e}")

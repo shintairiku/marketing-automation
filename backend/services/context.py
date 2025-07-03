@@ -7,7 +7,7 @@ from fastapi import WebSocket # <<< WebSocket をインポート
 
 # 循環参照を避けるため、モデルは直接インポートせず、型ヒントとして文字列を使うか、
 # このファイル内で必要なモデルを再定義/インポートする
-from services.models import ThemeIdea, ResearchPlan, ResearchQueryResult, ResearchReport, Outline, AgentOutput, ArticleSection, SerpKeywordAnalysisReport
+from services.models import ThemeIdea, ResearchPlan, ResearchQueryResult, ResearchReport, Outline, AgentOutput, ArticleSection, SerpKeywordAnalysisReport, ImagePlaceholder
 # WebSocketメッセージスキーマもインポート (型ヒント用)
 from schemas.response import ClientResponsePayload, UserInputType
 from schemas.request import AgeGroup, PersonaType # 追加
@@ -25,10 +25,35 @@ class ArticleContext:
     vector_store_id: Optional[str] = None # File Search用
     num_research_queries: int = 5 # リサーチクエリ数の上限
     num_persona_examples: int = 3 # 追加: 生成する具体的なペルソナの数
+    # 会社情報 - 基本情報
     company_name: Optional[str] = None
     company_description: Optional[str] = None
+    company_usp: Optional[str] = None
+    company_website_url: Optional[str] = None
+    company_target_persona: Optional[str] = None
+    
+    # 会社情報 - ブランディング
+    company_brand_slogan: Optional[str] = None
     company_style_guide: Optional[str] = None # 文体、トンマナなど
+    
+    # 会社情報 - SEO・コンテンツ戦略
+    company_target_keywords: Optional[str] = None
+    company_industry_terms: Optional[str] = None
+    company_avoid_terms: Optional[str] = None
+    company_popular_articles: Optional[str] = None
+    company_target_area: Optional[str] = None
+    
+    # 過去記事情報
     past_articles_summary: Optional[str] = None # 過去記事の傾向 (ツールで取得想定)
+    
+    # --- 画像モード関連 (新規追加) ---
+    image_mode: bool = False # 画像プレースホルダー機能を使用するかどうか
+    image_settings: Dict[str, Any] = field(default_factory=dict) # 画像生成設定
+    image_placeholders: List[ImagePlaceholder] = field(default_factory=list) # 生成された画像プレースホルダーのリスト
+    
+    # --- スタイルテンプレート関連 (新規追加) ---
+    style_template_id: Optional[str] = None # 使用するスタイルテンプレートのID
+    style_template_settings: Dict[str, Any] = field(default_factory=dict) # スタイルテンプレートの設定内容
 
     # --- SerpAPI分析関連 (新規追加) ---
     serp_analysis_report: Optional[SerpKeywordAnalysisReport] = None # SerpAPIキーワード分析結果

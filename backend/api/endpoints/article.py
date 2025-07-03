@@ -124,6 +124,38 @@ async def get_recoverable_processes(
             detail="Failed to retrieve recoverable processes"
         )
 
+@router.get("/generation/{process_id}", response_model=dict, status_code=status.HTTP_200_OK)
+async def get_generation_process(
+    process_id: str,
+    user_id: str = Depends(get_current_user_id_from_token)
+):
+    """
+    Get generation process state by ID.
+    
+    **Parameters:**
+    - process_id: Generation process ID
+    - user_id: User ID (from authentication)
+    
+    **Returns:**
+    - Generation process state including image_mode and other context data
+    """
+    try:
+        process_state = await article_service.get_generation_process_state(process_id, user_id)
+        if not process_state:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Generation process not found or access denied"
+            )
+        return process_state
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting generation process {process_id}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to retrieve generation process"
+        )
+
 @router.get("/{article_id}", response_model=dict, status_code=status.HTTP_200_OK)
 async def get_article(
     article_id: str,

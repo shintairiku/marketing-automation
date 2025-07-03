@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import { Montserrat, Montserrat_Alternates } from 'next/font/google';
+import { Toaster as SonnerToaster } from 'sonner';
 
 import { Toaster } from '@/components/ui/toaster';
 import { cn } from '@/utils/cn';
@@ -38,6 +39,7 @@ export default function RootLayout({
         <body className={cn('font-sans antialiased', montserrat.variable, montserratAlternates.variable)}>
           {children}
           <Toaster />
+          <SonnerToaster position="top-right" />
           <Analytics />
         </body>
       </html>
