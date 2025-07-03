@@ -84,6 +84,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
       'auto_resume_eligible',
       'resume_from_step',
       'error_message',
+      'image_mode',
       'generated_content',
       'process_metadata',
     ];

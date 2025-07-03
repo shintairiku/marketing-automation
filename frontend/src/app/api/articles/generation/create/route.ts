@@ -30,6 +30,8 @@ export async function POST(request: NextRequest) {
       company_description,
       company_style_guide,
       organization_id,
+      image_mode,
+      image_settings,
     } = body;
 
     // 初期コンテキストの作成
@@ -42,6 +44,8 @@ export async function POST(request: NextRequest) {
       company_name,
       company_description,
       company_style_guide,
+      image_mode,
+      image_settings,
       current_step: 'start',
       generated_detailed_personas: [],
       research_query_results: [],
@@ -56,6 +60,7 @@ export async function POST(request: NextRequest) {
         flow_id: null, // 従来の記事生成ではフローを使用しない
         user_id: userId,
         organization_id,
+        image_mode: image_mode ?? false,
         status: 'in_progress',
         current_step_name: 'start',
         progress_percentage: 0,

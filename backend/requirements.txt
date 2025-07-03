@@ -17,3 +17,11 @@ google-search-results
 supabase
 pydantic[email]
 uuid
+# Vertex AI画像生成用パッケージ
+google-cloud-aiplatform
+google-auth
+google-genai
+pillow
+aiofiles
+# Google Cloud Storage
+google-cloud-storage>=2.10.0
