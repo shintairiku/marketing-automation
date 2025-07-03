@@ -1,8 +1,8 @@
 "use client";
-import { useState, useEffect } from 'react';
-import { ChevronDown, ChevronUp, Image, Plus, X, Settings, Palette } from "lucide-react";
-import { IoRefresh, IoSparkles } from "react-icons/io5";
+import { useEffect,useState } from 'react';
 import Link from 'next/link';
+import { ChevronDown, ChevronUp, Image, Palette,Plus, Settings, X } from "lucide-react";
+import { IoRefresh, IoSparkles } from "react-icons/io5";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -74,7 +74,7 @@ export default function InputSection({ onStartGeneration, isConnected, isGenerat
                     const templates = await response.json();
                     setStyleTemplates(templates);
                     // デフォルトテンプレートがあれば自動選択
-                    const defaultTemplate = templates.find(t => t.is_default);
+                    const defaultTemplate = templates.find((t: any) => t.is_default);
                     if (defaultTemplate) {
                         setSelectedStyleTemplate(defaultTemplate.id);
                     }
@@ -294,7 +294,7 @@ export default function InputSection({ onStartGeneration, isConnected, isGenerat
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="default">デフォルトスタイル</SelectItem>
-                    {styleTemplates.map((template) => (
+                    {styleTemplates.map((template: any) => (
                       <SelectItem key={template.id} value={template.id}>
                         {template.name}
                         {template.is_default && " (デフォルト)"}
@@ -306,7 +306,7 @@ export default function InputSection({ onStartGeneration, isConnected, isGenerat
                 {selectedStyleTemplate && selectedStyleTemplate !== 'default' && (
                   <div className="p-3 bg-purple-50 border border-purple-200 rounded-lg">
                     {(() => {
-                      const template = styleTemplates.find(t => t.id === selectedStyleTemplate);
+                      const template: any = styleTemplates.find((t: any) => t.id === selectedStyleTemplate);
                       return template ? (
                         <div className="space-y-2">
                           <div className="text-sm font-medium text-purple-900">{template.name}</div>
@@ -314,9 +314,9 @@ export default function InputSection({ onStartGeneration, isConnected, isGenerat
                             <div className="text-sm text-purple-800">{template.description}</div>
                           )}
                           <div className="text-xs text-purple-700 space-y-1">
-                            {template.settings.tone && <div>トーン: {template.settings.tone}</div>}
-                            {template.settings.style && <div>文体: {template.settings.style}</div>}
-                            {template.settings.approach && <div>アプローチ: {template.settings.approach}</div>}
+                            {template.settings?.tone && <div>トーン: {template.settings.tone}</div>}
+                            {template.settings?.style && <div>文体: {template.settings.style}</div>}
+                            {template.settings?.approach && <div>アプローチ: {template.settings.approach}</div>}
                           </div>
                         </div>
                       ) : null;

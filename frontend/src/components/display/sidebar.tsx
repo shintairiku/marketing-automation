@@ -6,20 +6,22 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import clsx from 'clsx';
 import {
-IoAnalytics, IoCalendar, 
+IoAnalytics, IoBug, IoCalendar, 
+IoCash, 
   /* LINE */
   IoChatbubbles as IoChat,  /* ←重複を避けるためエイリアス */
 IoChatbubbles, IoClipboard, IoCloudUpload,
-IoDocumentText,   IoGitBranch,
+IoCode, IoDocumentText,   IoGitBranch,
   /* SEO */
   IoGlobe, 
+IoHelp, 
   /* Home / Dashboard */
-  IoHome, IoImage, IoList, 
+  IoHome, IoImage, IoLinkSharp, IoList, 
   /* Instagram */
-  IoLogoInstagram, IoNewspaper, IoPencil, IoPerson,
-IoPricetag, IoSettings, IoSparkles,
+  IoLogoInstagram, IoMail, IoMegaphone,IoNewspaper, IoPencil, IoPeople, IoPerson,
+IoPricetag, IoSchool, IoSettings, IoSparkles,
 IoStatsChart,
-  IoSync, IoText, IoHelp, IoPeople, IoCash, IoLinkSharp, IoSchool, IoMail, IoBug, IoCode, IoMegaphone} from 'react-icons/io5';
+  IoSync, IoText} from 'react-icons/io5';
 
 import { groups } from '@/components/constant/route';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -216,37 +218,47 @@ export default function Sidebar() {
               <div className="flex flex-col">
                 {section.links.map((link) => {
                   const isDisabled = link.disabled;
-                  const LinkComponent = isDisabled ? 'div' : Link;
+                  
+                  if (isDisabled) {
+                    return (
+                      <div
+                        key={link.href || link.label}
+                        className={clsx(
+                          "flex items-center gap-2 p-[8px] rounded-lg",
+                          "opacity-50 cursor-not-allowed text-gray-400"
+                        )}
+                      >
+                        <div className="text-gray-400">
+                          {iconMap[link.href]}
+                        </div>
+                        <span className="text-sm whitespace-nowrap text-gray-400">
+                          {link.label}
+                        </span>
+                        <span className="ml-auto text-xs text-gray-400 bg-gray-200 px-2 py-1 rounded">
+                          開発中
+                        </span>
+                      </div>
+                    );
+                  }
+                  
                   return (
-                    <LinkComponent
+                    <Link
                       key={link.href}
-                      {...(!isDisabled && { href: link.href })}
+                      href={link.href}
                       className={clsx(
                         "flex items-center gap-2 p-[8px] rounded-lg",
-                        isDisabled
-                          ? "opacity-50 cursor-not-allowed text-gray-400"
-                          : pathname === link.href
+                        pathname === link.href
                           ? "bg-primary/10 text-primary"
                           : "hover:bg-gray-100 cursor-pointer"
                       )}
                     >
-                      <div className={clsx(
-                        isDisabled ? "text-gray-400" : "text-foreground"
-                      )}>
+                      <div className="text-foreground">
                         {iconMap[link.href]}
                       </div>
-                      <span className={clsx(
-                        "text-sm whitespace-nowrap",
-                        isDisabled ? "text-gray-400" : "text-foreground"
-                      )}>
-                      {link.label}
+                      <span className="text-sm whitespace-nowrap text-foreground">
+                        {link.label}
                       </span>
-                      {isDisabled && (
-                        <span className="ml-auto text-xs text-gray-400 bg-gray-200 px-2 py-1 rounded">
-                          開発中
-                        </span>
-                      )}
-                    </LinkComponent>
+                    </Link>
                   );
                 })}
               </div>

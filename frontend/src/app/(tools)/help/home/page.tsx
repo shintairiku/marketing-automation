@@ -1,9 +1,10 @@
 "use client";
 
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { IoHelp, IoSchool, IoChatbubbles, IoMail, IoCode, IoMegaphone } from "react-icons/io5";
 import Link from "next/link";
+import { IoChatbubbles, IoCode, IoHelp, IoMail, IoMegaphone,IoSchool } from "react-icons/io5";
+
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 
 export default function HelpHomePage() {
   return (

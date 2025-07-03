@@ -1,11 +1,12 @@
 "use client";
 
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { IoSettings, IoPerson, IoPeople, IoCash, IoClipboard, IoPencil, IoLinkSharp } from "react-icons/io5";
 import Link from "next/link";
+import { IoCash, IoClipboard, IoLinkSharp,IoPencil, IoPeople, IoPerson, IoSettings } from "react-icons/io5";
+
 import Header from "@/components/display/header";
 import Sidebar from "@/components/display/sidebar";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 
 export default function SettingsHomePage() {
   return (
