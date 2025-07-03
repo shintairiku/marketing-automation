@@ -1,8 +1,8 @@
 import type { Metadata } from 'next';
 import { Montserrat, Montserrat_Alternates } from 'next/font/google';
+import { Toaster as SonnerToaster } from 'sonner';
 
 import { Toaster } from '@/components/ui/toaster';
-import { Toaster as SonnerToaster } from 'sonner';
 import { cn } from '@/utils/cn';
 import { jaJP } from "@clerk/localizations";
 import { ClerkProvider } from '@clerk/nextjs';

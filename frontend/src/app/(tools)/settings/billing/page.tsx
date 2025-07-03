@@ -1,8 +1,8 @@
 "use client";
 
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import Header from "@/components/display/header";
 import Sidebar from "@/components/display/sidebar";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 export default function BillingSettingsPage() {
   return (
