@@ -15,7 +15,6 @@ from pathlib import Path
 from pydantic import BaseModel, Field
 from PIL import Image
 import aiofiles
-import aiohttp
 
 # Google GenAI SDK関連のインポート
 try:
