@@ -1,5 +1,4 @@
-# Next.js + Supabase + Stripe + FastAPI プロジェクトスターター
-# Next.js + Supabase + Stripe + FastAPI プロジェクトスターター
+# マーケティング自動化
 
 このリポジトリは、モダンな技術スタックを用いたフルスタックアプリケーションの開発を迅速に開始するためのスターターキットです。
 フロントエンドは Next.js (with TypeScript, Tailwind CSS, Shadcn/UI)、Supabase (データベース、認証)、Stripe (決済) を使用し、バックエンドは Python (FastAPI) で構築されています。
