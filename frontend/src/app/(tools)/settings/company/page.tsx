@@ -81,6 +81,7 @@ export default function CompanySettingsPage() {
     try {
       setLoading(true);
       const response = await fetch('/api/companies/');
+      
       if (!response.ok) {
         throw new Error('Failed to fetch companies');
       }
@@ -149,6 +150,14 @@ export default function CompanySettingsPage() {
       return;
     }
 
+    // URL形式チェック
+    try {
+      new URL(formData.website_url);
+    } catch {
+      toast.error('有効なURL形式を入力してください（例: https://example.com）');
+      return;
+    }
+
     try {
       setIsSaving(true);
       let response;
@@ -175,7 +184,19 @@ export default function CompanySettingsPage() {
 
       if (!response.ok) {
         const errorData = await response.json();
-        throw new Error(errorData.detail || 'Failed to save company');
+        console.error('Complete error response:', errorData);
+        
+        // より詳細なエラーメッセージを表示
+        let errorMessage = 'Failed to save company';
+        if (errorData.detail) {
+          errorMessage = errorData.detail;
+        } else if (errorData.error) {
+          errorMessage = errorData.error;
+        } else if (errorData.details) {
+          errorMessage = errorData.details;
+        }
+        
+        throw new Error(errorMessage);
       }
 
       const savedCompany = await response.json();

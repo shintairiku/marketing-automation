@@ -121,9 +121,10 @@ export const useWebSocket = ({
       ws.onclose = (event) => {
         setIsConnected(false);
         setIsConnecting(false);
-        if (event.code !== 1000) {
-          setError(`Connection closed unexpectedly: ${event.reason || 'Unknown reason'}`);
-        }
+        // エラーメッセージを表示しない
+        // if (event.code !== 1000) {
+        //   setError(`Connection closed unexpectedly: ${event.reason || 'Unknown reason'}`);
+        // }
         onClose?.(event);
       };
     } catch (err) {

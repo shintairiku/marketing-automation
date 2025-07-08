@@ -37,14 +37,22 @@ export async function GET() {
 
 export async function POST(request: NextRequest) {
   try {
+    console.log('Environment:', {
+      BACKEND_URL,
+      NODE_ENV: process.env.NODE_ENV,
+      VERCEL_ENV: process.env.VERCEL_ENV
+    });
+    
     const { getToken } = await auth();
     const token = await getToken();
 
     if (!token) {
+      console.error('No token found during company creation');
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
     const body = await request.json();
+    console.log('Company creation request body:', JSON.stringify(body, null, 2));
 
     const response = await fetch(`${BACKEND_URL}/companies/`, {
       method: 'POST',
@@ -55,17 +63,36 @@ export async function POST(request: NextRequest) {
       body: JSON.stringify(body),
     });
 
+    console.log('Backend response status:', response.status);
+    console.log('Backend response headers:', Object.fromEntries(response.headers.entries()));
+
     if (!response.ok) {
-      const errorData = await response.json();
-      return NextResponse.json(errorData, { status: response.status });
+      const errorText = await response.text();
+      console.error('Backend error response:', errorText);
+      
+      try {
+        const errorData = JSON.parse(errorText);
+        return NextResponse.json(errorData, { status: response.status });
+      } catch (parseError) {
+        console.error('Failed to parse error response as JSON:', parseError);
+        return NextResponse.json(
+          { error: 'Backend returned non-JSON error', details: errorText },
+          { status: response.status }
+        );
+      }
     }
 
     const data = await response.json();
+    console.log('Company created successfully:', data.id);
     return NextResponse.json(data, { status: 201 });
   } catch (error) {
-    console.error('Failed to create company:', error);
+    console.error('Failed to create company - full error:', error);
+    console.error('Error stack:', error instanceof Error ? error.stack : 'No stack trace');
     return NextResponse.json(
-      { error: 'Failed to create company' },
+      { 
+        error: 'Failed to create company',
+        details: error instanceof Error ? error.message : String(error)
+      },
       { status: 500 }
     );
   }
