@@ -224,10 +224,7 @@ export default memo(function CompactGenerationFlow({
                   )}
                 </h2>
                 <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                  <div className={`w-2 h-2 rounded-full ${
-                    isConnected ? 'bg-green-500 animate-pulse' : 'bg-red-500'
-                  }`} />
-                  {isConnected ? 'リアルタイム接続中' : '接続待機中'}
+                  {/* 接続状態表示を削除 */}
                   {/* 画像プレースホルダー数表示 */}
                   {imageMode && imagePlaceholders && imagePlaceholders.length > 0 && (
                     <div className="text-xs text-purple-600 bg-purple-50 px-2 py-0.5 rounded-full">
