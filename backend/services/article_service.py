@@ -55,12 +55,16 @@ logger.setLevel(logging.DEBUG)  # LLMログ詳細出力のためDEBUGレベル�
 try:
     from services.logging_service import LoggingService # ログサービス追加
     from agents_logging_integration import MultiAgentWorkflowLogger # ログ統合追加
+    from services.notion_sync_service import NotionSyncService # Notion同期追加
     LOGGING_ENABLED = True
+    NOTION_SYNC_ENABLED = True
 except ImportError as e:
     logger.warning(f"Logging system not available: {e}")
     LoggingService = None
     MultiAgentWorkflowLogger = None
+    NotionSyncService = None
     LOGGING_ENABLED = False
+    NOTION_SYNC_ENABLED = False
 
 # OpenAIクライアントの初期化 (ファイルスコープに戻す)
 async_client = AsyncOpenAI(api_key=settings.openai_api_key)
@@ -167,6 +171,7 @@ class ArticleGenerationService:
         self.active_connections: Dict[str, WebSocket] = {}  # プロセスIDごとのアクティブ接続
         self.process_locks: Dict[str, asyncio.Lock] = {}    # プロセスごとのロック
         self.logging_service = LoggingService() if LOGGING_ENABLED else None  # ログサービス追加
+        self.notion_sync_service = NotionSyncService() if NOTION_SYNC_ENABLED else None  # Notion同期サービス追加
         self.workflow_loggers: Dict[str, Any] = {}  # プロセスIDごとのワークフローログ
 
     async def _start_heartbeat_monitor(self, websocket: WebSocket, process_id: str, context: "ArticleContext") -> asyncio.Task:
@@ -3443,6 +3448,19 @@ class ArticleGenerationService:
                         # 完了または切断耐性でないステップの場合は、ログセッションを完了しロガーを削除
                         workflow_logger.finalize_session(session_status)
                         console.print(f"[cyan]Finalized log session for process {process_id} with status: {session_status}[/cyan]")
+                        
+                        # Notionに自動同期（完了したセッションのみ）
+                        if NOTION_SYNC_ENABLED and self.notion_sync_service and session_status == "completed":
+                            try:
+                                console.print(f"[yellow]🔄 Notionに自動同期開始: {process_id}[/yellow]")
+                                sync_success = self.notion_sync_service.sync_session_to_notion(workflow_logger.session_id)
+                                if sync_success:
+                                    console.print(f"[green]✅ Notion自動同期完了: {process_id}[/green]")
+                                else:
+                                    console.print(f"[red]❌ Notion自動同期失敗: {process_id}[/red]")
+                            except Exception as sync_err:
+                                logger.warning(f"Notion auto-sync failed: {sync_err}")
+                                console.print(f"[red]❌ Notion自動同期エラー: {sync_err}[/red]")
                         
                         # クリーンアップ
                         del self.workflow_loggers[process_id]
