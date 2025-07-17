@@ -3146,23 +3146,51 @@ class ArticleGenerationService:
                     # context.generated_outline を context.outline_approved に基づいて設定 (あるいは承認されたものがそのまま使われる)
                     # if not context.outline_approved: raise ValueError("承認済みアウトラインがありません。")
                     console.print("記事執筆ステップに進みます...")
+                    
+                    # セクションライティングの初期化（重要：current_section_indexを0にリセット）
+                    context.current_section_index = 0
+                    context.generated_sections_html = []
+                    context.section_writer_history = []
+                    
+                    console.print(f"[yellow]セクションライティング初期化: {len(context.generated_outline.sections)}セクションを実行予定[/yellow]")
+                    
                     context.current_step = "writing_sections" 
 
                 elif context.current_step == "writing_sections":
                     if not context.generated_outline: raise ValueError("承認済みアウトラインがありません。")
-                    if context.current_section_index >= len(context.generated_outline.sections):
-                        # 画像モードの場合は記事全体に最低1つの画像プレースホルダーがあることを確認
-                        if getattr(context, 'image_mode', False):
-                            total_placeholders = len(getattr(context, 'image_placeholders', []))
-                            if total_placeholders == 0:
-                                raise ValueError("画像モードで記事を生成しましたが、記事全体に画像プレースホルダーが1つも含まれていません。記事全体で最低1つの画像プレースホルダーが必要です。")
-                            console.print(f"[green]画像プレースホルダー検証OK: 記事全体で{total_placeholders}個のプレースホルダーが含まれています[/green]")
-                        
-                        context.full_draft_html = context.get_full_draft()
-                        context.current_step = "editing"
-                        console.print("[green]全セクションの執筆が完了しました。編集ステップに移ります。[/green]")
-                        await self._send_server_event(context, EditingStartPayload())
-                        continue
+                    
+                    # セクション完了判定を厳密化
+                    total_sections = len(context.generated_outline.sections)
+                    generated_sections_count = len([s for s in context.generated_sections_html if s and s.strip()])
+                    
+                    console.print(f"[yellow]セクション進捗: {context.current_section_index}/{total_sections}, 生成済み: {generated_sections_count}[/yellow]")
+                    
+                    if context.current_section_index >= total_sections:
+                        # 実際にすべてのセクションが生成されているかを確認
+                        if generated_sections_count < total_sections:
+                            console.print(f"[red]エラー: セクションインデックス({context.current_section_index})は完了を示しているが、実際の生成セクション数({generated_sections_count})が不足[/red]")
+                            console.print(f"[yellow]セクションライティングを再開します[/yellow]")
+                            # 不足分から再開
+                            context.current_section_index = generated_sections_count
+                        else:
+                            # 画像モードの場合は記事全体に最低1つの画像プレースホルダーがあることを確認
+                            if getattr(context, 'image_mode', False):
+                                total_placeholders = len(getattr(context, 'image_placeholders', []))
+                                if total_placeholders == 0:
+                                    raise ValueError("画像モードで記事を生成しましたが、記事全体に画像プレースホルダーが1つも含まれていません。記事全体で最低1つの画像プレースホルダーが必要です。")
+                                console.print(f"[green]画像プレースホルダー検証OK: 記事全体で{total_placeholders}個のプレースホルダーが含まれています[/green]")
+                            
+                            context.full_draft_html = context.get_full_draft()
+                            
+                            # 空のドラフトチェック
+                            if not context.full_draft_html or len(context.full_draft_html.strip()) < 100:
+                                console.print(f"[red]エラー: 生成されたドラフトが空または短すぎます（{len(context.full_draft_html) if context.full_draft_html else 0}文字）[/red]")
+                                raise ValueError("セクションライティングが正常に完了していません。ドラフトが空です。")
+                            
+                            context.current_step = "editing"
+                            console.print(f"[green]全{total_sections}セクションの執筆が完了しました（{len(context.full_draft_html)}文字）。編集ステップに移ります。[/green]")
+                            await self._send_server_event(context, EditingStartPayload())
+                            continue
 
                     # 画像モードかどうかでエージェントを選択
                     if getattr(context, 'image_mode', False):
@@ -4216,35 +4244,45 @@ class ArticleGenerationService:
                     }
                     
                     try:
-                        # Use UPSERT to prevent duplicates with ON CONFLICT
-                        console.print(f"[cyan]Saving final article for process {process_id} using UPSERT[/cyan]")
-                        article_result = supabase.table("articles").upsert(
-                            article_data,
-                            on_conflict="generation_process_id"
-                        ).execute()
+                        # 手動でのチェック・挿入・更新（UPSERT制約に依存しない）
+                        console.print(f"[cyan]Saving final article for process {process_id}[/cyan]")
                         
-                        if article_result.data:
-                            article_id = article_result.data[0]["id"]
-                            update_data["article_id"] = article_id
-                            console.print(f"[green]Successfully saved article {article_id} for process {process_id}[/green]")
+                        # 既存記事をチェック
+                        existing_article = supabase.table("articles").select("id").eq("generation_process_id", process_id).execute()
+                        
+                        if existing_article.data and len(existing_article.data) > 0:
+                            # 既存記事を更新
+                            article_id = existing_article.data[0]["id"]
+                            console.print(f"[yellow]Updating existing article {article_id}[/yellow]")
+                            article_result = supabase.table("articles").update(article_data).eq("id", article_id).execute()
+                            
+                            if article_result.data:
+                                update_data["article_id"] = article_id
+                                console.print(f"[green]Successfully updated article {article_id} for process {process_id}[/green]")
+                            else:
+                                console.print(f"[red]Failed to update article {article_id}: {article_result}[/red]")
                         else:
-                            console.print(f"[red]Failed to save article for process {process_id}: {article_result}[/red]")
+                            # 新規記事を作成
+                            console.print(f"[yellow]Creating new article for process {process_id}[/yellow]")
+                            article_result = supabase.table("articles").insert(article_data).execute()
+                            
+                            if article_result.data:
+                                article_id = article_result.data[0]["id"]
+                                update_data["article_id"] = article_id
+                                console.print(f"[green]Successfully created article {article_id} for process {process_id}[/green]")
+                            else:
+                                console.print(f"[red]Failed to create article: {article_result}[/red]")
                             
                     except Exception as article_save_error:
                         console.print(f"[red]Error saving article for process {process_id}: {article_save_error}[/red]")
-                        # If UPSERT fails due to missing constraint, fall back to manual check
+                        # 最後の試み: 強制的に挿入
                         try:
-                            existing_article = supabase.table("articles").select("id").eq("generation_process_id", process_id).execute()
-                            if existing_article.data and len(existing_article.data) > 0:
-                                # Update existing article
-                                article_id = existing_article.data[0]["id"]
-                                article_result = supabase.table("articles").update(article_data).eq("id", article_id).execute()
+                            console.print(f"[yellow]Attempting force insert for process {process_id}[/yellow]")
+                            article_result = supabase.table("articles").insert(article_data).execute()
+                            if article_result.data:
+                                article_id = article_result.data[0]["id"]
                                 update_data["article_id"] = article_id
-                            else:
-                                # Create new article
-                                article_result = supabase.table("articles").insert(article_data).execute()
-                                if article_result.data:
-                                    update_data["article_id"] = article_result.data[0]["id"]
+                                console.print(f"[green]Force insert successful: {article_id}[/green]")
                         except Exception as fallback_error:
                             console.print(f"[red]Fallback article save also failed: {fallback_error}[/red]")
                 
@@ -5243,6 +5281,19 @@ class ArticleGenerationService:
                 # ログセッションを完了
                 workflow_logger.finalize_session(status)
                 console.print(f"[cyan]Background processing complete - finalized log session for process {process_id} with status: {status}[/cyan]")
+                
+                # Notionに自動同期（完了したセッションのみ）
+                if NOTION_SYNC_ENABLED and self.notion_sync_service and status == "completed":
+                    try:
+                        console.print(f"[yellow]🔄 Notionに自動同期開始: {process_id}[/yellow]")
+                        sync_success = self.notion_sync_service.sync_session_to_notion(workflow_logger.session_id)
+                        if sync_success:
+                            console.print(f"[green]✅ Notion自動同期完了: {process_id}[/green]")
+                        else:
+                            console.print(f"[red]❌ Notion自動同期失敗: {process_id}[/red]")
+                    except Exception as sync_err:
+                        logger.warning(f"Notion auto-sync failed: {sync_err}")
+                        console.print(f"[red]❌ Notion自動同期エラー: {sync_err}[/red]")
                 
                 # ワークフローロガーを削除
                 del self.workflow_loggers[process_id]
