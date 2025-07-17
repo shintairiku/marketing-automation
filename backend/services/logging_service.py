@@ -80,10 +80,33 @@ class LoggingService:
         try:
             update_data = {"status": status}
             
-            if total_steps is not None:
-                update_data["total_steps"] = total_steps
-            if completed_steps is not None:
-                update_data["completed_steps"] = completed_steps
+            # valid_step_counts制約を満たすため、ステップ数の整合性をチェック
+            if total_steps is not None or completed_steps is not None:
+                # 現在の値を取得
+                current_session = supabase.table("agent_log_sessions").select("total_steps, completed_steps").eq("id", session_id).execute()
+                if current_session.data:
+                    current_total = current_session.data[0].get("total_steps", 0)
+                    current_completed = current_session.data[0].get("completed_steps", 0)
+                    
+                    # 新しい値を決定
+                    new_total = total_steps if total_steps is not None else current_total
+                    new_completed = completed_steps if completed_steps is not None else current_completed
+                    
+                    # 制約違反を防ぐための調整
+                    if new_completed > new_total:
+                        logger.warning(f"completed_steps({new_completed}) > total_steps({new_total}), adjusting total_steps")
+                        new_total = new_completed
+                    
+                    # total_stepsが0の場合、completed_stepsも0にする
+                    if new_total == 0 and new_completed > 0:
+                        logger.warning(f"total_steps is 0 but completed_steps is {new_completed}, setting both to {new_completed}")
+                        new_total = new_completed
+                    
+                    update_data["total_steps"] = new_total
+                    update_data["completed_steps"] = new_completed
+                    
+                    logger.info(f"Session {session_id} steps: {current_total}→{new_total} (total), {current_completed}→{new_completed} (completed)")
+            
             if completed_at is not None:
                 update_data["completed_at"] = completed_at.isoformat()
             
