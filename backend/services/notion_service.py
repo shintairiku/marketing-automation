@@ -32,7 +32,8 @@ class NotionService:
         }
         
     def create_llm_session_page(self, session_data: Dict[str, Any]) -> Optional[str]:
-        """LLMセッションページを作成"""
+        """LLMセッションページを作成し、コンテンツをチャンクで追加"""
+        page_id = None
         try:
             # 記事タイトルを取得し、ない場合はフォールバック
             article_title = session_data.get('article_title')
@@ -72,43 +73,77 @@ class NotionService:
             if seo_keywords:
                 properties["SEOキーワード"] = {
                     "multi_select": [
-                        {"name": keyword} for keyword in seo_keywords[:10]  # 最大10個まで
+                        {"name": keyword} for keyword in seo_keywords
                     ]
                 }
             
-            # ページの内容を構築（Notionのブロック形式）
-            children = self._build_session_content_blocks(session_data)
-            
-            payload = {
+            # 1. プロパティのみでページを作成
+            page_payload = {
                 "parent": {"database_id": self.database_id},
                 "properties": properties,
-                "children": children
             }
             
             response = requests.post(
                 f"{self.base_url}/pages",
                 headers=self.headers,
-                json=payload,
+                json=page_payload,
                 timeout=30
             )
             
-            if response.status_code == 200:
-                page_data = response.json()
-                page_id = page_data.get("id")
-                logger.info(f"LLMセッションページ作成成功: {page_id}")
-                print(f"✅ Notionページ作成成功: {page_id}")
-                return page_id
-            else:
+            if response.status_code != 200:
                 logger.error(f"ページ作成失敗: {response.status_code} - {response.text}")
                 print(f"❌ ページ作成失敗: {response.status_code}")
                 print(f"   レスポンス: {response.text}")
                 return None
+            
+            page_data = response.json()
+            page_id = page_data.get("id")
+            logger.info(f"LLMセッションページ作成成功: {page_id}")
+            print(f"✅ Notionページ作成成功: {page_id}")
+            
+            # 2. ページの中身（ブロック）を構築
+            children = self._build_session_content_blocks(session_data)
+            
+            # 3. ブロックをチャンクで追加
+            if children:
+                print(f"   ... {len(children)}件のブロックを追加中...")
+                self.append_blocks_to_page(page_id, children)
+                print(f"   ✅ ブロックの追加が完了しました")
+            
+            return page_id
                 
         except Exception as e:
-            logger.error(f"ページ作成エラー: {e}")
-            print(f"❌ ページ作成エラー: {e}")
+            logger.error(f"ページ処理エラー (ID: {page_id}): {e}")
+            print(f"❌ ページ処理エラー (ID: {page_id}): {e}")
             return None
     
+    def append_blocks_to_page(self, page_id: str, blocks: List[Dict[str, Any]]):
+        """ページにブロックを追加（100件ごとのチャンク処理）"""
+        for i in range(0, len(blocks), 100):
+            chunk = blocks[i:i + 100]
+            payload = {"children": chunk}
+            
+            try:
+                response = requests.patch(
+                    f"{self.base_url}/blocks/{page_id}/children",
+                    headers=self.headers,
+                    json=payload,
+                    timeout=30
+                )
+                
+                if response.status_code == 200:
+                    logger.info(f"ページ {page_id} に {len(chunk)} ブロックを追加成功")
+                else:
+                    logger.error(f"ブロック追加失敗: {response.status_code} - {response.text}")
+                    print(f"❌ ブロック追加失敗: {response.status_code}")
+                    print(f"   レスポンス: {response.text}")
+                    response.raise_for_status()
+
+            except requests.exceptions.RequestException as e:
+                logger.error(f"ブロック追加リクエストエラー: {e}")
+                print(f"❌ ブロック追加リクエストエラー: {e}")
+                raise
+
     def _build_session_content_blocks(self, session_data: Dict[str, Any]) -> List[Dict[str, Any]]:
         """セッションデータからNotionブロックを構築"""
         blocks = []
@@ -212,7 +247,7 @@ class NotionService:
                 }
             })
             
-            for i, llm_call in enumerate(session_data['llm_calls'][:10]):  # 最大10件表示
+            for i, llm_call in enumerate(session_data['llm_calls']):
                 blocks.extend(self._build_llm_call_blocks(llm_call, i + 1))
         
         # パフォーマンス統計
@@ -242,16 +277,6 @@ class NotionService:
                     }
                 })
         
-        # Notionの制限（100ブロック）を超えないようにチェック
-        if len(blocks) > 95:  # 安全マージン
-            blocks = blocks[:95]
-            blocks.append({
-                "object": "block",
-                "type": "paragraph",
-                "paragraph": {
-                    "rich_text": [{"type": "text", "text": {"content": "⚠️ 表示制限により、一部のデータが省略されています。"}}]
-                }
-            })
         
         return blocks
     
