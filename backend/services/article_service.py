@@ -56,6 +56,7 @@ try:
     from services.logging_service import LoggingService # ログサービス追加
     from agents_logging_integration import MultiAgentWorkflowLogger # ログ統合追加
     from services.notion_sync_service import NotionSyncService # Notion同期追加
+    from services.cost_calculation_service import CostCalculationService # コスト計算サービス追加
     LOGGING_ENABLED = True
     NOTION_SYNC_ENABLED = True
 except ImportError as e:
@@ -63,6 +64,7 @@ except ImportError as e:
     LoggingService = None
     MultiAgentWorkflowLogger = None
     NotionSyncService = None
+    CostCalculationService = None
     LOGGING_ENABLED = False
     NOTION_SYNC_ENABLED = False
 
@@ -2124,18 +2126,59 @@ class ArticleGenerationService:
                 last_response = raw_responses[-1]
                 if hasattr(last_response, 'usage') and last_response.usage:
                     usage = last_response.usage
+                    
+                    # トークン使用量を抽出
+                    input_tokens = getattr(usage, 'input_tokens', 0)
+                    output_tokens = getattr(usage, 'output_tokens', 0)
+                    cache_tokens = getattr(usage.input_tokens_details, 'cached_tokens', 0) if hasattr(usage, 'input_tokens_details') and usage.input_tokens_details else 0
+                    reasoning_tokens = getattr(usage.output_tokens_details, 'reasoning_tokens', 0) if hasattr(usage, 'output_tokens_details') and usage.output_tokens_details else 0
+                    total_tokens = getattr(usage, 'total_tokens', 0)
+                    
+                    # 実際のモデル名を取得（可能であれば）
+                    model_name = getattr(last_response, 'model', 'gpt-4o')
+                    
+                    # 新しいコスト計算サービスを使用
+                    if CostCalculationService:
+                        cost_info = CostCalculationService.calculate_cost(
+                            model_name=model_name,
+                            prompt_tokens=input_tokens,
+                            completion_tokens=output_tokens,
+                            cached_tokens=cache_tokens,
+                            reasoning_tokens=reasoning_tokens,
+                            total_tokens=total_tokens
+                        )
+                        estimated_cost = cost_info["cost_breakdown"]["total_cost_usd"]
+                    else:
+                        # フォールバック: 古いコスト計算方法
+                        estimated_cost = self._estimate_cost(usage)
+                    
                     return {
-                        "model": "gpt-4o",  # デフォルト、実際のモデル名は別途取得が必要
-                        "input_tokens": getattr(usage, 'input_tokens', 0),
-                        "output_tokens": getattr(usage, 'output_tokens', 0),
-                        "cache_tokens": getattr(usage.input_tokens_details, 'cached_tokens', 0) if hasattr(usage, 'input_tokens_details') and usage.input_tokens_details else 0,
-                        "reasoning_tokens": getattr(usage.output_tokens_details, 'reasoning_tokens', 0) if hasattr(usage, 'output_tokens_details') and usage.output_tokens_details else 0,
-                        "total_tokens": getattr(usage, 'total_tokens', 0),
-                        "estimated_cost": self._estimate_cost(usage)
+                        "model": model_name,
+                        "input_tokens": input_tokens,
+                        "output_tokens": output_tokens,
+                        "cache_tokens": cache_tokens,
+                        "reasoning_tokens": reasoning_tokens,
+                        "total_tokens": total_tokens,
+                        "estimated_cost": estimated_cost
                     }
             
             # フォールバック: デフォルト値を使用
             logger.warning("No usage data found in result, using fallback values")
+            
+            # 新しいコスト計算サービスを使用
+            if CostCalculationService:
+                cost_info = CostCalculationService.calculate_cost(
+                    model_name="gpt-4o",
+                    prompt_tokens=100,  # 概算値
+                    completion_tokens=50,   # 概算値
+                    cached_tokens=0,
+                    reasoning_tokens=0,
+                    total_tokens=150
+                )
+                estimated_cost = cost_info["cost_breakdown"]["total_cost_usd"]
+            else:
+                estimated_cost = 0.001
+            
             return {
                 "model": "gpt-4o",
                 "input_tokens": 100,  # 概算値
@@ -2143,7 +2186,7 @@ class ArticleGenerationService:
                 "cache_tokens": 0,
                 "reasoning_tokens": 0,
                 "total_tokens": 150,
-                "estimated_cost": 0.001
+                "estimated_cost": estimated_cost
             }
         except Exception as e:
             logger.warning(f"Failed to extract token usage: {e}")
@@ -2166,9 +2209,25 @@ class ArticleGenerationService:
         try:
             input_tokens = metadata.get('input_tokens', 0)
             output_tokens = metadata.get('output_tokens', 0)
-            input_cost = input_tokens * 0.0000025
-            output_cost = output_tokens * 0.00001
-            return input_cost + output_cost
+            cache_tokens = metadata.get('cache_tokens', 0)
+            reasoning_tokens = metadata.get('reasoning_tokens', 0)
+            model_name = metadata.get('model', 'gpt-4o')
+            
+            # 新しいコスト計算サービスを使用
+            if CostCalculationService:
+                cost_info = CostCalculationService.calculate_cost(
+                    model_name=model_name,
+                    prompt_tokens=input_tokens,
+                    completion_tokens=output_tokens,
+                    cached_tokens=cache_tokens,
+                    reasoning_tokens=reasoning_tokens
+                )
+                return cost_info["cost_breakdown"]["total_cost_usd"]
+            else:
+                # フォールバック: 古いコスト計算方法
+                input_cost = input_tokens * 0.0000025
+                output_cost = output_tokens * 0.00001
+                return input_cost + output_cost
         except:
             return 0.001
 
@@ -2280,13 +2339,12 @@ class ArticleGenerationService:
                     if hasattr(agent, 'instructions'):
                         instructions = agent.instructions
                         if callable(instructions):
-                            # 動的指示の場合は、実行しようとする
-                            try:
-                                instructions = "Dynamic instructions (cannot extract statically)"
-                            except:
-                                instructions = "Dynamic instructions (extraction failed)"
-                        conversation_data["system_prompt"] = str(instructions)
-                        console.print(f"[debug]Set system prompt from agent: {len(conversation_data['system_prompt'])} chars")
+                            # 動的指示の場合は、実行時に解決された値を使用
+                            conversation_data["system_prompt"] = "Dynamic instructions (resolved at runtime)"
+                            console.print(f"[debug]Marked system prompt as dynamic for agent: {agent.name}")
+                        else:
+                            conversation_data["system_prompt"] = str(instructions)
+                            console.print(f"[debug]Set static system prompt from agent: {len(conversation_data['system_prompt'])} chars")
 
             # 最終出力も記録
             if hasattr(result, 'final_output') and result.final_output:
@@ -3549,6 +3607,9 @@ class ArticleGenerationService:
                     run_context = RunContextWrapper(context=context)
                     system_prompt = await agent.instructions(run_context, agent)
                     console.print(f"[green]✅ Dynamic system prompt extracted successfully for {agent.name} ({len(system_prompt)} chars)[/green]")
+                    # デバッグ用にシステムプロンプトの一部を出力
+                    if logger.isEnabledFor(logging.DEBUG):
+                        console.print(f"[debug]System prompt preview: {system_prompt[:300]}...")
                 except Exception as e:
                     logger.warning(f"Failed to get dynamic instructions for {agent.name}: {e}")
                     system_prompt = f"Dynamic instructions (failed to resolve: {str(e)})"
@@ -3661,15 +3722,17 @@ class ArticleGenerationService:
                             
                             if isinstance(conversation_history, dict):
                                 # 会話履歴から詳細情報を取得
-                                system_prompt_text = conversation_history.get("system_prompt", "")[:2000]
-                                user_prompt_text = conversation_history.get("user_prompt", user_prompt_text)[:2000]
-                                response_text = conversation_history.get("assistant_response", "")[:2000]
+                                conversation_system_prompt = conversation_history.get("system_prompt", "")
+                                # 動的に取得したシステムプロンプトを優先使用
+                                system_prompt_text = system_prompt if system_prompt else conversation_system_prompt
+                                user_prompt_text = conversation_history.get("user_prompt", user_prompt_text)
+                                response_text = conversation_history.get("assistant_response", "")
                                 
                                 console.print(f"[debug]Using conversation history - system: {len(system_prompt_text)} chars, user: {len(user_prompt_text)} chars, response: {len(response_text)} chars")
                             else:
-                                # フォールバック: 基本的な情報を使用
-                                system_prompt_text = system_prompt[:2000] if system_prompt else ""
-                                response_text = str(result.final_output)[:2000] if hasattr(result, 'final_output') else ""
+                                # フォールバック: 動的に取得したシステムプロンプトを使用
+                                system_prompt_text = system_prompt if system_prompt else ""
+                                response_text = str(result.final_output) if hasattr(result, 'final_output') else ""
                                 
                                 console.print(f"[debug]Using fallback data - system: {len(system_prompt_text)} chars, user: {len(user_prompt_text)} chars, response: {len(response_text)} chars")
                             
@@ -3706,7 +3769,7 @@ class ArticleGenerationService:
                                     "reasoning": conversation_history.get("reasoning", "")[:1000] if isinstance(conversation_history, dict) else "",
                                     "actual_model_used": actual_model,
                                     "model_from_config": model_from_config,
-                                    "full_system_prompt": system_prompt[:5000] if system_prompt else "",
+                                    "full_system_prompt": system_prompt_text,
                                     "conversation_history_type": str(type(conversation_history)),
                                     "token_usage_available": token_usage is not None
                                 },
