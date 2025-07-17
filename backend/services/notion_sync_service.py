@@ -98,7 +98,15 @@ class NotionSyncService:
             
             session = session_result.data[0]
             
-            # 2. エージェント実行ログを取得
+            # 2. 実際の記事タイトルを取得
+            article_result = supabase.table("articles") \
+                .select("title") \
+                .eq("generation_process_id", session['article_uuid']) \
+                .execute()
+            
+            article_title = article_result.data[0]['title'] if article_result.data else None
+            
+            # 3. エージェント実行ログを取得
             executions_result = supabase.table("agent_execution_logs") \
                 .select("*") \
                 .eq("session_id", session_id) \
@@ -107,7 +115,7 @@ class NotionSyncService:
             
             executions = executions_result.data
             
-            # 3. LLM呼び出しログを取得
+            # 4. LLM呼び出しログを取得
             execution_ids = [exec_log['id'] for exec_log in executions]
             llm_calls = []
             
@@ -125,10 +133,17 @@ class NotionSyncService:
                     if matching_execution:
                         llm_call['agent_name'] = matching_execution['agent_name']
                         llm_call['agent_type'] = matching_execution['agent_type']
+                    else:
+                        # full_prompt_dataからエージェント名を抽出
+                        full_prompt_data = llm_call.get('full_prompt_data', {})
+                        if isinstance(full_prompt_data, dict):
+                            llm_call['agent_name'] = full_prompt_data.get('agent_name', 'Unknown')
+                        else:
+                            llm_call['agent_name'] = 'Unknown'
                 
                 llm_calls = llm_calls_result.data
             
-            # 4. ツール呼び出しログを取得
+            # 5. ツール呼び出しログを取得
             tool_calls = []
             if execution_ids:
                 tool_calls_result = supabase.table("tool_call_logs") \
@@ -139,7 +154,7 @@ class NotionSyncService:
                 
                 tool_calls = tool_calls_result.data
             
-            # 5. ワークフローステップログを取得
+            # 6. ワークフローステップログを取得
             workflow_steps_result = supabase.table("workflow_step_logs") \
                 .select("*") \
                 .eq("session_id", session_id) \
@@ -148,7 +163,7 @@ class NotionSyncService:
             
             workflow_steps = workflow_steps_result.data
             
-            # 6. 統計データを計算
+            # 7. 統計データを計算
             total_tokens = sum(llm_call.get('total_tokens', 0) for llm_call in llm_calls)
             input_tokens = sum(llm_call.get('prompt_tokens', 0) for llm_call in llm_calls)
             output_tokens = sum(llm_call.get('completion_tokens', 0) for llm_call in llm_calls)
@@ -158,10 +173,13 @@ class NotionSyncService:
             
             total_duration_ms = sum(exec_log.get('duration_ms', 0) or 0 for exec_log in executions)
             
-            # 7. 完全なデータを構築
+            # 8. 完全なデータを構築
             complete_data = {
                 # セッション基本情報
                 **session,
+                
+                # 記事タイトル
+                "article_title": article_title,
                 
                 # 統計データ
                 "total_tokens": total_tokens,

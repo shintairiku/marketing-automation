@@ -5,7 +5,6 @@ SupabaseのLLMログデータをNotionデータベースと同期する
 """
 import logging
 from typing import Dict, Any, List, Optional
-from datetime import datetime, timezone
 import requests
 import json
 
@@ -35,18 +34,47 @@ class NotionService:
     def create_llm_session_page(self, session_data: Dict[str, Any]) -> Optional[str]:
         """LLMセッションページを作成"""
         try:
+            # 記事タイトルを取得し、ない場合はフォールバック
+            article_title = session_data.get('article_title')
+            if article_title:
+                page_title = article_title
+            else:
+                # フォールバック: SEOキーワードがある場合はそれを使用
+                seo_keywords = session_data.get('seo_keywords', [])
+                if seo_keywords:
+                    page_title = f"記事生成: {', '.join(seo_keywords[:3])}..."
+                else:
+                    page_title = f"記事生成: {session_data.get('session_id', 'Unknown')[:8]}..."
+            
             # Notionページのプロパティを構築
             properties = {
                 "名前": {
                     "title": [
                         {
                             "text": {
-                                "content": f"Session: {session_data.get('session_id', 'Unknown')[:8]}... ({session_data.get('article_uuid', 'Unknown')[:8]}...)"
+                                "content": page_title
                             }
                         }
                     ]
                 }
             }
+            
+            # 開始日時プロパティを追加
+            if session_data.get('created_at'):
+                properties["開始日時"] = {
+                    "date": {
+                        "start": session_data['created_at']
+                    }
+                }
+            
+            # SEOキーワードプロパティを追加
+            seo_keywords = session_data.get('seo_keywords', [])
+            if seo_keywords:
+                properties["SEOキーワード"] = {
+                    "multi_select": [
+                        {"name": keyword} for keyword in seo_keywords[:10]  # 最大10個まで
+                    ]
+                }
             
             # ページの内容を構築（Notionのブロック形式）
             children = self._build_session_content_blocks(session_data)
@@ -95,23 +123,24 @@ class NotionService:
         })
         
         # セッション基本情報
-        session_info = f"""
-**セッションID:** {session_data.get('session_id', 'N/A')}
-**記事UUID:** {session_data.get('article_uuid', 'N/A')}
-**ユーザーID:** {session_data.get('user_id', 'N/A')}
-**ステータス:** {session_data.get('status', 'N/A')}
-**開始日時:** {session_data.get('created_at', 'N/A')}
-**完了日時:** {session_data.get('completed_at', 'N/A') or 'N/A'}
-**総実行時間:** {session_data.get('total_duration_ms', 0)} ms
-"""
+        session_info_blocks = [
+            f"セッションID: {session_data.get('session_id', 'N/A')}",
+            f"記事UUID: {session_data.get('article_uuid', 'N/A')}",
+            f"ユーザーID: {session_data.get('user_id', 'N/A')}",
+            f"ステータス: {session_data.get('status', 'N/A')}",
+            f"開始日時: {session_data.get('created_at', 'N/A')}",
+            f"完了日時: {session_data.get('completed_at', 'N/A') or 'N/A'}",
+            f"総実行時間: {session_data.get('total_duration_ms', 0)} ms"
+        ]
         
-        blocks.append({
-            "object": "block",
-            "type": "paragraph",
-            "paragraph": {
-                "rich_text": [{"type": "text", "text": {"content": session_info.strip()}}]
-            }
-        })
+        for info_line in session_info_blocks:
+            blocks.append({
+                "object": "block",
+                "type": "paragraph",
+                "paragraph": {
+                    "rich_text": self._format_text_with_bold(info_line)
+                }
+            })
         
         # トークン使用量とコスト
         blocks.append({
@@ -122,22 +151,23 @@ class NotionService:
             }
         })
         
-        cost_info = f"""
-**総トークン数:** {session_data.get('total_tokens', 0):,}
-**入力トークン:** {session_data.get('input_tokens', 0):,}
-**出力トークン:** {session_data.get('output_tokens', 0):,}
-**キャッシュトークン:** {session_data.get('cache_tokens', 0):,}
-**推論トークン:** {session_data.get('reasoning_tokens', 0):,}
-**推定コスト:** ${session_data.get('estimated_total_cost', 0):.6f}
-"""
+        cost_info_blocks = [
+            f"総トークン数: {session_data.get('total_tokens', 0):,}",
+            f"入力トークン: {session_data.get('input_tokens', 0):,}",
+            f"出力トークン: {session_data.get('output_tokens', 0):,}",
+            f"キャッシュトークン: {session_data.get('cache_tokens', 0):,}",
+            f"推論トークン: {session_data.get('reasoning_tokens', 0):,}",
+            f"推定コスト: ${session_data.get('estimated_total_cost', 0):.6f}"
+        ]
         
-        blocks.append({
-            "object": "block",
-            "type": "paragraph",
-            "paragraph": {
-                "rich_text": [{"type": "text", "text": {"content": cost_info.strip()}}]
-            }
-        })
+        for cost_line in cost_info_blocks:
+            blocks.append({
+                "object": "block",
+                "type": "paragraph",
+                "paragraph": {
+                    "rich_text": self._format_text_with_bold(cost_line)
+                }
+            })
         
         # 初期設定情報
         if session_data.get('initial_input') or session_data.get('seo_keywords'):
@@ -149,27 +179,28 @@ class NotionService:
                 }
             })
             
-            initial_info = f"""
-**SEOキーワード:** {', '.join(session_data.get('seo_keywords', []))}
-**ターゲット年代:** {session_data.get('target_age_group', 'N/A')}
-**画像モード:** {'有効' if session_data.get('image_mode_enabled') else '無効'}
-**テーマ生成数:** {session_data.get('generation_theme_count', 'N/A')}
-"""
+            initial_info_blocks = [
+                f"SEOキーワード: {', '.join(session_data.get('seo_keywords', []))}",
+                f"ターゲット年代: {session_data.get('target_age_group', 'N/A')}",
+                f"画像モード: {'有効' if session_data.get('image_mode_enabled') else '無効'}",
+                f"テーマ生成数: {session_data.get('generation_theme_count', 'N/A')}"
+            ]
             
             if session_data.get('company_info'):
                 company_info = session_data['company_info']
-                initial_info += f"""
-**会社名:** {company_info.get('company_name', 'N/A')}
-**会社説明:** {company_info.get('company_description', 'N/A')[:100]}...
-"""
+                initial_info_blocks.extend([
+                    f"会社名: {company_info.get('company_name', 'N/A')}",
+                    f"会社説明: {company_info.get('company_description', 'N/A')[:100]}..."
+                ])
             
-            blocks.append({
-                "object": "block",
-                "type": "paragraph",
-                "paragraph": {
-                    "rich_text": [{"type": "text", "text": {"content": initial_info.strip()}}]
-                }
-            })
+            for info_line in initial_info_blocks:
+                blocks.append({
+                    "object": "block",
+                    "type": "paragraph",
+                    "paragraph": {
+                        "rich_text": self._format_text_with_bold(info_line)
+                    }
+                })
         
         # LLM呼び出し一覧
         if session_data.get('llm_calls'):
@@ -195,22 +226,97 @@ class NotionService:
             })
             
             metrics = session_data['performance_metrics']
-            perf_info = f"""
-**総実行数:** {metrics.get('total_executions', 0)}
-**総LLM呼び出し数:** {metrics.get('total_llm_calls', 0)}
-**総ツール呼び出し数:** {metrics.get('total_tool_calls', 0)}
-**平均実行時間:** {metrics.get('avg_execution_duration_ms', 0):.2f} ms
-"""
+            perf_info_blocks = [
+                f"総実行数: {metrics.get('total_executions', 0)}",
+                f"総LLM呼び出し数: {metrics.get('total_llm_calls', 0)}",
+                f"総ツール呼び出し数: {metrics.get('total_tool_calls', 0)}",
+                f"平均実行時間: {metrics.get('avg_execution_duration_ms', 0):.2f} ms"
+            ]
             
+            for perf_line in perf_info_blocks:
+                blocks.append({
+                    "object": "block",
+                    "type": "paragraph",
+                    "paragraph": {
+                        "rich_text": self._format_text_with_bold(perf_line)
+                    }
+                })
+        
+        # Notionの制限（100ブロック）を超えないようにチェック
+        if len(blocks) > 95:  # 安全マージン
+            blocks = blocks[:95]
             blocks.append({
                 "object": "block",
                 "type": "paragraph",
                 "paragraph": {
-                    "rich_text": [{"type": "text", "text": {"content": perf_info.strip()}}]
+                    "rich_text": [{"type": "text", "text": {"content": "⚠️ 表示制限により、一部のデータが省略されています。"}}]
                 }
             })
         
         return blocks
+    
+    def _get_llm_call_title(self, llm_call: Dict[str, Any], call_number: int) -> str:
+        """LLM呼び出しの分かりやすいタイトルを生成"""
+        # エージェント名から処理内容を推測
+        agent_name = llm_call.get('agent_name', '').lower()
+        
+        # 具体的なエージェント名でマッピング
+        if 'serpkeywordanalysisagent' in agent_name:
+            return f"#{call_number} SERP分析"
+        elif 'personageneratoragent' in agent_name:
+            return f"#{call_number} ペルソナ生成"
+        elif 'themeagent' in agent_name:
+            return f"#{call_number} テーマ生成"
+        elif 'researchplanneragent' in agent_name:
+            return f"#{call_number} リサーチ計画"
+        elif 'researcheragent' in agent_name:
+            return f"#{call_number} リサーチ実行"
+        elif 'researchsynthesizeragent' in agent_name:
+            return f"#{call_number} リサーチ要約"
+        elif 'outlineagent' in agent_name:
+            return f"#{call_number} アウトライン生成"
+        elif 'editoragent' in agent_name:
+            return f"#{call_number} 編集・校正"
+        # 従来の部分一致マッピング（フォールバック）
+        elif 'serp' in agent_name or 'keyword' in agent_name:
+            return f"#{call_number} SERP分析"
+        elif 'persona' in agent_name:
+            return f"#{call_number} ペルソナ生成"
+        elif 'theme' in agent_name:
+            return f"#{call_number} テーマ生成"
+        elif 'research' in agent_name:
+            if 'planner' in agent_name:
+                return f"#{call_number} リサーチ計画"
+            elif 'synthesizer' in agent_name:
+                return f"#{call_number} リサーチ要約"
+            else:
+                return f"#{call_number} リサーチ実行"
+        elif 'outline' in agent_name:
+            return f"#{call_number} アウトライン生成"
+        elif 'editor' in agent_name:
+            return f"#{call_number} 編集・校正"
+        else:
+            # フォールバック: モデル名を使用
+            model_name = llm_call.get('model_name', 'Unknown')
+            return f"#{call_number} {model_name}処理"
+    
+    def _format_text_with_bold(self, text: str) -> List[Dict[str, Any]]:
+        """テキストのコロン前を太字にフォーマット"""
+        if ":" in text:
+            parts = text.split(":", 1)
+            return [
+                {
+                    "type": "text",
+                    "text": {"content": parts[0]},
+                    "annotations": {"bold": True}
+                },
+                {
+                    "type": "text",
+                    "text": {"content": ": " + parts[1]}
+                }
+            ]
+        else:
+            return [{"type": "text", "text": {"content": text}}]
     
     def _build_llm_call_blocks(self, llm_call: Dict[str, Any], call_number: int) -> List[Dict[str, Any]]:
         """LLM呼び出し詳細のブロックを構築"""
@@ -221,28 +327,29 @@ class NotionService:
             "object": "block",
             "type": "heading_3",
             "heading_3": {
-                "rich_text": [{"type": "text", "text": {"content": f"#{call_number} {llm_call.get('model_name', 'Unknown')} - {llm_call.get('called_at', 'N/A')}"}}]
+                "rich_text": [{"type": "text", "text": {"content": self._get_llm_call_title(llm_call, call_number)}}]
             }
         })
         
         # 基本情報（キャッシュトークン情報を含む）
-        basic_info = f"""
-**エージェント:** {llm_call.get('agent_name', 'N/A')}
-**モデル:** {llm_call.get('model_name', 'N/A')}
-**トークン:** {llm_call.get('prompt_tokens', 0):,} → {llm_call.get('completion_tokens', 0):,} (計: {llm_call.get('total_tokens', 0):,})
-**キャッシュトークン:** {llm_call.get('cached_tokens', 0):,}
-**推論トークン:** {llm_call.get('reasoning_tokens', 0):,}
-**コスト:** ${llm_call.get('estimated_cost_usd', 0):.6f}
-**実行時間:** {llm_call.get('response_time_ms', 0)} ms
-"""
+        basic_info_blocks = [
+            f"エージェント: {llm_call.get('agent_name', 'N/A')}",
+            f"モデル: {llm_call.get('model_name', 'N/A')}",
+            f"トークン: {llm_call.get('prompt_tokens', 0):,} → {llm_call.get('completion_tokens', 0):,} (計: {llm_call.get('total_tokens', 0):,})",
+            f"キャッシュトークン: {llm_call.get('cached_tokens', 0):,}",
+            f"推論トークン: {llm_call.get('reasoning_tokens', 0):,}",
+            f"コスト: ${llm_call.get('estimated_cost_usd', 0):.6f}",
+            f"実行時間: {llm_call.get('response_time_ms', 0)} ms"
+        ]
         
-        blocks.append({
-            "object": "block",
-            "type": "paragraph",
-            "paragraph": {
-                "rich_text": [{"type": "text", "text": {"content": basic_info.strip()}}]
-            }
-        })
+        for info_line in basic_info_blocks:
+            blocks.append({
+                "object": "block",
+                "type": "paragraph",
+                "paragraph": {
+                    "rich_text": self._format_text_with_bold(info_line)
+                }
+            })
         
         # システムプロンプト（通常テキストで表示、文字数制限なし）
         system_prompt = llm_call.get('system_prompt', '')
@@ -332,7 +439,6 @@ class NotionService:
         
         try:
             # JSONかどうかチェック
-            import json
             parsed_json = json.loads(content)
             
             # JSONの場合は構造化して表示
@@ -359,14 +465,14 @@ class NotionService:
                         })
                     else:
                         # 単純な値の場合は直接表示（2000文字制限適用）
-                        content_text = f"**{key}:** {value}"
+                        content_text = f"{key}: {value}"
                         if len(content_text) > 2000:
                             content_text = content_text[:1997] + "..."
                         blocks.append({
                             "object": "block",
                             "type": "paragraph",
                             "paragraph": {
-                                "rich_text": [{"type": "text", "text": {"content": content_text}}]
+                                "rich_text": self._format_text_with_bold(content_text)
                             }
                         })
             elif isinstance(parsed_json, list):
@@ -391,14 +497,14 @@ class NotionService:
                         })
                     else:
                         # 2000文字制限適用
-                        content_text = f"**{i+1}.** {item}"
+                        content_text = f"{i+1}. {item}"
                         if len(content_text) > 2000:
                             content_text = content_text[:1997] + "..."
                         blocks.append({
                             "object": "block",
                             "type": "paragraph",
                             "paragraph": {
-                                "rich_text": [{"type": "text", "text": {"content": content_text}}]
+                                "rich_text": self._format_text_with_bold(content_text)
                             }
                         })
             else:
