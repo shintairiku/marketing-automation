@@ -7,7 +7,7 @@ import sys
 import os
 
 # パスを追加（services/を正しくインポートするため）
-sys.path.append('/home/als0028/study/shintairiku/marketing-automation/backend')
+sys.path.append('.')
 
 # 環境変数をチェック
 def check_environment():
