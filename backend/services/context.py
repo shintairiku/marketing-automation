@@ -113,6 +113,7 @@ class ArticleContext:
     expected_user_input: Optional[UserInputType] = None # 現在待っている入力タイプ
     user_response: Optional[ClientResponsePayload] = None # ユーザーからの応答ペイロード
     user_id: Optional[str] = None # ユーザーID (認証から取得)
+    process_id: Optional[str] = None # プロセスID (記事生成セッション識別用)
 
     # --- 以下、既存のメソッド ---
     def get_full_draft(self) -> str:

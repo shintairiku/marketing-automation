@@ -50,6 +50,23 @@ console = Console() # ログ出力用
 
 # ログ設定
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)  # LLMログ詳細出力のためDEBUGレベルに設定
+
+try:
+    from services.logging_service import LoggingService # ログサービス追加
+    from agents_logging_integration import MultiAgentWorkflowLogger # ログ統合追加
+    from services.notion_sync_service import NotionSyncService # Notion同期追加
+    from services.cost_calculation_service import CostCalculationService # コスト計算サービス追加
+    LOGGING_ENABLED = True
+    NOTION_SYNC_ENABLED = True
+except ImportError as e:
+    logger.warning(f"Logging system not available: {e}")
+    LoggingService = None
+    MultiAgentWorkflowLogger = None
+    NotionSyncService = None
+    CostCalculationService = None
+    LOGGING_ENABLED = False
+    NOTION_SYNC_ENABLED = False
 
 # OpenAIクライアントの初期化 (ファイルスコープに戻す)
 async_client = AsyncOpenAI(api_key=settings.openai_api_key)
@@ -155,6 +172,9 @@ class ArticleGenerationService:
         self.background_tasks: Dict[str, asyncio.Task] = {}  # Background generation tasks
         self.active_connections: Dict[str, WebSocket] = {}  # プロセスIDごとのアクティブ接続
         self.process_locks: Dict[str, asyncio.Lock] = {}    # プロセスごとのロック
+        self.logging_service = LoggingService() if LOGGING_ENABLED else None  # ログサービス追加
+        self.notion_sync_service = NotionSyncService() if NOTION_SYNC_ENABLED else None  # Notion同期サービス追加
+        self.workflow_loggers: Dict[str, Any] = {}  # プロセスIDごとのワークフローログ
 
     async def _start_heartbeat_monitor(self, websocket: WebSocket, process_id: str, context: "ArticleContext") -> asyncio.Task:
         """WebSocket接続のハートビート監視を開始"""
@@ -247,6 +267,9 @@ class ArticleGenerationService:
                 # ユーザーIDがcontextに設定されていることを確認
                 user_id = context.user_id or "unknown"
                 
+                # バックグラウンド処理でもワークフローロガーを確保
+                await self._ensure_workflow_logger(context, process_id, user_id)
+                
                 while (context.current_step not in USER_INPUT_STEPS and 
                        context.current_step not in ['completed', 'error']):
                     
@@ -305,6 +328,9 @@ class ArticleGenerationService:
         current_agent: Optional[Agent["ArticleContext"]] = None
         agent_input: Union[str, List[Dict[str, Any]]]
         
+        # ワークフローロガーの確保（_ensure_workflow_loggerで既に処理済み）
+        await self._ensure_workflow_logger(context, process_id, user_id)
+        
         # データベースに現在の状態を保存
         if process_id and user_id:
             await self._save_context_to_db(context, process_id=process_id, user_id=user_id)
@@ -318,6 +344,10 @@ class ArticleGenerationService:
         # --- ステップに応じた処理（WebSocket不要な処理のみ） ---
         if context.current_step == "start":
             context.current_step = "keyword_analyzing"
+            await self._log_workflow_step(context, "keyword_analyzing", {
+                "has_serp_api": context.has_serp_api_key,
+                "initial_keywords": context.initial_keywords
+            })
             if context.websocket:
                 await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message="Starting keyword analysis with SerpAPI...", image_mode=getattr(context, 'image_mode', False)))
 
@@ -330,6 +360,11 @@ class ArticleGenerationService:
             if isinstance(agent_output, SerpKeywordAnalysisReport):
                 context.serp_analysis_report = agent_output
                 context.current_step = "keyword_analyzed"
+                await self._log_workflow_step(context, "keyword_analyzed", {
+                    "analyzed_articles_count": len(agent_output.analyzed_articles),
+                    "main_themes_count": len(agent_output.main_themes),
+                    "content_gaps_count": len(agent_output.content_gaps)
+                })
                 console.print("[green]SerpAPIキーワード分析が完了しました。[/green]")
                 
                 # 推奨目標文字数をコンテキストに設定
@@ -355,6 +390,10 @@ class ArticleGenerationService:
             if isinstance(agent_output, GeneratedPersonasResponse):
                 context.generated_detailed_personas = [p.description for p in agent_output.personas]
                 context.current_step = "persona_generated"
+                await self._log_workflow_step(context, "persona_generated", {
+                    "personas_count": len(context.generated_detailed_personas),
+                    "personas_preview": [p[:100] + "..." for p in context.generated_detailed_personas]
+                })
                 console.print(f"[cyan]{len(context.generated_detailed_personas)}件の具体的なペルソナを生成しました。[/cyan]")
                 # ユーザー入力が必要なのでここで停止
                 return
@@ -700,7 +739,16 @@ class ArticleGenerationService:
             if isinstance(agent_output, RevisedArticle):
                 context.final_article = agent_output
                 context.current_step = "completed"
+                await self._log_workflow_step(context, "completed", {
+                    "final_article_length": len(agent_output.final_html_content),
+                    "sections_count": len(context.generated_sections) if hasattr(context, 'generated_sections') else 0,
+                    "total_tokens_used": getattr(context, 'total_tokens_used', 0)
+                })
                 console.print("[green]記事の編集が完了しました！[/green]")
+                
+                # ワークフローロガーを最終化（記事編集完了）
+                if hasattr(context, 'process_id') and context.process_id:
+                    await self.finalize_workflow_logger(context.process_id, "completed")
             else:
                 console.print(f"[red]編集中に予期しないエージェント出力タイプを受け取りました。[/red]")
                 context.current_step = "error"
@@ -784,14 +832,84 @@ class ArticleGenerationService:
                 context.websocket = websocket
                 context.user_response_event = asyncio.Event()
                 
-                # ユーザーIDをcontextに設定（バックグラウンド処理で必要）
+                # ユーザーIDとプロセスIDをcontextに設定（バックグラウンド処理で必要）
                 if not context.user_id:
                     context.user_id = user_id
+                if not context.process_id:
+                    context.process_id = process_id
                 
                 console.print(f"[green]Resuming process {process_id} from step {context.current_step}[/green]")
                 
                 # プロセス状態を更新（再開中）
                 await self._update_process_status(process_id, 'resuming', context.current_step)
+                
+                # ログセッションを復元または作成
+                console.print(f"[debug]Process restoration - LOGGING_ENABLED: {LOGGING_ENABLED}, MultiAgentWorkflowLogger: {MultiAgentWorkflowLogger is not None}[/debug]")
+                console.print(f"[debug]Current workflow_loggers keys: {list(self.workflow_loggers.keys())}[/debug]")
+                console.print(f"[debug]process_id {process_id} in workflow_loggers: {process_id in self.workflow_loggers}[/debug]")
+                
+                if LOGGING_ENABLED and MultiAgentWorkflowLogger:
+                    try:
+                        console.print(f"[debug]Checking workflow logger for process {process_id}. Current loggers: {list(self.workflow_loggers.keys())}[/debug]")
+                        if process_id not in self.workflow_loggers:
+                            console.print(f"[green]Creating new workflow logger for restored process {process_id} with user_id {user_id}[/green]")
+                            console.print(f"[debug]LoggingService available: {self.logging_service is not None}[/debug]")
+                            # 既存のログセッションを復元しようと試行
+                            # コンテキストから初期設定を復元
+                            initial_config = {
+                                "initial_keywords": context.initial_keywords,
+                                "seo_keywords": context.initial_keywords,
+                                "image_mode_enabled": getattr(context, 'image_mode', False),
+                                "article_style_info": getattr(context, 'style_template_settings', {}),
+                                "generation_theme_count": getattr(context, 'num_theme_proposals', 3),
+                                "target_age_group": context.target_age_group.value if context.target_age_group else None,
+                                "persona_settings": {
+                                    "persona_type": context.persona_type.value if context.persona_type else None,
+                                    "custom_persona": context.custom_persona,
+                                    "num_persona_examples": getattr(context, 'num_persona_examples', 3)
+                                },
+                                "company_info": {
+                                    "company_name": context.company_name,
+                                    "company_description": context.company_description,
+                                    "company_style_guide": context.company_style_guide
+                                },
+                                "target_length": context.target_length,
+                                "num_research_queries": getattr(context, 'num_research_queries', 5),
+                                "current_step": context.current_step,
+                                "restored": True
+                            }
+                            
+                            console.print(f"[debug]Creating MultiAgentWorkflowLogger with config: {initial_config}[/debug]")
+                            workflow_logger = MultiAgentWorkflowLogger(
+                                article_uuid=process_id,
+                                user_id=user_id,
+                                organization_id=getattr(context, 'organization_id', None),
+                                initial_config=initial_config
+                            )
+                            console.print(f"[debug]MultiAgentWorkflowLogger created. Has logging_service: {workflow_logger.logging_service is not None}[/debug]")
+                            
+                            # データベースに既存のログセッションがあるかチェック
+                            from database.supabase_client import supabase
+                            existing_session = supabase.table("agent_log_sessions").select("id").eq("article_uuid", process_id).execute()
+                            
+                            if existing_session.data:
+                                # 既存のセッションIDを使用
+                                workflow_logger.session_id = existing_session.data[0]["id"]
+                                console.print(f"[cyan]Found existing log session {workflow_logger.session_id} for process {process_id}[/cyan]")
+                            else:
+                                # 新しいログセッションを作成
+                                try:
+                                    log_session_id = workflow_logger.initialize_session()
+                                    console.print(f"[cyan]Created new log session {log_session_id} for restored process {process_id}[/cyan]")
+                                except Exception as init_err:
+                                    logger.error(f"Failed to initialize log session: {init_err}")
+                                    console.print(f"[red]Failed to initialize log session: {init_err}[/red]")
+                                    # セッション初期化に失敗してもロガーは保存する
+                                
+                            self.workflow_loggers[process_id] = workflow_logger
+                            console.print(f"[green]Workflow logger for process {process_id} stored successfully[/green]")
+                    except Exception as e:
+                        logger.error(f"Failed to restore logging session: {e}")
                 
                 # 既存の実行設定を再作成
                 session_id = process_id
@@ -871,7 +989,55 @@ class ArticleGenerationService:
                 # データベースに初期状態を保存してprocess_idを取得
                 if user_id:
                     process_id = await self._save_context_to_db(context, user_id=user_id)
+                    context.process_id = process_id  # contextにprocess_idを設定
                     console.print(f"[cyan]Created new process {process_id}[/cyan]")
+                    
+                    # ログセッションを初期化
+                    console.print(f"[debug]LOGGING_ENABLED: {LOGGING_ENABLED}, MultiAgentWorkflowLogger: {MultiAgentWorkflowLogger is not None}[/debug]")
+                    if LOGGING_ENABLED and MultiAgentWorkflowLogger:
+                        try:
+                            console.print(f"[green]Creating workflow logger for process {process_id} with user_id {user_id}[/green]")
+                            console.print(f"[debug]Creating workflow logger for new process {process_id}[/debug]")
+                            workflow_logger = MultiAgentWorkflowLogger(
+                                article_uuid=process_id,
+                                user_id=user_id,
+                                organization_id=getattr(context, 'organization_id', None),
+                                initial_config={
+                                    "initial_keywords": request.initial_keywords,
+                                    "seo_keywords": request.initial_keywords,
+                                    "image_mode_enabled": request.image_mode,
+                                    "article_style_info": style_template_settings,
+                                    "generation_theme_count": request.num_theme_proposals,
+                                    "target_age_group": request.target_age_group.value if request.target_age_group else None,
+                                    "persona_settings": {
+                                        "persona_type": request.persona_type.value if request.persona_type else None,
+                                        "custom_persona": request.custom_persona,
+                                        "num_persona_examples": request.num_persona_examples
+                                    },
+                                    "company_info": {
+                                        "company_name": request.company_name,
+                                        "company_description": request.company_description,
+                                        "company_style_guide": request.company_style_guide
+                                    },
+                                    "target_length": request.target_length,
+                                    "num_research_queries": request.num_research_queries,
+                                    "style_template_id": request.style_template_id,
+                                    "image_settings": request.image_settings or {}
+                                }
+                            )
+                            console.print(f"[debug]MultiAgentWorkflowLogger created. Has logging_service: {workflow_logger.logging_service is not None}[/debug]")
+                            try:
+                                log_session_id = workflow_logger.initialize_session()
+                                console.print(f"[cyan]Initialized log session {log_session_id} for process {process_id}[/cyan]")
+                            except Exception as init_err:
+                                logger.error(f"Failed to initialize log session for new process: {init_err}")
+                                console.print(f"[red]Failed to initialize log session: {init_err}[/red]")
+                                
+                            self.workflow_loggers[process_id] = workflow_logger
+                            console.print(f"[green]Workflow logger stored in self.workflow_loggers[{process_id}][/green]")
+                        except Exception as e:
+                            logger.error(f"Failed to initialize logging session: {e}")
+                            # ログ初期化エラーでもプロセスは継続
                 
                 run_config = RunConfig(
                 workflow_name="SEO記事生成ワークフロー",
@@ -1923,10 +2089,365 @@ class ArticleGenerationService:
             context.current_step = "error"
 
 
+    def _extract_token_usage_from_result(self, result) -> Optional[Dict[str, Any]]:
+        """OpenAI Agents SDKの実行結果からトークン使用量を抽出"""
+        try:
+            # デバッグ情報（開発用）
+            if logger.isEnabledFor(logging.DEBUG):
+                console.print(f"[debug]Result type: {type(result)}")
+                if hasattr(result, '__dict__'):
+                    console.print(f"[debug]Result.__dict__ keys: {list(result.__dict__.keys())}")
+            
+            # RunResult._raw_responses から ModelResponse を取得
+            raw_responses = None
+            # 最も可能性の高い属性名から順番に試行
+            candidate_attrs = [
+                '_raw_responses', 'raw_responses', '_responses', 'responses',
+                '_RunResult__raw_responses', '__raw_responses', 
+                'new_items', '_new_items'  # RunItemsかもしれない
+            ]
+            
+            for attr_name in candidate_attrs:
+                if hasattr(result, attr_name):
+                    attr_value = getattr(result, attr_name)
+                    if logger.isEnabledFor(logging.DEBUG):
+                        console.print(f"[debug]Checking {attr_name}: {type(attr_value)}")
+                    if attr_value and hasattr(attr_value, '__len__') and len(attr_value) > 0:
+                        # リストの最初の要素をチェック
+                        first_item = attr_value[0]
+                        if hasattr(first_item, 'usage') or 'ModelResponse' in str(type(first_item)):
+                            raw_responses = attr_value
+                            if logger.isEnabledFor(logging.DEBUG):
+                                console.print(f"[debug]✅ Found raw_responses via {attr_name}")
+                            break
+            
+            if raw_responses:
+                # 最後のModelResponseから使用量を取得
+                last_response = raw_responses[-1]
+                if hasattr(last_response, 'usage') and last_response.usage:
+                    usage = last_response.usage
+                    
+                    # トークン使用量を抽出
+                    input_tokens = getattr(usage, 'input_tokens', 0)
+                    output_tokens = getattr(usage, 'output_tokens', 0)
+                    cache_tokens = getattr(usage.input_tokens_details, 'cached_tokens', 0) if hasattr(usage, 'input_tokens_details') and usage.input_tokens_details else 0
+                    reasoning_tokens = getattr(usage.output_tokens_details, 'reasoning_tokens', 0) if hasattr(usage, 'output_tokens_details') and usage.output_tokens_details else 0
+                    total_tokens = getattr(usage, 'total_tokens', 0)
+                    
+                    # 実際のモデル名を取得（可能であれば）
+                    model_name = getattr(last_response, 'model', 'gpt-4o')
+                    
+                    # 新しいコスト計算サービスを使用
+                    if CostCalculationService:
+                        cost_info = CostCalculationService.calculate_cost(
+                            model_name=model_name,
+                            prompt_tokens=input_tokens,
+                            completion_tokens=output_tokens,
+                            cached_tokens=cache_tokens,
+                            reasoning_tokens=reasoning_tokens,
+                            total_tokens=total_tokens
+                        )
+                        estimated_cost = cost_info["cost_breakdown"]["total_cost_usd"]
+                    else:
+                        # フォールバック: 古いコスト計算方法
+                        estimated_cost = self._estimate_cost(usage)
+                    
+                    return {
+                        "model": model_name,
+                        "input_tokens": input_tokens,
+                        "output_tokens": output_tokens,
+                        "cache_tokens": cache_tokens,
+                        "reasoning_tokens": reasoning_tokens,
+                        "total_tokens": total_tokens,
+                        "estimated_cost": estimated_cost
+                    }
+            
+            # フォールバック: デフォルト値を使用
+            logger.warning("No usage data found in result, using fallback values")
+            
+            # 新しいコスト計算サービスを使用
+            if CostCalculationService:
+                cost_info = CostCalculationService.calculate_cost(
+                    model_name="gpt-4o",
+                    prompt_tokens=100,  # 概算値
+                    completion_tokens=50,   # 概算値
+                    cached_tokens=0,
+                    reasoning_tokens=0,
+                    total_tokens=150
+                )
+                estimated_cost = cost_info["cost_breakdown"]["total_cost_usd"]
+            else:
+                estimated_cost = 0.001
+            
+            return {
+                "model": "gpt-4o",
+                "input_tokens": 100,  # 概算値
+                "output_tokens": 50,   # 概算値
+                "cache_tokens": 0,
+                "reasoning_tokens": 0,
+                "total_tokens": 150,
+                "estimated_cost": estimated_cost
+            }
+        except Exception as e:
+            logger.warning(f"Failed to extract token usage: {e}")
+            return None
+
+    def _estimate_cost(self, usage) -> float:
+        """トークン使用量からコストを概算"""
+        try:
+            input_tokens = getattr(usage, 'input_tokens', 0)
+            output_tokens = getattr(usage, 'output_tokens', 0)
+            # GPT-4o の概算料金 (2025年1月時点)
+            input_cost = input_tokens * 0.0000025   # $2.50 per 1M tokens
+            output_cost = output_tokens * 0.00001    # $10.00 per 1M tokens
+            return input_cost + output_cost
+        except:
+            return 0.001  # デフォルト値
+
+    def _estimate_cost_from_metadata(self, metadata: Dict[str, Any]) -> float:
+        """メタデータからコストを概算"""
+        try:
+            input_tokens = metadata.get('input_tokens', 0)
+            output_tokens = metadata.get('output_tokens', 0)
+            cache_tokens = metadata.get('cache_tokens', 0)
+            reasoning_tokens = metadata.get('reasoning_tokens', 0)
+            model_name = metadata.get('model', 'gpt-4o')
+            
+            # 新しいコスト計算サービスを使用
+            if CostCalculationService:
+                cost_info = CostCalculationService.calculate_cost(
+                    model_name=model_name,
+                    prompt_tokens=input_tokens,
+                    completion_tokens=output_tokens,
+                    cached_tokens=cache_tokens,
+                    reasoning_tokens=reasoning_tokens
+                )
+                return cost_info["cost_breakdown"]["total_cost_usd"]
+            else:
+                # フォールバック: 古いコスト計算方法
+                input_cost = input_tokens * 0.0000025
+                output_cost = output_tokens * 0.00001
+                return input_cost + output_cost
+        except:
+            return 0.001
+
+    def _extract_conversation_history_from_result(self, result, agent_input: str) -> Dict[str, Any]:
+        """OpenAI Agents SDKの実行結果から会話履歴を詳細に抽出"""
+        try:
+            console.print(f"[debug]Starting conversation history extraction. Agent input type: {type(agent_input)}")
+            conversation_data = {
+                "system_prompt": "",
+                "user_prompt": str(agent_input) if agent_input else "",
+                "assistant_response": "",
+                "tool_calls": [],
+                "reasoning": "",
+                "full_output": []
+            }
+            console.print(f"[debug]Initial conversation_data created: {type(conversation_data)}")
+
+            # まず、resultの構造をデバッグ出力
+            if logger.isEnabledFor(logging.DEBUG):
+                console.print(f"[debug]Result type: {type(result)}")
+                if hasattr(result, '__dict__'):
+                    console.print(f"[debug]Result attributes: {list(result.__dict__.keys())}")
+
+            # RunResultから生の応答を取得（より多くの候補を試行）
+            raw_responses = None
+            candidate_attrs = [
+                '_RunResult__raw_responses', 'raw_responses', '_raw_responses', '_responses', 'responses',
+                'new_items', '_new_items', 'items', '_items', 'messages', '_messages'
+            ]
+            
+            for attr_name in candidate_attrs:
+                if hasattr(result, attr_name):
+                    attr_value = getattr(result, attr_name)
+                    console.print(f"[debug]Checking {attr_name}: {type(attr_value)}")
+                    if attr_value:
+                        raw_responses = attr_value
+                        console.print(f"[debug]Found raw_responses via {attr_name}")
+                        break
+            
+            if not raw_responses:
+                raw_responses = []
+                console.print(f"[debug]No raw_responses found, using empty list")
+
+            # raw_responsesの内容を解析
+            if raw_responses:
+                console.print(f"[debug]Processing {len(raw_responses)} raw responses")
+                for i, response in enumerate(raw_responses):
+                    console.print(f"[debug]Response {i}: {type(response)}")
+                    
+                    # ModelResponseオブジェクトから内容を抽出
+                    if hasattr(response, 'output') and response.output:
+                        console.print(f"[debug]Response {i} has output: {len(response.output)} items")
+                        for j, output_item in enumerate(response.output):
+                            console.print(f"[debug]Output item {j}: {type(output_item)}")
+                            
+                            # メッセージコンテンツの抽出
+                            if hasattr(output_item, 'type'):
+                                item_type = getattr(output_item, 'type', 'unknown')
+                                console.print(f"[debug]Item type: {item_type}")
+                                
+                                if item_type == 'message' or 'message' in str(item_type):
+                                    content = ""
+                                    if hasattr(output_item, 'content'):
+                                        content = getattr(output_item, 'content', '')
+                                        if isinstance(content, list):
+                                            # リストの場合、各要素を結合
+                                            content_parts = []
+                                            for part in content:
+                                                if hasattr(part, 'text'):
+                                                    content_parts.append(str(part.text))
+                                                else:
+                                                    content_parts.append(str(part))
+                                            content = '\n'.join(content_parts)
+                                        conversation_data["assistant_response"] += str(content)
+                                        console.print(f"[debug]Added message content: {len(str(content))} chars")
+                                
+                                elif 'tool_call' in str(item_type):
+                                    tool_call_data = {
+                                        "type": item_type,
+                                        "name": getattr(output_item, 'name', ''),
+                                        "arguments": getattr(output_item, 'arguments', {}),
+                                        "result": getattr(output_item, 'result', None)
+                                    }
+                                    conversation_data["tool_calls"].append(tool_call_data)
+                                    console.print(f"[debug]Added tool call: {tool_call_data['name']}")
+                                
+                                elif item_type == 'reasoning':
+                                    reasoning_content = getattr(output_item, 'content', '')
+                                    if isinstance(reasoning_content, list):
+                                        reasoning_content = '\n'.join([str(r) for r in reasoning_content])
+                                    conversation_data["reasoning"] += str(reasoning_content)
+                                    console.print(f"[debug]Added reasoning: {len(str(reasoning_content))} chars")
+                            
+                            # 全出力を記録
+                            conversation_data["full_output"].append({
+                                "type": getattr(output_item, 'type', 'unknown'),
+                                "content": str(output_item)[:500]
+                            })
+                    
+                    # システムプロンプトの抽出試行
+                    if hasattr(response, 'system') and response.system:
+                        conversation_data["system_prompt"] = str(response.system)
+                        console.print(f"[debug]Found system prompt: {len(conversation_data['system_prompt'])} chars")
+
+            # エージェントの指示をシステムプロンプトとして記録
+            if not conversation_data["system_prompt"]:
+                if hasattr(result, '_last_agent') and result._last_agent:
+                    agent = result._last_agent
+                    if hasattr(agent, 'instructions'):
+                        instructions = agent.instructions
+                        if callable(instructions):
+                            # 動的指示の場合は、実行時に解決された値を使用
+                            conversation_data["system_prompt"] = "Dynamic instructions (resolved at runtime)"
+                            console.print(f"[debug]Marked system prompt as dynamic for agent: {agent.name}")
+                        else:
+                            conversation_data["system_prompt"] = str(instructions)
+                            console.print(f"[debug]Set static system prompt from agent: {len(conversation_data['system_prompt'])} chars")
+
+            # 最終出力も記録
+            if hasattr(result, 'final_output') and result.final_output:
+                conversation_data["final_output"] = str(result.final_output)[:1000]
+
+            # assistant_responseが空の場合、final_outputを使用
+            if not conversation_data["assistant_response"] and conversation_data.get("final_output"):
+                conversation_data["assistant_response"] = conversation_data["final_output"]
+                console.print(f"[debug]Used final_output as assistant_response: {len(conversation_data['assistant_response'])} chars")
+
+            console.print(f"[debug]Final conversation data:")
+            console.print(f"[debug]  System prompt: {len(conversation_data['system_prompt'])} chars")
+            console.print(f"[debug]  User prompt: {len(conversation_data['user_prompt'])} chars")
+            console.print(f"[debug]  Assistant response: {len(conversation_data['assistant_response'])} chars")
+            console.print(f"[debug]  Tool calls: {len(conversation_data['tool_calls'])}")
+            console.print(f"[debug]  Reasoning: {len(conversation_data['reasoning'])} chars")
+            
+            return conversation_data
+            
+        except Exception as e:
+            logger.warning(f"Failed to extract conversation history: {e}")
+            import traceback
+            logger.debug(f"Conversation history extraction traceback: {traceback.format_exc()}")
+            console.print(f"[red]Conversation history extraction failed: {e}[/red]")
+            return {
+                "system_prompt": "Unknown",
+                "user_prompt": str(agent_input) if agent_input else "",
+                "assistant_response": str(result.final_output) if hasattr(result, 'final_output') else "",
+                "tool_calls": [],
+                "reasoning": "",
+                "full_output": []
+            }
+
+    async def _log_tool_calls(self, execution_id: str, tool_calls: List[Dict[str, Any]]) -> None:
+        """ツール呼び出しを詳細にログに記録"""
+        if not self.logging_service or not tool_calls:
+            return
+        
+        try:
+            for i, tool_call in enumerate(tool_calls):
+                tool_name = tool_call.get("name", "unknown")
+                tool_type = tool_call.get("type", "unknown")
+                tool_arguments = tool_call.get("arguments", {})
+                tool_result = tool_call.get("result", None)
+                
+                # ツール名からfunction名を推定
+                tool_function = "unknown"
+                if "websearch" in tool_name.lower() or "search" in tool_name.lower():
+                    tool_function = "web_search"
+                elif "serpapi" in tool_name.lower():
+                    tool_function = "serp_api_search"
+                elif "scrape" in tool_name.lower():
+                    tool_function = "web_scraping"
+                elif "fetch" in tool_name.lower():
+                    tool_function = "web_fetch"
+                else:
+                    tool_function = tool_name.lower().replace(" ", "_")
+                
+                # データサイズを概算
+                data_size_bytes = len(str(tool_result)) if tool_result else 0
+                
+                # API呼び出し回数を推定（WebSearchやSerpAPIは複数回呼び出すことがある）
+                api_calls_count = 1
+                if isinstance(tool_arguments, dict):
+                    # 複数URLやクエリがある場合
+                    urls = tool_arguments.get("urls", [])
+                    queries = tool_arguments.get("queries", [])
+                    if urls and isinstance(urls, list):
+                        api_calls_count = len(urls)
+                    elif queries and isinstance(queries, list):
+                        api_calls_count = len(queries)
+                
+                tool_call_id = self.logging_service.create_tool_call_log(
+                    execution_id=execution_id,
+                    tool_name=tool_name,
+                    tool_function=tool_function,
+                    call_sequence=i + 1,
+                    input_parameters=tool_arguments,
+                    output_data={"result": str(tool_result)[:1000] if tool_result else ""},
+                    status="completed",
+                    data_size_bytes=data_size_bytes,
+                    api_calls_count=api_calls_count,
+                    tool_metadata={
+                        "tool_type": tool_type,
+                        "result_length": len(str(tool_result)) if tool_result else 0,
+                        "arguments_count": len(tool_arguments) if isinstance(tool_arguments, dict) else 0
+                    }
+                )
+                
+                console.print(f"[cyan]🔧 Tool call logged: {tool_call_id} ({tool_name})[/cyan]")
+                console.print(f"[dim]  API calls: {api_calls_count}, Data size: {data_size_bytes} bytes[/dim]")
+                
+        except Exception as e:
+            logger.warning(f"Failed to log tool calls: {e}")
+            console.print(f"[red]❌ Tool call logging failed: {e}[/red]")
+
     async def _run_generation_loop(self, context: ArticleContext, run_config: RunConfig, process_id: Optional[str] = None, user_id: Optional[str] = None):
         """記事生成のメインループ（WebSocketインタラクティブ版）"""
         current_agent: Optional[Agent[ArticleContext]] = None
         agent_input: Union[str, List[Dict[str, Any]]]
+
+        # ワークフローロガーを確実に確保
+        await self._ensure_workflow_logger(context, process_id, user_id)
 
         try:
             while context.current_step not in ["completed", "error"]:
@@ -2625,23 +3146,51 @@ class ArticleGenerationService:
                     # context.generated_outline を context.outline_approved に基づいて設定 (あるいは承認されたものがそのまま使われる)
                     # if not context.outline_approved: raise ValueError("承認済みアウトラインがありません。")
                     console.print("記事執筆ステップに進みます...")
+                    
+                    # セクションライティングの初期化（重要：current_section_indexを0にリセット）
+                    context.current_section_index = 0
+                    context.generated_sections_html = []
+                    context.section_writer_history = []
+                    
+                    console.print(f"[yellow]セクションライティング初期化: {len(context.generated_outline.sections)}セクションを実行予定[/yellow]")
+                    
                     context.current_step = "writing_sections" 
 
                 elif context.current_step == "writing_sections":
                     if not context.generated_outline: raise ValueError("承認済みアウトラインがありません。")
-                    if context.current_section_index >= len(context.generated_outline.sections):
-                        # 画像モードの場合は記事全体に最低1つの画像プレースホルダーがあることを確認
-                        if getattr(context, 'image_mode', False):
-                            total_placeholders = len(getattr(context, 'image_placeholders', []))
-                            if total_placeholders == 0:
-                                raise ValueError("画像モードで記事を生成しましたが、記事全体に画像プレースホルダーが1つも含まれていません。記事全体で最低1つの画像プレースホルダーが必要です。")
-                            console.print(f"[green]画像プレースホルダー検証OK: 記事全体で{total_placeholders}個のプレースホルダーが含まれています[/green]")
-                        
-                        context.full_draft_html = context.get_full_draft()
-                        context.current_step = "editing"
-                        console.print("[green]全セクションの執筆が完了しました。編集ステップに移ります。[/green]")
-                        await self._send_server_event(context, EditingStartPayload())
-                        continue
+                    
+                    # セクション完了判定を厳密化
+                    total_sections = len(context.generated_outline.sections)
+                    generated_sections_count = len([s for s in context.generated_sections_html if s and s.strip()])
+                    
+                    console.print(f"[yellow]セクション進捗: {context.current_section_index}/{total_sections}, 生成済み: {generated_sections_count}[/yellow]")
+                    
+                    if context.current_section_index >= total_sections:
+                        # 実際にすべてのセクションが生成されているかを確認
+                        if generated_sections_count < total_sections:
+                            console.print(f"[red]エラー: セクションインデックス({context.current_section_index})は完了を示しているが、実際の生成セクション数({generated_sections_count})が不足[/red]")
+                            console.print(f"[yellow]セクションライティングを再開します[/yellow]")
+                            # 不足分から再開
+                            context.current_section_index = generated_sections_count
+                        else:
+                            # 画像モードの場合は記事全体に最低1つの画像プレースホルダーがあることを確認
+                            if getattr(context, 'image_mode', False):
+                                total_placeholders = len(getattr(context, 'image_placeholders', []))
+                                if total_placeholders == 0:
+                                    raise ValueError("画像モードで記事を生成しましたが、記事全体に画像プレースホルダーが1つも含まれていません。記事全体で最低1つの画像プレースホルダーが必要です。")
+                                console.print(f"[green]画像プレースホルダー検証OK: 記事全体で{total_placeholders}個のプレースホルダーが含まれています[/green]")
+                            
+                            context.full_draft_html = context.get_full_draft()
+                            
+                            # 空のドラフトチェック
+                            if not context.full_draft_html or len(context.full_draft_html.strip()) < 100:
+                                console.print(f"[red]エラー: 生成されたドラフトが空または短すぎます（{len(context.full_draft_html) if context.full_draft_html else 0}文字）[/red]")
+                                raise ValueError("セクションライティングが正常に完了していません。ドラフトが空です。")
+                            
+                            context.current_step = "editing"
+                            console.print(f"[green]全{total_sections}セクションの執筆が完了しました（{len(context.full_draft_html)}文字）。編集ステップに移ります。[/green]")
+                            await self._send_server_event(context, EditingStartPayload())
+                            continue
 
                     # 画像モードかどうかでエージェントを選択
                     if getattr(context, 'image_mode', False):
@@ -2887,6 +3436,10 @@ class ArticleGenerationService:
                         context.current_step = "completed"
                         console.print("[green]記事の編集が完了しました！[/green]")
                         
+                        # ワークフローロガーを最終化（最終編集完了）
+                        if process_id:
+                            await self.finalize_workflow_logger(process_id, "completed")
+                        
                         # Save context after final article completion
                         if process_id and user_id:
                             try:
@@ -2942,9 +3495,66 @@ class ArticleGenerationService:
             context.error_message = error_message
             console.print(f"[bold red]Error in generation loop:[/bold red] {error_message}")
             traceback.print_exc()
+            
+            # ワークフローロガーを最終化（エラー状態）
+            if process_id:
+                await self.finalize_workflow_logger(process_id, "failed")
+            
             # WebSocketでエラーイベントを送信
             await self._send_error(context, error_message, context.current_step) # stepを指定
         finally:
+            # ログセッションを完了（ただし、切断耐性ステップの場合はロガーを保持）
+            if LOGGING_ENABLED and process_id in self.workflow_loggers:
+                try:
+                    workflow_logger = self.workflow_loggers[process_id]
+                    
+                    # 最終記事内容を取得
+                    final_article_content = None
+                    if hasattr(context, 'final_html_content') and context.final_html_content:
+                        final_article_content = context.final_html_content
+                    elif hasattr(context, 'revised_article') and context.revised_article and hasattr(context.revised_article, 'final_html_content'):
+                        final_article_content = context.revised_article.final_html_content
+                    
+                    # 切断耐性ステップかどうかを確認
+                    is_disconnection_resilient = context.current_step in DISCONNECTION_RESILIENT_STEPS
+                    
+                    # セッション状態を決定
+                    session_status = "completed" if context.current_step == "completed" else "failed"
+                    
+                    if is_disconnection_resilient and context.current_step != "completed" and context.current_step != "error":
+                        # 切断耐性ステップでは、まだ処理が継続する可能性があるためログセッションを維持
+                        console.print(f"[cyan]Keeping log session active for disconnection-resilient step: {context.current_step}[/cyan]")
+                        # ワークフロステップをログに記録
+                        workflow_logger.log_workflow_step(f"background_processing_{context.current_step}", {
+                            "step": context.current_step,
+                            "background_processing": True,
+                            "websocket_disconnected": context.websocket is None
+                        })
+                    else:
+                        # 完了または切断耐性でないステップの場合は、ログセッションを完了しロガーを削除
+                        workflow_logger.finalize_session(session_status)
+                        console.print(f"[cyan]Finalized log session for process {process_id} with status: {session_status}[/cyan]")
+                        
+                        # Notionに自動同期（完了したセッションのみ）
+                        if NOTION_SYNC_ENABLED and self.notion_sync_service and session_status == "completed":
+                            try:
+                                console.print(f"[yellow]🔄 Notionに自動同期開始: {process_id}[/yellow]")
+                                sync_success = self.notion_sync_service.sync_session_to_notion(workflow_logger.session_id)
+                                if sync_success:
+                                    console.print(f"[green]✅ Notion自動同期完了: {process_id}[/green]")
+                                else:
+                                    console.print(f"[red]❌ Notion自動同期失敗: {process_id}[/red]")
+                            except Exception as sync_err:
+                                logger.warning(f"Notion auto-sync failed: {sync_err}")
+                                console.print(f"[red]❌ Notion自動同期エラー: {sync_err}[/red]")
+                        
+                        # クリーンアップ
+                        del self.workflow_loggers[process_id]
+                        console.print(f"[cyan]Workflow logger cleaned up for process {process_id}[/cyan]")
+                    
+                except Exception as log_err:
+                    logger.error(f"Failed to finalize logging session: {log_err}")
+            
             # ループ終了時に特別なメッセージを送る (任意) - ユーザー入力待ちの場合は送信しない
             if context.current_step == "completed":
                  await self._send_server_event(context, StatusUpdatePayload(step="finished", message="Article generation completed successfully.", image_mode=getattr(context, 'image_mode', False)))
@@ -2968,6 +3578,131 @@ class ArticleGenerationService:
         """エージェントを実行し、結果を返す（リトライ付き）"""
         last_exception = None
         start_time = time.time()
+        execution_log_id = None
+        
+        # プロセスIDを取得してログを開始
+        process_id = context.process_id
+        console.print(f"[dim]Agent execution - process_id: {process_id}, workflow_loggers keys: {list(self.workflow_loggers.keys())}[/dim]")
+        
+        # ワークフローロガーの取得・作成を確実に行う
+        workflow_logger = self.workflow_loggers.get(process_id) if process_id else None
+        if not workflow_logger and process_id and LOGGING_ENABLED and MultiAgentWorkflowLogger:
+            console.print(f"[yellow]⚠️ No workflow logger found for process {process_id}, creating one now[/yellow]")
+            try:
+                await self._ensure_workflow_logger(context, process_id, getattr(context, 'user_id', 'unknown'))
+                workflow_logger = self.workflow_loggers.get(process_id)
+                console.print(f"[green]✅ Successfully created workflow logger for process {process_id}[/green]")
+            except Exception as e:
+                console.print(f"[red]❌ Failed to create workflow logger for process {process_id}: {e}[/red]")
+        
+        console.print(f"[dim]workflow_logger found: {workflow_logger is not None}[/dim]")
+        
+        if not workflow_logger and process_id:
+            console.print(f"[red]❌ No workflow logger found for process {process_id}! This will prevent logging.[/red]")
+            console.print(f"[yellow]Available workflow logger keys: {list(self.workflow_loggers.keys())}[/yellow]")
+            console.print(f"[yellow]LOGGING_ENABLED: {LOGGING_ENABLED}[/yellow]")
+        elif workflow_logger:
+            console.print(f"[green]✅ Workflow logger found: session_id={workflow_logger.session_id}, current_step={workflow_logger.current_step}[/green]")
+        
+        # エージェントから実際のモデル情報を取得（関数全体で使用するため外に移動）
+        agent_model = getattr(agent, 'model', 'unknown')
+        
+        # モデル設定から環境変数のモデル名も取得
+        model_from_config = None
+        if agent.name == "ThemeAgent":
+            model_from_config = settings.default_model
+        elif agent.name in ["ResearchPlannerAgent", "ResearcherAgent", "ResearchSynthesizerAgent", "SerpKeywordAnalysisAgent"]:
+            model_from_config = settings.research_model
+        elif agent.name in ["SectionWriterAgent", "SectionWriterWithImagesAgent", "OutlineAgent"]:
+            model_from_config = settings.writing_model
+        elif agent.name == "EditorAgent":
+            model_from_config = settings.editing_model
+        elif agent.name == "PersonaGeneratorAgent":
+            model_from_config = settings.default_model
+        else:
+            model_from_config = settings.default_model
+        
+        # 実際に使用されるモデル名（agent.modelを優先、フォールバックで設定から）
+        actual_model = agent_model if agent_model != 'unknown' else model_from_config
+        
+        # システムプロンプトの取得（関数全体で使用するため外に移動）
+        system_prompt = ""
+        if hasattr(agent, 'instructions'):
+            if callable(agent.instructions):
+                # 動的指示の場合、run_contextを使って取得
+                try:
+                    from agents import RunContextWrapper
+                    run_context = RunContextWrapper(context=context)
+                    system_prompt = await agent.instructions(run_context, agent)
+                    console.print(f"[green]✅ Dynamic system prompt extracted successfully for {agent.name} ({len(system_prompt)} chars)[/green]")
+                    # デバッグ用にシステムプロンプトの一部を出力
+                    if logger.isEnabledFor(logging.DEBUG):
+                        console.print(f"[debug]System prompt preview: {system_prompt[:300]}...")
+                except Exception as e:
+                    logger.warning(f"Failed to get dynamic instructions for {agent.name}: {e}")
+                    system_prompt = f"Dynamic instructions (failed to resolve: {str(e)})"
+                    console.print(f"[yellow]⚠️ Dynamic system prompt extraction failed for {agent.name}: {e}[/yellow]")
+            else:
+                system_prompt = str(agent.instructions)
+                console.print(f"[green]✅ Static system prompt extracted for {agent.name} ({len(system_prompt)} chars)[/green]")
+        else:
+            system_prompt = "No instructions found"
+            console.print(f"[yellow]⚠️ No instructions found for {agent.name}[/yellow]")
+        
+        # システムプロンプトをログに出力（デバッグ用）
+        if logger.isEnabledFor(logging.DEBUG):
+            console.print(f"[debug]System prompt for {agent.name}: {system_prompt[:200]}..." if len(system_prompt) > 200 else f"[debug]System prompt for {agent.name}: {system_prompt}")
+        
+        try:
+            if LOGGING_ENABLED and workflow_logger and self.logging_service:
+                console.print(f"[yellow]Creating execution log for agent {agent.name} in session {workflow_logger.session_id}[/yellow]")
+                
+                execution_log_id = self.logging_service.create_execution_log(
+                    session_id=workflow_logger.session_id,
+                    agent_name=agent.name,
+                    agent_type=context.current_step,
+                    step_number=workflow_logger.current_step,
+                    input_data={
+                        "input_data": str(input_data)[:2000] if input_data else "",
+                        "input_type": type(input_data).__name__,
+                        "context_step": context.current_step,
+                        "system_prompt": system_prompt[:2000] if system_prompt else "",
+                        "full_system_prompt_length": len(system_prompt) if system_prompt else 0
+                    },
+                    llm_model=actual_model,
+                    execution_metadata={
+                        "trace_id": run_config.trace_id,
+                        "group_id": run_config.group_id,
+                        "max_retries": settings.max_retries,
+                        "agent_model_attribute": agent_model,
+                        "model_from_config": model_from_config,
+                        "actual_model_used": actual_model,
+                        "system_prompt_length": len(system_prompt) if system_prompt else 0,
+                        "system_prompt_type": "dynamic" if callable(getattr(agent, 'instructions', None)) else "static",
+                        "agent_class": str(type(agent).__name__)
+                    }
+                )
+                console.print(f"[green]Created execution log {execution_log_id} for agent {agent.name}[/green]")
+                
+                # ワークフローステップもログに記録
+                workflow_step_id = workflow_logger.log_workflow_step(
+                    step_name=f"agent_execution_{agent.name.lower()}",
+                    step_data={
+                        "agent_name": agent.name,
+                        "agent_type": context.current_step,
+                        "input_summary": str(input_data)[:500] if input_data else "",
+                        "execution_attempt": 1,
+                        "model": actual_model
+                    },
+                    primary_execution_id=execution_log_id
+                )
+                console.print(f"[cyan]📋 Workflow step logged: {workflow_step_id}[/cyan]")
+                
+        except Exception as log_err:
+            logger.warning(f"Failed to create execution log: {log_err}")
+            console.print(f"[red]Failed to create execution log: {log_err}[/red]")
+            execution_log_id = None
+            workflow_step_id = None
         
         # エージェント実行をカスタムスパンでラップ
         with safe_custom_span(f"agent_execution", data={
@@ -2976,7 +3711,8 @@ class ArticleGenerationService:
             "max_retries": settings.max_retries,
             "input_type": type(input_data).__name__,
             "input_length": len(str(input_data)) if input_data else 0,
-            "execution_start_time": start_time
+            "execution_start_time": start_time,
+            "execution_log_id": execution_log_id
         }):
             for attempt in range(settings.max_retries):
                 try:
@@ -2993,12 +3729,164 @@ class ArticleGenerationService:
                     
                     console.print(f"[dim]エージェント {agent.name} 実行完了。[/dim]")
 
+                    # LLM呼び出し統計と会話履歴を詳細記録
+                    if LOGGING_ENABLED and execution_log_id and self.logging_service and result:
+                        try:
+                            # トークン使用量と会話履歴を抽出
+                            token_usage = self._extract_token_usage_from_result(result)
+                            console.print(f"[debug]Token usage extraction result: {type(token_usage)}")
+                            
+                            conversation_history = self._extract_conversation_history_from_result(result, str(input_data))
+                            console.print(f"[debug]Conversation history extraction result: {type(conversation_history)}")
+                            console.print(f"[debug]Conversation history keys: {list(conversation_history.keys()) if isinstance(conversation_history, dict) else 'Not a dict'}")
+                            
+                            # LLM呼び出しログを常に作成（条件を緩和）
+                            console.print(f"[debug]Creating LLM call log: token_usage={token_usage is not None}, conversation_history={isinstance(conversation_history, dict)}")
+                            
+                            # 基本的なログデータを準備
+                            system_prompt_text = ""
+                            user_prompt_text = str(input_data)[:2000] if input_data else ""
+                            response_text = ""
+                            
+                            if isinstance(conversation_history, dict):
+                                # 会話履歴から詳細情報を取得
+                                conversation_system_prompt = conversation_history.get("system_prompt", "")
+                                # 動的に取得したシステムプロンプトを優先使用
+                                system_prompt_text = system_prompt if system_prompt else conversation_system_prompt
+                                user_prompt_text = conversation_history.get("user_prompt", user_prompt_text)
+                                response_text = conversation_history.get("assistant_response", "")
+                                
+                                console.print(f"[debug]Using conversation history - system: {len(system_prompt_text)} chars, user: {len(user_prompt_text)} chars, response: {len(response_text)} chars")
+                            else:
+                                # フォールバック: 動的に取得したシステムプロンプトを使用
+                                system_prompt_text = system_prompt if system_prompt else ""
+                                response_text = str(result.final_output) if hasattr(result, 'final_output') else ""
+                                
+                                console.print(f"[debug]Using fallback data - system: {len(system_prompt_text)} chars, user: {len(user_prompt_text)} chars, response: {len(response_text)} chars")
+                            
+                            # トークン使用量（デフォルト値を使用）
+                            input_tokens = token_usage.get("input_tokens", 0) if token_usage else 100
+                            output_tokens = token_usage.get("output_tokens", 0) if token_usage else 50
+                            total_tokens = token_usage.get("total_tokens", 0) if token_usage else (input_tokens + output_tokens)
+                            cached_tokens = token_usage.get("cache_tokens", 0) if token_usage else 0
+                            reasoning_tokens = token_usage.get("reasoning_tokens", 0) if token_usage else 0
+                            estimated_cost = token_usage.get("estimated_cost", 0.0) if token_usage else 0.001
+                            
+                            # 常にLLM呼び出しログを作成
+                            llm_call_id = self.logging_service.create_llm_call_log(
+                                execution_id=execution_log_id,
+                                call_sequence=1,
+                                api_type="chat_completions",
+                                model_name=actual_model,
+                                provider="openai",
+                                system_prompt=system_prompt_text,
+                                user_prompt=user_prompt_text,
+                                response_content=response_text,
+                                prompt_tokens=input_tokens,
+                                completion_tokens=output_tokens,
+                                total_tokens=total_tokens,
+                                cached_tokens=cached_tokens,
+                                reasoning_tokens=reasoning_tokens,
+                                estimated_cost_usd=estimated_cost,
+                                full_prompt_data={
+                                    "agent_name": agent.name,
+                                    "attempt_number": attempt + 1,
+                                    "max_turns": 10,
+                                    "trace_id": run_config.trace_id,
+                                    "tool_calls": conversation_history.get("tool_calls", []) if isinstance(conversation_history, dict) else [],
+                                    "reasoning": conversation_history.get("reasoning", "")[:1000] if isinstance(conversation_history, dict) else "",
+                                    "actual_model_used": actual_model,
+                                    "model_from_config": model_from_config,
+                                    "full_system_prompt": system_prompt_text,
+                                    "conversation_history_type": str(type(conversation_history)),
+                                    "token_usage_available": token_usage is not None
+                                },
+                                response_data={
+                                    "final_output": conversation_history.get("final_output", "")[:1000] if isinstance(conversation_history, dict) else "",
+                                    "full_conversation": conversation_history.get("full_output", []) if isinstance(conversation_history, dict) else [],
+                                    "result_type": str(type(result)),
+                                    "result_has_final_output": hasattr(result, 'final_output')
+                                }
+                            )
+                            
+                            console.print(f"[green]✅ LLM call log created: {llm_call_id}[/green]")
+                            
+                            # ツール呼び出しログを記録
+                            if isinstance(conversation_history, dict) and conversation_history.get("tool_calls"):
+                                await self._log_tool_calls(execution_log_id, conversation_history.get("tool_calls", []))
+                                
+                            # 成功時のログ表示（両方のケース共通）
+                            if 'llm_call_id' in locals() and llm_call_id:
+                                console.print(f"[cyan]📋 LLM call logged: {llm_call_id}[/cyan]")
+                                console.print(f"[dim]  Tokens: {token_usage.get('input_tokens', 0)} input + {token_usage.get('output_tokens', 0)} output = {token_usage.get('total_tokens', 0)} total[/dim]")
+                                console.print(f"[dim]  Cost: ${token_usage.get('estimated_cost', 0.0):.6f}[/dim]")
+                                if isinstance(conversation_history, dict):
+                                    if conversation_history.get("tool_calls"):
+                                        console.print(f"[dim]  Tool calls: {len(conversation_history.get('tool_calls', []))}[/dim]")
+                                    if conversation_history.get("reasoning"):
+                                        console.print(f"[dim]  Reasoning: {len(conversation_history.get('reasoning', ''))} chars[/dim]")
+                                    # 実際のプロンプトとレスポンスの長さも表示
+                                    console.print(f"[dim]  System prompt: {len(conversation_history.get('system_prompt', ''))} chars[/dim]")
+                                    console.print(f"[dim]  User prompt: {len(conversation_history.get('user_prompt', ''))} chars[/dim]")
+                                    console.print(f"[dim]  Assistant response: {len(conversation_history.get('assistant_response', ''))} chars[/dim]")
+                            else:
+                                console.print(f"[yellow]⚠️ LLM call not logged - no valid token usage or conversation history[/yellow]")
+                                console.print(f"[yellow]  Token usage type: {type(token_usage)}, value: {token_usage}[/yellow]")
+                                console.print(f"[yellow]  Conversation history type: {type(conversation_history)}[/yellow]")
+                        except Exception as llm_log_err:
+                            logger.warning(f"Failed to log LLM call: {llm_log_err}")
+                            console.print(f"[red]❌ LLM logging failed: {llm_log_err}[/red]")
+
                     if result and result.final_output:
                          output = result.final_output
                          execution_time = time.time() - start_time
                          
                          # 成功時のメトリクス記録
                          logger.info(f"エージェント {agent.name} 実行成功: {execution_time:.2f}秒, 試行回数: {attempt + 1}")
+                         
+                         # 成功時のログ更新（トークン統計含む）
+                         if LOGGING_ENABLED and execution_log_id and self.logging_service:
+                             try:
+                                 # トークン統計を取得
+                                 token_usage = self._extract_token_usage_from_result(result)
+                                 
+                                 self.logging_service.update_execution_log(
+                                     execution_id=execution_log_id,
+                                     status="completed",
+                                     output_data={
+                                         "output_type": type(output).__name__,
+                                         "output_summary": str(output)[:500] if output else "",
+                                         "attempt_count": attempt + 1,
+                                         "success": True
+                                     },
+                                     duration_ms=int(execution_time * 1000),
+                                     input_tokens=token_usage.get("input_tokens", 0) if token_usage else 0,
+                                     output_tokens=token_usage.get("output_tokens", 0) if token_usage else 0,
+                                     cache_tokens=token_usage.get("cache_tokens", 0) if token_usage else 0,
+                                     reasoning_tokens=token_usage.get("reasoning_tokens", 0) if token_usage else 0
+                                 )
+                             except Exception as log_err:
+                                 logger.warning(f"Failed to update execution log: {log_err}")
+                         
+                         # ワークフローステップの状態も更新
+                         if LOGGING_ENABLED and workflow_logger and 'workflow_step_id' in locals():
+                             try:
+                                 workflow_logger.update_workflow_step_status(
+                                     step_id=workflow_step_id,
+                                     status="completed",
+                                     step_output={
+                                         "agent_name": agent.name,
+                                         "output_type": type(output).__name__,
+                                         "output_summary": str(output)[:500] if output else "",
+                                         "success": True,
+                                         "attempt_count": attempt + 1,
+                                         "token_usage": token_usage if 'token_usage' in locals() else {}
+                                     },
+                                     duration_ms=int(execution_time * 1000)
+                                 )
+                                 console.print(f"[cyan]📋 Workflow step completed: {workflow_step_id}[/cyan]")
+                             except Exception as workflow_err:
+                                 logger.warning(f"Failed to update workflow step: {workflow_err}")
                          
                          if isinstance(output, (ThemeProposal, Outline, RevisedArticle, ClarificationNeeded, StatusUpdate, ResearchPlan, ResearchQueryResult, ResearchReport, GeneratedPersonasResponse, SerpKeywordAnalysisReport, ArticleSectionWithImages)):
                              return output
@@ -3037,6 +3925,44 @@ class ArticleGenerationService:
                     # エラーメトリクス記録
                     logger.warning(f"エージェント {agent.name} 実行エラー (試行 {attempt + 1}/{settings.max_retries}): {error_type} - {e}, 経過時間: {attempt_time:.2f}秒")
                     
+                    # エラー時のログ更新（最後の試行の場合のみ）
+                    if LOGGING_ENABLED and execution_log_id and self.logging_service and (attempt == settings.max_retries - 1 or isinstance(e, (BadRequestError, MaxTurnsExceeded, ModelBehaviorError, UserError, AuthenticationError))):
+                        try:
+                            self.logging_service.update_execution_log(
+                                execution_id=execution_log_id,
+                                status="failed",
+                                duration_ms=int(attempt_time * 1000),
+                                error_message=str(e),
+                                error_details={
+                                    "error_type": error_type,
+                                    "attempt_count": attempt + 1,
+                                    "max_retries": settings.max_retries,
+                                    "is_retryable": not isinstance(e, (BadRequestError, MaxTurnsExceeded, ModelBehaviorError, UserError, AuthenticationError))
+                                }
+                            )
+                        except Exception as log_err:
+                            logger.warning(f"Failed to update execution log with error: {log_err}")
+                    
+                    # エラー時のワークフローステップ更新（最後の試行の場合のみ）
+                    if LOGGING_ENABLED and workflow_logger and 'workflow_step_id' in locals() and (attempt == settings.max_retries - 1 or isinstance(e, (BadRequestError, MaxTurnsExceeded, ModelBehaviorError, UserError, AuthenticationError))):
+                        try:
+                            workflow_logger.update_workflow_step_status(
+                                step_id=workflow_step_id,
+                                status="failed",
+                                step_output={
+                                    "agent_name": agent.name,
+                                    "error_type": error_type,
+                                    "error_message": str(e),
+                                    "attempt_count": attempt + 1,
+                                    "success": False,
+                                    "is_retryable": not isinstance(e, (BadRequestError, MaxTurnsExceeded, ModelBehaviorError, UserError, AuthenticationError))
+                                },
+                                duration_ms=int(attempt_time * 1000)
+                            )
+                            console.print(f"[red]📋 Workflow step failed: {workflow_step_id}[/red]")
+                        except Exception as workflow_err:
+                            logger.warning(f"Failed to update workflow step with error: {workflow_err}")
+                    
                     console.print(f"[yellow]エージェント {agent.name} 実行中にエラー (試行 {attempt + 1}/{settings.max_retries}): {error_type} - {e}[/yellow]")
                     if isinstance(e, (BadRequestError, MaxTurnsExceeded, ModelBehaviorError, UserError, AuthenticationError)):
                         break
@@ -3055,6 +3981,176 @@ class ArticleGenerationService:
             total_time = time.time() - start_time
             logger.error(f"エージェント {agent.name} execution finished unexpectedly: 総実行時間 {total_time:.2f}秒")
             raise RuntimeError(f"Agent {agent.name} execution finished unexpectedly.")
+
+    async def _log_tool_calls(self, execution_id: str, tool_calls: List[Dict[str, Any]]):
+        """ツール呼び出しログを記録"""
+        if not LOGGING_ENABLED or not self.logging_service:
+            return
+        
+        try:
+            for i, tool_call in enumerate(tool_calls):
+                tool_name = tool_call.get("name", "unknown_tool")
+                tool_type = tool_call.get("type", "tool_call")
+                arguments = tool_call.get("arguments", {})
+                result = tool_call.get("result")
+                
+                # ツール固有の情報を抽出
+                api_calls_count = 1
+                data_size_bytes = None
+                
+                if tool_name == "web_search":
+                    # WebSearch固有の統計
+                    if isinstance(result, dict):
+                        results = result.get("results", [])
+                        api_calls_count = 1  # SerpAPIは通常1回の呼び出し
+                        data_size_bytes = len(str(result))
+                elif tool_name in ["analyze_competitors", "get_company_data"]:
+                    # その他のツール統計
+                    if result:
+                        data_size_bytes = len(str(result))
+                
+                # ツール呼び出しログを作成
+                tool_call_id = self.logging_service.create_tool_call_log(
+                    execution_id=execution_id,
+                    tool_name=tool_name,
+                    tool_function=tool_type,
+                    call_sequence=i + 1,
+                    input_parameters=arguments,
+                    output_data={"result": result} if result else {},
+                    status="completed",
+                    api_calls_count=api_calls_count,
+                    data_size_bytes=data_size_bytes,
+                    tool_metadata={
+                        "tool_type": tool_type,
+                        "has_result": result is not None,
+                        "result_type": type(result).__name__ if result else None
+                    }
+                )
+                
+                console.print(f"[cyan]🔧 Tool call logged: {tool_call_id} ({tool_name})[/cyan]")
+                
+        except Exception as e:
+            logger.warning(f"Failed to log tool calls: {e}")
+            console.print(f"[red]❌ Tool call logging failed: {e}[/red]")
+
+    async def _log_workflow_step(self, context: ArticleContext, step_name: str, step_data: Dict[str, Any] = None):
+        """ワークフローステップをログに記録"""
+        if not LOGGING_ENABLED:
+            return
+        
+        try:
+            process_id = context.process_id
+            workflow_logger = self.workflow_loggers.get(process_id) if process_id else None
+            
+            if workflow_logger and self.logging_service:
+                # ステップタイプを決定
+                step_type = "autonomous"
+                if step_name in USER_INPUT_STEPS:
+                    step_type = "user_input"
+                elif step_name in ["error", "completed"]:
+                    step_type = "terminal"
+                
+                step_id = self.logging_service.create_workflow_step_log(
+                    session_id=workflow_logger.session_id,
+                    step_name=step_name,
+                    step_type=step_type,
+                    step_order=workflow_logger.current_step,
+                    step_input=step_data or {},
+                    step_metadata={
+                        "process_id": process_id,
+                        "context_step": step_name,
+                        "timestamp": datetime.now().isoformat(),
+                        "step_category": step_type
+                    }
+                )
+                
+                console.print(f"[cyan]📊 Workflow step logged: {step_id} ({step_name})[/cyan]")
+                
+        except Exception as e:
+            logger.warning(f"Failed to log workflow step: {e}")
+            console.print(f"[red]❌ Workflow step logging failed: {e}[/red]")
+
+    async def _ensure_workflow_logger(self, context: ArticleContext, process_id: Optional[str] = None, user_id: Optional[str] = None):
+        """ワークフローロガーを確実に確保する"""
+        if not process_id or not LOGGING_ENABLED:
+            console.print(f"[yellow]Workflow logger not needed: process_id={process_id}, LOGGING_ENABLED={LOGGING_ENABLED}[/yellow]")
+            return
+        
+        # 既存のワークフローロガーをチェック
+        workflow_logger = self.workflow_loggers.get(process_id)
+        if workflow_logger:
+            console.print(f"[green]✅ Workflow logger already exists for process {process_id} (session: {workflow_logger.session_id})[/green]")
+            return
+        
+        # ワークフローロガーを作成
+        console.print(f"[yellow]🔄 Creating workflow logger for process {process_id}[/yellow]")
+        try:
+            # コンテキストから設定を構築
+            initial_config = {
+                "initial_input": {
+                    "keywords": getattr(context, 'initial_keywords', []),
+                    "persona_type": context.persona_type.value if hasattr(context, 'persona_type') and context.persona_type else None,
+                    "target_age_group": context.target_age_group.value if hasattr(context, 'target_age_group') and context.target_age_group else None,
+                    "custom_persona": getattr(context, 'custom_persona', "")
+                },
+                "seo_keywords": getattr(context, 'initial_keywords', []),
+                "image_mode_enabled": getattr(context, 'image_mode', False),
+                "article_style_info": getattr(context, 'style_template_settings', {}),
+                "generation_theme_count": getattr(context, 'num_theme_proposals', 3),
+                "target_age_group": context.target_age_group.value if hasattr(context, 'target_age_group') and context.target_age_group else None,
+                "persona_settings": {
+                    "persona_type": context.persona_type.value if hasattr(context, 'persona_type') and context.persona_type else None,
+                    "custom_persona": getattr(context, 'custom_persona', ""),
+                    "num_persona_examples": getattr(context, 'num_persona_examples', 3)
+                },
+                "company_info": {
+                    "company_name": getattr(context, 'company_name', ""),
+                    "company_description": getattr(context, 'company_description', ""),
+                    "company_style_guide": getattr(context, 'company_style_guide', "")
+                },
+                "target_length": getattr(context, 'target_length', None),
+                "num_research_queries": getattr(context, 'num_research_queries', 5),
+                "current_step": context.current_step
+            }
+            
+            workflow_logger = MultiAgentWorkflowLogger(
+                article_uuid=process_id,
+                user_id=user_id or getattr(context, 'user_id', 'unknown'),
+                organization_id=getattr(context, 'organization_id', None),
+                initial_config=initial_config
+            )
+            
+            # 既存のログセッションを検索
+            from database.supabase_client import supabase
+            existing_session = supabase.table("agent_log_sessions").select("id").eq("article_uuid", process_id).execute()
+            
+            if existing_session.data:
+                # 既存セッションを復元
+                workflow_logger.session_id = existing_session.data[0]["id"]
+                
+                # 既存のワークフローステップ数に基づいてcurrent_stepを設定
+                steps_count = supabase.table("workflow_step_logs").select("step_order").eq("session_id", workflow_logger.session_id).execute()
+                if steps_count.data:
+                    workflow_logger.current_step = len(steps_count.data) + 1
+                else:
+                    workflow_logger.current_step = 1
+                    
+                console.print(f"[cyan]✅ Restored log session {workflow_logger.session_id} for process {process_id} (step: {workflow_logger.current_step})[/cyan]")
+            else:
+                # 新しいログセッションを作成
+                log_session_id = workflow_logger.initialize_session()
+                console.print(f"[cyan]✅ Created new log session {log_session_id} for process {process_id}[/cyan]")
+            
+            # ワークフローロガーを保存
+            self.workflow_loggers[process_id] = workflow_logger
+            console.print(f"[green]✅ Workflow logger stored for process {process_id}[/green]")
+            console.print(f"[debug]Workflow logger details: session_id={workflow_logger.session_id}, current_step={workflow_logger.current_step}, logging_service={workflow_logger.logging_service is not None}[/debug]")
+            
+        except Exception as e:
+            logger.error(f"Failed to ensure workflow logger for process {process_id}: {e}")
+            console.print(f"[red]❌ Failed to create workflow logger: {e}[/red]")
+            import traceback
+            console.print(f"[red]Traceback: {traceback.format_exc()}[/red]")
 
     async def _save_context_to_db(self, context: ArticleContext, process_id: Optional[str] = None, user_id: Optional[str] = None, organization_id: Optional[str] = None) -> str:
         """Save ArticleContext to database and return process_id"""
@@ -3148,35 +4244,45 @@ class ArticleGenerationService:
                     }
                     
                     try:
-                        # Use UPSERT to prevent duplicates with ON CONFLICT
-                        console.print(f"[cyan]Saving final article for process {process_id} using UPSERT[/cyan]")
-                        article_result = supabase.table("articles").upsert(
-                            article_data,
-                            on_conflict="generation_process_id"
-                        ).execute()
+                        # 手動でのチェック・挿入・更新（UPSERT制約に依存しない）
+                        console.print(f"[cyan]Saving final article for process {process_id}[/cyan]")
                         
-                        if article_result.data:
-                            article_id = article_result.data[0]["id"]
-                            update_data["article_id"] = article_id
-                            console.print(f"[green]Successfully saved article {article_id} for process {process_id}[/green]")
+                        # 既存記事をチェック
+                        existing_article = supabase.table("articles").select("id").eq("generation_process_id", process_id).execute()
+                        
+                        if existing_article.data and len(existing_article.data) > 0:
+                            # 既存記事を更新
+                            article_id = existing_article.data[0]["id"]
+                            console.print(f"[yellow]Updating existing article {article_id}[/yellow]")
+                            article_result = supabase.table("articles").update(article_data).eq("id", article_id).execute()
+                            
+                            if article_result.data:
+                                update_data["article_id"] = article_id
+                                console.print(f"[green]Successfully updated article {article_id} for process {process_id}[/green]")
+                            else:
+                                console.print(f"[red]Failed to update article {article_id}: {article_result}[/red]")
                         else:
-                            console.print(f"[red]Failed to save article for process {process_id}: {article_result}[/red]")
+                            # 新規記事を作成
+                            console.print(f"[yellow]Creating new article for process {process_id}[/yellow]")
+                            article_result = supabase.table("articles").insert(article_data).execute()
+                            
+                            if article_result.data:
+                                article_id = article_result.data[0]["id"]
+                                update_data["article_id"] = article_id
+                                console.print(f"[green]Successfully created article {article_id} for process {process_id}[/green]")
+                            else:
+                                console.print(f"[red]Failed to create article: {article_result}[/red]")
                             
                     except Exception as article_save_error:
                         console.print(f"[red]Error saving article for process {process_id}: {article_save_error}[/red]")
-                        # If UPSERT fails due to missing constraint, fall back to manual check
+                        # 最後の試み: 強制的に挿入
                         try:
-                            existing_article = supabase.table("articles").select("id").eq("generation_process_id", process_id).execute()
-                            if existing_article.data and len(existing_article.data) > 0:
-                                # Update existing article
-                                article_id = existing_article.data[0]["id"]
-                                article_result = supabase.table("articles").update(article_data).eq("id", article_id).execute()
+                            console.print(f"[yellow]Attempting force insert for process {process_id}[/yellow]")
+                            article_result = supabase.table("articles").insert(article_data).execute()
+                            if article_result.data:
+                                article_id = article_result.data[0]["id"]
                                 update_data["article_id"] = article_id
-                            else:
-                                # Create new article
-                                article_result = supabase.table("articles").insert(article_data).execute()
-                                if article_result.data:
-                                    update_data["article_id"] = article_result.data[0]["id"]
+                                console.print(f"[green]Force insert successful: {article_id}[/green]")
                         except Exception as fallback_error:
                             console.print(f"[red]Fallback article save also failed: {fallback_error}[/red]")
                 
@@ -4156,6 +5262,48 @@ class ArticleGenerationService:
         except Exception as e:
             logger.error(f"Failed to save final article - process_id: {process_id}, error: {e}")
             raise
+
+    async def finalize_workflow_logger(self, process_id: str, status: str = "completed"):
+        """
+        バックグラウンド処理完了時にワークフローロガーを最終化
+        """
+        if LOGGING_ENABLED and process_id in self.workflow_loggers:
+            try:
+                workflow_logger = self.workflow_loggers[process_id]
+                
+                # 最終ワークフローステップをログに記録
+                workflow_logger.log_workflow_step(f"process_{status}", {
+                    "status": status,
+                    "background_processing_complete": True,
+                    "finalization": True
+                })
+                
+                # ログセッションを完了
+                workflow_logger.finalize_session(status)
+                console.print(f"[cyan]Background processing complete - finalized log session for process {process_id} with status: {status}[/cyan]")
+                
+                # Notionに自動同期（完了したセッションのみ）
+                if NOTION_SYNC_ENABLED and self.notion_sync_service and status == "completed":
+                    try:
+                        console.print(f"[yellow]🔄 Notionに自動同期開始: {process_id}[/yellow]")
+                        sync_success = self.notion_sync_service.sync_session_to_notion(workflow_logger.session_id)
+                        if sync_success:
+                            console.print(f"[green]✅ Notion自動同期完了: {process_id}[/green]")
+                        else:
+                            console.print(f"[red]❌ Notion自動同期失敗: {process_id}[/red]")
+                    except Exception as sync_err:
+                        logger.warning(f"Notion auto-sync failed: {sync_err}")
+                        console.print(f"[red]❌ Notion自動同期エラー: {sync_err}[/red]")
+                
+                # ワークフローロガーを削除
+                del self.workflow_loggers[process_id]
+                console.print(f"[cyan]Workflow logger cleaned up for completed process {process_id}[/cyan]")
+                
+            except Exception as e:
+                logger.error(f"Failed to finalize workflow logger for process {process_id}: {e}")
+                # エラーでもロガーは削除してメモリリークを防ぐ
+                if process_id in self.workflow_loggers:
+                    del self.workflow_loggers[process_id]
 
     async def _update_placeholders_article_id(self, context: ArticleContext, article_id: str, process_id: str):
         """
