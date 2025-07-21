@@ -73,6 +73,10 @@ class Settings(BaseSettings):
     gcs_bucket_name: str = Field("", env="GCS_BUCKET_NAME")
     gcs_public_url_base: str = Field("", env="GCS_PUBLIC_URL_BASE")
 
+    # Notion API設定
+    notion_api_key: str = Field("", env="NOTION_API_KEY")
+    notion_database_id: str = Field("", env="NOTION_DATABASE_ID")
+
     # リトライ設定
     max_retries: int = 3
     initial_retry_delay: int = 1
