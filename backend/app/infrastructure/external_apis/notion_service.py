@@ -108,7 +108,7 @@ class NotionService:
             if children:
                 print(f"   ... {len(children)}件のブロックを追加中...")
                 self.append_blocks_to_page(page_id, children)
-                print(f"   ✅ ブロックの追加が完了しました")
+                print("   ✅ ブロックの追加が完了しました")
             
             return page_id
                 
@@ -553,7 +553,7 @@ class NotionService:
             
             if response.status_code == 200:
                 user_data = response.json()
-                print(f"✅ Notion API接続成功")
+                print("✅ Notion API接続成功")
                 print(f"   ユーザー: {user_data.get('name', 'Unknown')}")
                 print(f"   ワークスペース: {user_data.get('bot', {}).get('workspace_name', 'Unknown')}")
                 return True

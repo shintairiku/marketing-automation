@@ -1,15 +1,12 @@
-import os # osモジュールをファイルの先頭に移動
 
 from typing import List, Dict, Any, Optional
 from collections import Counter # Added for analyze_user_intent, _find_common_heading_patterns
-import re # Added for analyze_user_intent, _find_common_heading_patterns
 import numpy as np # ★ Added for statistical analysis
 import json # ★ Added for JSON export
 import datetime # ★ Added for timestamp in exports
 # ScrapedArticle を serpapi_service からインポートすることを想定
 # 実際のプロジェクト構成によっては、共通の型定義ファイルなどに移動することも検討
-from app.infrastructure.external_apis.serpapi_service import ScrapedArticle, SerpAnalysisResult # ScrapedArticleに加えてSerpAnalysisResultもインポート（テストデータ作成のため）
-import asyncio
+from app.infrastructure.external_apis.serpapi_service import ScrapedArticle # ScrapedArticleに加えてSerpAnalysisResultもインポート（テストデータ作成のため）
 from app.infrastructure.gcp_auth import setup_genai_client
 
 class ContentAnalyzer:
@@ -411,7 +408,7 @@ class ContentAnalyzer:
         print(f"✅ 頻出見出し分析完了: {len(all_headings_with_context)}個の見出しを分析")
         print(f"   📊 完全一致頻出見出し: {len(frequent_exact)}種類")
         if "エラー" not in gemini_analysis:
-            print(f"   🤖 Gemini AI分析: 成功")
+            print("   🤖 Gemini AI分析: 成功")
         else:
             print(f"   ❌ Gemini AI分析: {gemini_analysis.get('エラー', 'エラー発生')}")
         
@@ -1046,7 +1043,7 @@ class ContentAnalyzer:
         
         if language == "jp":
             # 日本語版: 日本語キーを残し、対応する英語キーは除外
-            jp_keys = set(key_pairs.keys())
+            set(key_pairs.keys())
             en_keys = set(key_pairs.values())
             
             for key, value in data.items():
@@ -1113,7 +1110,7 @@ class ContentAnalyzer:
             en_filename = f"{base_name}_en.json"
             self.export_to_json(en_filename, "en")
             
-            print(f"✅ 両言語版JSON分析データが出力されました:")
+            print("✅ 両言語版JSON分析データが出力されました:")
             print(f"   🇯🇵 日本語版: {jp_filename}")
             print(f"   🇺🇸 英語版: {en_filename}")
             return
@@ -1247,7 +1244,7 @@ class ContentAnalyzer:
         Returns:
             提案された最適な見出し構造を含む辞書
         """
-        print(f"最適見出し構造の提案を開始します...")
+        print("最適見出し構造の提案を開始します...")
         
         # キーワード等が指定されていない場合、コンテンツから推測する
         if not target_keyword or not article_purpose or not target_audience:
@@ -1411,18 +1408,18 @@ E-E-A-T要因統計:
         print("\n" + "="*60)
         print("🔍 Gemini APIに送信するデータの詳細:")
         print("="*60)
-        print(f"📋 ターゲット情報:")
+        print("📋 ターゲット情報:")
         print(f"   • キーワード: {target_keyword}")
         print(f"   • 記事目的: {article_purpose}")
         print(f"   • ターゲット読者: {target_audience}")
         
-        print(f"\n📊 基本統計情報:")
+        print("\n📊 基本統計情報:")
         if "basic_statistics" in self.analysis_results:
             char_stats = self.analysis_results["basic_statistics"]["文字数分析"]["統計値"]
             print(f"   • 平均文字数: {char_stats['平均値']:.0f}文字")
             print(f"   • 文字数範囲: {char_stats['最小値']:.0f}〜{char_stats['最大値']:.0f}文字")
         
-        print(f"\n🏗️  見出し構造情報:")
+        print("\n🏗️  見出し構造情報:")
         total_headings = sum(len(comp["見出し構造"]) for comp in all_competitor_headings)
         print(f"   • 分析記事数: {len(all_competitor_headings)}記事")
         print(f"   • 総見出し数: {total_headings}個")
@@ -1435,7 +1432,7 @@ E-E-A-T要因統計:
                 if count > 0:
                     print(f"   • {level.upper()}: {count}個")
         
-        print(f"\n🔄 頻出見出し分析結果:")
+        print("\n🔄 頻出見出し分析結果:")
         if "エラー" not in frequent_headings_analysis:
             exact_frequent = frequent_headings_analysis.get("完全一致頻出見出し", {})
             similarity_groups = frequent_headings_analysis.get("類似見出しグループ", {})
@@ -1450,14 +1447,14 @@ E-E-A-T要因統計:
             # トップ5の頻出見出しを表示
             top_frequent = exact_frequent.get("トップ20", [])[:5]
             if top_frequent:
-                print(f"   • トップ5頻出見出し:")
+                print("   • トップ5頻出見出し:")
                 for i, (text, count) in enumerate(top_frequent):
                     print(f"     {i+1}. 「{text}」({count}回)")
             
             # トップ3の類似グループを表示
             top_groups = similarity_groups.get("トップ10グループ", [])[:3]
             if top_groups:
-                print(f"   • トップ3類似グループ:")
+                print("   • トップ3類似グループ:")
                 for i, group in enumerate(top_groups):
                     base_text = group.get('ベース見出し', '')
                     group_size = group.get('類似グループサイズ', 0)
@@ -1552,10 +1549,10 @@ E-E-A-T要因統計:
 必ずこのJSON形式で回答し、他の形式は使用しないでください。
 """
 
-        print(f"\n🚀 Gemini APIに分析を依頼します...")
+        print("\n🚀 Gemini APIに分析を依頼します...")
         print(f"   📤 送信データサイズ: 約{len(prompt):,}文字")
         print(f"   🎯 競合記事数: {len(all_competitor_headings)}記事")
-        print(f"   📊 頻出見出し分析結果も含む")
+        print("   📊 頻出見出し分析結果も含む")
         
         try:
             generation_config = genai.types.GenerationConfig(

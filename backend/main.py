@@ -64,7 +64,6 @@ async def options_handler(path: str):
 
 # Uvicornで実行する場合 (開発用)
 if __name__ == "__main__":
-    import uvicorn
     print("To run the server, use the command:")
     print("uvicorn main:app --reload --host 0.0.0.0 --port 8000")
 

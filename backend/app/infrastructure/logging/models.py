@@ -4,8 +4,6 @@
 """
 from pydantic import BaseModel
 from typing import Optional, Dict, Any, List
-from datetime import datetime
-import uuid
 
 # 現在は直接Supabaseを使用するため、Pydanticモデルで定義
 # SQLAlchemyモデルは後で必要に応じて実装

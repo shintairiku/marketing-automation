@@ -2,7 +2,7 @@
 """
 Company information service using Supabase client
 """
-from typing import List, Optional, Dict, Any
+from typing import Optional
 from fastapi import HTTPException, status
 import logging
 from datetime import datetime
@@ -237,7 +237,7 @@ class CompanyService:
                     )
 
             # 削除実行
-            result = supabase.from_("company_info")\
+            supabase.from_("company_info")\
                 .delete()\
                 .eq("id", company_id)\
                 .eq("user_id", user_id)\

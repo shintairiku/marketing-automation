@@ -4,19 +4,9 @@
 """
 from typing import Optional, Dict, Any, List
 from datetime import datetime
-import uuid
 import logging
-from sqlalchemy.orm import Session
-from sqlalchemy import and_, desc, asc
 
 from app.common.database import supabase
-from app.infrastructure.logging.models import (
-    AgentLogSessionData,
-    AgentExecutionLogData,
-    LLMCallLogData,
-    ToolCallLogData,
-    WorkflowStepLogData
-)
 
 logger = logging.getLogger(__name__)
 

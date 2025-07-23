@@ -9,7 +9,6 @@ This service handles all organization-related operations including:
 - Organization-level permissions and access control
 """
 
-import uuid
 from typing import List, Optional, Dict, Any
 from datetime import datetime, timedelta
 from supabase import create_client, Client

@@ -9,9 +9,6 @@ This service handles dynamic execution of article generation flows:
 - Integration with existing article generation agents
 """
 
-import uuid
-import json
-import asyncio
 from typing import List, Optional, Dict, Any, Union
 from datetime import datetime
 from supabase import create_client, Client
@@ -23,7 +20,7 @@ from app.domains.seo_article.context import ArticleContext
 from app.domains.seo_article.agents.definitions import (
     theme_agent, research_planner_agent, researcher_agent, research_synthesizer_agent,
     outline_agent, section_writer_agent, editor_agent, persona_generator_agent,
-    serp_keyword_analysis_agent, AgentOutput
+    serp_keyword_analysis_agent
 )
 
 logger = logging.getLogger(__name__)
@@ -502,7 +499,7 @@ class ArticleFlowService:
                 return False
             
             # Prepare input based on step type
-            agent_input = await self._prepare_step_input(step, context)
+            await self._prepare_step_input(step, context)
             
             # Execute agent (simplified - in practice would use the full Runner.run)
             # This is a placeholder - would need to integrate with the existing agent execution logic

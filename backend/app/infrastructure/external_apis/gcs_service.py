@@ -4,11 +4,8 @@ Google Cloud Storage (GCS) サービス
 画像ファイルのクラウドストレージ管理を行う
 """
 
-import io
-import json
 import uuid
 from typing import Optional, Tuple, Dict, Any
-from pathlib import Path
 import mimetypes
 
 from google.api_core import exceptions as gcs_exceptions

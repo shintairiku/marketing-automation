@@ -1,8 +1,7 @@
 # -*- coding: utf-8 -*-
 import asyncio
 from dataclasses import dataclass, field
-from typing import List, Dict, Union, Optional, Tuple, Any, Literal
-from pydantic import BaseModel
+from typing import List, Dict, Union, Optional, Any, Literal
 from fastapi import WebSocket # <<< WebSocket をインポート
 
 # 循環参照を避けるため、モデルは直接インポートせず、型ヒントとして文字列を使うか、

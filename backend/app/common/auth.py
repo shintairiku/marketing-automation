@@ -3,7 +3,7 @@
 Authentication utilities for Clerk integration
 """
 import jwt
-from fastapi import HTTPException, status, Depends
+from fastapi import Depends
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from typing import Optional
 import logging

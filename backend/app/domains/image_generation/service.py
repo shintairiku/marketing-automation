@@ -4,31 +4,24 @@ Vertex AI Imagen 4.0を使用した画像生成サービス
 """
 
 import asyncio
-import base64
 import io
-import json
 import os
 import uuid
-from typing import Dict, List, Optional, Any, Union
+from typing import Dict, Optional, Any
 from pathlib import Path
 
 from pydantic import BaseModel, Field
 from PIL import Image
-import aiofiles
 
 # Google GenAI SDK関連のインポート
 try:
-    from google import genai
-    from google.genai import types
     GENAI_SDK_AVAILABLE = True
 except ImportError:
     GENAI_SDK_AVAILABLE = False
 
 # Fallback: 古いVertex AI SDK
 try:
-    import vertexai
     from vertexai.preview.vision_models import ImageGenerationModel
-    from google.cloud import aiplatform
     VERTEX_AI_AVAILABLE = True
 except ImportError:
     VERTEX_AI_AVAILABLE = False
@@ -36,7 +29,7 @@ except ImportError:
 from app.core.config import settings
 from app.core.logger import logger
 from app.infrastructure.external_apis.gcs_service import gcs_service
-from app.infrastructure.gcp_auth import get_aiplatform_credentials, initialize_aiplatform
+from app.infrastructure.gcp_auth import initialize_aiplatform
 
 
 class ImageGenerationRequest(BaseModel):
@@ -306,7 +299,7 @@ class ImageGenerationService:
                 error_message=f"Vertex AI error: {str(e)}"
             )
     
-    async def generate_image(
+    async def generate_image_url(
         self, 
         prompt: str,
         placeholder_id: str,
