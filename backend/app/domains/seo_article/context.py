@@ -107,6 +107,7 @@ class ArticleContext:
 
     # --- 進捗追跡関連 ---
     research_progress: Optional[Dict[str, Any]] = None # リサーチ進捗状況
+    executing_step: Optional[str] = None  # 現在実行中のステップ（重複実行防止用）
     sections_progress: Optional[Dict[str, Any]] = None # セクション執筆進捗状況
     
     # --- WebSocket/インタラクション用 ---

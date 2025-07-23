@@ -309,6 +309,10 @@ class GeneratedPersonaItem(BaseModel):
 class GeneratedPersonasResponse(BaseModel):
     """生成されたペルソナレスポンス"""
     personas: List[GeneratedPersonaItem] = Field(description="ペルソナリスト")
+
+class GeneratedThemesResponse(BaseModel):
+    """生成されたテーマレスポンス (エージェントが返すもの)"""
+    themes: List[ThemeProposalData] = Field(description="テーマリスト")
     
 class SerpKeywordAnalysisReport(BaseModel):
     """SERP キーワード分析レポート"""
@@ -359,7 +363,7 @@ class ResearchQuery(BaseModel):
 
 # エイリアス定義（既存コードとの互換性のため）
 StatusUpdate = StatusUpdatePayload
-ThemeProposal = ThemeProposalData
+ThemeProposal = GeneratedThemesResponse
 ResearchPlan = ResearchPlanData
 ResearchReport = ResearchReportData
 Outline = OutlineData
