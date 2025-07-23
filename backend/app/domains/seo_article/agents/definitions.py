@@ -11,7 +11,7 @@ from app.domains.seo_article.schemas import (
     AgentOutput, ResearchQueryResult, ResearchReport, RevisedArticle, 
     GeneratedPersonasResponse, SerpKeywordAnalysisReport, 
     ArticleSectionWithImages, ThemeProposal, ClarificationNeeded,
-    ResearchPlan, Outline, GeneratedThemesResponse
+    ResearchPlan, Outline, GeneratedThemesResponse, SourceSnippet
 )
 from app.domains.seo_article.agents.tools import web_search_tool, analyze_competitors, get_company_data
 from app.domains.seo_article.context import ArticleContext
@@ -252,10 +252,10 @@ def create_research_synthesizer_instructions(base_prompt: str) -> Callable[[RunC
             results_str += f"--- クエリ結果 {i+1} ({result.query}) ---\n"
             results_str += f"要約: {result.summary}\n"
             results_str += "詳細な発見:\n"
-            for finding in result.detailed_findings:
-                results_str += f"- 抜粋: {finding.snippet_text}\n"
-                results_str += f"  出典: [{finding.source_title or finding.source_url}]({finding.source_url})\n"
-                all_sources_set.add(finding.source_url) # URLをセットに追加
+            for finding in result.results:
+                results_str += f"- 抜粋: {finding.snippet}\n"
+                results_str += f"  出典: [{finding.title or finding.url}]({finding.url})\n"
+                all_sources_set.add(finding.url) # URLをセットに追加
             results_str += "\n"
 
         sorted(list(all_sources_set)) # 重複削除してリスト化
