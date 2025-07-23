@@ -1,12 +1,10 @@
-from sqlalchemy import Column, String, Text, Boolean, DateTime, ForeignKey, Index
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy import Column, String, Text, Boolean, DateTime, Index
 from sqlalchemy.sql import func
-from sqlalchemy.orm import relationship
 import uuid
 
 # from database.database import Base  # 不要（SQLAlchemy Base未使用）
 
-class CompanyInfo(Base):
+class CompanyInfo:
     """会社情報テーブル"""
     __tablename__ = "company_info"
 

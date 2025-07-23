@@ -4,18 +4,16 @@
 システムプロンプト抽出のテストスクリプト
 """
 import asyncio
-import os
 import sys
 from pathlib import Path
+from app.domains.seo_article.services.generation_service import ArticleGenerationService
+from app.domains.seo_article.context import ArticleContext
+from app.domains.seo_article.agents.definitions import theme_agent
+from agents import RunContextWrapper
 
 # プロジェクトルートをパスに追加
 project_root = Path(__file__).parent
 sys.path.insert(0, str(project_root))
-
-from services.article_service import ArticleGenerationService
-from services.context import ArticleContext
-from services.agents import theme_agent
-from agents import RunContextWrapper
 
 async def test_system_prompt_extraction():
     """システムプロンプト抽出のテスト"""
@@ -47,14 +45,14 @@ async def test_system_prompt_extraction():
             # 動的指示を実行
             resolved_instructions = await agent.instructions(run_context, agent)
             
-            print(f"✅ システムプロンプト抽出成功:")
+            print("✅ システムプロンプト抽出成功:")
             print(f"   - 長さ: {len(resolved_instructions):,} 文字")
             print(f"   - 最初の500文字: {resolved_instructions[:500]}...")
             print(f"   - 最後の200文字: ...{resolved_instructions[-200:]}")
             
             # 特定のキーワードが含まれているかチェック
             keywords_to_check = ["リフォーム", "自然素材", "30代", "新大陸", "ThemeProposal"]
-            print(f"\n📊 キーワード含有チェック:")
+            print("\n📊 キーワード含有チェック:")
             for keyword in keywords_to_check:
                 if keyword in resolved_instructions:
                     print(f"   ✅ '{keyword}' - 含まれています")
@@ -74,7 +72,7 @@ async def test_article_service_prompt_extraction():
     
     try:
         # ArticleGenerationServiceのインスタンス作成
-        service = ArticleGenerationService()
+        ArticleGenerationService()
         
         # テスト用のコンテキストを作成
         context = ArticleContext(
@@ -95,9 +93,9 @@ async def test_article_service_prompt_extraction():
             run_context = RunContextWrapper(context=context)
             system_prompt = await agent.instructions(run_context, agent)
             
-            print(f"✅ 記事サービス経由でのシステムプロンプト抽出成功:")
+            print("✅ 記事サービス経由でのシステムプロンプト抽出成功:")
             print(f"   - 長さ: {len(system_prompt):,} 文字")
-            print(f"   - 動的指示として解決されました")
+            print("   - 動的指示として解決されました")
             
             # プロンプト内容の構造チェック
             sections = []

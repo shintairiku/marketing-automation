@@ -1,24 +1,21 @@
 # -*- coding: utf-8 -*-
 # 既存のスクリプトからエージェント定義とプロンプト生成関数をここに移動・整理
-from typing import List, Dict, Union, Optional, Tuple, Any, Literal, Callable, Awaitable
+from typing import Callable, Awaitable
 from agents import Agent, RunContextWrapper, ModelSettings
 from datetime import datetime, timezone
-import locale
 # 循環参照を避けるため、モデル、ツール、コンテキストは直接インポートしない
 # from .models import AgentOutput, ResearchQueryResult, ResearchReport, Outline, RevisedArticle
 # from .tools import web_search_tool, analyze_competitors, get_company_data
 # from .context import ArticleContext
 from app.domains.seo_article.schemas import (
-    AgentOutput, ResearchQueryResult, ResearchReport, Outline, RevisedArticle, 
-    ThemeProposal, ResearchPlan, ClarificationNeeded, StatusUpdate, ArticleSection, 
-    GeneratedPersonasResponse, GeneratedPersonaItem, SerpKeywordAnalysisReport, 
-    ArticleSectionWithImages, ImagePlaceholder
+    AgentOutput, ResearchQueryResult, ResearchReport, RevisedArticle, 
+    GeneratedPersonasResponse, SerpKeywordAnalysisReport, 
+    ArticleSectionWithImages
 )
-from app.domains.seo_article.agents.tools import web_search_tool, analyze_competitors, get_company_data, available_tools
+from app.domains.seo_article.agents.tools import web_search_tool, analyze_competitors, get_company_data
 from app.domains.seo_article.context import ArticleContext
 from app.core.config import settings # 設定をインポート
 from app.domains.seo_article.schemas import PersonaType
-from openai import AsyncOpenAI
 
 # --- ヘルパー関数 ---
 
@@ -28,7 +25,7 @@ def get_current_date_context() -> str:
         now = datetime.now(timezone.utc)
         japan_time = now.astimezone()
         return f"現在の日時: {japan_time.strftime('%Y年%m月%d日')}"
-    except Exception as e:
+    except Exception:
         return f"現在の日時: {datetime.now().strftime('%Y年%m月%d日')}"
 
 def build_style_context(ctx: ArticleContext) -> str:
@@ -260,7 +257,7 @@ def create_research_synthesizer_instructions(base_prompt: str) -> Callable[[RunC
                 all_sources_set.add(finding.source_url) # URLをセットに追加
             results_str += "\n"
 
-        all_sources_list = sorted(list(all_sources_set)) # 重複削除してリスト化
+        sorted(list(all_sources_set)) # 重複削除してリスト化
 
         full_prompt = f"""{base_prompt}
 
@@ -644,13 +641,12 @@ PERSONA_GENERATOR_AGENT_BASE_PROMPT = """
 def create_persona_generator_instructions(base_prompt: str) -> Callable[[RunContextWrapper[ArticleContext], Agent[ArticleContext]], Awaitable[str]]:
     async def dynamic_instructions_func(ctx: RunContextWrapper[ArticleContext], agent: Agent[ArticleContext]) -> str:
         # 初期入力からのペルソナ情報の組み立て (これは大まかな指定)
-        initial_persona_description = "指定なし"
         if ctx.context.persona_type == PersonaType.OTHER and ctx.context.custom_persona:
-            initial_persona_description = ctx.context.custom_persona
+            pass
         elif ctx.context.target_age_group and ctx.context.persona_type:
-            initial_persona_description = f"{ctx.context.target_age_group.value}の{ctx.context.persona_type.value}"
+            pass
         elif ctx.context.custom_persona: # 移行措置
-            initial_persona_description = ctx.context.custom_persona
+            pass
         
         company_info_str = ""
         if ctx.context.company_name or ctx.context.company_description:
@@ -705,7 +701,8 @@ def create_serp_keyword_analysis_instructions(base_prompt: str) -> Callable[[Run
         keywords = ctx.context.initial_keywords
         
         # SerpAPIサービスのインポートと実行
-        from app.infrastructure.external_apis.serpapi_service import serpapi_service
+        from app.infrastructure.external_apis.serpapi_service import get_serpapi_service
+        serpapi_service = get_serpapi_service()
         analysis_result = await serpapi_service.analyze_keywords(keywords, num_articles_to_scrape=5)
         
         # 分析データを文字列に整理

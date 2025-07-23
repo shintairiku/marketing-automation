@@ -27,7 +27,7 @@ def test_connection() -> bool:
     """Test Supabase connection"""
     try:
         # Simple test query to verify connection
-        result = supabase.from_("company_info").select("id").limit(1).execute()
+        supabase.from_("company_info").select("id").limit(1).execute()
         logger.info("Supabase connection successful")
         return True
     except Exception as e:

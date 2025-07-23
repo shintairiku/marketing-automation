@@ -3,7 +3,7 @@
 OpenAI Agents SDK とログシステムの統合モジュール（簡素版）
 """
 import logging
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, Optional
 from datetime import datetime
 import uuid
 

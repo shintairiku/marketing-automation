@@ -5,8 +5,6 @@
 """
 import asyncio
 import uuid
-from datetime import datetime
-from typing import Dict, Any
 
 # ログシステムのインポート
 try:
@@ -124,7 +122,7 @@ async def test_logging_system():
         
         # セッション初期化をスキップ（既に作成済み）
         workflow_logger.session_id = session_id
-        print(f"✅ MultiAgentWorkflowLogger 初期化成功")
+        print("✅ MultiAgentWorkflowLogger 初期化成功")
         
         # ワークフローステップをログ
         step_id = workflow_logger.log_workflow_step(
@@ -146,7 +144,7 @@ async def test_logging_system():
             output_tokens=25,
             duration_ms=5000
         )
-        print(f"✅ エージェント実行ログ更新成功")
+        print("✅ エージェント実行ログ更新成功")
         
         # ワークフローステップの更新
         if step_id:
@@ -156,17 +154,17 @@ async def test_logging_system():
                 step_output={"result": "完了"},
                 duration_ms=3000
             )
-            print(f"✅ ワークフローステップ更新成功")
+            print("✅ ワークフローステップ更新成功")
         
         # セッションの完了
         workflow_logger.complete_session("completed")
-        print(f"✅ セッション完了成功")
+        print("✅ セッション完了成功")
         
         # 8. パフォーマンスメトリクスの取得テスト
         print("\n8️⃣ パフォーマンスメトリクス取得のテスト")
         try:
             metrics = logging_service.get_session_performance_metrics(session_id)
-            print(f"✅ パフォーマンスメトリクス取得成功:")
+            print("✅ パフォーマンスメトリクス取得成功:")
             print(f"   - 実行回数: {metrics.get('total_executions', 0)}")
             print(f"   - LLM呼び出し回数: {metrics.get('total_llm_calls', 0)}")
             print(f"   - ツール呼び出し回数: {metrics.get('total_tool_calls', 0)}")
@@ -175,7 +173,7 @@ async def test_logging_system():
         except Exception as e:
             print(f"⚠️ パフォーマンスメトリクス取得でエラー: {e}")
         
-        print(f"\n🎉 すべてのテストが成功しました！")
+        print("\n🎉 すべてのテストが成功しました！")
         print(f"📊 テストセッションID: {session_id}")
         print(f"📝 テスト記事UUID: {test_article_uuid}")
         
@@ -201,7 +199,7 @@ async def test_logging_system():
                     print(f"   - トークン: {log.get('prompt_tokens', 0)} + {log.get('completion_tokens', 0)} = {log.get('total_tokens', 0)}")
                     print(f"   - コスト: ${log.get('estimated_cost_usd', 0):.6f}")
             else:
-                print(f"⚠️ LLM呼び出しログが見つかりませんでした")
+                print("⚠️ LLM呼び出しログが見つかりませんでした")
                 
             # セッション全体のログも確認
             all_executions = supabase.table("agent_execution_logs") \

@@ -5,12 +5,12 @@ import time
 import traceback
 import logging  # ログ追加
 from datetime import datetime, timezone
-from typing import AsyncGenerator, List, Dict, Any, Optional, Union
+from typing import List, Dict, Any, Optional, Union
 from fastapi import WebSocket, WebSocketDisconnect, status # <<< status をインポート
 from starlette.websockets import WebSocketState # WebSocketStateをインポート
 from openai import AsyncOpenAI, BadRequestError, InternalServerError, AuthenticationError
 from openai.types.responses import ResponseTextDeltaEvent, ResponseCompletedEvent
-from agents import Runner, RunConfig, Agent, RunContextWrapper, trace
+from agents import Runner, RunConfig, Agent, trace
 from agents.exceptions import AgentsException, MaxTurnsExceeded, ModelBehaviorError, UserError
 from agents.tracing import custom_span
 from rich.console import Console # ログ出力用
@@ -25,8 +25,8 @@ from app.domains.seo_article.schemas import (
     ResearchCompletePayload, OutlinePayload, SectionChunkPayload, EditingStartPayload, ImagePlaceholderData,
     FinalResultPayload, GeneratedPersonasPayload, SerpKeywordAnalysisPayload, SerpAnalysisArticleData,
     # Client response payloads
-    UserActionPayload, SelectThemePayload, ApprovePayload, SelectPersonaPayload, GeneratedPersonaData, 
-    EditAndProceedPayload, RegeneratePayload, EditPersonaPayload, EditThemePayload, EditPlanPayload, EditOutlinePayload,
+    SelectThemePayload, ApprovePayload, SelectPersonaPayload, GeneratedPersonaData, 
+    EditAndProceedPayload, EditThemePayload, EditPlanPayload, EditOutlinePayload,
     # Data models
     ThemeProposalData, ResearchPlanData, ResearchPlanQueryData, OutlineData, OutlineSectionData
 )
@@ -36,11 +36,11 @@ from app.common.schemas import (
 )
 from app.domains.seo_article.context import ArticleContext
 from app.domains.seo_article.schemas import (
-    AgentOutput, ThemeProposal, ResearchPlan, ResearchQueryResult, ResearchReport, Outline, OutlineSection,
-    RevisedArticle, ClarificationNeeded, StatusUpdate, ArticleSection, KeyPoint, GeneratedPersonasResponse, GeneratedPersonaItem, ResearchQuery,
+    ThemeProposal, ResearchPlan, ResearchQueryResult, ResearchReport, Outline, OutlineSection,
+    RevisedArticle, ClarificationNeeded, StatusUpdate, ArticleSection, GeneratedPersonasResponse, ResearchQuery,
     ThemeProposal as ThemeIdea, # ThemeIdea を追加（エイリアス）
     SerpKeywordAnalysisReport, # SerpAPIキーワード分析レポート用のモデル追加
-    ArticleSectionWithImages, ImagePlaceholder # 画像プレースホルダー対応モデル追加
+    ArticleSectionWithImages # 画像プレースホルダー対応モデル追加
 )
 from app.domains.seo_article.agents.definitions import (
     theme_agent, research_planner_agent, researcher_agent, research_synthesizer_agent,
@@ -48,7 +48,6 @@ from app.domains.seo_article.agents.definitions import (
     serp_keyword_analysis_agent, # SerpAPIキーワード分析エージェント追加
     section_writer_with_images_agent # 画像プレースホルダー対応セクションライター追加
 )
-from app.infrastructure.external_apis.serpapi_service import SerpAPIService # SerpAPIサービス追加
 
 console = Console() # ログ出力用
 
@@ -381,7 +380,7 @@ class ArticleGenerationService:
                 if context.websocket:
                     await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message="Keyword analysis completed, proceeding to persona generation.", image_mode=getattr(context, 'image_mode', False)))
             else:
-                console.print(f"[red]SerpAPIキーワード分析中に予期しないエージェント出力タイプを受け取りました。[/red]")
+                console.print("[red]SerpAPIキーワード分析中に予期しないエージェント出力タイプを受け取りました。[/red]")
                 context.current_step = "error"
                 return
         
@@ -402,7 +401,7 @@ class ArticleGenerationService:
                 # ユーザー入力が必要なのでここで停止
                 return
             else:
-                console.print(f"[red]ペルソナ生成中に予期しないエージェント出力タイプを受け取りました。[/red]")
+                console.print("[red]ペルソナ生成中に予期しないエージェント出力タイプを受け取りました。[/red]")
                 context.current_step = "error"
                 return
 
@@ -426,7 +425,7 @@ class ArticleGenerationService:
                 if process_id and user_id:
                     try:
                         await self._save_context_to_db(context, process_id=process_id, user_id=user_id)
-                        logger.info(f"Context saved successfully after theme generation")
+                        logger.info("Context saved successfully after theme generation")
                     except Exception as save_err:
                         logger.error(f"Failed to save context after theme generation: {save_err}")
                 
@@ -458,7 +457,7 @@ class ArticleGenerationService:
                             if process_id and user_id:
                                 try:
                                     await self._save_context_to_db(context, process_id=process_id, user_id=user_id)
-                                    logger.info(f"Context saved successfully after theme selection")
+                                    logger.info("Context saved successfully after theme selection")
                                 except Exception as save_err:
                                     logger.error(f"Failed to save context after theme selection: {save_err}")
                             
@@ -479,7 +478,7 @@ class ArticleGenerationService:
                     console.print("[red]テーマ選択でクライアントからの応答がありませんでした。[/red]")
                     context.current_step = "theme_generating"  # テーマ生成からやり直し
             else:
-                console.print(f"[red]テーマ生成中に予期しないエージェント出力タイプを受け取りました。[/red]")
+                console.print("[red]テーマ生成中に予期しないエージェント出力タイプを受け取りました。[/red]")
                 context.current_step = "error"
                 return
 
@@ -502,7 +501,7 @@ class ArticleGenerationService:
                 # ユーザー入力が必要なのでここで停止
                 return
             else:
-                console.print(f"[red]リサーチ計画生成中に予期しないエージェント出力タイプを受け取りました。[/red]")
+                console.print("[red]リサーチ計画生成中に予期しないエージェント出力タイプを受け取りました。[/red]")
                 context.current_step = "error"
                 return
 
@@ -570,7 +569,7 @@ class ArticleGenerationService:
                         sources_used=len(context.research_results)
                     ))
             else:
-                console.print(f"[red]リサーチ合成中に予期しないエージェント出力タイプを受け取りました。[/red]")
+                console.print("[red]リサーチ合成中に予期しないエージェント出力タイプを受け取りました。[/red]")
                 context.current_step = "error"
                 return
 
@@ -592,7 +591,7 @@ class ArticleGenerationService:
                 # ユーザー入力が必要なのでここで停止
                 return
             else:
-                console.print(f"[red]アウトライン生成中に予期しないエージェント出力タイプを受け取りました。[/red]")
+                console.print("[red]アウトライン生成中に予期しないエージェント出力タイプを受け取りました。[/red]")
                 context.current_step = "error"
                 return
 
@@ -754,7 +753,7 @@ class ArticleGenerationService:
                 if hasattr(context, 'process_id') and context.process_id:
                     await self.finalize_workflow_logger(context.process_id, "completed")
             else:
-                console.print(f"[red]編集中に予期しないエージェント出力タイプを受け取りました。[/red]")
+                console.print("[red]編集中に予期しないエージェント出力タイプを受け取りました。[/red]")
                 context.current_step = "error"
                 return
 
@@ -986,7 +985,6 @@ class ArticleGenerationService:
                 
                 # 単一のトレースIDとグループIDを生成して、フロー全体をまとめる
                 import uuid
-                import time
                 session_id = str(uuid.uuid4())
                 trace_id = f"trace_{session_id.replace('-', '')[:32]}"
                 
@@ -1107,9 +1105,9 @@ class ArticleGenerationService:
                                         console.print(f"[green]応答タイプマッチ！ {message.response_type} を処理します[/green]")
                                         console.print(f"[yellow]generation_task.done(): {generation_task.done()}[/yellow]")
                                         context.user_response = message # 応答全体をコンテキストに保存 (payloadだけでなくtypeも含む)
-                                        console.print(f"[green]user_response_eventを設定中...[/green]")
+                                        console.print("[green]user_response_eventを設定中...[/green]")
                                         context.user_response_event.set() # 待機中のループに応答があったことを通知
-                                        console.print(f"[green]user_response_eventが設定されました！[/green]")
+                                        console.print("[green]user_response_eventが設定されました！[/green]")
                                     else:
                                         # 期待する具体的な選択/承認タイプと異なる場合 (例: SELECT_THEMEを期待しているときにAPPROVE_PLANが来たなど)
                                         console.print(f"[red]応答タイプ不一致: expected {context.expected_user_input}, got {message.response_type}[/red]")
@@ -1123,23 +1121,26 @@ class ArticleGenerationService:
                                 console.print(f"[yellow]Ignoring unexpected client message during step {context.current_step} (not in input-waiting steps)[/yellow]")
                         else:
                             # まだ初期化されていない場合（通常はここに来ることはない）
-                            console.print(f"[red]Received message before initialization complete[/red]")
+                            console.print("[red]Received message before initialization complete[/red]")
                             await self._send_error(context, "System not ready for client responses")
 
                     except asyncio.TimeoutError:
                         await self._send_error(context, "Client response timeout.")
-                        if generation_task: generation_task.cancel()
+                        if generation_task:
+                            generation_task.cancel()
                         break
                     except WebSocketDisconnect:
                         console.print("[yellow]WebSocket disconnected by client.[/yellow]")
-                        if generation_task: generation_task.cancel()
+                        if generation_task:
+                            generation_task.cancel()
                         break
                     except (json.JSONDecodeError) as e:
                         await self._send_error(context, f"Invalid JSON format: {e}")
                         # 不正なメッセージを受け取った場合、処理を続ける
                     except Exception as e: # その他の予期せぬエラー
                         await self._send_error(context, f"Error processing client message: {e}")
-                        if generation_task: generation_task.cancel()
+                        if generation_task:
+                            generation_task.cancel()
                         break
 
         except WebSocketDisconnect:
@@ -1259,7 +1260,7 @@ class ArticleGenerationService:
                 completed_tasks.append(process_id)
                 try:
                     # Get the result or exception to clean up the task
-                    result = await task
+                    await task
                     console.print(f"[green]Background task for process {process_id} completed successfully[/green]")
                 except asyncio.CancelledError:
                     console.print(f"[yellow]Background task for process {process_id} was cancelled[/yellow]")
@@ -1316,11 +1317,11 @@ class ArticleGenerationService:
 
     async def _handle_resumed_user_input_step(self, context: ArticleContext, process_id: str, user_id: str):
         """復帰時にユーザー入力待ちステップの場合の処理"""
-        from app.common.schemas import (
+        from app.common.schemas import UserInputRequestPayload, UserInputType
+        from app.domains.seo_article.schemas import (
             GeneratedPersonasPayload, GeneratedPersonaData,
             ThemeProposalPayload, ThemeProposalData,
-            ResearchPlanPayload, OutlinePayload,
-            UserInputRequestPayload, UserInputType
+            ResearchPlanPayload, OutlinePayload
         )
         
         try:
@@ -1384,7 +1385,7 @@ class ArticleGenerationService:
                     
             elif context.current_step == "research_plan_generated":
                 if context.research_plan:
-                    from app.common.schemas import ResearchPlanData
+                    from app.domains.seo_article.schemas import ResearchPlanData
                     plan_data = ResearchPlanData(**context.research_plan.model_dump())
                     # 復帰時もUserInputRequestPayload形式で送信する
                     payload = UserInputRequestPayload(
@@ -1407,7 +1408,7 @@ class ArticleGenerationService:
                     
             elif context.current_step == "outline_generated":
                 if context.generated_outline:
-                    from app.common.schemas import OutlineData, OutlineSectionData
+                    from app.domains.seo_article.schemas import OutlineData, OutlineSectionData
                     outline_data = OutlineData(
                         title=context.generated_outline.title,
                         suggested_tone=getattr(context.generated_outline, 'suggested_tone', '丁寧で読みやすい解説調'),
@@ -1457,7 +1458,7 @@ class ArticleGenerationService:
         # クライアントからの応答を待つ (タイムアウトは handle_websocket_connection で処理)
         console.print(f"[blue]ユーザー応答を待機中... (request_type: {request_type})[/blue]")
         await context.user_response_event.wait()
-        console.print(f"[blue]ユーザー応答を受信しました！[/blue]")
+        console.print("[blue]ユーザー応答を受信しました！[/blue]")
 
         response = context.user_response
         context.user_response = None # 応答をクリア
@@ -1467,11 +1468,11 @@ class ArticleGenerationService:
 
     async def _handle_user_input_step(self, context: ArticleContext, process_id: Optional[str] = None, user_id: Optional[str] = None):
         """ユーザー入力ステップを処理し、適切な次のステップに遷移"""
-        from app.common.schemas import (
+        from app.common.schemas import UserInputType
+        from app.domains.seo_article.schemas import (
             GeneratedPersonasPayload, GeneratedPersonaData,
             ThemeProposalPayload, ThemeProposalData,
             ResearchPlanPayload, OutlinePayload,
-            UserInputRequestPayload, UserInputType,
             SelectPersonaPayload, SelectThemePayload, ApprovePayload,
             EditAndProceedPayload
         )
@@ -1505,7 +1506,7 @@ class ArticleGenerationService:
                             if process_id and user_id:
                                 try:
                                     await self._save_context_to_db(context, process_id=process_id, user_id=user_id)
-                                    logger.info(f"Context saved successfully after persona selection")
+                                    logger.info("Context saved successfully after persona selection")
                                 except Exception as save_err:
                                     logger.error(f"Failed to save context after persona selection: {save_err}")
                         else:
@@ -1537,7 +1538,7 @@ class ArticleGenerationService:
                                 if process_id and user_id:
                                     try:
                                         await self._save_context_to_db(context, process_id=process_id, user_id=user_id)
-                                        logger.info(f"Context saved successfully after persona editing")
+                                        logger.info("Context saved successfully after persona editing")
                                     except Exception as save_err:
                                         logger.error(f"Failed to save context after persona editing: {save_err}")
                             else:
@@ -1585,7 +1586,7 @@ class ArticleGenerationService:
                             if process_id and user_id:
                                 try:
                                     await self._save_context_to_db(context, process_id=process_id, user_id=user_id)
-                                    logger.info(f"Context saved successfully after theme selection")
+                                    logger.info("Context saved successfully after theme selection")
                                 except Exception as save_err:
                                     logger.error(f"Failed to save context after theme selection: {save_err}")
                         else:
@@ -1610,7 +1611,7 @@ class ArticleGenerationService:
                                 if process_id and user_id:
                                     try:
                                         await self._save_context_to_db(context, process_id=process_id, user_id=user_id)
-                                        logger.info(f"Context saved successfully after theme editing")
+                                        logger.info("Context saved successfully after theme editing")
                                     except Exception as save_err:
                                         logger.error(f"Failed to save context after theme editing: {save_err}")
                             else:
@@ -1634,7 +1635,7 @@ class ArticleGenerationService:
                                 if process_id and user_id:
                                     try:
                                         await self._save_context_to_db(context, process_id=process_id, user_id=user_id)
-                                        logger.info(f"Context saved successfully after theme editing")
+                                        logger.info("Context saved successfully after theme editing")
                                     except Exception as save_err:
                                         logger.error(f"Failed to save context after theme editing: {save_err}")
                             else:
@@ -1661,7 +1662,7 @@ class ArticleGenerationService:
                                     if process_id and user_id:
                                         try:
                                             await self._save_context_to_db(context, process_id=process_id, user_id=user_id)
-                                            logger.info(f"Context saved successfully after theme editing")
+                                            logger.info("Context saved successfully after theme editing")
                                         except Exception as save_err:
                                             logger.error(f"Failed to save context after theme editing: {save_err}")
                                 else:
@@ -1685,7 +1686,7 @@ class ArticleGenerationService:
         
         elif context.current_step == "outline_generated":
             if context.generated_outline:
-                from app.common.schemas import OutlineData, OutlineSectionData
+                from app.domains.seo_article.schemas import OutlineData, OutlineSectionData
                 outline_data = OutlineData(
                     title=context.generated_outline.title,
                     suggested_tone=getattr(context.generated_outline, 'suggested_tone', '丁寧で読みやすい解説調'),
@@ -1717,7 +1718,7 @@ class ArticleGenerationService:
                             if process_id and user_id:
                                 try:
                                     await self._save_context_to_db(context, process_id=process_id, user_id=user_id)
-                                    logger.info(f"Context saved successfully after outline approval")
+                                    logger.info("Context saved successfully after outline approval")
                                 except Exception as save_err:
                                     logger.error(f"Failed to save context after outline approval: {save_err}")
                         else:
@@ -1729,7 +1730,7 @@ class ArticleGenerationService:
                     elif response_type == UserInputType.EDIT_OUTLINE and isinstance(payload, EditOutlinePayload):
                         try:
                             edited_outline_data = payload.edited_outline
-                            console.print(f"[green]アウトラインが編集されました（EditOutlinePayload）。[/green]")
+                            console.print("[green]アウトラインが編集されました（EditOutlinePayload）。[/green]")
                             # 編集されたアウトラインを適用
                             if isinstance(edited_outline_data.get("title"), str) and \
                                isinstance(edited_outline_data.get("sections"), list):
@@ -1749,14 +1750,14 @@ class ArticleGenerationService:
                                     sections=edited_sections
                                 )
                                 context.current_step = "outline_approved"
-                                console.print(f"[green]編集されたアウトラインが適用されました（EditOutlinePayload）。[/green]")
+                                console.print("[green]編集されたアウトラインが適用されました（EditOutlinePayload）。[/green]")
                                 await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message="Edited outline applied and approved.", image_mode=getattr(context, 'image_mode', False)))
                                 
                                 # Save context after outline editing
                                 if process_id and user_id:
                                     try:
                                         await self._save_context_to_db(context, process_id=process_id, user_id=user_id)
-                                        logger.info(f"Context saved successfully after outline editing")
+                                        logger.info("Context saved successfully after outline editing")
                                     except Exception as save_err:
                                         logger.error(f"Failed to save context after outline editing: {save_err}")
                             else:
@@ -1768,7 +1769,7 @@ class ArticleGenerationService:
                     elif response_type == UserInputType.EDIT_AND_PROCEED and isinstance(payload, EditAndProceedPayload):
                         try:
                             edited_outline_data = payload.edited_content
-                            console.print(f"[green]アウトラインが編集されました（EditAndProceedPayload）。[/green]")
+                            console.print("[green]アウトラインが編集されました（EditAndProceedPayload）。[/green]")
                             # 編集されたアウトラインを適用
                             if isinstance(edited_outline_data.get("title"), str) and \
                                isinstance(edited_outline_data.get("sections"), list):
@@ -1788,14 +1789,14 @@ class ArticleGenerationService:
                                     sections=edited_sections
                                 )
                                 context.current_step = "outline_approved"
-                                console.print(f"[green]編集されたアウトラインが適用されました（EditAndProceedPayload）。[/green]")
+                                console.print("[green]編集されたアウトラインが適用されました（EditAndProceedPayload）。[/green]")
                                 await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message="Edited outline applied and approved.", image_mode=getattr(context, 'image_mode', False)))
                                 
                                 # Save context after outline editing
                                 if process_id and user_id:
                                     try:
                                         await self._save_context_to_db(context, process_id=process_id, user_id=user_id)
-                                        logger.info(f"Context saved successfully after outline editing")
+                                        logger.info("Context saved successfully after outline editing")
                                     except Exception as save_err:
                                         logger.error(f"Failed to save context after outline editing: {save_err}")
                             else:
@@ -1828,14 +1829,14 @@ class ArticleGenerationService:
                                         sections=edited_sections
                                     )
                                     context.current_step = "outline_approved"
-                                    console.print(f"[green]編集されたアウトラインが適用されました（EDIT_GENERIC）。[/green]")
+                                    console.print("[green]編集されたアウトラインが適用されました（EDIT_GENERIC）。[/green]")
                                     await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message="Edited outline applied and approved.", image_mode=getattr(context, 'image_mode', False)))
                                     
                                     # Save context after outline editing
                                     if process_id and user_id:
                                         try:
                                             await self._save_context_to_db(context, process_id=process_id, user_id=user_id)
-                                            logger.info(f"Context saved successfully after outline editing")
+                                            logger.info("Context saved successfully after outline editing")
                                         except Exception as save_err:
                                             logger.error(f"Failed to save context after outline editing: {save_err}")
                                 else:
@@ -1860,7 +1861,7 @@ class ArticleGenerationService:
         
         elif context.current_step == "research_plan_generated":
             if context.research_plan:
-                from app.common.schemas import ResearchPlanData
+                from app.domains.seo_article.schemas import ResearchPlanData
                 plan_data = ResearchPlanData(
                     topic=context.research_plan.topic,
                     queries=[{"query": q.query, "focus": q.focus} for q in context.research_plan.queries]
@@ -1886,7 +1887,7 @@ class ArticleGenerationService:
                             if process_id and user_id:
                                 try:
                                     await self._save_context_to_db(context, process_id=process_id, user_id=user_id)
-                                    logger.info(f"Context saved successfully after research plan approval")
+                                    logger.info("Context saved successfully after research plan approval")
                                 except Exception as save_err:
                                     logger.error(f"Failed to save context after research plan approval: {save_err}")
                         else:
@@ -1908,14 +1909,14 @@ class ArticleGenerationService:
                                     queries=queries
                                 )
                                 context.current_step = "research_plan_approved"
-                                console.print(f"[green]リサーチプランが編集され承認されました。[/green]")
+                                console.print("[green]リサーチプランが編集され承認されました。[/green]")
                                 await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message="Research plan edited and approved.", image_mode=getattr(context, 'image_mode', False)))
                                 
                                 # Save context after plan editing
                                 if process_id and user_id:
                                     try:
                                         await self._save_context_to_db(context, process_id=process_id, user_id=user_id)
-                                        logger.info(f"Context saved successfully after research plan editing")
+                                        logger.info("Context saved successfully after research plan editing")
                                     except Exception as save_err:
                                         logger.error(f"Failed to save context after research plan editing: {save_err}")
                             else:
@@ -1937,14 +1938,14 @@ class ArticleGenerationService:
                                     queries=queries
                                 )
                                 context.current_step = "research_plan_approved"
-                                console.print(f"[green]リサーチプランが編集され承認されました（EditAndProceedPayload）。[/green]")
+                                console.print("[green]リサーチプランが編集され承認されました（EditAndProceedPayload）。[/green]")
                                 await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message="Research plan edited and approved.", image_mode=getattr(context, 'image_mode', False)))
                                 
                                 # Save context after plan editing
                                 if process_id and user_id:
                                     try:
                                         await self._save_context_to_db(context, process_id=process_id, user_id=user_id)
-                                        logger.info(f"Context saved successfully after research plan editing")
+                                        logger.info("Context saved successfully after research plan editing")
                                     except Exception as save_err:
                                         logger.error(f"Failed to save context after research plan editing: {save_err}")
                             else:
@@ -1969,7 +1970,7 @@ class ArticleGenerationService:
                                         queries=queries
                                     )
                                     context.current_step = "research_plan_approved"
-                                    console.print(f"[green]リサーチプランが編集され承認されました（EDIT_GENERIC）。[/green]")
+                                    console.print("[green]リサーチプランが編集され承認されました（EDIT_GENERIC）。[/green]")
                                     await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message="Research plan edited and approved.", image_mode=getattr(context, 'image_mode', False)))
                                 else:
                                     await self._send_error(context, "EDIT_GENERIC: 編集されたリサーチプランの形式が無効です。")
@@ -1992,7 +1993,7 @@ class ArticleGenerationService:
         
         elif context.current_step == "outline_generated":
             if context.generated_outline:
-                from app.common.schemas import OutlineData, OutlineSectionData
+                from app.domains.seo_article.schemas import OutlineData, OutlineSectionData
                 outline_data = OutlineData(
                     title=context.generated_outline.title,
                     suggested_tone=getattr(context.generated_outline, 'suggested_tone', '丁寧で読みやすい解説調'),
@@ -2023,18 +2024,18 @@ class ArticleGenerationService:
                     if response_type == UserInputType.APPROVE_OUTLINE and isinstance(payload, ApprovePayload):
                         if payload.approved:
                             context.current_step = "outline_approved"
-                            console.print(f"[green]アウトラインが承認されました。[/green]")
+                            console.print("[green]アウトラインが承認されました。[/green]")
                             await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message="Outline approved, proceeding to content generation.", image_mode=getattr(context, 'image_mode', False)))
                             
                             # Save context after outline approval
                             if process_id and user_id:
                                 try:
                                     await self._save_context_to_db(context, process_id=process_id, user_id=user_id)
-                                    logger.info(f"Context saved successfully after outline approval")
+                                    logger.info("Context saved successfully after outline approval")
                                 except Exception as save_err:
                                     logger.error(f"Failed to save context after outline approval: {save_err}")
                         else:
-                            console.print(f"[yellow]アウトラインが承認されませんでした。再生成します。[/yellow]")
+                            console.print("[yellow]アウトラインが承認されませんでした。再生成します。[/yellow]")
                             context.current_step = "outline_generating"
                             context.generated_outline = None
                     elif response_type == UserInputType.REGENERATE:
@@ -2062,14 +2063,14 @@ class ArticleGenerationService:
                                     status="outline"
                                 )
                                 context.current_step = "outline_approved"
-                                console.print(f"[green]アウトラインが編集され承認されました。[/green]")
+                                console.print("[green]アウトラインが編集され承認されました。[/green]")
                                 await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message="Outline edited and approved.", image_mode=getattr(context, 'image_mode', False)))
                                 
                                 # Save context after outline editing
                                 if process_id and user_id:
                                     try:
                                         await self._save_context_to_db(context, process_id=process_id, user_id=user_id)
-                                        logger.info(f"Context saved successfully after outline editing")
+                                        logger.info("Context saved successfully after outline editing")
                                     except Exception as save_err:
                                         logger.error(f"Failed to save context after outline editing: {save_err}")
                             else:
@@ -2205,7 +2206,7 @@ class ArticleGenerationService:
             input_cost = input_tokens * 0.0000025   # $2.50 per 1M tokens
             output_cost = output_tokens * 0.00001    # $10.00 per 1M tokens
             return input_cost + output_cost
-        except:
+        except Exception:
             return 0.001  # デフォルト値
 
     def _estimate_cost_from_metadata(self, metadata: Dict[str, Any]) -> float:
@@ -2232,7 +2233,7 @@ class ArticleGenerationService:
                 input_cost = input_tokens * 0.0000025
                 output_cost = output_tokens * 0.00001
                 return input_cost + output_cost
-        except:
+        except Exception:
             return 0.001
 
     def _extract_conversation_history_from_result(self, result, agent_input: str) -> Dict[str, Any]:
@@ -2273,7 +2274,7 @@ class ArticleGenerationService:
             
             if not raw_responses:
                 raw_responses = []
-                console.print(f"[debug]No raw_responses found, using empty list")
+                console.print("[debug]No raw_responses found, using empty list")
 
             # raw_responsesの内容を解析
             if raw_responses:
@@ -2359,7 +2360,7 @@ class ArticleGenerationService:
                 conversation_data["assistant_response"] = conversation_data["final_output"]
                 console.print(f"[debug]Used final_output as assistant_response: {len(conversation_data['assistant_response'])} chars")
 
-            console.print(f"[debug]Final conversation data:")
+            console.print("[debug]Final conversation data:")
             console.print(f"[debug]  System prompt: {len(conversation_data['system_prompt'])} chars")
             console.print(f"[debug]  User prompt: {len(conversation_data['user_prompt'])} chars")
             console.print(f"[debug]  Assistant response: {len(conversation_data['assistant_response'])} chars")
@@ -2489,6 +2490,32 @@ class ArticleGenerationService:
                     agent_output = await self._run_agent(current_agent, agent_input, context, run_config)
 
                     if isinstance(agent_output, SerpKeywordAnalysisReport):
+                        # 必要なフィールドが設定されているかチェックし、不足している場合はデフォルト値を設定
+                        if not hasattr(agent_output, 'search_query') or not agent_output.search_query:
+                            agent_output.search_query = ', '.join(context.initial_keywords)
+                        if not hasattr(agent_output, 'keyword') or not agent_output.keyword:
+                            agent_output.keyword = ', '.join(context.initial_keywords)
+                        if not hasattr(agent_output, 'total_results'):
+                            agent_output.total_results = 0
+                        if not hasattr(agent_output, 'analyzed_articles'):
+                            agent_output.analyzed_articles = []
+                        if not hasattr(agent_output, 'average_article_length'):
+                            agent_output.average_article_length = 0
+                        if not hasattr(agent_output, 'recommended_target_length'):
+                            agent_output.recommended_target_length = context.target_length or 3000
+                        if not hasattr(agent_output, 'main_themes'):
+                            agent_output.main_themes = []
+                        if not hasattr(agent_output, 'common_headings'):
+                            agent_output.common_headings = []
+                        if not hasattr(agent_output, 'content_gaps'):
+                            agent_output.content_gaps = []
+                        if not hasattr(agent_output, 'competitive_advantages'):
+                            agent_output.competitive_advantages = []
+                        if not hasattr(agent_output, 'user_intent_analysis'):
+                            agent_output.user_intent_analysis = ""
+                        if not hasattr(agent_output, 'content_strategy_recommendations'):
+                            agent_output.content_strategy_recommendations = []
+                            
                         context.serp_analysis_report = agent_output
                         context.current_step = "keyword_analyzed"
                         console.print("[green]SerpAPIキーワード分析が完了しました。[/green]")
@@ -2497,7 +2524,7 @@ class ArticleGenerationService:
                         if process_id and user_id:
                             try:
                                 await self._save_context_to_db(context, process_id=process_id, user_id=user_id)
-                                logger.info(f"Context saved successfully after keyword analysis completion")
+                                logger.info("Context saved successfully after keyword analysis completion")
                             except Exception as save_err:
                                 logger.error(f"Failed to save context after keyword analysis: {save_err}")
                                 # Continue processing even if save fails
@@ -2543,7 +2570,7 @@ class ArticleGenerationService:
                         if process_id and user_id:
                             try:
                                 await self._save_context_to_db(context, process_id=process_id, user_id=user_id)
-                                logger.info(f"Context saved successfully after step transition to persona_generating")
+                                logger.info("Context saved successfully after step transition to persona_generating")
                             except Exception as save_err:
                                 logger.error(f"Failed to save context after step transition to persona_generating: {save_err}")
                     else:
@@ -2567,7 +2594,7 @@ class ArticleGenerationService:
                         if process_id and user_id:
                             try:
                                 await self._save_context_to_db(context, process_id=process_id, user_id=user_id)
-                                logger.info(f"Context saved successfully after persona generation")
+                                logger.info("Context saved successfully after persona generation")
                             except Exception as save_err:
                                 logger.error(f"Failed to save context after persona generation: {save_err}")
                         
@@ -2593,7 +2620,7 @@ class ArticleGenerationService:
                                     if process_id and user_id:
                                         try:
                                             await self._save_context_to_db(context, process_id=process_id, user_id=user_id)
-                                            logger.info(f"Context saved successfully after persona selection")
+                                            logger.info("Context saved successfully after persona selection")
                                         except Exception as save_err:
                                             logger.error(f"Failed to save context after persona selection: {save_err}")
                                     continue  # ★重要: continueでループの次のイテレーションへ
@@ -2611,13 +2638,13 @@ class ArticleGenerationService:
                                     context.selected_detailed_persona = edited_persona_description
                                     context.current_step = "persona_selected" # 編集されたもので選択完了扱い
                                     console.print(f"[green]クライアントがペルソナを編集し、選択しました: {context.selected_detailed_persona[:50]}...[/green]")
-                                    await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message=f"Detailed persona edited and selected.", image_mode=getattr(context, 'image_mode', False)))
+                                    await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message="Detailed persona edited and selected.", image_mode=getattr(context, 'image_mode', False)))
                                     
                                     # Save context after user persona editing
                                     if process_id and user_id:
                                         try:
                                             await self._save_context_to_db(context, process_id=process_id, user_id=user_id)
-                                            logger.info(f"Context saved successfully after persona editing and selection")
+                                            logger.info("Context saved successfully after persona editing and selection")
                                         except Exception as save_err:
                                             logger.error(f"Failed to save context after persona editing: {save_err}")
                                     continue  # ★重要: continueでループの次のイテレーションへ
@@ -2686,7 +2713,7 @@ class ArticleGenerationService:
                             if process_id and user_id:
                                 try:
                                     await self._save_context_to_db(context, process_id=process_id, user_id=user_id)
-                                    logger.info(f"Context saved successfully after theme generation")
+                                    logger.info("Context saved successfully after theme generation")
                                 except Exception as save_err:
                                     logger.error(f"Failed to save context after theme generation: {save_err}")
                             
@@ -2715,7 +2742,7 @@ class ArticleGenerationService:
                                         if process_id and user_id:
                                             try:
                                                 await self._save_context_to_db(context, process_id=process_id, user_id=user_id)
-                                                logger.info(f"Context saved successfully after theme selection")
+                                                logger.info("Context saved successfully after theme selection")
                                             except Exception as save_err:
                                                 logger.error(f"Failed to save context after theme selection: {save_err}")
                                         
@@ -2741,13 +2768,13 @@ class ArticleGenerationService:
                                             context.selected_theme = ThemeIdea(**edited_theme_data)
                                             context.current_step = "theme_selected"
                                             console.print(f"[green]クライアントがテーマを編集し、選択しました: {context.selected_theme.title}[/green]")
-                                            await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message=f"Theme edited and selected.", image_mode=getattr(context, 'image_mode', False)))
+                                            await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message="Theme edited and selected.", image_mode=getattr(context, 'image_mode', False)))
                                             
                                             # Save context after user theme editing
                                             if process_id and user_id:
                                                 try:
                                                     await self._save_context_to_db(context, process_id=process_id, user_id=user_id)
-                                                    logger.info(f"Context saved successfully after theme editing and selection")
+                                                    logger.info("Context saved successfully after theme editing and selection")
                                                 except Exception as save_err:
                                                     logger.error(f"Failed to save context after theme editing: {save_err}")
                                             continue  # ★重要: continueでループの次のイテレーションへ
@@ -2816,7 +2843,7 @@ class ArticleGenerationService:
                                 if process_id and user_id:
                                     try:
                                         await self._save_context_to_db(context, process_id=process_id, user_id=user_id)
-                                        logger.info(f"Context saved successfully after research plan approval")
+                                        logger.info("Context saved successfully after research plan approval")
                                     except Exception as save_err:
                                         logger.error(f"Failed to save context after research plan approval: {save_err}")
                                 continue  # ★重要: continueでループの次のイテレーションへ
@@ -2840,14 +2867,14 @@ class ArticleGenerationService:
                                         status="research_plan"
                                     )
                                     context.current_step = "research_plan_approved"
-                                    console.print(f"[green]クライアントがリサーチ計画を編集し、承認しました。[/green]")
+                                    console.print("[green]クライアントがリサーチ計画を編集し、承認しました。[/green]")
                                     await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message="Research plan edited and approved.", image_mode=getattr(context, 'image_mode', False)))
                                     
                                     # Save context after research plan editing and approval
                                     if process_id and user_id:
                                         try:
                                             await self._save_context_to_db(context, process_id=process_id, user_id=user_id)
-                                            logger.info(f"Context saved successfully after research plan editing and approval")
+                                            logger.info("Context saved successfully after research plan editing and approval")
                                         except Exception as save_err:
                                             logger.error(f"Failed to save context after research plan editing: {save_err}")
                                     continue  # ★重要: continueでループの次のイテレーションへ
@@ -2885,7 +2912,7 @@ class ArticleGenerationService:
                         if process_id and user_id:
                             try:
                                 await self._save_context_to_db(context, process_id=process_id, user_id=user_id)
-                                logger.info(f"Context saved successfully after research plan generation")
+                                logger.info("Context saved successfully after research plan generation")
                             except Exception as save_err:
                                 logger.error(f"Failed to save context after research plan generation: {save_err}")
                         
@@ -2907,7 +2934,8 @@ class ArticleGenerationService:
                     # エージェント実行なし
 
                 elif context.current_step == "researching":
-                    if not context.research_plan: raise ValueError("リサーチ計画がありません。")
+                    if not context.research_plan:
+                        raise ValueError("リサーチ計画がありません。")
                     if context.current_research_query_index >= len(context.research_plan.queries):
                         context.current_step = "research_synthesizing"
                         console.print("[green]全クエリのリサーチが完了しました。要約ステップに移ります。[/green]")
@@ -2918,7 +2946,7 @@ class ArticleGenerationService:
                     current_query_obj = context.research_plan.queries[context.current_research_query_index]
                     
                     # リサーチクエリ実行をカスタムスパンでラップ
-                    with safe_custom_span(f"research_query", data={
+                    with safe_custom_span("research_query", data={
                         "query_index": context.current_research_query_index,
                         "total_queries": len(context.research_plan.queries),
                         "query": current_query_obj.query,
@@ -2999,7 +3027,7 @@ class ArticleGenerationService:
                         if process_id and user_id:
                             try:
                                 await self._save_context_to_db(context, process_id=process_id, user_id=user_id)
-                                logger.info(f"Context saved successfully after research report generation")
+                                logger.info("Context saved successfully after research report generation")
                             except Exception as save_err:
                                 logger.error(f"Failed to save context after research report generation: {save_err}")
                         
@@ -3041,7 +3069,7 @@ class ArticleGenerationService:
                         if process_id and user_id:
                             try:
                                 await self._save_context_to_db(context, process_id=process_id, user_id=user_id)
-                                logger.info(f"Context saved successfully after outline generation")
+                                logger.info("Context saved successfully after outline generation")
                             except Exception as save_err:
                                 logger.error(f"Failed to save context after outline generation: {save_err}")
                         
@@ -3078,7 +3106,7 @@ class ArticleGenerationService:
                                     if process_id and user_id:
                                         try:
                                             await self._save_context_to_db(context, process_id=process_id, user_id=user_id)
-                                            logger.info(f"Context saved successfully after outline approval")
+                                            logger.info("Context saved successfully after outline approval")
                                         except Exception as save_err:
                                             logger.error(f"Failed to save context after outline approval: {save_err}")
                                     continue  # ★重要: continueでループの次のイテレーションへ
@@ -3112,14 +3140,14 @@ class ArticleGenerationService:
                                             status="outline"  # "approved_by_user_edit" から "outline" に修正
                                         )
                                         context.current_step = "outline_approved"
-                                        console.print(f"[green]クライアントがアウトラインを編集し、承認しました。[/green]")
+                                        console.print("[green]クライアントがアウトラインを編集し、承認しました。[/green]")
                                         await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message="Outline edited and approved.", image_mode=getattr(context, 'image_mode', False)))
                                         
                                         # Save context after outline editing and approval
                                         if process_id and user_id:
                                             try:
                                                 await self._save_context_to_db(context, process_id=process_id, user_id=user_id)
-                                                logger.info(f"Context saved successfully after outline editing and approval")
+                                                logger.info("Context saved successfully after outline editing and approval")
                                             except Exception as save_err:
                                                 logger.error(f"Failed to save context after outline editing: {save_err}")
                                         continue  # ★重要: continueでループの次のイテレーションへ
@@ -3161,7 +3189,8 @@ class ArticleGenerationService:
                     context.current_step = "writing_sections" 
 
                 elif context.current_step == "writing_sections":
-                    if not context.generated_outline: raise ValueError("承認済みアウトラインがありません。")
+                    if not context.generated_outline:
+                        raise ValueError("承認済みアウトラインがありません。")
                     
                     # セクション完了判定を厳密化
                     total_sections = len(context.generated_outline.sections)
@@ -3173,7 +3202,7 @@ class ArticleGenerationService:
                         # 実際にすべてのセクションが生成されているかを確認
                         if generated_sections_count < total_sections:
                             console.print(f"[red]エラー: セクションインデックス({context.current_section_index})は完了を示しているが、実際の生成セクション数({generated_sections_count})が不足[/red]")
-                            console.print(f"[yellow]セクションライティングを再開します[/yellow]")
+                            console.print("[yellow]セクションライティングを再開します[/yellow]")
                             # 不足分から再開
                             context.current_section_index = generated_sections_count
                         else:
@@ -3206,7 +3235,7 @@ class ArticleGenerationService:
                     target_heading = context.generated_outline.sections[target_index].heading # context.outline_approved から context.generated_outline に変更
 
                     # セクション執筆処理をカスタムスパンでラップ
-                    with safe_custom_span(f"section_writing", data={
+                    with safe_custom_span("section_writing", data={
                         "section_index": target_index,
                         "section_heading": target_heading,
                         "total_sections": len(context.generated_outline.sections)
@@ -3349,7 +3378,7 @@ class ArticleGenerationService:
                                         elif event.type == "run_item_stream_event" and event.item.type == "tool_call_item":
                                             console.print(f"\n[dim]ツール呼び出し: {event.item.name}[/dim]")
                                         elif event.type == "raw_response_event" and isinstance(event.data, ResponseCompletedEvent):
-                                             console.print(f"\n[dim]レスポンス完了イベント受信[/dim]")
+                                             console.print("\n[dim]レスポンス完了イベント受信[/dim]")
 
                                     console.print(f"\n[dim]ストリーム終了: セクション {target_index + 1}「{target_heading}」[/dim]")
                                     last_exception = None
@@ -3429,7 +3458,8 @@ class ArticleGenerationService:
 
                 elif context.current_step == "editing":
                     current_agent = editor_agent
-                    if not context.full_draft_html: raise ValueError("編集対象のドラフトがありません。")
+                    if not context.full_draft_html:
+                        raise ValueError("編集対象のドラフトがありません。")
                     agent_input = "記事ドラフト全体をレビューし、詳細リサーチ情報に基づいて推敲・編集してください。特にリンクの適切性を確認してください。"
                     console.print(f"🤖 {current_agent.name} に最終編集を依頼します...")
                     await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message="Starting final editing...", image_mode=getattr(context, 'image_mode', False)))
@@ -3448,7 +3478,7 @@ class ArticleGenerationService:
                         if process_id and user_id:
                             try:
                                 await self._save_context_to_db(context, process_id=process_id, user_id=user_id)
-                                logger.info(f"Context saved successfully after final article completion")
+                                logger.info("Context saved successfully after final article completion")
                             except Exception as save_err:
                                 logger.error(f"Failed to save context after final article completion: {save_err}")
 
@@ -3513,11 +3543,10 @@ class ArticleGenerationService:
                     workflow_logger = self.workflow_loggers[process_id]
                     
                     # 最終記事内容を取得
-                    final_article_content = None
                     if hasattr(context, 'final_html_content') and context.final_html_content:
-                        final_article_content = context.final_html_content
+                        pass
                     elif hasattr(context, 'revised_article') and context.revised_article and hasattr(context.revised_article, 'final_html_content'):
-                        final_article_content = context.revised_article.final_html_content
+                        pass
                     
                     # 切断耐性ステップかどうかを確認
                     is_disconnection_resilient = context.current_step in DISCONNECTION_RESILIENT_STEPS
@@ -3709,7 +3738,7 @@ class ArticleGenerationService:
             workflow_step_id = None
         
         # エージェント実行をカスタムスパンでラップ
-        with safe_custom_span(f"agent_execution", data={
+        with safe_custom_span("agent_execution", data={
             "agent_name": agent.name,
             "current_step": context.current_step,
             "max_retries": settings.max_retries,
@@ -3834,7 +3863,7 @@ class ArticleGenerationService:
                                     console.print(f"[dim]  User prompt: {len(conversation_history.get('user_prompt', ''))} chars[/dim]")
                                     console.print(f"[dim]  Assistant response: {len(conversation_history.get('assistant_response', ''))} chars[/dim]")
                             else:
-                                console.print(f"[yellow]⚠️ LLM call not logged - no valid token usage or conversation history[/yellow]")
+                                console.print("[yellow]⚠️ LLM call not logged - no valid token usage or conversation history[/yellow]")
                                 console.print(f"[yellow]  Token usage type: {type(token_usage)}, value: {token_usage}[/yellow]")
                                 console.print(f"[yellow]  Conversation history type: {type(conversation_history)}[/yellow]")
                         except Exception as llm_log_err:
@@ -4005,7 +4034,7 @@ class ArticleGenerationService:
                 if tool_name == "web_search":
                     # WebSearch固有の統計
                     if isinstance(result, dict):
-                        results = result.get("results", [])
+                        result.get("results", [])
                         api_calls_count = 1  # SerpAPIは通常1回の呼び出し
                         data_size_bytes = len(str(result))
                 elif tool_name in ["analyze_competitors", "get_company_data"]:
@@ -4381,7 +4410,7 @@ class ArticleGenerationService:
         """Load context from database for process persistence"""
         try:
             from app.domains.seo_article.services.flow_service import get_supabase_client
-            from app.common.schemas import AgeGroup, PersonaType
+            from app.domains.seo_article.schemas import AgeGroup, PersonaType
             supabase = get_supabase_client()
             
             # Get the process state with user access control
@@ -4643,7 +4672,6 @@ class ArticleGenerationService:
         """
         try:
             from app.domains.seo_article.services.flow_service import get_supabase_client
-            from datetime import datetime
             import re
             supabase = get_supabase_client()
             
@@ -5129,7 +5157,6 @@ class ArticleGenerationService:
         """Add step to history using database function for process tracking"""
         try:
             from app.domains.seo_article.services.flow_service import get_supabase_client
-            from datetime import datetime, timezone
             supabase = get_supabase_client()
             
             # Safe serialization function for history data
@@ -5154,7 +5181,7 @@ class ArticleGenerationService:
             safe_data = safe_serialize_history_data(data or {})
             
             # Use the database function instead of direct table insert
-            result = supabase.rpc('add_step_to_history', {
+            supabase.rpc('add_step_to_history', {
                 'process_id': process_id,
                 'step_name': step_name,
                 'step_status': status,

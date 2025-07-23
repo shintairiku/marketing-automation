@@ -2,6 +2,7 @@
 from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any, Union
 from enum import Enum
+from app.common.schemas import BasePayload
 
 # --- Request Models ---
 
@@ -64,8 +65,6 @@ class GenerateArticleRequest(BaseModel):
         }
 
 # --- Response Models (SEO Article specific parts from response.py) ---
-
-from app.common.schemas import BasePayload
 
 class StatusUpdatePayload(BasePayload):
     """ステータス更新ペイロード"""
@@ -313,11 +312,32 @@ class GeneratedPersonasResponse(BaseModel):
     
 class SerpKeywordAnalysisReport(BaseModel):
     """SERP キーワード分析レポート"""
+    search_query: str = Field(description="実行した検索クエリ")
+    total_results: int = Field(default=0, description="検索結果の総数")
+    analyzed_articles: List[SerpAnalysisArticleData] = Field(default_factory=list, description="分析対象記事のリスト")
+    average_article_length: int = Field(default=0, description="分析した記事の平均文字数")
+    recommended_target_length: int = Field(default=3000, description="推奨記事文字数")
+    main_themes: List[str] = Field(default_factory=list, description="上位記事で頻出する主要テーマ")
+    common_headings: List[str] = Field(default_factory=list, description="上位記事で共通して使用される見出しパターン")
+    content_gaps: List[str] = Field(default_factory=list, description="上位記事で不足している可能性のあるコンテンツ")
+    competitive_advantages: List[str] = Field(default_factory=list, description="差別化できる可能性のあるポイント")
+    user_intent_analysis: str = Field(default="", description="検索ユーザーの意図分析")
+    content_strategy_recommendations: List[str] = Field(default_factory=list, description="コンテンツ戦略の推奨事項")
+    # 後方互換性のために既存フィールドも残す
     keyword: str = Field(description="分析キーワード")
-    competition_level: str = Field(description="競合レベル")
+    competition_level: str = Field(default="medium", description="競合レベル")
     search_volume: Optional[int] = Field(None, description="検索ボリューム")
     difficulty: Optional[str] = Field(None, description="難易度")
     recommendations: List[str] = Field(default_factory=list, description="推奨事項")
+    
+    def model_post_init(self, __context) -> None:
+        """モデル初期化後の処理でkeywordとsearch_queryを同期"""
+        # search_queryが設定されていてkeywordが空の場合
+        if self.search_query and not getattr(self, '_keyword_set', False):
+            object.__setattr__(self, 'keyword', self.search_query)
+        # keywordが設定されていてsearch_queryが空の場合  
+        elif self.keyword and not self.search_query:
+            object.__setattr__(self, 'search_query', self.keyword)
 
 class OutlineSection(BaseModel):
     """アウトラインセクション"""

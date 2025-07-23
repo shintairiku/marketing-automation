@@ -1,12 +1,11 @@
 # -*- coding: utf-8 -*-
 # 統合された画像生成エンドポイント（routers/images.py + routers/image_generation.py）
 
-import os
 import uuid
 from pathlib import Path
-from typing import Dict, List, Optional, Any
+from typing import Dict, Optional, Any
 
-from fastapi import APIRouter, HTTPException, Depends, UploadFile, File, Form, BackgroundTasks
+from fastapi import APIRouter, HTTPException, Depends, UploadFile, File, Form
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 import logging
@@ -348,13 +347,8 @@ async def replace_placeholder_with_image(
             if not placeholder_insert.data:
                 logger.warning(f"Failed to create placeholder in database: {placeholder_insert}")
             
-            placeholder = {
-                "placeholder_id": request.placeholder_id,
-                "description_jp": description_jp,
-                "prompt_en": prompt_en
-            }
         else:
-            placeholder = placeholder_result.data[0]
+            placeholder_result.data[0]
         
         # 画像情報を取得
         image_result = supabase.table("images").select("*").eq("user_id", current_user_id).or_(f"gcs_url.eq.{request.image_url},file_path.like.%{request.image_url.split('/')[-1]}").execute()
@@ -404,7 +398,7 @@ async def replace_placeholder_with_image(
             raise HTTPException(status_code=500, detail="記事の更新に失敗しました")
         
         # プレースホルダーの状態を更新
-        placeholder_update = supabase.table("image_placeholders").update({
+        supabase.table("image_placeholders").update({
             "replaced_with_image_id": image_id,
             "status": "replaced"
         }).eq("article_id", request.article_id).eq("placeholder_id", request.placeholder_id).execute()

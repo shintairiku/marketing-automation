@@ -9,12 +9,10 @@ This module provides:
 - AI editing capabilities
 """
 
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect, status, Depends, HTTPException, Query
-from typing import Any, List, Optional, Dict
-import traceback
-import json
+from fastapi import APIRouter, WebSocket, status, Depends, HTTPException, Query
+from typing import List, Optional
 import logging
-from pydantic import ValidationError, BaseModel, Field
+from pydantic import BaseModel, Field
 
 # 新しいインポートパス（修正版）
 from .services.generation_service import ArticleGenerationService
@@ -25,7 +23,6 @@ from .services.generation_service import ArticleGenerationService
 #     GeneratedArticleStateRead,
 #     FlowExecutionRequest
 # )
-from app.common.schemas import WebSocketMessage, ErrorPayload
 from app.common.auth import get_current_user_id_from_token
 
 # TODO: サービス実装完了後に有効化
@@ -55,7 +52,6 @@ class ArticleFlowService:
 
 article_flow_service = ArticleFlowService()
 
-from pydantic import BaseModel
 
 class ArticleFlowCreate(BaseModel):
     name: str = "stub"

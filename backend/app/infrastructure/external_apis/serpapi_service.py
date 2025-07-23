@@ -10,7 +10,6 @@ import urllib.robotparser
 from app.infrastructure.gcp_auth import setup_genai_client
 from urllib.parse import urlparse
 import time # ★ 追加: 時間計測用
-from openai import AsyncOpenAI, APIError # ★ 追加: OpenAI API用
 import google.generativeai as genai # ★ 追加: Gemini API用
 import re # ★ 追加: 正規表現用（著者情報抽出など）
 
@@ -66,8 +65,19 @@ class SerpAPIService:
     USER_AGENT = USER_AGENT # クラス変数としてユーザーエージェントを定義
 
     def __init__(self):
-        self.api_key = getattr(settings, 'serpapi_key', None) or "9fbf7061f3a2d6c6b3f80dbfbac178db18cb384bade1ce893e29efdb32b6c8fe"
+        # 設定から正しく読み込み
+        self.api_key = settings.serpapi_key
         self.robot_parsers: Dict[str, urllib.robotparser.RobotFileParser] = {} # robots.txtパーサーのキャッシュ
+        
+    def _ensure_api_key(self):
+        """APIキーが設定されているかチェックし、なければ例外を発生させる"""
+        if not self.api_key or self.api_key.strip() == "":
+            # 設定を再読み込みしてみる
+            from app.core.config import settings
+            self.api_key = settings.serpapi_key
+            
+            if not self.api_key or self.api_key.strip() == "":
+                raise ValueError("SERPAPI_API_KEY が設定されていません。.env ファイルに SERPAPI_API_KEY を設定してください。")
         
     async def analyze_keywords(self, keywords: List[str], num_articles_to_scrape: int = 5) -> SerpAnalysisResult:
         """
@@ -80,6 +90,7 @@ class SerpAPIService:
         Returns:
             SerpAnalysisResult: 分析結果
         """
+        self._ensure_api_key()
         search_query = " ".join(keywords)
         search_results = await self._get_search_results(search_query)
         
@@ -315,8 +326,9 @@ class SerpAPIService:
         """
         実際のSerpAPI呼び出し（後で実装予定）
         """
+        self._ensure_api_key()
         params = {
-            "api_key": settings.serpapi_key,
+            "api_key": self.api_key,
             "engine": "google",
             "q": query,
             "location": "Japan",
@@ -603,17 +615,21 @@ class SerpAPIService:
             content_element = None
             for selector in main_content_selectors:
                 content_element = soup.select_one(selector)
-                if content_element: break
+                if content_element:
+                    break
             
-            if not content_element: content_element = soup.body
+            if not content_element:
+                content_element = soup.body
             if not content_element:
                 return {"title": title, "headings": [], "content": "", "char_count": 0, "image_count": 0}
 
             # 不要要素の除去 (文字数カウント前に実行)
             for unwanted_selector in ['nav', 'footer', 'header', 'aside', 'form', 'script', 'style', '.noprint', '[aria-hidden="true"]', 'figure > figcaption']:
-                for tag in content_element.select(unwanted_selector): tag.decompose()
+                for tag in content_element.select(unwanted_selector):
+                    tag.decompose()
             for ad_selector in ['div[class*="ad"]', 'div[id*="ad"]', 'div[class*="OUTBRAIN"]', 'div[class*="recommend"]', 'aside[class*="related"]']:
-                for tag in content_element.select(ad_selector): tag.decompose()
+                for tag in content_element.select(ad_selector):
+                    tag.decompose()
 
             # 見出しタグの抽出 (除去処理後に行う)
             all_heading_tags_in_content_element = content_element.find_all(['h1', 'h2', 'h3', 'h4', 'h5', 'h6'])
@@ -624,11 +640,13 @@ class SerpAPIService:
             for tag_object in all_heading_tags_in_content_element: # tag_object を直接使用
                 level = int(tag_object.name[1:])
                 text = tag_object.get_text(strip=True)
-                if not text or len(text) >= 200: continue
+                if not text or len(text) >= 200:
+                    continue
 
                 current_heading_node = {"level": level, "text": text, "children": [], "tag": tag_object} # ★ tag オブジェクトを保存
 
-                while parent_stack[-1][0] >= level: parent_stack.pop()
+                while parent_stack[-1][0] >= level:
+                    parent_stack.pop()
                 parent_stack[-1][1].append(current_heading_node)
                 parent_stack.append((level, current_heading_node["children"]))
             
@@ -643,7 +661,8 @@ class SerpAPIService:
             text_blocks = []
             for element in content_element.find_all(['p', 'div', 'li', 'span', 'td', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6'], recursive=True):
                 # スクリプト/スタイルは既に除去されているはずだが念のため
-                for unwanted_tag in element.find_all(['script', 'style'], recursive=False): unwanted_tag.decompose()
+                for unwanted_tag in element.find_all(['script', 'style'], recursive=False):
+                    unwanted_tag.decompose()
                 block_text = element.get_text(separator=' ', strip=True)
                 if block_text and len(block_text) > 20:
                     parent_text = element.parent.get_text(separator=' ', strip=True) if element.parent else ""
@@ -657,7 +676,8 @@ class SerpAPIService:
                 if first_part not in seen_content_parts:
                     final_content_parts.append(block)
                     seen_content_parts.add(first_part)
-                    if sum(len(p) for p in final_content_parts) > 15000: break
+                    if sum(len(p) for p in final_content_parts) > 15000:
+                        break
             
             content_text = "\n\n".join(final_content_parts)
             char_count = len("".join(final_content_parts).replace(" ","")) # スペース除外で統一
@@ -758,16 +778,29 @@ class SerpAPIService:
                 "schema_types": schema_types
             }
             
-        except requests.exceptions.Timeout: print(f"タイムアウト: {url}"); return None
-        except requests.exceptions.RequestException as e: print(f"リクエストエラー {url}: {e}"); return None
+        except requests.exceptions.Timeout:
+            print(f"タイムアウト: {url}")
+            return None
+        except requests.exceptions.RequestException as e:
+            print(f"リクエストエラー {url}: {e}")
+            return None
         except Exception as e:
             print(f"スクレイピング一般エラー {url}: {e}")
             import traceback
             traceback.print_exc()
             return None
 
-# サービスのインスタンス
-serpapi_service = SerpAPIService() 
+# サービスのインスタンス（遅延ロード）
+_serpapi_service_instance = None
+
+def get_serpapi_service() -> SerpAPIService:
+    """SerpAPIServiceのシングルトンインスタンスを取得"""
+    global _serpapi_service_instance
+    if _serpapi_service_instance is None:
+        _serpapi_service_instance = SerpAPIService()
+    return _serpapi_service_instance
+
+# 使用時は get_serpapi_service() を呼び出してください 
 
 # serpapi_service.py の末尾に追加 (テスト後削除またはコメントアウト)
 if __name__ == '__main__':
@@ -783,9 +816,12 @@ if __name__ == '__main__':
             print("--- Full API Response (JSON) ---")
             print(json.dumps(result, indent=2, ensure_ascii=False))
             print("--- End of Full API Response ---")
-            if "error" in result: print(f"Test FAILED or API returned error: {result['error']}")
-            else: print("Test SUCCEEDED. Basic API call seems to work.")
-        except Exception as e: print(f"Test FAILED with unhandled exception: {e}")
+            if "error" in result:
+                print(f"Test FAILED or API returned error: {result['error']}")
+            else:
+                print("Test SUCCEEDED. Basic API call seems to work.")
+        except Exception as e:
+            print(f"Test FAILED with unhandled exception: {e}")
         print("--- End of _call_serpapi_real test ---")
 
     async def main_test_scrape_real_serp(use_generative_ai_for_classification: bool = False): 
@@ -825,15 +861,15 @@ if __name__ == '__main__':
             articles_with_publish_date = sum(1 for article in analysis_result.scraped_articles if getattr(article, 'publish_date', None))
             articles_with_schema = sum(1 for article in analysis_result.scraped_articles if getattr(article, 'schema_types', []))
             
-            print(f"")
-            print(f"📊 Content Format Analysis Summary:")
+            print("")
+            print("📊 Content Format Analysis Summary:")
             print(f"  Total Videos: {total_videos} (avg: {total_videos/len(analysis_result.scraped_articles):.1f} per article)")
             print(f"  Total Tables: {total_tables} (avg: {total_tables/len(analysis_result.scraped_articles):.1f} per article)")
             print(f"  Total List Items: {total_list_items} (avg: {total_list_items/len(analysis_result.scraped_articles):.1f} per article)")
             print(f"  Total External Links: {total_external_links} (avg: {total_external_links/len(analysis_result.scraped_articles):.1f} per article)")
             print(f"  Total Internal Links: {total_internal_links} (avg: {total_internal_links/len(analysis_result.scraped_articles):.1f} per article)")
-            print(f"")
-            print(f"🔍 E-E-A-T Metadata Analysis:")
+            print("")
+            print("🔍 E-E-A-T Metadata Analysis:")
             print(f"  Articles with Author Info: {articles_with_author}/{len(analysis_result.scraped_articles)} ({articles_with_author/len(analysis_result.scraped_articles)*100:.1f}%)")
             print(f"  Articles with Publish Date: {articles_with_publish_date}/{len(analysis_result.scraped_articles)} ({articles_with_publish_date/len(analysis_result.scraped_articles)*100:.1f}%)")
             print(f"  Articles with Schema Data: {articles_with_schema}/{len(analysis_result.scraped_articles)} ({articles_with_schema/len(analysis_result.scraped_articles)*100:.1f}%)")
@@ -850,13 +886,13 @@ if __name__ == '__main__':
                     
                     # ★ 重複URLチェック
                     if article.url in urls_seen:
-                        print(f"  ⚠️  WARNING: Duplicate URL detected!")
+                        print("  ⚠️  WARNING: Duplicate URL detected!")
                     else:
                         urls_seen.add(article.url)
                     
                     print(f"  Title: {article.title}")
                     print(f"  Headings Count: {len(article.headings)}")
-                    print(f"  Headings Structure:")
+                    print("  Headings Structure:")
                     
                     # ★ JSON出力を安全に実行
                     try:
@@ -900,29 +936,31 @@ if __name__ == '__main__':
                     if author_info:
                         print(f"  Author Info: {author_info}")
                     else:
-                        print(f"  Author Info: Not found")
+                        print("  Author Info: Not found")
                     
                     publish_date = getattr(article, 'publish_date', None)
                     if publish_date:
                         print(f"  Publish Date: {publish_date}")
                     else:
-                        print(f"  Publish Date: Not found")
+                        print("  Publish Date: Not found")
                     
                     modified_date = getattr(article, 'modified_date', None)
                     if modified_date:
                         print(f"  Modified Date: {modified_date}")
                     else:
-                        print(f"  Modified Date: Not found")
+                        print("  Modified Date: Not found")
                     
                     schema_types = getattr(article, 'schema_types', [])
                     if schema_types:
                         print(f"  Schema Types: {', '.join(schema_types)}")
                     else:
-                        print(f"  Schema Types: None found")
+                        print("  Schema Types: None found")
                     
                     print(f"  Source Type: {article.source_type}")
-                    if article.position: print(f"  Original Position: {article.position}")
-                    if article.question: print(f"  Original Question: {article.question}")
+                    if article.position:
+                        print(f"  Original Position: {article.position}")
+                    if article.question:
+                        print(f"  Original Question: {article.question}")
                 
         print("--- End of full analyze_keywords test ---")
 

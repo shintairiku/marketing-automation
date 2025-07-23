@@ -9,7 +9,7 @@ and in Cloud Run (using default application credentials).
 import os
 import json
 import logging
-from typing import Optional, Tuple
+from typing import Tuple
 from google.auth import default
 from google.oauth2 import service_account
 from google.cloud import storage, aiplatform

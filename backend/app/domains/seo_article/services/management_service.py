@@ -10,7 +10,6 @@ import logging
 from typing import List, Dict, Any, Optional
 from datetime import datetime, timezone
 
-from app.core.config import settings
 from app.common.database import supabase
 
 logger = logging.getLogger(__name__)

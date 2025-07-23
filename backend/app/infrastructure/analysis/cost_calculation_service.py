@@ -4,7 +4,7 @@ OpenAI モデル別コスト計算サービス
 異なるOpenAIモデルの詳細な価格情報に基づいてコストを計算する
 """
 import logging
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, List
 from decimal import Decimal
 
 logger = logging.getLogger(__name__)

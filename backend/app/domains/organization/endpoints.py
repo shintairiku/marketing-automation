@@ -9,7 +9,7 @@ This module provides REST API endpoints for organization management including:
 """
 
 from fastapi import APIRouter, HTTPException, Depends, status
-from typing import List, Optional
+from typing import List
 import logging
 
 from .service import (

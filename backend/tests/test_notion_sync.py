@@ -5,6 +5,7 @@ Notion同期システムのテストスクリプト
 """
 import sys
 import os
+from app.infrastructure.external_apis.notion_service import NotionSyncService
 
 # パスを追加（services/を正しくインポートするため）
 sys.path.append('.')
@@ -31,8 +32,6 @@ def check_environment():
     
     print("✅ 必要な環境変数がすべて設定されています")
     return True
-
-from services.notion_sync_service import NotionSyncService
 
 def main():
     """メイン関数"""
