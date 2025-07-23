@@ -522,7 +522,7 @@ class ArticleGenerationService:
                 context.current_step = "error"
                 return
 
-            context.research_results = []
+            context.research_query_results = []
             total_queries = len(context.research_plan.queries)
             
             for i, query in enumerate(context.research_plan.queries):
@@ -533,7 +533,7 @@ class ArticleGenerationService:
                 agent_output = await self._run_agent(current_agent, agent_input, context, run_config)
 
                 if isinstance(agent_output, ResearchQueryResult):
-                    context.research_results.append(agent_output)
+                    context.research_query_results.append(agent_output)
                     console.print(f"[green]クエリ {i+1} のリサーチが完了しました。[/green]")
                     
                     # 進捗更新
@@ -559,13 +559,13 @@ class ArticleGenerationService:
             console.print("[cyan]全てのリサーチクエリが完了しました。[/cyan]")
 
         elif context.current_step == "research_synthesizing":
-            if not context.research_results:
+            if not context.research_query_results:
                 console.print("[red]リサーチ結果がありません。合成をスキップします。[/red]")
                 context.current_step = "error"
                 return
 
             current_agent = research_synthesizer_agent
-            agent_input = f"テーマ: {context.selected_theme.title}\nリサーチ結果: {json.dumps([r.model_dump() for r in context.research_results], ensure_ascii=False, indent=2)}"
+            agent_input = f"テーマ: {context.selected_theme.title}\nリサーチ結果: {json.dumps([r.model_dump() for r in context.research_query_results], ensure_ascii=False, indent=2)}"
             console.print(f"🤖 {current_agent.name} にリサーチ結果の統合を依頼します...")
             agent_output = await self._run_agent(current_agent, agent_input, context, run_config)
 
@@ -577,7 +577,7 @@ class ArticleGenerationService:
                     await self._send_server_event(context, ResearchCompletePayload(
                         summary=agent_output.summary,
                         key_findings=agent_output.key_findings,
-                        sources_used=len(context.research_results)
+                        sources_used=len(context.research_query_results)
                     ))
             else:
                 console.print("[red]リサーチ合成中に予期しないエージェント出力タイプを受け取りました。[/red]")
@@ -640,16 +640,16 @@ class ArticleGenerationService:
 
                 # 画像モードの場合はArticleSectionWithImagesを期待
                 console.print(f"[yellow]🔍 Agent output type: {type(agent_output)}, is_image_mode: {is_image_mode}[/yellow]")
-                if hasattr(agent_output, 'html_content'):
-                    console.print(f"[yellow]🔍 Agent output html_content length: {len(agent_output.html_content)}[/yellow]")
+                if hasattr(agent_output, 'content'):
+                    console.print(f"[yellow]🔍 Agent output content length: {len(agent_output.content)}[/yellow]")
                 if hasattr(agent_output, 'image_placeholders'):
                     console.print(f"[yellow]🔍 Agent output image_placeholders count: {len(agent_output.image_placeholders)}[/yellow]")
                 if is_image_mode and isinstance(agent_output, ArticleSectionWithImages):
                     # ArticleSectionWithImagesをArticleSectionに変換
                     article_section = ArticleSection(
-                        section_index=agent_output.section_index,
-                        heading=agent_output.heading,
-                        html_content=agent_output.html_content
+                        title=agent_output.title,
+                        content=agent_output.content,
+                        order=agent_output.order
                     )
                     context.generated_sections.append(article_section)
                     
@@ -667,9 +667,9 @@ class ArticleGenerationService:
                 elif isinstance(agent_output, str):
                     # 従来のHTML文字列形式の場合（旧形式対応）
                     article_section = ArticleSection(
-                        section_index=i,
-                        heading=section.heading,
-                        html_content=agent_output
+                        title=section.heading,
+                        content=agent_output,
+                        order=i
                     )
                     context.generated_sections.append(article_section)
                     console.print(f"[green]セクション {i+1} が完了しました（HTML文字列形式）。[/green]")
@@ -707,18 +707,18 @@ class ArticleGenerationService:
                             heading=section.heading,
                             html_content_chunk="",  # 画像モードではチャンクではなく完了時に送信
                             is_complete=True,
-                            section_complete_content=agent_output.html_content,
+                            section_complete_content=agent_output.content,
                             image_placeholders=image_placeholders_data,
                             is_image_mode=True
                         )
-                        console.print(f"[cyan]📤 Sending SectionChunkPayload for image mode: section_index={i}, heading='{section.heading}', is_image_mode=True, content_length={len(agent_output.html_content)}, placeholders={len(image_placeholders_data)}[/cyan]")
+                        console.print(f"[cyan]📤 Sending SectionChunkPayload for image mode: section_index={i}, heading='{section.heading}', is_image_mode=True, content_length={len(agent_output.content)}, placeholders={len(image_placeholders_data)}[/cyan]")
                         await self._send_server_event(context, payload)
                     else:
                         console.print(f"[yellow]⚠️ Not sending SectionChunkPayload - falling back to normal mode. is_image_mode={is_image_mode}, agent_output_type={type(agent_output)}[/yellow]")
                         # 通常モードの場合：従来通りのプレビュー送信
                         content_preview = ""
-                        if hasattr(agent_output, 'html_content'):
-                            content_preview = agent_output.html_content[:200] + "..." if len(agent_output.html_content) > 200 else agent_output.html_content
+                        if hasattr(agent_output, 'content'):
+                            content_preview = agent_output.content[:200] + "..." if len(agent_output.content) > 200 else agent_output.content
                         elif isinstance(agent_output, str):
                             content_preview = agent_output[:200] + "..." if len(agent_output) > 200 else agent_output
                         
@@ -754,7 +754,7 @@ class ArticleGenerationService:
                 context.final_article = agent_output
                 context.current_step = "completed"
                 await self._log_workflow_step(context, "completed", {
-                    "final_article_length": len(agent_output.final_html_content),
+                    "final_article_length": len(agent_output.content),
                     "sections_count": len(context.generated_sections) if hasattr(context, 'generated_sections') else 0,
                     "total_tokens_used": getattr(context, 'total_tokens_used', 0)
                 })
@@ -3324,11 +3324,11 @@ class ArticleGenerationService:
                                     console.print(f"[yellow]セクション {target_index + 1} には画像プレースホルダーが含まれていません（記事全体で1つ以上あれば問題ありません）[/yellow]")
                                 
                                 generated_section = ArticleSection(
-                                    section_index=target_index, 
-                                    heading=target_heading, 
-                                    html_content=agent_output.html_content
+                                    title=target_heading, 
+                                    content=agent_output.content, 
+                                    order=target_index
                                 )
-                                console.print(f"[green]セクション {target_index + 1}「{generated_section.heading}」を画像プレースホルダー付きで生成しました。（{len(agent_output.html_content)}文字、画像{len(agent_output.image_placeholders)}個）[/green]")
+                                console.print(f"[green]セクション {target_index + 1}「{generated_section.title}」を画像プレースホルダー付きで生成しました。（{len(agent_output.content)}文字、画像{len(agent_output.image_placeholders)}個）[/green]")
                                 
                                 # 画像プレースホルダー情報をコンテキストに保存
                                 if not hasattr(context, 'image_placeholders'):
@@ -3342,7 +3342,7 @@ class ArticleGenerationService:
                                 if len(context.generated_sections_html) <= target_index:
                                     context.generated_sections_html.extend([""] * (target_index + 1 - len(context.generated_sections_html)))
                                 
-                                context.generated_sections_html[target_index] = generated_section.html_content
+                                context.generated_sections_html[target_index] = generated_section.content
                                 context.last_agent_output = generated_section
                                 
                                 # 会話履歴更新
@@ -3350,7 +3350,7 @@ class ArticleGenerationService:
                                 if last_user_request_item and last_user_request_item.get('role') == 'user':
                                     user_request_text = last_user_request_item['content'][0]['text']
                                     context.add_to_section_writer_history("user", user_request_text)
-                                context.add_to_section_writer_history("assistant", generated_section.html_content)
+                                context.add_to_section_writer_history("assistant", generated_section.content)
                                 
                                 # セクション完了後にインデックスを更新
                                 context.current_section_index = target_index + 1
@@ -3387,11 +3387,11 @@ class ArticleGenerationService:
                                             heading=target_heading,
                                             html_content_chunk="",  # 画像モードではチャンクではなく完了時に送信
                                             is_complete=True,
-                                            section_complete_content=generated_section.html_content,
+                                            section_complete_content=generated_section.content,
                                             image_placeholders=image_placeholders_data,
                                             is_image_mode=True
                                         )
-                                        console.print(f"[cyan]📤 Sending SectionChunkPayload for image mode: section_index={target_index}, heading='{target_heading}', is_image_mode=True, content_length={len(generated_section.html_content)}, placeholders={len(image_placeholders_data)}[/cyan]")
+                                        console.print(f"[cyan]📤 Sending SectionChunkPayload for image mode: section_index={target_index}, heading='{target_heading}', is_image_mode=True, content_length={len(generated_section.content)}, placeholders={len(image_placeholders_data)}[/cyan]")
                                         await self._send_server_event(context, payload)
                                         console.print(f"[green]✅ SectionChunkPayload sent successfully for section {target_index}[/green]")
                                     except Exception as e:
@@ -3473,9 +3473,9 @@ class ArticleGenerationService:
                             # セクション完全性をチェック
                             if accumulated_html and len(accumulated_html.strip()) > 50:  # 最小長チェック
                                 generated_section = ArticleSection(
-                                    section_index=target_index, heading=target_heading, html_content=accumulated_html.strip()
+                                    title=target_heading, content=accumulated_html.strip(), order=target_index
                                 )
-                                console.print(f"[green]セクション {target_index + 1}「{generated_section.heading}」のHTMLをストリームから構築しました。（{len(accumulated_html)}文字）[/green]")
+                                console.print(f"[green]セクション {target_index + 1}「{generated_section.title}」のHTMLをストリームから構築しました。（{len(accumulated_html)}文字）[/green]")
                                 
                                 # 完了イベントを送信（WebSocket切断時は無視される）
                                 try:
@@ -3490,7 +3490,7 @@ class ArticleGenerationService:
                                     # リストを拡張
                                     context.generated_sections_html.extend([""] * (target_index + 1 - len(context.generated_sections_html)))
                                 
-                                context.generated_sections_html[target_index] = generated_section.html_content
+                                context.generated_sections_html[target_index] = generated_section.content
                                 context.last_agent_output = generated_section
                                 
                                 # 会話履歴更新
@@ -3498,7 +3498,7 @@ class ArticleGenerationService:
                                 if last_user_request_item and last_user_request_item.get('role') == 'user':
                                     user_request_text = last_user_request_item['content'][0]['text']
                                     context.add_to_section_writer_history("user", user_request_text)
-                                context.add_to_section_writer_history("assistant", generated_section.html_content)
+                                context.add_to_section_writer_history("assistant", generated_section.content)
                                 
                                 # セクション完了後にインデックスを更新
                                 context.current_section_index = target_index + 1
@@ -3529,7 +3529,7 @@ class ArticleGenerationService:
                     agent_output = await self._run_agent(current_agent, agent_input, context, run_config)
 
                     if isinstance(agent_output, RevisedArticle):
-                        context.final_article_html = agent_output.final_html_content
+                        context.final_article_html = agent_output.content
                         context.current_step = "completed"
                         console.print("[green]記事の編集が完了しました！[/green]")
                         
@@ -3564,7 +3564,7 @@ class ArticleGenerationService:
                         # --- 2. WebSocketで最終結果を送信（article_id 付き） ---
                         await self._send_server_event(context, FinalResultPayload(
                             title=agent_output.title,
-                            final_html_content=agent_output.final_html_content,
+                            final_html_content=agent_output.content,
                             article_id=article_id
                         ))
                          
@@ -3606,9 +3606,9 @@ class ArticleGenerationService:
                     workflow_logger = self.workflow_loggers[process_id]
                     
                     # 最終記事内容を取得
-                    if hasattr(context, 'final_html_content') and context.final_html_content:
+                    if hasattr(context, 'final_article_html') and context.final_article_html:
                         pass
-                    elif hasattr(context, 'revised_article') and context.revised_article and hasattr(context.revised_article, 'final_html_content'):
+                    elif hasattr(context, 'revised_article') and context.revised_article and hasattr(context.revised_article, 'content'):
                         pass
                     
                     # 切断耐性ステップかどうかを確認

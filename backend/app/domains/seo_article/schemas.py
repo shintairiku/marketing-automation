@@ -266,10 +266,16 @@ UserActionPayload = ClientResponsePayload
 
 # --- 不足しているモデルクラス（移行時に失われたもの）---
 
+class SourceSnippet(BaseModel):
+    """リサーチで抽出された情報の出典スニペット"""
+    title: str = Field(description="出典タイトル")
+    url: str = Field(description="出典URL")
+    snippet: str = Field(description="抽出された情報・データ・主張")
+    
 class ResearchQueryResult(BaseModel):
     """リサーチクエリ結果"""
     query: str = Field(description="検索クエリ")
-    results: List[Dict[str, Any]] = Field(default_factory=list, description="検索結果")
+    results: List[SourceSnippet] = Field(default_factory=list, description="検索結果から抽出された情報")
     summary: Optional[str] = Field(None, description="結果サマリー")
 
 class ArticleSection(BaseModel):
