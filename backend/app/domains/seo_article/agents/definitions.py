@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 # 既存のスクリプトからエージェント定義とプロンプト生成関数をここに移動・整理
-from typing import Callable, Awaitable
+from typing import Callable, Awaitable, Union
 from agents import Agent, RunContextWrapper, ModelSettings
 from datetime import datetime, timezone
 # 循環参照を避けるため、モデル、ツール、コンテキストは直接インポートしない
@@ -10,7 +10,8 @@ from datetime import datetime, timezone
 from app.domains.seo_article.schemas import (
     AgentOutput, ResearchQueryResult, ResearchReport, RevisedArticle, 
     GeneratedPersonasResponse, SerpKeywordAnalysisReport, 
-    ArticleSectionWithImages
+    ArticleSectionWithImages, ThemeProposal, ClarificationNeeded,
+    ResearchPlan, Outline, GeneratedThemesResponse
 )
 from app.domains.seo_article.agents.tools import web_search_tool, analyze_competitors, get_company_data
 from app.domains.seo_article.context import ArticleContext
@@ -800,7 +801,7 @@ theme_agent = Agent[ArticleContext](
     instructions=create_theme_instructions(THEME_AGENT_BASE_PROMPT),
     model=settings.default_model,
     tools=[get_company_data, web_search_tool],
-    output_type=AgentOutput, # ThemeProposal or ClarificationNeeded
+    output_type=Union[ThemeProposal, ClarificationNeeded],
 )
 
 # 2. リサーチプランナーエージェント
@@ -813,7 +814,7 @@ research_planner_agent = Agent[ArticleContext](
     instructions=create_research_planner_instructions(RESEARCH_PLANNER_AGENT_BASE_PROMPT),
     model=settings.research_model,
     tools=[],
-    output_type=AgentOutput, # ResearchPlan or ClarificationNeeded
+    output_type=Union[ResearchPlan, ClarificationNeeded],
 )
 
 # 3. リサーチャーエージェント
@@ -859,7 +860,7 @@ outline_agent = Agent[ArticleContext](
     instructions=create_outline_instructions(OUTLINE_AGENT_BASE_PROMPT),
     model=settings.writing_model,
     tools=[analyze_competitors, get_company_data],
-    output_type=AgentOutput, # Outline or ClarificationNeeded
+    output_type=Union[Outline, ClarificationNeeded],
 )
 
 # 6. セクション執筆エージェント

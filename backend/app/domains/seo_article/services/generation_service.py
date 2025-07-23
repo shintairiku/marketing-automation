@@ -355,6 +355,14 @@ class ArticleGenerationService:
                 await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message="Starting keyword analysis with SerpAPI...", image_mode=getattr(context, 'image_mode', False)))
 
         elif context.current_step == "keyword_analyzing":
+            # 重複実行防止チェック
+            if context.executing_step == "keyword_analyzing":
+                console.print("[yellow]キーワード分析は既に実行中です（背景処理）。スキップします。[/yellow]")
+                return
+            
+            # ステップ実行開始をマーク
+            context.executing_step = "keyword_analyzing"
+            
             current_agent = serp_keyword_analysis_agent
             agent_input = f"キーワード: {', '.join(context.initial_keywords)}"
             console.print(f"🤖 {current_agent.name} にSerpAPIキーワード分析を依頼します...")
@@ -363,6 +371,7 @@ class ArticleGenerationService:
             if isinstance(agent_output, SerpKeywordAnalysisReport):
                 context.serp_analysis_report = agent_output
                 context.current_step = "keyword_analyzed"
+                context.executing_step = None  # 実行中フラグをクリア
                 await self._log_workflow_step(context, "keyword_analyzed", {
                     "analyzed_articles_count": len(agent_output.analyzed_articles),
                     "main_themes_count": len(agent_output.main_themes),
@@ -380,6 +389,7 @@ class ArticleGenerationService:
                 if context.websocket:
                     await self._send_server_event(context, StatusUpdatePayload(step=context.current_step, message="Keyword analysis completed, proceeding to persona generation.", image_mode=getattr(context, 'image_mode', False)))
             else:
+                context.executing_step = None  # エラー時も実行中フラグをクリア
                 console.print("[red]SerpAPIキーワード分析中に予期しないエージェント出力タイプを受け取りました。[/red]")
                 context.current_step = "error"
                 return
@@ -443,9 +453,10 @@ class ArticleGenerationService:
                 # ユーザー応答を処理
                 if user_response_message:
                     response_type = user_response_message.response_type
-                    payload = user_response_message.payload
+                    payload_dict = user_response_message.payload
+                    payload = self._convert_payload_to_model(payload_dict, response_type)
 
-                    if response_type == UserInputType.SELECT_THEME and isinstance(payload, SelectThemePayload):
+                    if response_type == UserInputType.SELECT_THEME and payload and isinstance(payload, SelectThemePayload):
                         selected_index = payload.selected_index
                         if 0 <= selected_index < len(context.generated_themes):
                             context.selected_theme = context.generated_themes[selected_index]
@@ -1445,6 +1456,36 @@ class ArticleGenerationService:
             logger.error(f"復帰時のユーザー入力ステップ処理でエラー: {e}")
             console.print(f"[red]復帰時のユーザー入力ステップ処理でエラー: {e}[/red]")
 
+    def _convert_payload_to_model(self, payload: Dict[str, Any], response_type: UserInputType) -> Optional[BaseModel]:
+        """Convert dictionary payload to appropriate Pydantic model based on response type"""
+        try:
+            if response_type == UserInputType.SELECT_PERSONA:
+                return SelectPersonaPayload(**payload)
+            elif response_type == UserInputType.SELECT_THEME:
+                return SelectThemePayload(**payload)
+            elif response_type == UserInputType.APPROVE_PLAN:
+                return ApprovePayload(**payload)
+            elif response_type == UserInputType.APPROVE_OUTLINE:
+                return ApprovePayload(**payload)
+            elif response_type == UserInputType.REGENERATE:
+                return ApprovePayload(**payload)  # REGENERATE uses ApprovePayload structure
+            elif response_type == UserInputType.EDIT_AND_PROCEED:
+                return EditAndProceedPayload(**payload)
+            elif response_type == UserInputType.EDIT_THEME:
+                return EditThemePayload(**payload)
+            elif response_type == UserInputType.EDIT_PLAN:
+                return EditPlanPayload(**payload)
+            elif response_type == UserInputType.EDIT_OUTLINE:
+                return EditOutlinePayload(**payload)
+            else:
+                logger.warning(f"Unknown response type for payload conversion: {response_type}")
+                return None
+        except ValidationError as e:
+            logger.error(f"Failed to convert payload to {response_type} model: {e}")
+            return None
+        except Exception as e:
+            logger.error(f"Unexpected error converting payload: {e}")
+            return None
 
     async def _request_user_input(self, context: ArticleContext, request_type: UserInputType, data: Optional[Dict[str, Any]] = None):
         """クライアントに特定のタイプの入力を要求し、応答を待つ"""
@@ -1492,9 +1533,10 @@ class ArticleGenerationService:
                 
                 if user_response_message:
                     response_type = user_response_message.response_type
-                    payload = user_response_message.payload
+                    payload_dict = user_response_message.payload
+                    payload = self._convert_payload_to_model(payload_dict, response_type)
 
-                    if response_type == UserInputType.SELECT_PERSONA and isinstance(payload, SelectPersonaPayload):
+                    if response_type == UserInputType.SELECT_PERSONA and payload and isinstance(payload, SelectPersonaPayload):
                         selected_id = payload.selected_id
                         if 0 <= selected_id < len(context.generated_detailed_personas):
                             context.selected_detailed_persona = context.generated_detailed_personas[selected_id]
@@ -1516,7 +1558,7 @@ class ArticleGenerationService:
                         console.print("[yellow]ペルソナの再生成が要求されました。[/yellow]")
                         context.current_step = "persona_generating"
                         context.generated_detailed_personas = []
-                    elif response_type == UserInputType.EDIT_AND_PROCEED and isinstance(payload, EditAndProceedPayload):
+                    elif response_type == UserInputType.EDIT_AND_PROCEED and payload and isinstance(payload, EditAndProceedPayload):
                         try:
                             edited_persona_data = payload.edited_content
                             console.print(f"[blue]EditAndProceedPayload received for persona: {edited_persona_data}[/blue]")
@@ -1572,9 +1614,10 @@ class ArticleGenerationService:
                 
                 if user_response_message:
                     response_type = user_response_message.response_type
-                    payload = user_response_message.payload
+                    payload_dict = user_response_message.payload
+                    payload = self._convert_payload_to_model(payload_dict, response_type)
 
-                    if response_type == UserInputType.SELECT_THEME and isinstance(payload, SelectThemePayload):
+                    if response_type == UserInputType.SELECT_THEME and payload and isinstance(payload, SelectThemePayload):
                         selected_index = payload.selected_index
                         if 0 <= selected_index < len(context.generated_themes):
                             context.selected_theme = context.generated_themes[selected_index]
@@ -1596,7 +1639,7 @@ class ArticleGenerationService:
                         console.print("[yellow]テーマの再生成が要求されました。[/yellow]")
                         context.current_step = "theme_generating"
                         context.generated_themes = []
-                    elif response_type == UserInputType.EDIT_AND_PROCEED and isinstance(payload, EditAndProceedPayload):
+                    elif response_type == UserInputType.EDIT_AND_PROCEED and payload and isinstance(payload, EditAndProceedPayload):
                         try:
                             edited_theme_data = payload.edited_content
                             if isinstance(edited_theme_data.get("title"), str) and \
@@ -1620,7 +1663,7 @@ class ArticleGenerationService:
                         except (ValidationError, TypeError, AttributeError) as e:
                             await self._send_error(context, f"テーマ編集エラー: {e}")
                             context.current_step = "error"
-                    elif response_type == UserInputType.EDIT_THEME and isinstance(payload, EditThemePayload):
+                    elif response_type == UserInputType.EDIT_THEME and payload and isinstance(payload, EditThemePayload):
                         try:
                             edited_theme_data = payload.edited_theme
                             if isinstance(edited_theme_data.get("title"), str) and \
@@ -1706,9 +1749,10 @@ class ArticleGenerationService:
                 
                 if user_response_message:
                     response_type = user_response_message.response_type
-                    payload = user_response_message.payload
+                    payload_dict = user_response_message.payload
+                    payload = self._convert_payload_to_model(payload_dict, response_type)
 
-                    if response_type == UserInputType.APPROVE_OUTLINE and isinstance(payload, ApprovePayload):
+                    if response_type == UserInputType.APPROVE_OUTLINE and payload and isinstance(payload, ApprovePayload):
                         if payload.approved:
                             context.current_step = "outline_approved"
                             console.print("[green]アウトラインが承認されました。記事執筆を開始します。[/green]")
@@ -1727,7 +1771,7 @@ class ArticleGenerationService:
                     elif response_type == UserInputType.REGENERATE:
                         console.print("[yellow]アウトラインの再生成が要求されました。[/yellow]")
                         context.current_step = "outline_generating"
-                    elif response_type == UserInputType.EDIT_OUTLINE and isinstance(payload, EditOutlinePayload):
+                    elif response_type == UserInputType.EDIT_OUTLINE and payload and isinstance(payload, EditOutlinePayload):
                         try:
                             edited_outline_data = payload.edited_outline
                             console.print("[green]アウトラインが編集されました（EditOutlinePayload）。[/green]")
@@ -1766,7 +1810,7 @@ class ArticleGenerationService:
                         except (ValidationError, TypeError, AttributeError) as e:
                             await self._send_error(context, f"アウトライン編集エラー: {e}")
                             context.current_step = "error"
-                    elif response_type == UserInputType.EDIT_AND_PROCEED and isinstance(payload, EditAndProceedPayload):
+                    elif response_type == UserInputType.EDIT_AND_PROCEED and payload and isinstance(payload, EditAndProceedPayload):
                         try:
                             edited_outline_data = payload.edited_content
                             console.print("[green]アウトラインが編集されました（EditAndProceedPayload）。[/green]")
@@ -1875,9 +1919,10 @@ class ArticleGenerationService:
                 
                 if user_response_message:
                     response_type = user_response_message.response_type
-                    payload = user_response_message.payload
+                    payload_dict = user_response_message.payload
+                    payload = self._convert_payload_to_model(payload_dict, response_type)
 
-                    if response_type == UserInputType.APPROVE_PLAN and isinstance(payload, ApprovePayload):
+                    if response_type == UserInputType.APPROVE_PLAN and payload and isinstance(payload, ApprovePayload):
                         if payload.approved:
                             context.current_step = "research_plan_approved"
                             console.print("[green]リサーチプランが承認されました。リサーチを開始します。[/green]")
@@ -1896,7 +1941,7 @@ class ArticleGenerationService:
                     elif response_type == UserInputType.REGENERATE:
                         console.print("[yellow]リサーチプランの再生成が要求されました。[/yellow]")
                         context.current_step = "research_planning"
-                    elif response_type == UserInputType.EDIT_PLAN and isinstance(payload, EditPlanPayload):
+                    elif response_type == UserInputType.EDIT_PLAN and payload and isinstance(payload, EditPlanPayload):
                         try:
                             edited_plan_data = payload.edited_plan
                             if isinstance(edited_plan_data.get("topic"), str) and isinstance(edited_plan_data.get("queries"), list):
@@ -1925,7 +1970,7 @@ class ArticleGenerationService:
                         except (ValidationError, TypeError, AttributeError) as e:
                             await self._send_error(context, f"リサーチプラン編集エラー: {e}")
                             context.current_step = "error"
-                    elif response_type == UserInputType.EDIT_AND_PROCEED and isinstance(payload, EditAndProceedPayload):
+                    elif response_type == UserInputType.EDIT_AND_PROCEED and payload and isinstance(payload, EditAndProceedPayload):
                         try:
                             edited_plan_data = payload.edited_content
                             if isinstance(edited_plan_data.get("topic"), str) and isinstance(edited_plan_data.get("queries"), list):
@@ -2019,9 +2064,10 @@ class ArticleGenerationService:
                 
                 if user_response_message:
                     response_type = user_response_message.response_type
-                    payload = user_response_message.payload
+                    payload_dict = user_response_message.payload
+                    payload = self._convert_payload_to_model(payload_dict, response_type)
 
-                    if response_type == UserInputType.APPROVE_OUTLINE and isinstance(payload, ApprovePayload):
+                    if response_type == UserInputType.APPROVE_OUTLINE and payload and isinstance(payload, ApprovePayload):
                         if payload.approved:
                             context.current_step = "outline_approved"
                             console.print("[green]アウトラインが承認されました。[/green]")
@@ -2042,7 +2088,7 @@ class ArticleGenerationService:
                         console.print("[yellow]アウトラインの再生成が要求されました。[/yellow]")
                         context.current_step = "outline_generating"
                         context.generated_outline = None
-                    elif response_type == UserInputType.EDIT_AND_PROCEED and isinstance(payload, EditAndProceedPayload):
+                    elif response_type == UserInputType.EDIT_AND_PROCEED and payload and isinstance(payload, EditAndProceedPayload):
                         try:
                             edited_outline_data = payload.edited_content
                             from app.domains.seo_article.schemas import Outline, OutlineSection
@@ -2483,6 +2529,15 @@ class ArticleGenerationService:
                     # エージェント実行なし、次のループで処理
 
                 elif context.current_step == "keyword_analyzing":
+                    # 重複実行防止チェック
+                    if context.executing_step == "keyword_analyzing":
+                        console.print("[yellow]キーワード分析は既に実行中です。スキップします。[/yellow]")
+                        await asyncio.sleep(1)  # 短時間待機してから再チェック
+                        continue
+                    
+                    # ステップ実行開始をマーク
+                    context.executing_step = "keyword_analyzing"
+                    
                     # SerpAPIキーワード分析エージェントを実行
                     current_agent = serp_keyword_analysis_agent
                     agent_input = f"キーワード: {', '.join(context.initial_keywords)}"
@@ -2518,6 +2573,7 @@ class ArticleGenerationService:
                             
                         context.serp_analysis_report = agent_output
                         context.current_step = "keyword_analyzed"
+                        context.executing_step = None  # 実行中フラグをクリア
                         console.print("[green]SerpAPIキーワード分析が完了しました。[/green]")
                         
                         # Save context after keyword analysis completion
@@ -2574,6 +2630,7 @@ class ArticleGenerationService:
                             except Exception as save_err:
                                 logger.error(f"Failed to save context after step transition to persona_generating: {save_err}")
                     else:
+                        context.executing_step = None  # エラー時も実行中フラグをクリア
                         await self._send_error(context, f"SerpAPIキーワード分析中に予期しないエージェント出力タイプ ({type(agent_output)}) を受け取りました。")
                         context.current_step = "error"
                         continue
@@ -2606,9 +2663,10 @@ class ArticleGenerationService:
                         )
                         if user_response_message: # ClientResponseMessage が None でないことを確認
                             response_type = user_response_message.response_type
-                            payload = user_response_message.payload
+                            payload_dict = user_response_message.payload
+                            payload = self._convert_payload_to_model(payload_dict, response_type)
 
-                            if response_type == UserInputType.SELECT_PERSONA and isinstance(payload, SelectPersonaPayload):
+                            if response_type == UserInputType.SELECT_PERSONA and payload and isinstance(payload, SelectPersonaPayload):
                                 selected_id = payload.selected_id
                                 if 0 <= selected_id < len(context.generated_detailed_personas):
                                     context.selected_detailed_persona = context.generated_detailed_personas[selected_id]
@@ -2632,7 +2690,7 @@ class ArticleGenerationService:
                                 context.generated_detailed_personas = [] # 生成済みペルソナをクリア
                                 # ループの先頭に戻り、再度ペルソナ生成が実行される
                                 continue # ★重要: continueでループの次のイテレーションへ
-                            elif response_type == UserInputType.EDIT_AND_PROCEED and isinstance(payload, EditAndProceedPayload):
+                            elif response_type == UserInputType.EDIT_AND_PROCEED and payload and isinstance(payload, EditAndProceedPayload):
                                 edited_persona_description = payload.edited_content.get("description")
                                 if edited_persona_description and isinstance(edited_persona_description, str):
                                     context.selected_detailed_persona = edited_persona_description
@@ -2654,8 +2712,9 @@ class ArticleGenerationService:
                                     context.current_step = "persona_generated" # 選択待ちに留まる
                                     continue
                             else:
-                                # 予期しない応答タイプやペイロード
-                                await self._send_error(context, f"予期しない応答 ({response_type}, {type(payload)}) がペルソナ選択で受信されました。")
+                                # 予期しない応答タイプやペイロードまたは変換失敗
+                                payload_type = type(payload).__name__ if payload else "None"
+                                await self._send_error(context, f"予期しない応答 ({response_type}, {payload_type}) がペルソナ選択で受信されました。")
                                 context.current_step = "persona_generated" # 選択待ちに留まる
                                 continue
                         else:
@@ -2728,9 +2787,10 @@ class ArticleGenerationService:
                             )
                             if user_response_message:
                                 response_type = user_response_message.response_type
-                                payload = user_response_message.payload
+                                payload_dict = user_response_message.payload
+                                payload = self._convert_payload_to_model(payload_dict, response_type)
 
-                                if response_type == UserInputType.SELECT_THEME and isinstance(payload, SelectThemePayload):
+                                if response_type == UserInputType.SELECT_THEME and payload and isinstance(payload, SelectThemePayload):
                                     selected_index = payload.selected_index
                                     if 0 <= selected_index < len(context.generated_themes):
                                         context.selected_theme = context.generated_themes[selected_index]
@@ -2758,7 +2818,7 @@ class ArticleGenerationService:
                                     context.current_step = "theme_generating" 
                                     context.generated_themes = [] 
                                     continue 
-                                elif response_type == UserInputType.EDIT_AND_PROCEED and isinstance(payload, EditAndProceedPayload):
+                                elif response_type == UserInputType.EDIT_AND_PROCEED and payload and isinstance(payload, EditAndProceedPayload):
                                     try:
                                         edited_theme_data = payload.edited_content
                                         if isinstance(edited_theme_data.get("title"), str) and \
@@ -2787,7 +2847,8 @@ class ArticleGenerationService:
                                         context.current_step = "theme_proposed" 
                                         continue
                                 else:
-                                    await self._send_error(context, f"予期しない応答 ({response_type}, {type(payload)}) がテーマ選択で受信されました。")
+                                    payload_type = type(payload).__name__ if payload else "None"
+                                    await self._send_error(context, f"予期しない応答 ({response_type}, {payload_type}) がテーマ選択で受信されました。")
                                     context.current_step = "theme_proposed"
                                     continue
                             else:
@@ -2831,9 +2892,10 @@ class ArticleGenerationService:
 
                     if user_response_message:
                         response_type = user_response_message.response_type
-                        payload = user_response_message.payload
+                        payload_dict = user_response_message.payload
+                        payload = self._convert_payload_to_model(payload_dict, response_type)
 
-                        if response_type == UserInputType.APPROVE_PLAN and isinstance(payload, ApprovePayload):
+                        if response_type == UserInputType.APPROVE_PLAN and payload and isinstance(payload, ApprovePayload):
                             if payload.approved:
                                 context.current_step = "research_plan_approved"
                                 console.print("[green]クライアントがリサーチ計画を承認しました。[/green]")
@@ -2857,7 +2919,7 @@ class ArticleGenerationService:
                             context.current_step = "research_planning"
                             context.research_plan = None
                             continue
-                        elif response_type == UserInputType.EDIT_AND_PROCEED and isinstance(payload, EditAndProceedPayload):
+                        elif response_type == UserInputType.EDIT_AND_PROCEED and payload and isinstance(payload, EditAndProceedPayload):
                             try:
                                 edited_plan_data = payload.edited_content
                                 if isinstance(edited_plan_data.get("topic"), str) and isinstance(edited_plan_data.get("queries"), list):
@@ -3093,9 +3155,10 @@ class ArticleGenerationService:
                         
                         if user_response_message:
                             response_type = user_response_message.response_type
-                            payload = user_response_message.payload
+                            payload_dict = user_response_message.payload
+                            payload = self._convert_payload_to_model(payload_dict, response_type)
 
-                            if response_type == UserInputType.APPROVE_OUTLINE and isinstance(payload, ApprovePayload):
+                            if response_type == UserInputType.APPROVE_OUTLINE and payload and isinstance(payload, ApprovePayload):
                                 if payload.approved:
                                     # context.generated_outline は既に設定済みなので、ここでは何もしない
                                     context.current_step = "outline_approved"
@@ -3120,7 +3183,7 @@ class ArticleGenerationService:
                                 context.current_step = "outline_generating"
                                 context.generated_outline = None # 再生成するのでクリア
                                 continue
-                            elif response_type == UserInputType.EDIT_AND_PROCEED and isinstance(payload, EditAndProceedPayload):
+                            elif response_type == UserInputType.EDIT_AND_PROCEED and payload and isinstance(payload, EditAndProceedPayload):
                                 try:
                                     edited_outline_data = payload.edited_content
                                     def convert_edited_section_to_model(data: Dict[str, Any]) -> OutlineSection:
