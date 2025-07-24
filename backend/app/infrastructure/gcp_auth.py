@@ -38,9 +38,9 @@ class GCPAuthManager:
             
             # If relative path, make it absolute from the project root
             if json_file_path and not os.path.isabs(json_file_path):
-                # Get project root (go up from backend to project root)
+                # Get project root (go up from backend/app/infrastructure to project root)
                 current_dir = os.path.dirname(os.path.abspath(__file__))
-                project_root = os.path.dirname(os.path.dirname(current_dir))
+                project_root = os.path.dirname(os.path.dirname(os.path.dirname(current_dir)))
                 old_path = json_file_path
                 json_file_path = os.path.join(project_root, json_file_path)
                 logger.info(f"Path resolution: '{old_path}' -> '{json_file_path}'")
