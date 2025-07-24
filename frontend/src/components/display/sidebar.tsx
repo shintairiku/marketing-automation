@@ -37,6 +37,7 @@ export const iconMap: Record<string, React.ReactElement<{ size?: number }>> = {
   /* ───────── 2. Generate / SEO ───────── */
   '/seo/home'              : <IoGlobe size={24} />,
   '/seo/generate/new-article'        : <IoText size={24} />,
+  '/seo/generate/realtime-article'   : <IoSync size={24} />,
 
   '/seo/manage/list'           : <IoList size={24} />,
   '/seo/manage/status'         : <IoSync size={24} />,

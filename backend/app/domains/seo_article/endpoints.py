@@ -9,13 +9,18 @@ This module provides:
 - AI editing capabilities
 """
 
-from fastapi import APIRouter, WebSocket, status, Depends, HTTPException, Query
+from fastapi import APIRouter, WebSocket, status, Depends, HTTPException, Query, Request
 from typing import List, Optional
 import logging
+import json
+import uuid
 from pydantic import BaseModel, Field
 
 # 新しいインポートパス（修正版）
 from .services.generation_service import ArticleGenerationService
+from .services.realtime_generation_service import RealtimeGenerationService
+from app.infrastructure.cloud_tasks import create_article_generation_task
+from app.infrastructure.realtime_sync import get_realtime_sync
 # from .services.flow_service import (  # 後で実装
 #     article_flow_service,
 #     ArticleFlowCreate,
@@ -37,6 +42,7 @@ from app.common.auth import get_current_user_id_from_token
 
 # 実際のサービスインスタンスを使用
 article_service = ArticleGenerationService()
+realtime_generation_service = RealtimeGenerationService()
 
 # Flow service stubs
 class ArticleFlowService:
@@ -85,6 +91,24 @@ class AIEditRequest(BaseModel):
     """AIによるブロック編集リクエスト"""
     content: str = Field(..., description="元のHTMLブロック内容")
     instruction: str = Field(..., description="編集指示（カジュアルに書き換え等）")
+
+class GenerateArticleRealtimeRequest(BaseModel):
+    """Realtime記事生成リクエスト（REST API版）"""
+    initial_keywords: List[str] = Field(..., description="初期キーワード")
+    image_mode: bool = Field(default=False, description="画像モード")
+    article_style: str = Field(..., description="記事スタイル")
+    theme_count: int = Field(default=3, description="生成テーマ数")
+    target_audience: str = Field(..., description="ターゲット年代")
+    persona: str = Field(..., description="ペルソナ")
+    company_info: Optional[str] = Field(None, description="会社情報設定")
+    article_length: Optional[int] = Field(None, description="文字数")
+    research_query_count: Optional[int] = Field(None, description="リサーチクエリ数")
+    persona_count: Optional[int] = Field(None, description="ペルソナ生成数")
+
+class UserInputResponse(BaseModel):
+    """ユーザー入力レスポンス"""
+    response_type: str = Field(..., description="レスポンスタイプ")
+    payload: dict = Field(..., description="レスポンスデータ")
 
 # --- Article CRUD Endpoints ---
 
@@ -709,3 +733,287 @@ async def copy_template_flow(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to copy template flow"
         )
+
+
+# --- Realtime Generation Endpoints (New) ---
+
+@router.post("/realtime/generate", status_code=status.HTTP_202_ACCEPTED)
+async def start_realtime_generation(
+    request: GenerateArticleRealtimeRequest,
+    user_id: str = Depends(get_current_user_id_from_token)
+):
+    """
+    Start article generation with Supabase Realtime progress sync.
+    
+    This endpoint replaces WebSocket communication with REST API + Supabase Realtime.
+    The client should subscribe to the returned process_id in Supabase Realtime
+    to receive real-time progress updates.
+    
+    **Parameters:**
+    - request: Article generation parameters
+    - user_id: User ID from authentication
+    
+    **Returns:**
+    - process_id: UUID for tracking progress in Supabase Realtime
+    - message: Status message
+    """
+    try:
+        # Generate unique process ID
+        process_id = str(uuid.uuid4())
+        
+        # Initialize process in database
+        realtime_sync = get_realtime_sync()
+        
+        generation_params = request.dict()
+        success = realtime_sync.initialize_process(
+            process_id=process_id,
+            user_id=user_id,
+            generation_params=generation_params
+        )
+        
+        if not success:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to initialize generation process"
+            )
+        
+        # Create Cloud Task for background processing
+        task_name = create_article_generation_task(
+            process_id=process_id,
+            user_id=user_id,
+            generation_params=generation_params,
+            delay_seconds=2  # Small delay to ensure frontend subscribes first
+        )
+        
+        logger.info(f"Started realtime generation process {process_id} for user {user_id}")
+        
+        return {
+            "process_id": process_id,
+            "message": "Article generation started. Subscribe to Supabase Realtime for progress updates.",
+            "task_name": task_name,
+            "status": "started"
+        }
+        
+    except Exception as e:
+        logger.error(f"Error starting realtime generation: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to start article generation"
+        )
+
+
+@router.post("/realtime/{process_id}/user-input")
+async def submit_user_input(
+    process_id: str,
+    input_response: UserInputResponse,
+    user_id: str = Depends(get_current_user_id_from_token)
+):
+    """
+    Submit user input for a generation process.
+    
+    **Parameters:**
+    - process_id: Generation process ID
+    - input_response: User's response data
+    - user_id: User ID from authentication
+    
+    **Returns:**
+    - Success status and next step information
+    """
+    try:
+        # Verify process belongs to user
+        from app.common.database import supabase
+        process_record = supabase.from_("generated_articles_state").select("*").eq("id", process_id).eq("user_id", user_id).execute()
+        
+        if not process_record.data:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Generation process not found or access denied"
+            )
+        
+        process_data = process_record.data[0]
+        
+        if not process_data.get("is_waiting_for_input"):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Process is not waiting for user input"
+            )
+        
+        # Handle user input through realtime service
+        success = await realtime_generation_service.handle_user_input(
+            process_id=process_id,
+            input_type=process_data.get("input_type"),
+            user_response=input_response.dict()
+        )
+        
+        if not success:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to process user input"
+            )
+        
+        return {
+            "message": "User input processed successfully",
+            "status": "continuing"
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error processing user input for process {process_id}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to process user input"
+        )
+
+
+@router.post("/realtime/{process_id}/regenerate")
+async def regenerate_step(
+    process_id: str,
+    user_id: str = Depends(get_current_user_id_from_token)
+):
+    """
+    Regenerate the current step for a generation process.
+    
+    **Parameters:**
+    - process_id: Generation process ID
+    - user_id: User ID from authentication
+    
+    **Returns:**
+    - Success status
+    """
+    try:
+        # Verify process belongs to user
+        from app.common.database import supabase
+        process_record = supabase.from_("generated_articles_state").select("*").eq("id", process_id).eq("user_id", user_id).execute()
+        
+        if not process_record.data:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Generation process not found or access denied"
+            )
+        
+        # Handle regeneration through realtime service
+        success = await realtime_generation_service.regenerate_current_step(process_id)
+        
+        if not success:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to regenerate step"
+            )
+        
+        return {
+            "message": "Step regeneration started",
+            "status": "regenerating"
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error regenerating step for process {process_id}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to regenerate step"
+        )
+
+
+# --- Background Task Handlers ---
+
+@router.post("/background/generate")
+async def handle_background_generation(request: Request):
+    """
+    Handle background article generation from Cloud Tasks.
+    
+    This endpoint is called by Cloud Tasks to process article generation
+    in the background while updating progress via Supabase Realtime.
+    """
+    try:
+        # Verify this is a Cloud Task request
+        task_headers = {
+            "X-CloudTasks-QueueName": request.headers.get("X-CloudTasks-QueueName"),
+            "X-CloudTasks-TaskName": request.headers.get("X-CloudTasks-TaskName"),
+            "X-Task-Type": request.headers.get("X-Task-Type"),
+            "X-Process-ID": request.headers.get("X-Process-ID")
+        }
+        
+        if not task_headers.get("X-Task-Type") == "article-generation":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid task type"
+            )
+        
+        # Parse request body
+        body = await request.body()
+        task_data = json.loads(body.decode())
+        
+        process_id = task_data.get("process_id")
+        user_id = task_data.get("user_id")
+        generation_params = task_data.get("generation_params")
+        
+        if not all([process_id, user_id, generation_params]):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Missing required task data"
+            )
+        
+        logger.info(f"Processing background generation task for process {process_id}")
+        
+        # Start generation process
+        await realtime_generation_service.start_generation_process(
+            process_id=process_id,
+            user_id=user_id,
+            generation_params=generation_params
+        )
+        
+        return {"status": "success", "message": "Background generation completed"}
+        
+    except Exception as e:
+        logger.error(f"Error in background generation: {e}")
+        # Still return 200 to prevent Cloud Tasks retry
+        return {"status": "error", "message": str(e)}
+
+
+@router.post("/background/continue-step")
+async def handle_step_continuation(request: Request):
+    """
+    Handle step continuation from Cloud Tasks.
+    
+    This endpoint is called by Cloud Tasks to continue processing
+    after user input or step completion.
+    """
+    try:
+        # Verify this is a Cloud Task request
+        if not request.headers.get("X-Task-Type") == "step-continuation":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid task type"
+            )
+        
+        # Parse request body
+        body = await request.body()
+        task_data = json.loads(body.decode())
+        
+        process_id = task_data.get("process_id")
+        step_name = task_data.get("step_name")
+        step_data = task_data.get("step_data")
+        
+        if not all([process_id, step_name]):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Missing required task data"
+            )
+        
+        logger.info(f"Processing step continuation task for process {process_id}, step {step_name}")
+        
+        # Continue step processing
+        await realtime_generation_service.continue_from_step(
+            process_id=process_id,
+            step_name=step_name,
+            step_data=step_data or {}
+        )
+        
+        return {"status": "success", "message": "Step continuation completed"}
+        
+    except Exception as e:
+        logger.error(f"Error in step continuation: {e}")
+        # Still return 200 to prevent Cloud Tasks retry
+        return {"status": "error", "message": str(e)}

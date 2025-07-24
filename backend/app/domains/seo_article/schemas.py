@@ -367,6 +367,19 @@ class ResearchQuery(BaseModel):
     category: str = Field(description="カテゴリ")
     priority: int = Field(default=1, description="優先度")
 
+# 追加モデル（Realtime実装で必要）
+class PersonaOption(BaseModel):
+    """ペルソナ選択肢"""
+    id: int = Field(description="ペルソナID")
+    description: str = Field(description="ペルソナ説明")
+
+class ThemeOption(BaseModel):
+    """テーマ選択肢"""
+    id: int = Field(description="テーマID")
+    title: str = Field(description="テーマタイトル")
+    description: str = Field(description="テーマ説明")
+    keywords: List[str] = Field(default_factory=list, description="関連キーワード")
+
 # エイリアス定義（既存コードとの互換性のため）
 StatusUpdate = StatusUpdatePayload
 ThemeProposal = GeneratedThemesResponse

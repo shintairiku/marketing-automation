@@ -28,26 +28,61 @@ export default function NewArticleStartPage() {
         setError(null);
 
         try {
-            // Create new generation process
-            const response = await fetch('/api/articles/generation/create', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                    ...requestData,
-                    user_id: user.id,
-                }),
-            });
-
-            if (!response.ok) {
-                throw new Error('記事生成プロセスの作成に失敗しました');
-            }
-
-            const { process_id } = await response.json();
+            // Check if Realtime is enabled (fallback to WebSocket if not)
+            const realtimeEnabled = process.env.NEXT_PUBLIC_REALTIME_ENABLED === 'true';
             
-            // Redirect to generation process page
-            router.push(`/seo/generate/new-article/${process_id}`);
+            if (realtimeEnabled) {
+                // Use new Supabase Realtime-based generation
+                const response = await fetch('/api/articles/realtime/generate', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        initial_keywords: requestData.initial_keywords || [],
+                        image_mode: requestData.image_mode || false,
+                        article_style: requestData.article_style || 'informative',
+                        theme_count: requestData.theme_count || 3,
+                        target_audience: requestData.target_audience || '',
+                        persona: requestData.persona || '',
+                        company_info: requestData.company_info,
+                        article_length: requestData.article_length,
+                        research_query_count: requestData.research_query_count,
+                        persona_count: requestData.persona_count,
+                    }),
+                });
+
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.detail || '記事生成の開始に失敗しました');
+                }
+
+                const { process_id } = await response.json();
+                
+                // Redirect to realtime generation process page
+                router.push(`/tools/seo/generate/realtime-article/${process_id}`);
+            } else {
+                // Fallback to original WebSocket-based generation
+                const response = await fetch('/api/articles/generation/create', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        ...requestData,
+                        user_id: user.id,
+                    }),
+                });
+
+                if (!response.ok) {
+                    throw new Error('記事生成プロセスの作成に失敗しました');
+                }
+
+                const { process_id } = await response.json();
+                
+                // Redirect to original WebSocket generation process page
+                router.push(`/seo/generate/new-article/${process_id}`);
+            }
         } catch (err) {
             console.error('Error creating generation process:', err);
             setError(err instanceof Error ? err.message : '記事生成プロセスの作成に失敗しました');

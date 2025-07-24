@@ -63,6 +63,7 @@ export const groups: Group[] = [
             title: '記事生成',
             links: [
               { href: '/seo/generate/new-article',     label: '新規記事作成' },
+              { href: '/seo/generate/realtime-article', label: 'Realtime記事生成' },
             ],
           },
           {
