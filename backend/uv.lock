@@ -1391,6 +1391,18 @@ wheels = [
 ]
 
 [[package]]
+name = "pyngrok"
+version = "7.2.12"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "pyyaml" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/64/7a/6f96513de7cadd81858b4e2bb8a31052b552cb21baeec305a5d0cac94a25/pyngrok-7.2.12.tar.gz", hash = "sha256:1cce4d785619b8064bca7e6f6c8a3454d69aaa5fcff0f35bd05aa81254ce12ff", size = 45075 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/7b/81/121c612fed8c247e7703cfcc5c3a04389a575e95bacbc316c0d371eb6757/pyngrok-7.2.12-py3-none-any.whl", hash = "sha256:a32c3146214e5a693b809e7cea705e29343050fee7047195f50244f4b8ba11e3", size = 26049 },
+]
+
+[[package]]
 name = "pyparsing"
 version = "3.2.3"
 source = { registry = "https://pypi.org/simple" }
@@ -1586,6 +1598,7 @@ dependencies = [
     { name = "pydantic", extra = ["email"] },
     { name = "pydantic-settings" },
     { name = "pyjwt" },
+    { name = "pyngrok" },
     { name = "python-dotenv" },
     { name = "rich" },
     { name = "ruff" },
@@ -1616,6 +1629,7 @@ requires-dist = [
     { name = "pydantic", extras = ["email"] },
     { name = "pydantic-settings" },
     { name = "pyjwt", specifier = ">=2.10.1" },
+    { name = "pyngrok", specifier = ">=7.0.0" },
     { name = "python-dotenv" },
     { name = "rich" },
     { name = "ruff", specifier = ">=0.12.4" },

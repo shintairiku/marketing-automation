@@ -27,3 +27,5 @@ aiofiles
 google-cloud-storage>=2.10.0
 # Google Cloud Tasks
 google-cloud-tasks>=2.16.0
+# ngrok for development tunneling
+pyngrok>=7.0.0

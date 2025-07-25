@@ -131,14 +131,11 @@ class RealtimeSyncService:
                 update_data["progress_percentage"] = progress_percentage
             
             if message:
-                update_data["process_metadata"] = self.supabase.rpc(
-                    "jsonb_set",
-                    {
-                        "target": self.supabase.from_("generated_articles_state").select("process_metadata").eq("id", process_id).execute().data[0]["process_metadata"],
-                        "path": ["current_message"],
-                        "new_value": json.dumps(message)
-                    }
-                ).execute()
+                # Get current metadata and update it
+                current_record = self.supabase.from_("generated_articles_state").select("process_metadata").eq("id", process_id).execute().data[0]
+                metadata = current_record["process_metadata"] or {}
+                metadata["current_message"] = message
+                update_data["process_metadata"] = metadata
             
             # Update the record
             self.supabase.from_("generated_articles_state").update(update_data).eq("id", process_id).execute()

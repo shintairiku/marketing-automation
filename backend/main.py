@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 import os
 from pathlib import Path
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -9,13 +10,21 @@ from fastapi.staticfiles import StaticFiles
 from app.api.router import api_router
 from app.core.config import settings
 from app.core.exceptions import exception_handlers
+from app.core.ngrok_manager import ngrok_lifespan
+
+# FastAPI lifespan for ngrok integration
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    async with ngrok_lifespan(app, 8000):
+        yield
 
 # FastAPIアプリケーションの初期化
 app = FastAPI(
     title="Marketing Automation API",
     description="Comprehensive API for marketing automation including SEO article generation, organization management, and workflow automation.",
     version="2.0.0",
-    exception_handlers=exception_handlers
+    exception_handlers=exception_handlers,
+    lifespan=lifespan
 )
 
 # CORS設定
