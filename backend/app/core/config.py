@@ -41,6 +41,10 @@ class Settings(BaseSettings):
     research_model: str = os.getenv("RESEARCH_MODEL", "gpt-4o-mini")
     writing_model: str = os.getenv("WRITING_MODEL", "gpt-4o-mini")
     editing_model: str = os.getenv("EDITING_MODEL", "gpt-4o-mini")
+    
+    # Agents SDK specific settings
+    model_for_agents: str = os.getenv("MODEL_FOR_AGENTS", "gpt-4o-mini")
+    max_turns_for_agents: int = int(os.getenv("MAX_TURNS_FOR_AGENTS", "10"))
 
     # Scraping settings
     scraping_timeout: int = int(os.getenv("SCRAPING_TIMEOUT", "10"))

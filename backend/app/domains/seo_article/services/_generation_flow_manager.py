@@ -846,6 +846,10 @@ class GenerationFlowManager:
                              SerpKeywordAnalysisReport, ArticleSectionWithImages)):
             return output
         elif isinstance(output, str):
+            # SectionWriterAgent and EditorAgent return HTML directly, not JSON
+            if agent.name in ["SectionWriterAgent", "EditorAgent"]:
+                return output
+            
             try:
                 parsed_output = json.loads(output)
                 status_val = parsed_output.get("status")
@@ -924,7 +928,7 @@ class GenerationFlowManager:
                     # ワークフロステップをログに記録
                     workflow_logger.log_workflow_step(f"background_processing_{context.current_step}", {
                         "step": context.current_step,
-                        "background_processing": True,
+                        "background_processing": "true",
                         "websocket_disconnected": context.websocket is None
                     })
                 else:
@@ -936,11 +940,14 @@ class GenerationFlowManager:
                     if NOTION_SYNC_ENABLED and self.service.notion_sync_service and session_status == "completed":
                         try:
                             console.print(f"[yellow]🔄 Notionに自動同期開始: {process_id}[/yellow]")
-                            sync_success = self.service.notion_sync_service.sync_session_to_notion(workflow_logger.session_id)
-                            if sync_success:
-                                console.print(f"[green]✅ Notion自動同期完了: {process_id}[/green]")
+                            if hasattr(self.service.notion_sync_service, 'sync_session_to_notion'):
+                                sync_success = self.service.notion_sync_service.sync_session_to_notion(workflow_logger.session_id)
+                                if sync_success:
+                                    console.print(f"[green]✅ Notion自動同期完了: {process_id}[/green]")
+                                else:
+                                    console.print(f"[red]❌ Notion自動同期失敗: {process_id}[/red]")
                             else:
-                                console.print(f"[red]❌ Notion自動同期失敗: {process_id}[/red]")
+                                console.print(f"[yellow]⚠️ Notion同期メソッドが利用できません。スキップします。[/yellow]")
                         except Exception as sync_err:
                             logger.warning(f"Notion auto-sync failed: {sync_err}")
                             console.print(f"[red]❌ Notion自動同期エラー: {sync_err}[/red]")
@@ -1219,11 +1226,14 @@ class GenerationFlowManager:
                 if NOTION_SYNC_ENABLED and self.service.notion_sync_service and status == "completed":
                     try:
                         console.print(f"[yellow]🔄 Notionに自動同期開始: {process_id}[/yellow]")
-                        sync_success = self.service.notion_sync_service.sync_session_to_notion(workflow_logger.session_id)
-                        if sync_success:
-                            console.print(f"[green]✅ Notion自動同期完了: {process_id}[/green]")
+                        if hasattr(self.service.notion_sync_service, 'sync_session_to_notion'):
+                            sync_success = self.service.notion_sync_service.sync_session_to_notion(workflow_logger.session_id)
+                            if sync_success:
+                                console.print(f"[green]✅ Notion自動同期完了: {process_id}[/green]")
+                            else:
+                                console.print(f"[red]❌ Notion自動同期失敗: {process_id}[/red]")
                         else:
-                            console.print(f"[red]❌ Notion自動同期失敗: {process_id}[/red]")
+                            console.print(f"[yellow]⚠️ Notion同期メソッドが利用できません。スキップします。[/yellow]")
                     except Exception as sync_err:
                         logger.warning(f"Notion auto-sync failed: {sync_err}")
                         console.print(f"[red]❌ Notion自動同期エラー: {sync_err}[/red]")
@@ -1262,7 +1272,7 @@ class GenerationFlowManager:
             return
 
         current_agent = research_synthesizer_agent
-        agent_input = f"テーマ: {context.selected_theme.title}\nリサーチ結果: {json.dumps([r.model_dump() for r in context.research_query_results], ensure_ascii=False, indent=2)}"
+        agent_input = f"テーマ: {context.selected_theme.title}\nリサーチ結果: {json.dumps([r.model_dump() for r in context.research_query_results], indent=2)}"
         console.print(f"🤖 {current_agent.name} にリサーチ結果の統合を依頼します...")
         agent_output = await self.run_agent(current_agent, agent_input, context, run_config)
 
@@ -1288,7 +1298,7 @@ class GenerationFlowManager:
             return
 
         current_agent = outline_agent
-        agent_input = f"テーマ: {context.selected_theme.title}\nペルソナ: {context.selected_detailed_persona}\nリサーチ報告書: {context.research_report.model_dump_json(ensure_ascii=False, indent=2)}\n目標文字数: {context.target_length}"
+        agent_input = f"テーマ: {context.selected_theme.title}\nペルソナ: {context.selected_detailed_persona}\nリサーチ報告書: {context.research_report.model_dump_json(indent=2)}\n目標文字数: {context.target_length}"
         console.print(f"🤖 {current_agent.name} にアウトライン生成を依頼します...")
         agent_output = await self.run_agent(current_agent, agent_input, context, run_config)
 
@@ -1375,13 +1385,13 @@ class GenerationFlowManager:
 
     async def execute_editing_background(self, context: "ArticleContext", run_config: RunConfig, process_id: Optional[str] = None):
         """編集のバックグラウンド実行"""
-        if not context.generated_sections:
+        if not context.generated_sections_html:
             console.print("[red]生成されたセクションがありません。編集をスキップします。[/red]")
             context.current_step = "error"
             return
 
         current_agent = editor_agent
-        combined_content = "\n\n".join([section.content for section in context.generated_sections])
+        combined_content = "\n\n".join([section for section in context.generated_sections_html if section and section.strip()])
         agent_input = f"タイトル: {context.generated_outline.title}\nコンテンツ: {combined_content}\nペルソナ: {context.selected_detailed_persona}\n目標文字数: {context.target_length}"
         console.print(f"🤖 {current_agent.name} に最終編集を依頼します...")
         
@@ -1392,6 +1402,7 @@ class GenerationFlowManager:
 
         if isinstance(agent_output, RevisedArticle):
             context.final_article = agent_output
+            context.final_article_html = agent_output.content
             context.current_step = "completed"
             await self.log_workflow_step(context, "completed", {
                 "final_article_length": len(agent_output.content),
@@ -1403,8 +1414,22 @@ class GenerationFlowManager:
             # ワークフローロガーを最終化（記事編集完了）
             if hasattr(context, 'process_id') and context.process_id:
                 await self.finalize_workflow_logger(context.process_id, "completed")
+        elif isinstance(agent_output, str):
+            # EditorAgent returns HTML directly as string
+            context.final_article_html = agent_output
+            context.current_step = "completed"
+            await self.log_workflow_step(context, "completed", {
+                "final_article_length": len(agent_output),
+                "sections_count": len(context.generated_sections_html) if hasattr(context, 'generated_sections_html') else 0,
+                "total_tokens_used": getattr(context, 'total_tokens_used', 0)
+            })
+            console.print("[green]記事の編集が完了しました！[/green]")
+            
+            # ワークフローロガーを最終化（記事編集完了）
+            if hasattr(context, 'process_id') and context.process_id:
+                await self.finalize_workflow_logger(context.process_id, "completed")
         else:
-            console.print("[red]編集中に予期しないエージェント出力タイプを受け取りました。[/red]")
+            console.print(f"[red]編集中に予期しないエージェント出力タイプを受け取りました: {type(agent_output)}[/red]")
             context.current_step = "error"
 
 # ============================================================================
@@ -1459,7 +1484,7 @@ class GenerationFlowManager:
             return
         
         instruction_text = f"詳細リサーチレポートに基づいてアウトラインを作成してください。テーマ: {context.selected_theme.title if context.selected_theme else '未選択'}, 目標文字数 {context.target_length or '指定なし'}"
-        research_report_json_str = json.dumps(context.research_report.model_dump(), ensure_ascii=False, indent=2)
+        research_report_json_str = json.dumps(context.research_report.model_dump(), indent=2)
 
         # 会話履歴形式のリストを作成
         agent_input_list_for_outline = [
@@ -1740,9 +1765,9 @@ class GenerationFlowManager:
 
         # セクション執筆処理をカスタムスパンでラップ
         with safe_custom_span("section_writing", data={
-            "section_index": target_index,
+            "section_index": str(target_index),
             "section_heading": target_heading,
-            "total_sections": len(context.generated_outline.sections)
+            "total_sections": str(len(context.generated_outline.sections))
         }):
             user_request = f"前のセクション（もしあれば）に続けて、アウトラインのセクション {target_index + 1}「{target_heading}」の内容をHTMLで執筆してください。提供された詳細リサーチ情報を参照し、必要に応じて出典へのリンクを含めてください。"
             current_input_messages: List[Dict[str, Any]] = list(context.section_writer_history)
@@ -2354,3 +2379,270 @@ class GenerationFlowManager:
         else:
             console.print(f"[red]未実装のユーザー入力ステップ: {context.current_step}[/red]")
             context.current_step = "error"
+
+    # ============================================================================
+    # Background Task Execution Methods (Wrapper methods for background task manager)
+    # ============================================================================
+
+    async def execute_keyword_analysis_step(self, context: ArticleContext):
+        """Execute keyword analysis step for background tasks"""
+        try:
+            process_id = getattr(context, 'process_id', 'unknown')
+            run_config = RunConfig(
+                workflow_name="SEO記事生成ワークフロー（バックグラウンド）",
+                trace_id=f"trace_bg_keyword_{process_id}",
+                group_id=process_id,
+                trace_metadata={
+                    "process_id": process_id,
+                    "background_processing": "true",
+                    "current_step": "keyword_analyzing"
+                }
+            )
+            await self.handle_keyword_analyzing_step(context, run_config)
+        except Exception as e:
+            logger.error(f"Error in keyword analysis step: {e}")
+            context.current_step = "error"
+            context.error_message = str(e)
+            raise
+
+    async def execute_persona_generation_step(self, context: ArticleContext):
+        """Execute persona generation step for background tasks"""
+        try:
+            process_id = getattr(context, 'process_id', 'unknown')
+            run_config = RunConfig(
+                workflow_name="SEO記事生成ワークフロー（バックグラウンド）",
+                trace_id=f"trace_bg_persona_{process_id}",
+                group_id=process_id,
+                trace_metadata={
+                    "process_id": process_id,
+                    "background_processing": "true",
+                    "current_step": "persona_generating"
+                }
+            )
+            
+            # Execute persona generation without WebSocket interaction
+            current_agent = persona_generator_agent
+            agent_input = f"キーワード: {context.initial_keywords}, 年代: {context.target_age_group}, 属性: {context.persona_type}, 独自ペルソナ: {context.custom_persona}, 生成数: {context.num_persona_examples}"
+            logger.info(f"PersonaGeneratorAgent に具体的なペルソナ生成を依頼します...")
+            
+            agent_output = await self.run_agent(current_agent, agent_input, context, run_config)
+
+            if isinstance(agent_output, GeneratedPersonasResponse):
+                context.generated_detailed_personas = [p.description for p in agent_output.personas]
+                context.current_step = "persona_generated"
+                logger.info(f"{len(context.generated_detailed_personas)}件の具体的なペルソナを生成しました。ユーザー選択待ちです。")
+            else:
+                logger.error("ペルソナ生成中に予期しないエージェント出力タイプを受け取りました。")
+                context.current_step = "error"
+                context.error_message = "ペルソナ生成に失敗しました"
+                raise Exception("ペルソナ生成に失敗しました")
+                
+        except Exception as e:
+            logger.error(f"Error in persona generation step: {e}")
+            context.current_step = "error"
+            context.error_message = str(e)
+            raise
+
+    async def execute_theme_generation_step(self, context: ArticleContext):
+        """Execute theme generation step for background tasks"""
+        try:
+            process_id = getattr(context, 'process_id', 'unknown')
+            run_config = RunConfig(
+                workflow_name="SEO記事生成ワークフロー（バックグラウンド）",
+                trace_id=f"trace_bg_theme_{process_id}",
+                group_id=process_id,
+                trace_metadata={
+                    "process_id": process_id,
+                    "background_processing": "true",
+                    "current_step": "theme_generating"
+                }
+            )
+            
+            # Execute theme generation without WebSocket interaction
+            current_agent = theme_agent
+            agent_input = self.create_theme_agent_input(context)
+            logger.info(f"ThemeAgent にテーマ提案を依頼します...")
+            
+            agent_output = await self.run_agent(current_agent, agent_input, context, run_config)
+
+            if isinstance(agent_output, ThemeProposal):
+                context.generated_themes = agent_output.themes
+                context.current_step = "theme_proposed"
+                logger.info(f"{len(context.generated_themes)}件のテーマ案を生成しました。ユーザー選択待ちです。")
+            else:
+                logger.error("テーマ生成中に予期しないエージェント出力タイプを受け取りました。")
+                context.current_step = "error"
+                context.error_message = "テーマ生成に失敗しました"
+                raise Exception("テーマ生成に失敗しました")
+                
+        except Exception as e:
+            logger.error(f"Error in theme generation step: {e}")
+            context.current_step = "error"
+            context.error_message = str(e)
+            raise
+
+    async def execute_research_planning_step(self, context: ArticleContext):
+        """Execute research planning step for background tasks"""
+        try:
+            process_id = getattr(context, 'process_id', 'unknown')
+            run_config = RunConfig(
+                workflow_name="SEO記事生成ワークフロー（バックグラウンド）",
+                trace_id=f"trace_bg_research_plan_{process_id}",
+                group_id=process_id,
+                trace_metadata={
+                    "process_id": process_id,
+                    "background_processing": "true",
+                    "current_step": "research_planning"
+                }
+            )
+            await self.execute_research_planning_background(context, run_config)
+        except Exception as e:
+            logger.error(f"Error in research planning step: {e}")
+            context.current_step = "error"
+            context.error_message = str(e)
+            raise
+
+    async def execute_single_research_query(self, context: ArticleContext, query, query_index: int):
+        """Execute a single research query for background tasks"""
+        try:
+            process_id = getattr(context, 'process_id', 'unknown')
+            run_config = RunConfig(
+                workflow_name="SEO記事生成ワークフロー（バックグラウンド）",
+                trace_id=f"trace_bg_research_query_{process_id}_{query_index}",
+                group_id=process_id,
+                trace_metadata={
+                    "process_id": process_id,
+                    "background_processing": "true",
+                    "current_step": "researching",
+                    "query_index": query_index
+                }
+            )
+            
+            # Initialize research query results if not exists
+            if not hasattr(context, 'research_query_results'):
+                context.research_query_results = []
+                
+            # Execute research for this query
+            current_agent = researcher_agent
+            agent_input = f"以下のクエリについて詳細にリサーチしてください: {query.query if hasattr(query, 'query') else str(query)}"
+            
+            agent_output = await self.run_agent(current_agent, agent_input, context, run_config)
+            
+            if isinstance(agent_output, ResearchQueryResult):
+                context.research_query_results.append(agent_output)
+                logger.info(f"Research query {query_index + 1} completed successfully")
+            else:
+                logger.warning(f"Unexpected agent output type for research query {query_index + 1}: {type(agent_output)}")
+                
+        except Exception as e:
+            logger.error(f"Error in research query {query_index}: {e}")
+            raise
+
+    async def execute_research_synthesis_step(self, context: ArticleContext):
+        """Execute research synthesis step for background tasks"""
+        try:
+            process_id = getattr(context, 'process_id', 'unknown')
+            run_config = RunConfig(
+                workflow_name="SEO記事生成ワークフロー（バックグラウンド）",
+                trace_id=f"trace_bg_research_synthesis_{process_id}",
+                group_id=process_id,
+                trace_metadata={
+                    "process_id": process_id,
+                    "background_processing": "true",
+                    "current_step": "research_synthesizing"
+                }
+            )
+            await self.execute_research_synthesizing_background(context, run_config)
+        except Exception as e:
+            logger.error(f"Error in research synthesis step: {e}")
+            context.current_step = "error"
+            context.error_message = str(e)
+            raise
+
+    async def execute_outline_generation_step(self, context: ArticleContext):
+        """Execute outline generation step for background tasks"""
+        try:
+            process_id = getattr(context, 'process_id', 'unknown')
+            run_config = RunConfig(
+                workflow_name="SEO記事生成ワークフロー（バックグラウンド）",
+                trace_id=f"trace_bg_outline_{process_id}",
+                group_id=process_id,
+                trace_metadata={
+                    "process_id": process_id,
+                    "background_processing": "true",
+                    "current_step": "outline_generating"
+                }
+            )
+            await self.execute_outline_generating_background(context, run_config)
+        except Exception as e:
+            logger.error(f"Error in outline generation step: {e}")
+            context.current_step = "error"
+            context.error_message = str(e)
+            raise
+
+    async def write_single_section(self, context: ArticleContext, section, section_index: int) -> str:
+        """Write a single section for background tasks"""
+        try:
+            process_id = getattr(context, 'process_id', 'unknown')
+            run_config = RunConfig(
+                workflow_name="SEO記事生成ワークフロー（バックグラウンド）",
+                trace_id=f"trace_bg_section_{process_id}_{section_index}",
+                group_id=process_id,
+                trace_metadata={
+                    "process_id": process_id,
+                    "background_processing": "true",
+                    "current_step": "writing_sections",
+                    "section_index": str(section_index)
+                }
+            )
+            
+            # Choose appropriate agent based on image mode
+            if getattr(context, 'image_mode', False):
+                current_agent = section_writer_with_images_agent
+            else:
+                current_agent = section_writer_agent
+            
+            # Prepare section input
+            section_title = section.heading if hasattr(section, 'heading') else f"Section {section_index + 1}"
+            section_content = section.content if hasattr(section, 'content') else ""
+            
+            agent_input = f"""セクションタイトル: {section_title}
+セクション内容: {section_content}
+記事全体のテーマ: {context.selected_theme.title if hasattr(context, 'selected_theme') and context.selected_theme else 'N/A'}
+対象ペルソナ: {context.selected_detailed_persona if hasattr(context, 'selected_detailed_persona') else 'N/A'}
+リサーチ情報: {context.research_report.overall_summary if hasattr(context, 'research_report') and context.research_report else 'N/A'}"""
+
+            agent_output = await self.run_agent(current_agent, agent_input, context, run_config)
+            
+            if hasattr(agent_output, 'content'):
+                return agent_output.content
+            elif isinstance(agent_output, str):
+                return agent_output
+            else:
+                logger.warning(f"Unexpected section output type: {type(agent_output)}")
+                return f"<h2>{section_title}</h2>\n<p>セクション生成に失敗しました。</p>"
+                
+        except Exception as e:
+            logger.error(f"Error writing section {section_index}: {e}")
+            return f"<h2>{section.heading if hasattr(section, 'heading') else f'Section {section_index + 1}'}</h2>\n<p>セクション生成中にエラーが発生しました: {str(e)}</p>"
+
+    async def execute_editing_step(self, context: ArticleContext):
+        """Execute editing step for background tasks"""
+        try:
+            process_id = getattr(context, 'process_id', 'unknown')
+            run_config = RunConfig(
+                workflow_name="SEO記事生成ワークフロー（バックグラウンド）",
+                trace_id=f"trace_bg_editing_{process_id}",
+                group_id=process_id,
+                trace_metadata={
+                    "process_id": process_id,
+                    "background_processing": "true",
+                    "current_step": "editing"
+                }
+            )
+            await self.execute_editing_background(context, run_config)
+        except Exception as e:
+            logger.error(f"Error in editing step: {e}")
+            context.current_step = "error"
+            context.error_message = str(e)
+            raise

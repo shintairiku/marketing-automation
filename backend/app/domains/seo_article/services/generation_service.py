@@ -19,6 +19,7 @@ from ._websocket_handler import WebSocketHandler
 from ._generation_flow_manager import GenerationFlowManager
 from ._process_persistence_service import ProcessPersistenceService
 from ._generation_utils import GenerationUtils
+from .background_task_manager import BackgroundTaskManager
 
 # ログ関連のインポート（オプション）
 try:
@@ -55,6 +56,7 @@ class ArticleGenerationService:
         self.flow_manager = GenerationFlowManager(self)
         self.persistence_service = ProcessPersistenceService(self)
         self.utils = GenerationUtils(self)
+        self.background_task_manager = BackgroundTaskManager(self)
 
     # ============================================================================
     # 外部APIメソッド (互換性のために維持)
@@ -108,6 +110,280 @@ class ArticleGenerationService:
     async def get_background_task_status(self, process_id: str) -> Optional[str]:
         """Get the status of a background task"""
         return await self.websocket_handler.get_background_task_status(process_id)
+
+    # ============================================================================
+    # NEW: Supabase Realtime Migration Methods
+    # ============================================================================
+
+    async def create_generation_process(
+        self, 
+        user_id: str, 
+        organization_id: Optional[str],
+        request_data: Any
+    ) -> str:
+        """Create a new generation process in the database"""
+        try:
+            from ..schemas import GenerateArticleRequest
+            from ..context import ArticleContext
+            
+            # Convert request data to proper format if needed
+            if hasattr(request_data, 'dict'):
+                request_dict = request_data.dict()
+            elif hasattr(request_data, 'model_dump'):
+                request_dict = request_data.model_dump()
+            else:
+                request_dict = dict(request_data) if request_data else {}
+            
+            # Create ArticleContext from request
+            context = ArticleContext(
+                initial_keywords=request_dict.get("initial_keywords", []),
+                target_age_group=request_dict.get("target_age_group"),
+                persona_type=request_dict.get("persona_type"),
+                custom_persona=request_dict.get("custom_persona"),
+                target_length=request_dict.get("target_length"),
+                num_theme_proposals=request_dict.get("num_theme_proposals", 3),
+                num_research_queries=request_dict.get("num_research_queries", 3),
+                num_persona_examples=request_dict.get("num_persona_examples", 3),
+                company_name=request_dict.get("company_name"),
+                company_description=request_dict.get("company_description"),
+                company_style_guide=request_dict.get("company_style_guide"),
+                image_mode=request_dict.get("image_mode", False),
+                image_settings=request_dict.get("image_settings", {}),
+                style_template_id=request_dict.get("style_template_id"),
+                websocket=None,  # Background mode
+                user_response_event=None,  # Background mode
+                user_id=user_id
+            )
+            
+            # Save context to database and get process_id
+            process_id = await self.persistence_service.save_context_to_db(
+                context, 
+                user_id=user_id, 
+                organization_id=organization_id
+            )
+            
+            logger.info(f"Created generation process {process_id} for user {user_id}")
+            return process_id
+            
+        except Exception as e:
+            logger.error(f"Error creating generation process: {e}")
+            raise
+
+    async def run_generation_background_task(
+        self, 
+        process_id: str, 
+        user_id: str, 
+        organization_id: Optional[str],
+        request_data: Any
+    ) -> None:
+        """Run generation process as a background task"""
+        try:
+            await self.background_task_manager.start_generation_process(
+                process_id=process_id,
+                user_id=user_id,
+                organization_id=organization_id,
+                request_data=request_data
+            )
+        except Exception as e:
+            logger.error(f"Error running generation background task for {process_id}: {e}")
+            # Update process status to error
+            try:
+                await self.persistence_service.update_process_status(
+                    process_id=process_id,
+                    status="error",
+                    metadata={"error_message": str(e)}
+                )
+            except:
+                pass  # Don't raise on cleanup errors
+
+    async def resume_generation_background_task(
+        self, 
+        process_id: str, 
+        user_id: str
+    ) -> None:
+        """Resume generation process as a background task"""
+        try:
+            await self.background_task_manager.resume_generation_process(
+                process_id=process_id,
+                user_id=user_id
+            )
+        except Exception as e:
+            logger.error(f"Error resuming generation background task for {process_id}: {e}")
+            # Update process status to error
+            try:
+                await self.persistence_service.update_process_status(
+                    process_id=process_id,
+                    status="error",
+                    metadata={"error_message": str(e)}
+                )
+            except:
+                pass  # Don't raise on cleanup errors
+
+    async def process_user_input(
+        self, 
+        process_id: str, 
+        user_id: str, 
+        input_data: Dict[str, Any]
+    ) -> None:
+        """Process user input and update process state"""
+        try:
+            # Load context
+            context = await self.persistence_service.load_context_from_db(process_id, user_id)
+            if not context:
+                raise Exception(f"Process {process_id} not found")
+            
+            # Apply user input
+            await self.background_task_manager._apply_user_input_to_context(context, input_data)
+            
+            # Save updated context
+            await self.persistence_service.save_context_to_db(
+                context, 
+                process_id=process_id, 
+                user_id=user_id
+            )
+            
+            # Resolve user input waiting state using database function
+            from .flow_service import get_supabase_client
+            supabase = get_supabase_client()
+            
+            supabase.rpc('resolve_user_input', {
+                'p_process_id': process_id,
+                'p_user_response': input_data
+            }).execute()
+            
+            logger.info(f"Processed user input for process {process_id}")
+            
+        except Exception as e:
+            logger.error(f"Error processing user input for {process_id}: {e}")
+            raise
+
+    async def continue_generation_after_input(
+        self, 
+        process_id: str, 
+        user_id: str
+    ) -> None:
+        """Continue generation after receiving user input"""
+        try:
+            # Get the most recent user input from database
+            from .flow_service import get_supabase_client
+            supabase = get_supabase_client()
+            
+            process_state = await self.persistence_service.get_generation_process_state(process_id, user_id)
+            if not process_state:
+                raise Exception(f"Process {process_id} not found")
+            
+            # Get interaction history to find last user input
+            interaction_history = process_state.get("interaction_history", [])
+            last_interaction = interaction_history[-1] if interaction_history else None
+            
+            if last_interaction and last_interaction.get("action") == "input_resolved":
+                user_input = last_interaction.get("response", {})
+            else:
+                # Fallback: assume context already has the input applied
+                user_input = {"response_type": "continue", "payload": {}}
+            
+            await self.background_task_manager.continue_generation_after_input(
+                process_id=process_id,
+                user_id=user_id,
+                user_input=user_input
+            )
+            
+        except Exception as e:
+            logger.error(f"Error continuing generation after input for {process_id}: {e}")
+            # Update process status to error
+            try:
+                await self.persistence_service.update_process_status(
+                    process_id=process_id,
+                    status="error",
+                    metadata={"error_message": str(e)}
+                )
+            except:
+                pass  # Don't raise on cleanup errors
+
+    async def pause_generation_process(self, process_id: str, user_id: str) -> bool:
+        """Pause a running generation process"""
+        try:
+            return await self.background_task_manager.pause_generation_process(process_id, user_id)
+        except Exception as e:
+            logger.error(f"Error pausing generation process {process_id}: {e}")
+            return False
+
+    async def cancel_generation_process(self, process_id: str, user_id: str) -> bool:
+        """Cancel a generation process"""
+        try:
+            return await self.background_task_manager.cancel_generation_process(process_id, user_id)
+        except Exception as e:
+            logger.error(f"Error cancelling generation process {process_id}: {e}")
+            return False
+
+    async def get_process_events(
+        self, 
+        process_id: str, 
+        user_id: str, 
+        since_sequence: Optional[int] = None,
+        limit: int = 50,
+        event_types: Optional[List[str]] = None
+    ) -> List[Dict[str, Any]]:
+        """Get process events for real-time synchronization"""
+        try:
+            from .flow_service import get_supabase_client
+            supabase = get_supabase_client()
+            
+            # Validate process access
+            process_state = await self.persistence_service.get_generation_process_state(process_id, user_id)
+            if not process_state:
+                raise Exception("Process not found or access denied")
+            
+            # Build query
+            query = supabase.table("process_events").select(
+                "id, process_id, event_type, event_data, event_sequence, created_at"
+            ).eq("process_id", process_id)
+            
+            if since_sequence is not None:
+                query = query.gt("event_sequence", since_sequence)
+            
+            if event_types:
+                query = query.in_("event_type", event_types)
+            
+            query = query.order("event_sequence", desc=False).limit(limit)
+            
+            result = query.execute()
+            
+            return result.data if result.data else []
+            
+        except Exception as e:
+            logger.error(f"Error getting process events for {process_id}: {e}")
+            raise
+
+    async def acknowledge_process_event(
+        self, 
+        process_id: str, 
+        event_id: str, 
+        user_id: str
+    ) -> bool:
+        """Acknowledge receipt of a specific event"""
+        try:
+            from .flow_service import get_supabase_client
+            supabase = get_supabase_client()
+            
+            # Validate process access
+            process_state = await self.persistence_service.get_generation_process_state(process_id, user_id)
+            if not process_state:
+                return False
+            
+            # Update event acknowledgment
+            result = supabase.table("process_events").update({
+                "acknowledged_by": supabase.rpc('array_append', {
+                    'array_field': 'acknowledged_by',
+                    'new_element': user_id
+                })
+            }).eq("id", event_id).eq("process_id", process_id).execute()
+            
+            return bool(result.data)
+            
+        except Exception as e:
+            logger.error(f"Error acknowledging event {event_id}: {e}")
+            return False
 
     # ============================================================================
     # 内部的に使用される旧メソッドのプロキシ (必要に応じて)

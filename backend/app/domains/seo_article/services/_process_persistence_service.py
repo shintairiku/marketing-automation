@@ -101,60 +101,83 @@ class ProcessPersistenceService:
                     update_data["error_message"] = context.error_message
                     
                 # Add final article if completed
-                if context.current_step == "completed" and hasattr(context, 'final_article_html'):
-                    article_data = {
-                        "user_id": user_id,
-                        "organization_id": organization_id,
-                        "generation_process_id": process_id,
-                        "title": context.generated_outline.title if context.generated_outline else "Generated Article",
-                        "content": context.final_article_html,
-                        "keywords": context.initial_keywords,
-                        "target_audience": context.selected_detailed_persona,
-                        "status": "completed"
-                    }
+                if context.current_step == "completed":
+                    # Use final_article_html if available, otherwise fallback to full_draft_html
+                    final_content = getattr(context, 'final_article_html', None) or getattr(context, 'full_draft_html', None)
                     
-                    try:
-                        # 手動でのチェック・挿入・更新（UPSERT制約に依存しない）
-                        console.print(f"[cyan]Saving final article for process {process_id}[/cyan]")
-                        
-                        # 既存記事をチェック
-                        existing_article = supabase.table("articles").select("id").eq("generation_process_id", process_id).execute()
-                        
-                        if existing_article.data and len(existing_article.data) > 0:
-                            # 既存記事を更新
-                            article_id = existing_article.data[0]["id"]
-                            console.print(f"[yellow]Updating existing article {article_id}[/yellow]")
-                            article_result = supabase.table("articles").update(article_data).eq("id", article_id).execute()
-                            
-                            if article_result.data:
-                                update_data["article_id"] = article_id
-                                console.print(f"[green]Successfully updated article {article_id} for process {process_id}[/green]")
-                            else:
-                                console.print(f"[red]Failed to update article {article_id}: {article_result}[/red]")
+                    if final_content:
+                        article_data = {
+                            "user_id": user_id,
+                            "organization_id": organization_id,
+                            "generation_process_id": process_id,
+                            "title": context.generated_outline.title if context.generated_outline else "Generated Article",
+                            "content": final_content,
+                            "keywords": context.initial_keywords,
+                            "target_audience": context.selected_detailed_persona,
+                            "status": "completed"
+                        }
+                    else:
+                        # If no content available, combine generated sections as fallback
+                        fallback_content = '\n\n'.join(context.generated_sections_html) if hasattr(context, 'generated_sections_html') and context.generated_sections_html else ""
+                        if fallback_content:
+                            article_data = {
+                                "user_id": user_id,
+                                "organization_id": organization_id,
+                                "generation_process_id": process_id,
+                                "title": context.generated_outline.title if context.generated_outline else "Generated Article",
+                                "content": fallback_content,
+                                "keywords": context.initial_keywords,
+                                "target_audience": context.selected_detailed_persona,
+                                "status": "completed"
+                            }
                         else:
-                            # 新規記事を作成
-                            console.print(f"[yellow]Creating new article for process {process_id}[/yellow]")
-                            article_result = supabase.table("articles").insert(article_data).execute()
-                            
-                            if article_result.data:
-                                article_id = article_result.data[0]["id"]
-                                update_data["article_id"] = article_id
-                                console.print(f"[green]Successfully created article {article_id} for process {process_id}[/green]")
-                            else:
-                                console.print(f"[red]Failed to create article: {article_result}[/red]")
-                            
-                    except Exception as article_save_error:
-                        console.print(f"[red]Error saving article for process {process_id}: {article_save_error}[/red]")
-                        # 最後の試み: 強制的に挿入
+                            # No content available at all, skip article save
+                            article_data = None
+                            console.print(f"[yellow]Warning: No content available for process {process_id}, skipping article save[/yellow]")
+                    
+                    if article_data:
                         try:
-                            console.print(f"[yellow]Attempting force insert for process {process_id}[/yellow]")
-                            article_result = supabase.table("articles").insert(article_data).execute()
-                            if article_result.data:
-                                article_id = article_result.data[0]["id"]
-                                update_data["article_id"] = article_id
-                                console.print(f"[green]Force insert successful: {article_id}[/green]")
-                        except Exception as fallback_error:
-                            console.print(f"[red]Fallback article save also failed: {fallback_error}[/red]")
+                            # 手動でのチェック・挿入・更新（UPSERT制約に依存しない）
+                            console.print(f"[cyan]Saving final article for process {process_id}[/cyan]")
+                            
+                            # 既存記事をチェック
+                            existing_article = supabase.table("articles").select("id").eq("generation_process_id", process_id).execute()
+                            
+                            if existing_article.data and len(existing_article.data) > 0:
+                                # 既存記事を更新
+                                article_id = existing_article.data[0]["id"]
+                                console.print(f"[yellow]Updating existing article {article_id}[/yellow]")
+                                article_result = supabase.table("articles").update(article_data).eq("id", article_id).execute()
+                                
+                                if article_result.data:
+                                    update_data["article_id"] = article_id
+                                    console.print(f"[green]Successfully updated article {article_id} for process {process_id}[/green]")
+                                else:
+                                    console.print(f"[red]Failed to update article {article_id}: {article_result}[/red]")
+                            else:
+                                # 新規記事を作成
+                                console.print(f"[yellow]Creating new article for process {process_id}[/yellow]")
+                                article_result = supabase.table("articles").insert(article_data).execute()
+                                
+                                if article_result.data:
+                                    article_id = article_result.data[0]["id"]
+                                    update_data["article_id"] = article_id
+                                    console.print(f"[green]Successfully created article {article_id} for process {process_id}[/green]")
+                                else:
+                                    console.print(f"[red]Failed to create article: {article_result}[/red]")
+                                
+                        except Exception as article_save_error:
+                            console.print(f"[red]Error saving article for process {process_id}: {article_save_error}[/red]")
+                            # 最後の試み: 強制的に挿入
+                            try:
+                                console.print(f"[yellow]Attempting force insert for process {process_id}[/yellow]")
+                                article_result = supabase.table("articles").insert(article_data).execute()
+                                if article_result.data:
+                                    article_id = article_result.data[0]["id"]
+                                    update_data["article_id"] = article_id
+                                    console.print(f"[green]Force insert successful: {article_id}[/green]")
+                            except Exception as fallback_error:
+                                console.print(f"[red]Fallback article save also failed: {fallback_error}[/red]")
                 
                 supabase.table("generated_articles_state").update(update_data).eq("id", process_id).execute()
                 return process_id

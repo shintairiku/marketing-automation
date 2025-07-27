@@ -9,13 +9,14 @@ This module provides:
 - AI editing capabilities
 """
 
-from fastapi import APIRouter, WebSocket, status, Depends, HTTPException, Query
-from typing import List, Optional
+from fastapi import APIRouter, WebSocket, status, Depends, HTTPException, Query, BackgroundTasks
+from typing import List, Optional, Dict, Any
 import logging
 from pydantic import BaseModel, Field
 
 # 新しいインポートパス（修正版）
 from .services.generation_service import ArticleGenerationService
+from .schemas import GenerateArticleRequest, ClientResponsePayload
 # from .services.flow_service import (  # 後で実装
 #     article_flow_service,
 #     ArticleFlowCreate,
@@ -85,6 +86,22 @@ class AIEditRequest(BaseModel):
     """AIによるブロック編集リクエスト"""
     content: str = Field(..., description="元のHTMLブロック内容")
     instruction: str = Field(..., description="編集指示（カジュアルに書き換え等）")
+
+# --- New Realtime Process Management Models ---
+
+class UserInputRequest(BaseModel):
+    """ユーザー入力データ"""
+    response_type: str = Field(..., description="応答タイプ")
+    payload: Dict[str, Any] = Field(..., description="応答データ")
+
+class ProcessEventResponse(BaseModel):
+    """プロセスイベント応答"""
+    id: str
+    process_id: str
+    event_type: str
+    event_data: Dict[str, Any]
+    event_sequence: int
+    created_at: str
 
 # --- Article CRUD Endpoints ---
 
@@ -417,6 +434,413 @@ async def generate_article_websocket_endpoint(websocket: WebSocket, process_id: 
         return
     
     await article_service.handle_websocket_connection(websocket, process_id, user_id)
+
+# --- NEW: Supabase Realtime Process Management Endpoints ---
+
+@router.post("/generation/start", response_model=dict, status_code=status.HTTP_201_CREATED)
+async def start_generation_process(
+    request: GenerateArticleRequest,
+    background_tasks: BackgroundTasks,
+    user_id: str = Depends(get_current_user_id_from_token),
+    organization_id: Optional[str] = Query(None, description="Organization ID for multi-tenant support")
+):
+    """
+    Start a new article generation process using background tasks and Supabase Realtime.
+    
+    **Parameters:**
+    - request: Article generation request parameters
+    - user_id: User ID (from authentication)
+    - organization_id: Optional organization ID for multi-tenant support
+    
+    **Returns:**
+    - process_id: Unique process identifier
+    - realtime_channel: Supabase Realtime channel name for subscription
+    - status: Initial process status
+    """
+    try:
+        # Create process in database
+        process_id = await article_service.create_generation_process(
+            user_id=user_id,
+            organization_id=organization_id,
+            request_data=request
+        )
+        
+        # Start background task
+        background_tasks.add_task(
+            article_service.run_generation_background_task,
+            process_id=process_id,
+            user_id=user_id,
+            organization_id=organization_id,
+            request_data=request
+        )
+        
+        return {
+            "process_id": process_id,
+            "realtime_channel": f"process_{process_id}",
+            "status": "started",
+            "message": "Generation process started successfully",
+            "subscription_info": {
+                "table": "process_events",
+                "filter": f"process_id=eq.{process_id}",
+                "channel": f"process_events:process_id=eq.{process_id}"
+            }
+        }
+        
+    except Exception as e:
+        logger.error(f"Error starting generation process: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to start generation process"
+        )
+
+@router.post("/generation/{process_id}/resume", response_model=dict, status_code=status.HTTP_200_OK)
+async def resume_generation_process(
+    process_id: str,
+    background_tasks: BackgroundTasks,
+    user_id: str = Depends(get_current_user_id_from_token)
+):
+    """
+    Resume a paused or failed generation process.
+    
+    **Parameters:**
+    - process_id: Generation process ID to resume
+    - user_id: User ID (from authentication)
+    
+    **Returns:**
+    - process_id: Process identifier
+    - status: Updated process status
+    """
+    try:
+        # Validate process ownership and resumability
+        process_state = await article_service.get_generation_process_state(process_id, user_id)
+        if not process_state:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, 
+                detail="Process not found or access denied"
+            )
+        
+        # Check if process can be resumed
+        resumable_statuses = ['user_input_required', 'paused', 'error']
+        if process_state.get("status") not in resumable_statuses:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Process cannot be resumed from status: {process_state.get('status')}"
+            )
+        
+        # Start resume background task
+        background_tasks.add_task(
+            article_service.resume_generation_background_task,
+            process_id=process_id,
+            user_id=user_id
+        )
+        
+        return {
+            "process_id": process_id,
+            "status": "resuming",
+            "message": "Generation process resume initiated",
+            "realtime_channel": f"process_{process_id}"
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error resuming generation {process_id}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to resume generation process"
+        )
+
+@router.post("/generation/{process_id}/user-input", response_model=dict, status_code=status.HTTP_200_OK)
+async def submit_user_input(
+    process_id: str,
+    input_data: UserInputRequest,
+    background_tasks: BackgroundTasks,
+    user_id: str = Depends(get_current_user_id_from_token)
+):
+    """
+    Submit user input for a process waiting for user interaction.
+    
+    **Parameters:**
+    - process_id: Generation process ID
+    - input_data: User input data (response_type and payload)
+    - user_id: User ID (from authentication)
+    
+    **Returns:**
+    - process_id: Process identifier
+    - status: Updated process status
+    """
+    try:
+        # Validate process state
+        process_state = await article_service.get_generation_process_state(process_id, user_id)
+        if not process_state:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Process not found or access denied"
+            )
+        
+        if not process_state.get("is_waiting_for_input"):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Process is not waiting for user input"
+            )
+        
+        # Validate input type matches expected
+        expected_input_type = process_state.get("input_type")
+        if expected_input_type and expected_input_type != input_data.response_type:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Expected input type '{expected_input_type}', got '{input_data.response_type}'"
+            )
+        
+        # Store user input and update process state
+        await article_service.process_user_input(
+            process_id=process_id,
+            user_id=user_id,
+            input_data=input_data.dict()
+        )
+        
+        # Continue processing in background
+        background_tasks.add_task(
+            article_service.continue_generation_after_input,
+            process_id=process_id,
+            user_id=user_id
+        )
+        
+        return {
+            "process_id": process_id,
+            "status": "input_received",
+            "message": "User input received, continuing generation",
+            "input_type": input_data.response_type
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error processing user input for {process_id}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to process user input"
+        )
+
+@router.post("/generation/{process_id}/pause", response_model=dict, status_code=status.HTTP_200_OK)
+async def pause_generation_process(
+    process_id: str,
+    user_id: str = Depends(get_current_user_id_from_token)
+):
+    """
+    Pause a running generation process.
+    
+    **Parameters:**
+    - process_id: Generation process ID to pause
+    - user_id: User ID (from authentication)
+    
+    **Returns:**
+    - process_id: Process identifier
+    - status: Updated process status
+    """
+    try:
+        success = await article_service.pause_generation_process(process_id, user_id)
+        if not success:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Process not found, access denied, or cannot be paused"
+            )
+        
+        return {
+            "process_id": process_id,
+            "status": "paused",
+            "message": "Generation process paused successfully"
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error pausing generation {process_id}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to pause generation process"
+        )
+
+@router.delete("/generation/{process_id}", response_model=dict, status_code=status.HTTP_200_OK)
+async def cancel_generation_process(
+    process_id: str,
+    user_id: str = Depends(get_current_user_id_from_token)
+):
+    """
+    Cancel a generation process.
+    
+    **Parameters:**
+    - process_id: Generation process ID to cancel
+    - user_id: User ID (from authentication)
+    
+    **Returns:**
+    - process_id: Process identifier
+    - status: Updated process status
+    """
+    try:
+        success = await article_service.cancel_generation_process(process_id, user_id)
+        if not success:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Process not found, access denied, or cannot be cancelled"
+            )
+        
+        return {
+            "process_id": process_id,
+            "status": "cancelled",
+            "message": "Generation process cancelled successfully"
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error cancelling generation {process_id}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to cancel generation process"
+        )
+
+@router.get("/generation/{process_id}/events", response_model=List[ProcessEventResponse], status_code=status.HTTP_200_OK)
+async def get_process_events(
+    process_id: str,
+    user_id: str = Depends(get_current_user_id_from_token),
+    since_sequence: Optional[int] = Query(None, description="Get events after this sequence number"),
+    limit: int = Query(50, description="Maximum events to return"),
+    event_types: Optional[str] = Query(None, description="Comma-separated list of event types to filter")
+):
+    """
+    Get process events for real-time synchronization and event history.
+    
+    **Parameters:**
+    - process_id: Generation process ID
+    - user_id: User ID (from authentication)
+    - since_sequence: Get events after this sequence number (for incremental updates)
+    - limit: Maximum number of events to return
+    - event_types: Comma-separated list of event types to filter (optional)
+    
+    **Returns:**
+    - List of process events ordered by sequence number
+    """
+    try:
+        # Parse event types filter
+        event_type_list = None
+        if event_types:
+            event_type_list = [t.strip() for t in event_types.split(",") if t.strip()]
+        
+        events = await article_service.get_process_events(
+            process_id=process_id,
+            user_id=user_id,
+            since_sequence=since_sequence,
+            limit=limit,
+            event_types=event_type_list
+        )
+        
+        return events
+        
+    except Exception as e:
+        logger.error(f"Error getting process events for {process_id}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to retrieve process events"
+        )
+
+@router.post("/generation/{process_id}/events/{event_id}/acknowledge", response_model=dict, status_code=status.HTTP_200_OK)
+async def acknowledge_event(
+    process_id: str,
+    event_id: str,
+    user_id: str = Depends(get_current_user_id_from_token)
+):
+    """
+    Acknowledge receipt of a specific event (for reliable delivery tracking).
+    
+    **Parameters:**
+    - process_id: Generation process ID
+    - event_id: Event ID to acknowledge
+    - user_id: User ID (from authentication)
+    
+    **Returns:**
+    - status: Acknowledgment status
+    """
+    try:
+        success = await article_service.acknowledge_process_event(
+            process_id=process_id,
+            event_id=event_id,
+            user_id=user_id
+        )
+        
+        if not success:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Event not found or access denied"
+            )
+        
+        return {
+            "status": "acknowledged",
+            "event_id": event_id,
+            "process_id": process_id
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error acknowledging event {event_id}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to acknowledge event"
+        )
+
+@router.get("/generation/{process_id}/realtime-info", response_model=dict, status_code=status.HTTP_200_OK)
+async def get_realtime_subscription_info(
+    process_id: str,
+    user_id: str = Depends(get_current_user_id_from_token)
+):
+    """
+    Get Supabase Realtime subscription information for a process.
+    
+    **Parameters:**
+    - process_id: Generation process ID
+    - user_id: User ID (from authentication)
+    
+    **Returns:**
+    - Subscription configuration for Supabase Realtime client
+    """
+    try:
+        # Validate process access
+        process_state = await article_service.get_generation_process_state(process_id, user_id)
+        if not process_state:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Process not found or access denied"
+            )
+        
+        return {
+            "process_id": process_id,
+            "subscription_config": {
+                "channel_name": f"process_events:process_id=eq.{process_id}",
+                "table": "process_events",
+                "filter": f"process_id=eq.{process_id}",
+                "event": "INSERT",
+                "schema": "public"
+            },
+            "process_state_subscription": {
+                "channel_name": f"process_state:{process_id}",
+                "table": "generated_articles_state",
+                "filter": f"id=eq.{process_id}",
+                "event": "UPDATE",
+                "schema": "public"
+            },
+            "current_status": process_state.get("status"),
+            "last_updated": process_state.get("updated_at")
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting realtime info for {process_id}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to retrieve realtime subscription info"
+        )
 
 # --- Article Flow Management Endpoints ---
 
