@@ -102,34 +102,32 @@ export default function IndexPage() {
     };
 
     const getProgressPercentage = () => {
-        const stepOrder = [
-            'start', 'keyword_analyzing', 'keyword_analyzed', 'persona_generating', 'persona_generated',
-            'theme_generating', 'theme_proposed', 'research_planning', 'research_plan_generated',
-            'researching', 'research_synthesizing', 'outline_generating', 'outline_generated',
-            'writing_sections', 'editing', 'completed'
-        ];
+        // 8つのステップに基づく進捗計算
+        const stepProgressMap = {
+            'keyword_analyzing': 12.5,      // キーワード分析: 12.5%
+            'persona_generating': 25,       // ペルソナ生成: 25%
+            'theme_generating': 37.5,       // テーマ提案: 37.5%
+            'research_planning': 50,        // リサーチ計画: 50%
+            'researching': 62.5,            // リサーチ実行（リサーチ要約）: 62.5%
+            'outline_generating': 75,       // アウトライン作成: 75%
+            'writing_sections': 87.5,       // 執筆: 87.5%
+            'editing': 100,                 // 編集・校正: 100%
+        };
         
-        // 完了状態の場合は100%
-        if (state.currentStep === 'completed') {
-            return 100;
+        // ユーザー入力待ちの場合は、現在のステップの進捗を返す
+        const progress = stepProgressMap[state.currentStep as keyof typeof stepProgressMap];
+        if (progress !== undefined) {
+            return progress;
         }
         
-        const currentStepIndex = stepOrder.indexOf(state.currentStep);
+        // フォールバック: ステップ配列から計算
+        const currentStepIndex = state.steps.findIndex((step: any) => step.id === state.currentStep);
         if (currentStepIndex === -1) return 0;
         
-        // 完了したステップ数を計算
-        const completedSteps = state.steps.filter((step: any) => step.status === 'completed').length;
-        const inProgressSteps = state.steps.filter((step: any) => step.status === 'in_progress').length;
-        
-        // 実行中のステップは50%の重みを付ける
-        const totalProgress = completedSteps + (inProgressSteps * 0.5);
-        const percentage = Math.round((totalProgress / state.steps.length) * 100);
-        
-        // 完了前は最大95%まで、完了時は100%
-        return state.currentStep === 'completed' ? 100 : Math.min(percentage, 95);
+        return ((currentStepIndex + 1) / state.steps.length) * 100;
     };
 
-    const isGenerating = state.currentStep !== 'start' && state.currentStep !== 'completed' && state.currentStep !== 'error';
+    const isGenerating = state.currentStep !== 'completed' && state.currentStep !== 'error';
 
     return (
         <div className="w-full max-w-7xl mx-auto space-y-6 p-4 min-h-screen">
