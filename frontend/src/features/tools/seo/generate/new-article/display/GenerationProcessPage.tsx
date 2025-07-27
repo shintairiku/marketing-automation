@@ -8,6 +8,7 @@ import { AlertCircle, ArrowLeft,CheckCircle } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
+import { useArticleGenerationRealtime } from '@/hooks/useArticleGenerationRealtime';
 import { useUser } from '@clerk/nextjs';
 
 import CompactGenerationFlow from "../component/CompactGenerationFlow";
@@ -15,7 +16,6 @@ import CompactUserInteraction from "../component/CompactUserInteraction";
 import ErrorRecoveryActions from "../component/ErrorRecoveryActions";
 import GenerationErrorHandler from "../component/GenerationErrorHandler";
 import ProcessRecoveryDialog from "../component/ProcessRecoveryDialog";
-import { useArticleGeneration } from '../hooks/useArticleGeneration';
 
 interface GenerationProcessPageProps {
     jobId: string;
@@ -42,10 +42,10 @@ export default function GenerationProcessPage({ jobId }: GenerationProcessPagePr
         selectTheme,
         approvePlan,
         approveOutline,
-        regenerate,
-        editAndProceed,
-        loadProcessState,
-    } = useArticleGeneration({
+        pauseGeneration,
+        resumeGeneration,
+        cancelGeneration,
+    } = useArticleGenerationRealtime({
         processId: jobId,
         userId: user?.id,
     });
@@ -57,48 +57,50 @@ export default function GenerationProcessPage({ jobId }: GenerationProcessPagePr
             
             setIsLoading(true);
             try {
-                // まずプロセス情報を直接取得
-                const response = await fetch(`/api/articles/generation/${jobId}`);
+                // プロセス情報を直接取得（新しいAPIエンドポイントを使用）
+                const response = await fetch(`/api/proxy/articles/generation/${jobId}`, {
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    credentials: 'include',
+                });
+                
                 if (!response.ok) {
                     router.push('/seo/generate/new-article');
                     return;
                 }
 
                 const processData = await response.json();
+                console.log('📥 Process data loaded:', processData);
+                
+                // Debug article_context structure for outline debugging
+                if (processData.article_context) {
+                    console.log('🔍 Article context keys:', Object.keys(processData.article_context));
+                    console.log('🔍 Article context outline:', processData.article_context.outline);
+                    console.log('🔍 Article context research_plan:', processData.article_context.research_plan);
+                    console.log('🔍 Current step name:', processData.current_step_name);
+                    console.log('🔍 Status:', processData.status);
+                    console.log('🔍 Process metadata:', processData.process_metadata);
+                }
                 
                 // 復帰可能かチェック
-                if (processData.recovery_info?.can_resume && 
+                if (processData.can_resume && 
                     ['user_input_required', 'paused', 'error'].includes(processData.status)) {
                     setRecoveryInfo({
-                        can_resume: processData.recovery_info.can_resume,
-                        resume_step: processData.current_step_name || processData.status,
-                        current_data: processData.generated_content,
+                        can_resume: processData.can_resume,
+                        resume_step: processData.current_step || processData.status,
+                        current_data: processData.context,
                         waiting_for_input: processData.is_waiting_for_input,
                         input_type: processData.input_type,
-                        last_activity: processData.last_activity_at,
+                        last_activity: processData.updated_at,
                         status: processData.status,
                         error_message: processData.error_message,
                     });
                     setShowRecoveryDialog(true);
-                    setIsLoading(false);
-                    return;
-                }
-
-                // 通常の状態読み込み
-                const success = await loadProcessState();
-                if (!success) {
-                    router.push('/seo/generate/new-article');
-                    return;
                 }
                 
-                // プロセス状態が読み込まれたら接続を試行
-                // しかし、復帰ダイアログが表示される場合があるので条件を確認
-                if (processData.status === 'in_progress' && 
-                    !['user_input_required', 'paused', 'error'].includes(processData.status)) {
-                    setTimeout(() => {
-                        connect();
-                    }, 100);
-                }
+                // Supabase Realtime接続は自動的に開始される（useArticleGenerationRealtimeのautoConnect=true）
+                
             } catch (err) {
                 console.error('Error loading process:', err);
                 router.push('/seo/generate/new-article');
@@ -108,7 +110,7 @@ export default function GenerationProcessPage({ jobId }: GenerationProcessPagePr
         };
 
         loadProcess();
-    }, [user?.id, jobId, loadProcessState, connect, router]);
+    }, [user?.id, jobId, router]);
 
     // 思考メッセージの更新
     useEffect(() => {
@@ -140,7 +142,7 @@ export default function GenerationProcessPage({ jobId }: GenerationProcessPagePr
             }
         } else if (state.currentStep === 'editing') {
             messages.push('記事全体を校正し、最終調整を行っています...');
-        } else if (state.currentStep === 'error' || state.error || state.steps.some(step => step.status === 'error')) {
+        } else if (state.currentStep === 'error' || state.error || state.steps.some((step: any) => step.status === 'error')) {
             messages.push('記事生成中にエラーが発生しました。再試行してください。');
         } else if (state.currentStep === 'completed') {
             messages.push('記事生成が完了しました！');
@@ -151,7 +153,7 @@ export default function GenerationProcessPage({ jobId }: GenerationProcessPagePr
 
     // 生成完了後に編集ページへ遷移（エラー状態でない場合のみ）
     useEffect(() => {
-        if (state.currentStep === 'completed' && state.articleId && !state.error && !state.steps.some(step => step.status === 'error')) {
+        if (state.currentStep === 'completed' && state.articleId && !state.error && !state.steps.some((step: any) => step.status === 'error')) {
             const timer = setTimeout(() => {
                 router.push(`/seo/generate/edit-article/${state.articleId}`);
             }, 2000);
@@ -216,23 +218,24 @@ export default function GenerationProcessPage({ jobId }: GenerationProcessPagePr
     const handleResume = async () => {
         // ローディング状態を表示
         setThinkingMessages(['プロセスを復帰中...']);
+        setShowRecoveryDialog(false);
         
-        const success = await loadProcessState();
-        if (success) {
-            // 状態読み込み後にWebSocket接続
-            setTimeout(() => {
+        try {
+            // Supabase Realtimeが自動的に状態を同期するため、接続を確認するだけ
+            if (!isConnected && !isConnecting) {
                 connect();
-            }, 200);
+            }
             
             // 復帰成功をユーザーに示す
-            setThinkingMessages(['プロセスが正常に復帰されました。']);
+            setThinkingMessages(['プロセスが正常に復帰されました。リアルタイム更新を開始します。']);
             
             // 2秒後に通常の状態表示に戻す
             setTimeout(() => {
                 setThinkingMessages([]);
             }, 2000);
-        } else {
-            // 読み込み失敗時のエラー表示
+            
+        } catch (err) {
+            console.error('Resume error:', err);
             setThinkingMessages(['プロセスの復帰に失敗しました。新規作成をお試しください。']);
         }
     };
@@ -249,12 +252,14 @@ export default function GenerationProcessPage({ jobId }: GenerationProcessPagePr
     const handleRetry = async () => {
         setRetryCount(prev => prev + 1);
         try {
-            if (isConnected) {
-                // WebSocket経由でリトライ
-                // TODO: WebSocketにリトライメッセージを送信
-            } else {
-                // 接続を再試行
+            if (!isConnected && !isConnecting) {
+                // Supabase Realtime接続を再試行
                 connect();
+            } else {
+                // 既に接続済みの場合、プロセス再開APIを呼び出し
+                if (resumeGeneration) {
+                    await resumeGeneration();
+                }
             }
         } catch (err) {
             console.error('Retry failed:', err);
@@ -357,6 +362,18 @@ export default function GenerationProcessPage({ jobId }: GenerationProcessPagePr
                                     animate={{ opacity: 1, y: 0 }}
                                     exit={{ opacity: 0, y: -20 }}
                                 >
+                                    {(() => {
+                                        console.log('🎭 CompactUserInteraction props:', {
+                                            type: state.inputType,
+                                            hasPersonas: !!state.personas,
+                                            hasThemes: !!state.themes,
+                                            hasResearchPlan: !!state.researchPlan,
+                                            hasOutline: !!state.outline,
+                                            outlineContent: state.outline,
+                                            isWaitingForInput: state.isWaitingForInput
+                                        });
+                                        return null;
+                                    })()}
                                     <CompactUserInteraction
                                         type={state.inputType as any}
                                         personas={state.personas}
@@ -377,11 +394,13 @@ export default function GenerationProcessPage({ jobId }: GenerationProcessPagePr
                                                 approveOutline(approved);
                                             }
                                         }}
-                                        onRegenerate={regenerate}
+                                        onRegenerate={() => {
+                                            // TODO: Implement regenerate with HTTP API
+                                            console.log('Regenerate not yet implemented for Supabase Realtime');
+                                        }}
                                         onEditAndProceed={(editedContent) => {
-                                            if (state.inputType) {
-                                                editAndProceed(editedContent, state.inputType);
-                                            }
+                                            // TODO: Implement editAndProceed with HTTP API
+                                            console.log('EditAndProceed not yet implemented for Supabase Realtime', { editedContent, inputType: state.inputType });
                                         }}
                                         isWaiting={false}
                                     />

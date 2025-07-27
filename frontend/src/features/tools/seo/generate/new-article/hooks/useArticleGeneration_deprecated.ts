@@ -4,7 +4,7 @@ import { useCallback,useState } from 'react';
 
 import { useAuth } from '@clerk/nextjs';
 
-import { ClientResponseMessage,ServerEventMessage, useWebSocket } from './useWebSocket';
+import { ClientResponseMessage,ServerEventMessage, useWebSocket } from './useWebSocket_deprecated';
 
 export interface GenerationStep {
   id: string;
