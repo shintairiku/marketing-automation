@@ -15,7 +15,8 @@ import logging
 from typing import Dict, Any, Optional, List
 from datetime import datetime, timezone
 
-from ._websocket_handler import WebSocketHandler
+# DEPRECATED: WebSocket functionality replaced by Supabase Realtime
+# from ._websocket_handler_deprecated import WebSocketHandler
 from ._generation_flow_manager import GenerationFlowManager
 from ._process_persistence_service import ProcessPersistenceService
 from ._generation_utils import GenerationUtils
@@ -52,7 +53,8 @@ class ArticleGenerationService:
         self.notion_sync_service = NotionSyncService() if NOTION_SYNC_ENABLED else None
 
         # 各機能別のハンドラーを初期化
-        self.websocket_handler = WebSocketHandler(self)
+        # DEPRECATED: WebSocket functionality replaced by Supabase Realtime
+        # self.websocket_handler = WebSocketHandler(self)
         self.flow_manager = GenerationFlowManager(self)
         self.persistence_service = ProcessPersistenceService(self)
         self.utils = GenerationUtils(self)
@@ -63,8 +65,17 @@ class ArticleGenerationService:
     # ============================================================================
 
     async def handle_websocket_connection(self, websocket, process_id: Optional[str] = None, user_id: Optional[str] = None):
-        """WebSocket接続を処理し、記事生成プロセスを実行"""
-        return await self.websocket_handler.handle_websocket_connection(websocket, process_id, user_id)
+        """
+        DEPRECATED: WebSocket接続を処理し、記事生成プロセスを実行
+        
+        This method is deprecated. Use the new HTTP API endpoints with Supabase Realtime instead:
+        - POST /generation/start
+        - POST /generation/{id}/user-input
+        - GET /generation/{id}
+        """
+        # return await self.websocket_handler.handle_websocket_connection(websocket, process_id, user_id)
+        await websocket.close(code=1000, reason="WebSocket endpoint deprecated. Use HTTP API with Supabase Realtime.")
+        return None
 
     async def get_generation_process_state(self, process_id: str, user_id: str) -> Optional[Dict[str, Any]]:
         """Get generation process state from database"""
@@ -123,10 +134,13 @@ class ArticleGenerationService:
     ) -> str:
         """Create a new generation process in the database"""
         try:
+            logger.info(f"🔨 [CREATE_PROCESS] Creating generation process for user: {user_id}")
+            
             from ..schemas import GenerateArticleRequest
             from ..context import ArticleContext
             
             # Convert request data to proper format if needed
+            logger.info(f"📊 [CREATE_PROCESS] Converting request data to dictionary format")
             if hasattr(request_data, 'dict'):
                 request_dict = request_data.dict()
             elif hasattr(request_data, 'model_dump'):
@@ -134,7 +148,10 @@ class ArticleGenerationService:
             else:
                 request_dict = dict(request_data) if request_data else {}
             
+            logger.info(f"✅ [CREATE_PROCESS] Request data converted, image_mode: {request_dict.get('image_mode', False)}")
+            
             # Create ArticleContext from request
+            logger.info(f"🧠 [CREATE_PROCESS] Creating ArticleContext")
             context = ArticleContext(
                 initial_keywords=request_dict.get("initial_keywords", []),
                 target_age_group=request_dict.get("target_age_group"),
@@ -154,19 +171,28 @@ class ArticleGenerationService:
                 user_response_event=None,  # Background mode
                 user_id=user_id
             )
+            logger.info(f"✅ [CREATE_PROCESS] ArticleContext created, current_step: {context.current_step}")
             
             # Save context to database and get process_id
+            logger.info(f"💾 [CREATE_PROCESS] Saving context to database")
             process_id = await self.persistence_service.save_context_to_db(
                 context, 
                 user_id=user_id, 
                 organization_id=organization_id
             )
+            logger.info(f"✅ [CREATE_PROCESS] Context saved to database with process_id: {process_id}")
             
-            logger.info(f"Created generation process {process_id} for user {user_id}")
+            # Publish process_created event immediately
+            logger.info(f"📢 [CREATE_PROCESS] Publishing process_created event")
+            await self._publish_process_created_event(process_id, user_id, context)
+            logger.info(f"✅ [CREATE_PROCESS] process_created event published")
+            
+            logger.info(f"🎉 [CREATE_PROCESS] Successfully created generation process {process_id} for user {user_id}")
             return process_id
             
         except Exception as e:
-            logger.error(f"Error creating generation process: {e}")
+            logger.error(f"💥 [CREATE_PROCESS] Error creating generation process: {e}")
+            logger.exception(f"[CREATE_PROCESS] Full exception details:")
             raise
 
     async def run_generation_background_task(
@@ -178,14 +204,17 @@ class ArticleGenerationService:
     ) -> None:
         """Run generation process as a background task"""
         try:
+            logger.info(f"🎯 [GEN_SERVICE] Starting background task for process {process_id}, user: {user_id}")
             await self.background_task_manager.start_generation_process(
                 process_id=process_id,
                 user_id=user_id,
                 organization_id=organization_id,
                 request_data=request_data
             )
+            logger.info(f"✅ [GEN_SERVICE] Background task started successfully for process {process_id}")
         except Exception as e:
-            logger.error(f"Error running generation background task for {process_id}: {e}")
+            logger.error(f"💥 [GEN_SERVICE] Error running generation background task for {process_id}: {e}")
+            logger.exception(f"[GEN_SERVICE] Full exception details:")
             # Update process status to error
             try:
                 await self.persistence_service.update_process_status(
@@ -540,3 +569,34 @@ class ArticleGenerationService:
     def calculate_progress_percentage(self, context) -> int:
         """プロセスの進捗率を計算（より詳細な計算） (旧メソッド互換性)"""
         return self.utils.calculate_progress_percentage(context)
+    
+    async def _publish_process_created_event(self, process_id: str, user_id: str, context):
+        """Publish process_created event to Supabase Realtime"""
+        try:
+            from .flow_service import get_supabase_client
+            supabase = get_supabase_client()
+            
+            # Create process_created event
+            result = supabase.rpc('create_process_event', {
+                'p_process_id': process_id,
+                'p_event_type': 'process_created',
+                'p_event_data': {
+                    'process_id': process_id,
+                    'user_id': user_id,
+                    'status': 'in_progress',
+                    'current_step': context.current_step,
+                    'message': 'Process created successfully',
+                    'image_mode': context.image_mode,
+                    'created_at': datetime.now(timezone.utc).isoformat()
+                },
+                'p_event_category': 'lifecycle',
+                'p_event_source': 'generation_service'
+            }).execute()
+            
+            if result.data:
+                logger.info(f"Published process_created event for process {process_id}")
+            else:
+                logger.warning(f"Failed to publish process_created event for process {process_id}")
+                
+        except Exception as e:
+            logger.error(f"Error publishing process_created event for {process_id}: {e}")

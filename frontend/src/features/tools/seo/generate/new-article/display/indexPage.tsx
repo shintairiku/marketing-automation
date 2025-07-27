@@ -13,7 +13,7 @@ import { useUser } from '@clerk/nextjs';
 import CompactGenerationFlow from "../component/CompactGenerationFlow";
 import CompactUserInteraction from "../component/CompactUserInteraction";
 import GenerationErrorHandler from "../component/GenerationErrorHandler";
-import { useArticleGeneration } from '../hooks/useArticleGeneration';
+import { useArticleGenerationRealtime } from '@/hooks/useArticleGenerationRealtime';
 
 import ExplainDialog from "./ExplainDialog";
 import InputSection from "./InputSection";
@@ -36,18 +36,16 @@ export default function IndexPage() {
         selectTheme,
         approvePlan,
         approveOutline,
-        regenerate,
-        editAndProceed,
-    } = useArticleGeneration({
+        pauseGeneration,
+        resumeGeneration,
+        cancelGeneration,
+    } = useArticleGenerationRealtime({
         userId: user?.id,
+        autoConnect: true,
     });
 
-    // WebSocket接続を自動で開始
-    useEffect(() => {
-        if (user?.id && !isConnected && !isConnecting) {
-            connect();
-        }
-    }, [user?.id, isConnected, isConnecting, connect]);
+    // Supabase Realtime接続は自動で開始される（autoConnect: true）
+    // useEffectでの手動接続は不要
 
     // 思考メッセージの更新
     useEffect(() => {
@@ -81,7 +79,7 @@ export default function IndexPage() {
             messages.push('記事全体を校正し、最終調整を行っています...');
         } else if (state.currentStep === 'completed') {
             messages.push('記事生成が完了しました！');
-        } else if (state.currentStep === 'error' || state.steps.some(step => step.status === 'error')) {
+        } else if (state.currentStep === 'error' || state.steps.some((step: any) => step.status === 'error')) {
             messages.push('記事生成中にエラーが発生しました。再試行してください。');
         }
         
@@ -120,8 +118,8 @@ export default function IndexPage() {
         if (currentStepIndex === -1) return 0;
         
         // 完了したステップ数を計算
-        const completedSteps = state.steps.filter(step => step.status === 'completed').length;
-        const inProgressSteps = state.steps.filter(step => step.status === 'in_progress').length;
+        const completedSteps = state.steps.filter((step: any) => step.status === 'completed').length;
+        const inProgressSteps = state.steps.filter((step: any) => step.status === 'in_progress').length;
         
         // 実行中のステップは50%の重みを付ける
         const totalProgress = completedSteps + (inProgressSteps * 0.5);
@@ -145,12 +143,12 @@ export default function IndexPage() {
                         {isConnected ? (
                             <><Wifi className="h-4 w-4 text-green-600" />
                             <AlertDescription className="text-green-800">
-                                サーバーに接続されています（開発用）
+                                Supabase Realtimeに接続されています
                             </AlertDescription></>
                         ) : (
                             <><WifiOff className="h-4 w-4 text-red-600" />
                             <AlertDescription className="text-red-800">
-                                サーバーに接続できません
+                                Supabase Realtimeに接続できません
                                 <Button 
                                     variant="ghost" 
                                     size="sm" 

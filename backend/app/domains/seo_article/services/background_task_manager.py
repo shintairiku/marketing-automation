@@ -78,7 +78,10 @@ class BackgroundTaskManager:
     ) -> str:
         """Start a new generation process as a background task"""
         try:
+            logger.info(f"🎯 [BGT] Starting generation process for {process_id}, user: {user_id}")
+            
             # Create the main generation task
+            logger.info(f"📝 [BGT] Creating background task for process {process_id}")
             task_id = await self.create_background_task(
                 process_id=process_id,
                 task_type="generation_start",
@@ -90,14 +93,31 @@ class BackgroundTaskManager:
                 priority=5,
                 max_retries=3
             )
+            logger.info(f"✅ [BGT] Background task created with ID: {task_id}")
             
-            # Start task execution in background
-            asyncio.create_task(self._execute_task_loop(task_id))
+            # Start task execution in background with proper error handling
+            logger.info(f"🚀 [BGT] Creating asyncio task for execution loop")
+            task = asyncio.create_task(self._execute_task_loop(task_id))
+            self.active_tasks[task_id] = task
+            logger.info(f"✅ [BGT] Asyncio task created and added to active_tasks")
+            
+            # Add done callback for cleanup
+            def cleanup_task(t):
+                logger.info(f"🧹 [BGT] Cleaning up task {task_id}")
+                self.active_tasks.pop(task_id, None)
+                if t.exception():
+                    logger.error(f"💥 [BGT] Background task {task_id} failed with exception: {t.exception()}")
+                else:
+                    logger.info(f"✅ [BGT] Background task {task_id} completed successfully")
+            
+            task.add_done_callback(cleanup_task)
+            logger.info(f"🏁 [BGT] Started background task {task_id} for process {process_id}")
             
             return task_id
             
         except Exception as e:
-            logger.error(f"Error starting generation process {process_id}: {e}")
+            logger.error(f"💀 [BGT] Error starting generation process {process_id}: {e}")
+            logger.exception(f"[BGT] Full exception details:")
             raise
     
     async def resume_generation_process(
@@ -117,8 +137,18 @@ class BackgroundTaskManager:
                 max_retries=3
             )
             
-            # Start task execution in background
-            asyncio.create_task(self._execute_task_loop(task_id))
+            # Start task execution in background with proper error handling
+            task = asyncio.create_task(self._execute_task_loop(task_id))
+            self.active_tasks[task_id] = task
+            
+            # Add done callback for cleanup
+            def cleanup_task(t):
+                self.active_tasks.pop(task_id, None)
+                if t.exception():
+                    logger.error(f"Background task {task_id} failed with exception: {t.exception()}")
+            
+            task.add_done_callback(cleanup_task)
+            logger.info(f"Started background task {task_id} for process {process_id}")
             
             return task_id
             
@@ -145,8 +175,18 @@ class BackgroundTaskManager:
                 max_retries=3
             )
             
-            # Start task execution in background
-            asyncio.create_task(self._execute_task_loop(task_id))
+            # Start task execution in background with proper error handling
+            task = asyncio.create_task(self._execute_task_loop(task_id))
+            self.active_tasks[task_id] = task
+            
+            # Add done callback for cleanup
+            def cleanup_task(t):
+                self.active_tasks.pop(task_id, None)
+                if t.exception():
+                    logger.error(f"Background task {task_id} failed with exception: {t.exception()}")
+            
+            task.add_done_callback(cleanup_task)
+            logger.info(f"Started background task {task_id} for process {process_id}")
             
             return task_id
             
@@ -157,39 +197,53 @@ class BackgroundTaskManager:
     async def _execute_task_loop(self, task_id: str):
         """Execute a background task with proper error handling and retries"""
         try:
+            logger.info(f"🚀 [TASK {task_id}] Starting execution of background task")
+            
             # Get task details from database
             task_data = await self._get_task_data(task_id)
             if not task_data:
-                logger.error(f"Task {task_id} not found")
+                logger.error(f"❌ [TASK {task_id}] Task not found in database")
                 return
             
             process_id = task_data["process_id"]
             task_type = task_data["task_type"]
             
+            logger.info(f"📋 [TASK {task_id}] Executing task of type '{task_type}' for process {process_id}")
+            
             # Update task status to running
             await self._update_task_status(task_id, "running")
+            logger.info(f"✅ [TASK {task_id}] Task status updated to running")
             
             # Execute based on task type
             try:
                 if task_type == "generation_start":
+                    logger.info(f"🎬 [TASK {task_id}] Starting generation_start execution")
                     await self._execute_generation_start(task_id, task_data)
+                    logger.info(f"🏁 [TASK {task_id}] generation_start execution completed")
                 elif task_type == "generation_continue":
+                    logger.info(f"▶️ [TASK {task_id}] Starting generation_continue execution")
                     await self._execute_generation_continue(task_id, task_data)
+                    logger.info(f"🏁 [TASK {task_id}] generation_continue execution completed")
                 elif task_type == "generation_resume":
+                    logger.info(f"🔄 [TASK {task_id}] Starting generation_resume execution")
                     await self._execute_generation_resume(task_id, task_data)
+                    logger.info(f"🏁 [TASK {task_id}] generation_resume execution completed")
                 else:
+                    logger.error(f"❌ [TASK {task_id}] Unknown task type: {task_type}")
                     raise Exception(f"Unknown task type: {task_type}")
                 
                 # Mark task as completed
                 await self._update_task_status(task_id, "completed")
-                logger.info(f"Task {task_id} completed successfully")
+                logger.info(f"✅ [TASK {task_id}] Task completed successfully")
                 
             except Exception as execution_error:
-                logger.error(f"Error executing task {task_id}: {execution_error}")
+                logger.error(f"💥 [TASK {task_id}] Error executing task: {execution_error}")
+                logger.exception(f"[TASK {task_id}] Full exception details:")
                 await self._handle_task_failure(task_id, task_data, str(execution_error))
                 
         except Exception as e:
-            logger.error(f"Fatal error in task execution loop for {task_id}: {e}")
+            logger.error(f"💀 [TASK {task_id}] Fatal error in task execution loop: {e}")
+            logger.exception(f"[TASK {task_id}] Fatal error full details:")
             try:
                 await self._update_task_status(task_id, "failed", str(e))
             except:
@@ -202,18 +256,25 @@ class BackgroundTaskManager:
             request_params = task_data["task_data"]
             user_id = request_params["user_id"]
             
+            logger.info(f"🔄 [TASK {task_id}] Starting generation for process {process_id}, user: {user_id}")
+            
             # Load context from database
+            logger.info(f"📖 [TASK {task_id}] Loading context for process {process_id}")
             context = await self.service.persistence_service.load_context_from_db(process_id, user_id)
             if not context:
                 raise Exception(f"Failed to load context for process {process_id}")
             
+            logger.info(f"✅ [TASK {task_id}] Context loaded successfully, current step: {context.current_step}")
+            
             # Set up context for background execution
+            logger.info(f"⚙️ [TASK {task_id}] Setting up context for background execution")
             context.websocket = None  # No WebSocket in background mode
             context.user_response_event = asyncio.Event()
             context.process_id = process_id
             context.user_id = user_id
             
             # Publish start event
+            logger.info(f"📢 [TASK {task_id}] Publishing generation_started event")
             await self._publish_realtime_event(
                 process_id=process_id,
                 event_type="generation_started",
@@ -223,17 +284,21 @@ class BackgroundTaskManager:
                     "message": "Background generation started"
                 }
             )
+            logger.info(f"✅ [TASK {task_id}] generation_started event published")
             
             # Start generation flow
+            logger.info(f"🚀 [TASK {task_id}] Starting generation flow")
             await self._run_generation_flow(
                 context=context,
                 process_id=process_id,
                 user_id=user_id,
                 task_id=task_id
             )
+            logger.info(f"🏁 [TASK {task_id}] Generation flow completed")
             
         except Exception as e:
-            logger.error(f"Error in generation start task {task_id}: {e}")
+            logger.error(f"💥 [TASK {task_id}] Error in generation start task: {e}")
+            logger.exception(f"[TASK {task_id}] Full exception details:")
             raise
     
     async def _execute_generation_continue(self, task_id: str, task_data: Dict[str, Any]):
@@ -303,20 +368,30 @@ class BackgroundTaskManager:
         """Run the main generation flow with realtime events"""
         
         try:
+            logger.info(f"🔄 [TASK {task_id}] Starting generation flow for process {process_id}")
+            logger.info(f"📍 [TASK {task_id}] Initial step: {context.current_step}")
+            
             # Set up context for background execution
             context.websocket = None
             context.user_response_event = asyncio.Event()
             context.process_id = process_id
             context.user_id = user_id
             
+            step_counter = 0
             while context.current_step not in ['completed', 'error']:
+                step_counter += 1
+                current_step = context.current_step
+                logger.info(f"🔄 [TASK {task_id}] Loop iteration {step_counter}, current step: {current_step}")
+                
                 try:
                     # Check if current step requires user input
                     if context.current_step in ['persona_generated', 'theme_proposed', 'research_plan_generated', 'outline_generated']:
+                        logger.info(f"👤 [TASK {task_id}] Step {current_step} requires user input, waiting...")
                         await self._handle_user_input_step(context, process_id, user_id, task_id)
                         break  # Exit loop and wait for user input
                     
                     # Publish step start event
+                    logger.info(f"📢 [TASK {task_id}] Publishing step_started event for {current_step}")
                     await self._publish_realtime_event(
                         process_id=process_id,
                         event_type="step_started",
@@ -328,38 +403,53 @@ class BackgroundTaskManager:
                     )
                     
                     # Execute the step
+                    logger.info(f"⚡ [TASK {task_id}] Executing step: {current_step}")
                     await self._execute_single_step_with_events(context, process_id, user_id, task_id)
+                    logger.info(f"✅ [TASK {task_id}] Step execution completed, new step: {context.current_step}")
                     
                     # Publish step completion event
                     await self._publish_realtime_event(
                         process_id=process_id,
                         event_type="step_completed",
                         event_data={
-                            "step_name": context.current_step,
-                            "message": f"Completed step: {context.current_step}",
+                            "step_name": current_step,  # Use the original step name
+                            "next_step": context.current_step,  # Show the new step
+                            "message": f"Completed step: {current_step}, next: {context.current_step}",
                             "task_id": task_id
                         }
                     )
                     
                     # Save progress to database
+                    logger.info(f"💾 [TASK {task_id}] Saving context to database")
                     await self.service.persistence_service.save_context_to_db(
                         context, process_id=process_id, user_id=user_id
                     )
+                    logger.info(f"✅ [TASK {task_id}] Context saved successfully")
                     
                     # Small delay to prevent overwhelming the system
                     await asyncio.sleep(0.5)
                     
+                    # Safety check to prevent infinite loops
+                    if step_counter > 20:
+                        logger.error(f"⚠️ [TASK {task_id}] Too many step iterations ({step_counter}), breaking loop")
+                        break
+                    
                 except Exception as e:
-                    logger.error(f"Error executing step {context.current_step}: {e}")
+                    logger.error(f"💥 [TASK {task_id}] Error executing step {context.current_step}: {e}")
+                    logger.exception(f"[TASK {task_id}] Step execution exception details:")
                     await self._handle_generation_error(process_id, str(e), context.current_step)
                     break
             
             # Handle completion
             if context.current_step == 'completed':
+                logger.info(f"🎉 [TASK {task_id}] Generation completed successfully")
                 await self._handle_generation_completion(context, process_id, user_id)
+            else:
+                logger.info(f"⏸️ [TASK {task_id}] Generation flow ended at step: {context.current_step}")
                 
         except Exception as e:
-            logger.error(f"Error in generation flow for process {process_id}: {e}")
+            logger.error(f"💀 [TASK {task_id}] Error in generation flow for process {process_id}: {e}")
+            logger.exception(f"[TASK {task_id}] Generation flow exception details:")
             await self._handle_generation_error(process_id, str(e), context.current_step)
             raise
     
@@ -373,36 +463,72 @@ class BackgroundTaskManager:
         """Execute a single step and publish relevant events"""
         
         step_name = context.current_step
+        logger.info(f"[TASK {task_id}] Executing step: {step_name} for process {process_id}")
         
         try:
             # Use the existing flow manager from the service
             flow_manager = self.service.flow_manager
             
             if step_name == "start":
+                logger.info(f"[TASK {task_id}] Starting keyword analysis for process {process_id}")
                 context.current_step = "keyword_analyzing"
-            elif step_name == "keyword_analyzing":
+                # Actually execute keyword analysis in the same step
                 await flow_manager.execute_keyword_analysis_step(context)
+                logger.info(f"[TASK {task_id}] Completed keyword analysis, current step: {context.current_step}")
+                
+            elif step_name == "keyword_analyzing":
+                logger.info(f"[TASK {task_id}] Executing keyword analysis step")
+                await flow_manager.execute_keyword_analysis_step(context)
+                logger.info(f"[TASK {task_id}] Keyword analysis completed, current step: {context.current_step}")
+                
             elif step_name == "persona_generating":
+                logger.info(f"[TASK {task_id}] Executing persona generation step")
                 await flow_manager.execute_persona_generation_step(context)
+                logger.info(f"[TASK {task_id}] Persona generation completed, current step: {context.current_step}")
+                
             elif step_name == "theme_generating":
+                logger.info(f"[TASK {task_id}] Executing theme generation step")
                 await flow_manager.execute_theme_generation_step(context)
+                logger.info(f"[TASK {task_id}] Theme generation completed, current step: {context.current_step}")
+                
             elif step_name == "research_planning":
+                logger.info(f"[TASK {task_id}] Executing research planning step")
                 await flow_manager.execute_research_planning_step(context)
+                logger.info(f"[TASK {task_id}] Research planning completed, current step: {context.current_step}")
+                
             elif step_name == "researching":
+                logger.info(f"[TASK {task_id}] Executing research step")
                 await self._execute_research_with_progress(context, process_id)
+                logger.info(f"[TASK {task_id}] Research completed, current step: {context.current_step}")
+                
             elif step_name == "research_synthesizing":
+                logger.info(f"[TASK {task_id}] Executing research synthesis step")
                 await flow_manager.execute_research_synthesis_step(context)
+                logger.info(f"[TASK {task_id}] Research synthesis completed, current step: {context.current_step}")
+                
             elif step_name == "outline_generating":
+                logger.info(f"[TASK {task_id}] Executing outline generation step")
                 await flow_manager.execute_outline_generation_step(context)
+                logger.info(f"[TASK {task_id}] Outline generation completed, current step: {context.current_step}")
+                
             elif step_name == "writing_sections":
+                logger.info(f"[TASK {task_id}] Executing section writing step")
                 await self._execute_section_writing_with_progress(context, process_id)
+                logger.info(f"[TASK {task_id}] Section writing completed, current step: {context.current_step}")
+                
             elif step_name == "editing":
+                logger.info(f"[TASK {task_id}] Executing editing step")
                 await flow_manager.execute_editing_step(context)
+                logger.info(f"[TASK {task_id}] Editing completed, current step: {context.current_step}")
+                
             else:
-                logger.warning(f"Unknown step: {step_name}")
+                logger.warning(f"[TASK {task_id}] Unknown step: {step_name}")
+                # For unknown steps, mark as error
+                context.current_step = "error"
+                raise Exception(f"Unknown step: {step_name}")
                 
         except Exception as e:
-            logger.error(f"Error in step {step_name}: {e}")
+            logger.error(f"[TASK {task_id}] Error in step {step_name}: {e}")
             raise
     
     async def _execute_research_with_progress(self, context: ArticleContext, process_id: str):

@@ -1,8 +1,10 @@
 'use client';
 
-import { useEffect, useRef, useState, useCallback } from 'react';
-import { RealtimeChannel } from '@supabase/supabase-js';
+import { useCallback,useEffect, useRef, useState } from 'react';
+
 import { supabase } from '@/libs/supabase/supabase-client';
+import { RealtimeChannel } from '@supabase/supabase-js';
+import { useAuth } from '@clerk/nextjs';
 
 export interface ProcessEvent {
   id: string;
@@ -30,6 +32,7 @@ export const useSupabaseRealtime = ({
   onStatusChange,
   autoConnect = true,
 }: UseSupabaseRealtimeOptions) => {
+  const { getToken } = useAuth();
   const [isConnected, setIsConnected] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -39,14 +42,17 @@ export const useSupabaseRealtime = ({
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const reconnectAttempts = useRef(0);
   const maxReconnectAttempts = 5;
+  const isManuallyDisconnectedRef = useRef(false);
 
   const connect = useCallback(async () => {
-    if (channelRef.current || !processId) {
-      return; // Already connected or no process ID
+    if (channelRef.current || !processId || isConnecting) {
+      console.log('📡 Skipping connection - already connected/connecting or no process ID');
+      return; // Already connected/connecting or no process ID
     }
 
     setIsConnecting(true);
     setError(null);
+    isManuallyDisconnectedRef.current = false; // Reset manual disconnect flag
 
     try {
       console.log(`📡 Connecting to realtime for process: ${processId}`);
@@ -66,12 +72,13 @@ export const useSupabaseRealtime = ({
             const event = payload.new as ProcessEvent;
             console.log('📥 Realtime event received:', event);
             
-            // Ensure event order and prevent duplicates
-            if (event.event_sequence > lastEventSequence) {
+            // Use current value from ref instead of state dependency
+            const currentSequence = lastEventSequence;
+            if (event.event_sequence > currentSequence) {
               setLastEventSequence(event.event_sequence);
               onEvent?.(event);
             } else {
-              console.warn('Out-of-order or duplicate event received:', event.event_sequence, 'last:', lastEventSequence);
+              console.warn('Out-of-order or duplicate event received:', event.event_sequence, 'last:', currentSequence);
             }
           }
         )
@@ -87,13 +94,14 @@ export const useSupabaseRealtime = ({
             const processState = payload.new;
             console.log('📥 Process state updated:', processState);
             
-            // Convert to event format for consistency
+            // Use current value from ref instead of state dependency
+            const currentSequence = lastEventSequence;
             const syntheticEvent: ProcessEvent = {
               id: `state_${Date.now()}`,
               process_id: processId,
               event_type: 'process_state_updated',
               event_data: processState,
-              event_sequence: lastEventSequence + 1,
+              event_sequence: currentSequence + 1,
               created_at: new Date().toISOString(),
             };
             
@@ -128,8 +136,8 @@ export const useSupabaseRealtime = ({
             setIsConnected(false);
             setIsConnecting(false);
             
-            // Attempt to reconnect if not manually disconnected
-            if (channelRef.current && reconnectAttempts.current < maxReconnectAttempts) {
+            // Only attempt to reconnect if not manually disconnected
+            if (!isManuallyDisconnectedRef.current && reconnectAttempts.current < maxReconnectAttempts) {
               scheduleReconnect();
             }
           }
@@ -149,9 +157,14 @@ export const useSupabaseRealtime = ({
         scheduleReconnect();
       }
     }
-  }, [processId, userId, onEvent, onError, onStatusChange, lastEventSequence]);
+  }, [processId, userId, onEvent, onError, onStatusChange]);
 
   const scheduleReconnect = useCallback(() => {
+    if (isManuallyDisconnectedRef.current) {
+      console.log('📡 Skipping reconnect - manually disconnected');
+      return;
+    }
+    
     if (reconnectTimeoutRef.current) {
       clearTimeout(reconnectTimeoutRef.current);
     }
@@ -163,13 +176,19 @@ export const useSupabaseRealtime = ({
     
     reconnectTimeoutRef.current = setTimeout(() => {
       if (channelRef.current) {
-        disconnect();
+        // Clear channel reference without triggering full disconnect to avoid recursive calls
+        channelRef.current.unsubscribe();
+        channelRef.current = null;
       }
+      // Use the callback directly instead of state dependency to avoid loops
       connect();
     }, delay);
-  }, [connect]);
+  }, []); // Remove connect dependency to prevent recreation
 
   const disconnect = useCallback(() => {
+    // Set manual disconnect flag to prevent automatic reconnection
+    isManuallyDisconnectedRef.current = true;
+    
     if (reconnectTimeoutRef.current) {
       clearTimeout(reconnectTimeoutRef.current);
       reconnectTimeoutRef.current = null;
@@ -190,13 +209,16 @@ export const useSupabaseRealtime = ({
     if (!processId) return;
     
     try {
-      console.log(`📥 Fetching missed events since sequence ${lastEventSequence}`);
+      const currentSequence = lastEventSequence;
+      console.log(`📥 Fetching missed events since sequence ${currentSequence}`);
       
+      const token = await getToken();
       const response = await fetch(
-        `/api/proxy/articles/generation/${processId}/events?since_sequence=${lastEventSequence}&limit=50`,
+        `/api/proxy/articles/generation/${processId}/events?since_sequence=${currentSequence}&limit=50`,
         {
           headers: {
             'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`,
           },
           credentials: 'include',
         }
@@ -207,7 +229,7 @@ export const useSupabaseRealtime = ({
         console.log(`📥 Fetched ${events.length} missed events`);
         
         events.forEach(event => {
-          if (event.event_sequence > lastEventSequence) {
+          if (event.event_sequence > currentSequence) {
             setLastEventSequence(event.event_sequence);
             onEvent?.(event);
           }
@@ -218,25 +240,30 @@ export const useSupabaseRealtime = ({
     } catch (err) {
       console.warn('Failed to fetch missed events:', err);
     }
-  }, [processId, lastEventSequence, onEvent]);
+  }, [processId, onEvent, getToken, lastEventSequence]);
 
-  // Auto-connect on mount if enabled
+  // Auto-connect on mount and cleanup on unmount  
   useEffect(() => {
-    if (autoConnect && processId) {
+    let shouldConnect = autoConnect && processId && !channelRef.current;
+    
+    if (shouldConnect) {
       connect();
     }
     
+    // Cleanup function to disconnect when component unmounts or processId changes
     return () => {
-      disconnect();
+      if (channelRef.current) {
+        disconnect();
+      }
     };
-  }, [autoConnect, processId, connect, disconnect]);
-
-  // Cleanup on unmount
+  }, [autoConnect, processId]); // Minimal dependencies to prevent loops
+  
+  // Separate effect for cleanup on unmount
   useEffect(() => {
     return () => {
       disconnect();
     };
-  }, [disconnect]);
+  }, []);
 
   return {
     isConnected,

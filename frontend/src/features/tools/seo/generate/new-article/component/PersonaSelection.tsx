@@ -6,8 +6,7 @@ import { RefreshCw,User } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-
-import { PersonaOption } from '../hooks/useArticleGeneration';
+import { PersonaOption } from '@/types/article-generation';
 
 interface PersonaSelectionProps {
   personas: PersonaOption[];

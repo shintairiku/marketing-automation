@@ -7,13 +7,14 @@ import { AlertCircle, Loader2 } from 'lucide-react';
 
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
-import { useUser } from '@clerk/nextjs';
+import { useAuth, useUser } from '@clerk/nextjs';
 
 import ExplainDialog from "./ExplainDialog";
 import InputSection from "./InputSection";
 
 export default function NewArticleStartPage() {
     const { user } = useUser();
+    const { getToken } = useAuth();
     const router = useRouter();
     const [isCreating, setIsCreating] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -28,11 +29,14 @@ export default function NewArticleStartPage() {
         setError(null);
 
         try {
-            // Create new generation process
-            const response = await fetch('/api/articles/generation/create', {
+            console.log('📦 Request data being sent:', requestData);
+            
+            // Start generation process using the correct API endpoint
+            const response = await fetch('/api/proxy/articles/generation/start', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${await getToken()}`,
                 },
                 body: JSON.stringify({
                     ...requestData,
@@ -41,16 +45,17 @@ export default function NewArticleStartPage() {
             });
 
             if (!response.ok) {
-                throw new Error('記事生成プロセスの作成に失敗しました');
+                throw new Error('記事生成プロセスの開始に失敗しました');
             }
 
             const { process_id } = await response.json();
+            console.log('✅ Generation process started with ID:', process_id);
             
             // Redirect to generation process page
             router.push(`/seo/generate/new-article/${process_id}`);
         } catch (err) {
-            console.error('Error creating generation process:', err);
-            setError(err instanceof Error ? err.message : '記事生成プロセスの作成に失敗しました');
+            console.error('Error starting generation process:', err);
+            setError(err instanceof Error ? err.message : '記事生成プロセスの開始に失敗しました');
         } finally {
             setIsCreating(false);
         }

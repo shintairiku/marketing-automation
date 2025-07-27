@@ -1,11 +1,21 @@
 'use client';
 
-import { useCallback, useState, useEffect } from 'react';
-import { useAuth } from '@clerk/nextjs';
-import { useSupabaseRealtime, ProcessEvent } from './useSupabaseRealtime';
+import { useCallback, useEffect,useState } from 'react';
 
-// Import existing types from the current implementation
-import { GenerationStep, GenerationState, PersonaData, ThemeData, ResearchProgress, SectionsProgress } from '@/features/tools/generate/seo/new-article/hooks/useArticleGeneration';
+// Import types from the new types file
+import { 
+  CompletedSection,
+  GenerationState, 
+  GenerationStep, 
+  PersonaData, 
+  ProcessData,
+  ResearchProgress, 
+  SectionsProgress,
+  StepStatus,
+  ThemeData} from '@/types/article-generation';
+import { useAuth } from '@clerk/nextjs';
+
+import { ProcessEvent,useSupabaseRealtime } from './useSupabaseRealtime';
 
 interface UseArticleGenerationRealtimeOptions {
   processId?: string;
@@ -63,8 +73,25 @@ export const useArticleGenerationRealtime = ({
 
   const handleRealtimeEvent = useCallback((event: ProcessEvent) => {
     console.log('🔄 Processing realtime event:', event.event_type, event.event_data);
+    
+    // Debug specific fields for UI updates
+    if (event.event_type === 'process_state_updated') {
+      const data = event.event_data;
+      console.log('🎯 Process state debug:', {
+        current_step_name: data.current_step_name,
+        status: data.status,
+        is_waiting_for_input: data.is_waiting_for_input,
+        input_type: data.input_type,
+        process_metadata: data.process_metadata,
+        article_context_personas: data.article_context?.generated_detailed_personas,
+        article_context_themes: data.article_context?.generated_themes,
+        article_context_outline: data.article_context?.outline,
+        article_context_research_plan: data.article_context?.research_plan,
+        article_context_keys: data.article_context ? Object.keys(data.article_context) : []
+      });
+    }
 
-    setState(prev => {
+    setState((prev: GenerationState) => {
       const newState = { ...prev };
       
       switch (event.event_type) {
@@ -79,11 +106,53 @@ export const useArticleGenerationRealtime = ({
         case 'status_changed':
         case 'step_changed':
           const processData = event.event_data;
-          if (processData.current_step) {
-            newState.currentStep = processData.current_step;
+          // Handle both current_step and current_step_name fields from backend
+          const currentStep = processData.current_step || processData.current_step_name;
+          if (currentStep) {
+            newState.currentStep = currentStep;
           }
           newState.isWaitingForInput = processData.is_waiting_for_input || false;
           newState.inputType = processData.input_type;
+          
+          // Handle user input requirements from process metadata
+          if (processData.status === 'user_input_required' && processData.process_metadata?.input_type) {
+            newState.isWaitingForInput = true;
+            newState.inputType = processData.process_metadata.input_type;
+          }
+          
+          // Extract data from article_context if available
+          if (processData.article_context) {
+            const context = processData.article_context;
+            
+            // Always set data based on current step and available data, not just input type
+            // Set personas if available
+            if (context.generated_detailed_personas) {
+              console.log('🧑 Setting personas from context:', context.generated_detailed_personas);
+              // Transform backend persona format to expected frontend format
+              newState.personas = context.generated_detailed_personas.map((persona: any, index: number) => ({
+                id: index,
+                description: persona.description || persona.persona_description || JSON.stringify(persona)
+              }));
+            }
+            
+            // Set themes if available
+            if (context.generated_themes) {
+              console.log('🎯 Setting themes from context:', context.generated_themes);
+              newState.themes = context.generated_themes;
+            }
+            
+            // Set research plan if available
+            if (context.research_plan) {
+              console.log('📋 Setting research plan from context:', context.research_plan);
+              newState.researchPlan = context.research_plan;
+            }
+            
+            // Set outline if available
+            if (context.outline) {
+              console.log('📝 Setting outline from context:', context.outline);
+              newState.outline = context.outline;
+            }
+          }
           
           // Update step statuses based on current step
           updateStepStatuses(newState, processData);
@@ -147,9 +216,9 @@ export const useArticleGenerationRealtime = ({
           newState.inputType = undefined;
           
           // Mark all steps as completed
-          newState.steps = newState.steps.map(step => ({
+          newState.steps = newState.steps.map((step: GenerationStep) => ({
             ...step,
-            status: 'completed'
+            status: 'completed' as StepStatus
           }));
           break;
 
@@ -207,7 +276,7 @@ export const useArticleGenerationRealtime = ({
           
           // Update or add completed section
           const existingIndex = newState.completedSections.findIndex(
-            s => s.index === completedSection.index
+            (s: CompletedSection) => s.index === completedSection.index
           );
           
           if (existingIndex >= 0) {
@@ -218,8 +287,8 @@ export const useArticleGenerationRealtime = ({
           
           // Update generated content
           newState.generatedContent = newState.completedSections
-            .sort((a, b) => a.index - b.index)
-            .map(section => section.content)
+            .sort((a: CompletedSection, b: CompletedSection) => a.index - b.index)
+            .map((section: CompletedSection) => section.content)
             .join('\n\n');
           break;
 
@@ -228,41 +297,61 @@ export const useArticleGenerationRealtime = ({
           break;
       }
 
+      console.log('🔄 State updated:', {
+        currentStep: newState.currentStep,
+        isWaitingForInput: newState.isWaitingForInput,
+        inputType: newState.inputType,
+        hasPersonas: !!newState.personas,
+        personaCount: newState.personas?.length || 0,
+        hasThemes: !!newState.themes,
+        themeCount: newState.themes?.length || 0,
+        hasResearchPlan: !!newState.researchPlan,
+        hasOutline: !!newState.outline,
+        outlineKeys: newState.outline ? Object.keys(newState.outline) : []
+      });
+      
       return newState;
     });
   }, []);
 
-  const updateStepStatus = (state: GenerationState, stepId: string, status: 'pending' | 'in_progress' | 'completed' | 'error') => {
-    state.steps = state.steps.map(step => 
+  const updateStepStatus = (state: GenerationState, stepId: string, status: StepStatus) => {
+    state.steps = state.steps.map((step: GenerationStep) => 
       step.id === stepId ? { ...step, status } : step
     );
   };
 
-  const updateStepStatuses = (state: GenerationState, processData: any) => {
-    const currentStep = processData.current_step;
-    const currentStepIndex = state.steps.findIndex(s => s.id === currentStep);
+  const updateStepStatuses = (state: GenerationState, processData: ProcessData) => {
+    // Handle both current_step and current_step_name fields from backend
+    const currentStep = processData.current_step || processData.current_step_name;
+    const currentStepIndex = state.steps.findIndex((s: GenerationStep) => s.id === currentStep);
+    
+    console.log('📊 Updating step statuses:', { currentStep, currentStepIndex, status: processData.status });
     
     if (currentStepIndex >= 0) {
-      state.steps = state.steps.map((step, index) => {
+      state.steps = state.steps.map((step: GenerationStep, index: number) => {
         if (step.id === currentStep) {
-          return { ...step, status: 'in_progress' };
+          // If waiting for user input, mark current step as completed but waiting
+          const status = processData.status === 'user_input_required' ? 'completed' : 'in_progress';
+          return { ...step, status: status as StepStatus };
         } else if (index < currentStepIndex) {
-          return { ...step, status: 'completed' };
+          return { ...step, status: 'completed' as StepStatus };
         } else {
-          return { ...step, status: 'pending' };
+          return { ...step, status: 'pending' as StepStatus };
         }
       });
     }
   };
 
+  const handleRealtimeError = useCallback((error: Error) => {
+    console.error('Realtime error:', error);
+    setState((prev: GenerationState) => ({ ...prev, error: error.message }));
+  }, []);
+
   const { isConnected, isConnecting, error: realtimeError, connect, disconnect } = useSupabaseRealtime({
     processId: processId || '',
     userId: userId || '',
     onEvent: handleRealtimeEvent,
-    onError: (error) => {
-      console.error('Realtime error:', error);
-      setState(prev => ({ ...prev, error: error.message }));
-    },
+    onError: handleRealtimeError,
     autoConnect: autoConnect && !!processId,
   });
 
@@ -287,10 +376,10 @@ export const useArticleGenerationRealtime = ({
       const result = await response.json();
       
       // Reset state for new generation
-      setState(prev => ({
+      setState((prev: GenerationState) => ({
         ...prev,
         currentStep: 'start',
-        steps: prev.steps.map(step => ({ ...step, status: 'pending', message: undefined })),
+        steps: prev.steps.map((step: GenerationStep) => ({ ...step, status: 'pending' as StepStatus, message: undefined })),
         personas: undefined,
         themes: undefined,
         researchPlan: undefined,
@@ -312,7 +401,7 @@ export const useArticleGenerationRealtime = ({
     } catch (error) {
       console.error('Error starting generation:', error);
       setConnectionState({ isInitializing: false, hasStarted: false });
-      setState(prev => ({ 
+      setState((prev: GenerationState) => ({ 
         ...prev, 
         error: error instanceof Error ? error.message : 'Failed to start generation' 
       }));
@@ -340,7 +429,7 @@ export const useArticleGenerationRealtime = ({
       }
 
       // Clear waiting state immediately (will be confirmed by realtime event)
-      setState(prev => ({
+      setState((prev: GenerationState) => ({
         ...prev,
         isWaitingForInput: false,
         inputType: undefined,
@@ -349,7 +438,7 @@ export const useArticleGenerationRealtime = ({
       return await response.json();
     } catch (error) {
       console.error('Error submitting user input:', error);
-      setState(prev => ({ 
+      setState((prev: GenerationState) => ({ 
         ...prev, 
         error: error instanceof Error ? error.message : 'Failed to submit input' 
       }));

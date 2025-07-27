@@ -9,7 +9,7 @@ This module provides:
 - AI editing capabilities
 """
 
-from fastapi import APIRouter, WebSocket, status, Depends, HTTPException, Query, BackgroundTasks
+from fastapi import APIRouter, status, Depends, HTTPException, Query, BackgroundTasks
 from typing import List, Optional, Dict, Any
 import logging
 from pydantic import BaseModel, Field
@@ -361,79 +361,9 @@ async def ai_edit_block(
         logger.error(f"AI edit error for article {article_id}: {e}")
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="AI edit failed")
 
-# --- WebSocket Generation Endpoint ---
-
-@router.websocket("/ws/generate")
-async def generate_article_websocket_endpoint(websocket: WebSocket, process_id: str = None, token: str = None):
-    """
-    WebSocket接続を確立し、インタラクティブな記事生成プロセスを開始します。
-
-    **パラメータ:**
-    - process_id: 既存プロセスの再開用ID（新規作成の場合はNone）
-    - token: Clerk認証トークン（認証システムから取得）
-
-    **認証:**
-    接続時にClerk認証トークンが必要です。トークンが無効な場合、接続は拒否されます。
-
-    **接続後の流れ:**
-
-    1.  **クライアント -> サーバー:** 接続後、最初のメッセージとして記事生成のリクエストパラメータをJSON形式で送信します (`GenerateArticleRequest` スキーマ参照)。
-        ```json
-        {
-          "initial_keywords": ["札幌", "注文住宅", "自然素材"],
-          "target_persona": "30代夫婦",
-          // ... 他のパラメータ
-        }
-        ```
-    2.  **サーバー -> クライアント:** サーバーは記事生成プロセスを開始し、進捗状況、ユーザーに入力を求める要求、最終結果などを `ServerEventMessage` 形式で送信します。
-        ```json
-        {
-          "type": "server_event",
-          "payload": {
-            "event_type": "status_update", // または theme_proposal, user_input_request など
-            // ... 各イベントタイプに応じたペイロード
-          }
-        }
-        ```
-    3.  **クライアント -> サーバー (応答):** サーバーから `user_input_request` イベントを受信した場合、クライアントは対応する応答を `ClientResponseMessage` 形式で送信します。
-        ```json
-        {
-          "type": "client_response",
-          "response_type": "select_theme", // または approve_plan など
-          "payload": {
-            "selected_index": 0 // または approved: true など
-          }
-        }
-        ```
-    4.  **最終結果:** 生成が完了すると、サーバーは `final_result` イベントを送信します。
-    5.  **エラー:** エラーが発生した場合、サーバーは `error` イベントを送信します。
-
-    接続は、生成完了時、エラー発生時、またはクライアント/サーバーからの切断要求時に閉じられます。
-    """
-    try:
-        # WebSocket用の認証処理
-        from app.common.auth import get_current_user_id_from_header
-        
-        # Authorizationヘッダーからトークンを取得
-        auth_header = None
-        if token:
-            auth_header = f"Bearer {token}"
-        else:
-            # Headerからも確認
-            headers = dict(websocket.headers)
-            auth_header = headers.get("authorization") or headers.get("Authorization")
-        
-        # ユーザーIDを取得（認証失敗時はuser_2y2DRx4Xb5PbvMVoVWmDluHCeFVを返す）
-        user_id = get_current_user_id_from_header(auth_header)
-        
-        logger.info(f"WebSocket connection authenticated for user: {user_id}")
-        
-    except Exception as e:
-        logger.error(f"WebSocket authentication failed: {e}")
-        await websocket.close(code=1008, reason="Authentication failed")
-        return
-    
-    await article_service.handle_websocket_connection(websocket, process_id, user_id)
+# --- WebSocket Generation Endpoint (DEPRECATED) ---
+# NOTE: WebSocket endpoint has been removed in favor of Supabase Realtime.
+# Use the new HTTP endpoints for generation management: /generation/start, /generation/{id}/user-input, etc.
 
 # --- NEW: Supabase Realtime Process Management Endpoints ---
 
@@ -458,14 +388,19 @@ async def start_generation_process(
     - status: Initial process status
     """
     try:
+        logger.info(f"🎯 [ENDPOINT] Starting generation process for user: {user_id}")
+        
         # Create process in database
+        logger.info(f"📝 [ENDPOINT] Creating process in database")
         process_id = await article_service.create_generation_process(
             user_id=user_id,
             organization_id=organization_id,
             request_data=request
         )
+        logger.info(f"✅ [ENDPOINT] Process created with ID: {process_id}")
         
         # Start background task
+        logger.info(f"🚀 [ENDPOINT] Adding background task to FastAPI BackgroundTasks")
         background_tasks.add_task(
             article_service.run_generation_background_task,
             process_id=process_id,
@@ -473,8 +408,9 @@ async def start_generation_process(
             organization_id=organization_id,
             request_data=request
         )
+        logger.info(f"✅ [ENDPOINT] Background task added successfully for process {process_id}")
         
-        return {
+        response_data = {
             "process_id": process_id,
             "realtime_channel": f"process_{process_id}",
             "status": "started",
@@ -485,6 +421,8 @@ async def start_generation_process(
                 "channel": f"process_events:process_id=eq.{process_id}"
             }
         }
+        logger.info(f"🏁 [ENDPOINT] Returning response for process {process_id}")
+        return response_data
         
     except Exception as e:
         logger.error(f"Error starting generation process: {e}")
