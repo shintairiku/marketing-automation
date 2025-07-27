@@ -7,7 +7,7 @@ from fastapi import WebSocket # <<< WebSocket をインポート
 # 循環参照を避けるため、モデルは直接インポートせず、型ヒントとして文字列を使うか、
 # このファイル内で必要なモデルを再定義/インポートする
 from app.domains.seo_article.schemas import (
-    ThemeProposal as ThemeIdea, ResearchPlan, ResearchQueryResult, ResearchReport, 
+    ThemeProposalData as ThemeIdea, ResearchPlan, ResearchQueryResult, ResearchReport, 
     Outline, AgentOutput, ArticleSection, SerpKeywordAnalysisReport, ImagePlaceholder,
     ClientResponsePayload, AgeGroup, PersonaType
 )
@@ -59,6 +59,7 @@ class ArticleContext:
 
     # --- SerpAPI分析関連 (新規追加) ---
     serp_analysis_report: Optional[SerpKeywordAnalysisReport] = None # SerpAPIキーワード分析結果
+    has_serp_api_key: bool = False # SerpAPIキーが利用可能かどうか
     
     # --- ペルソナ生成関連 (新規追加) ---
     generated_detailed_personas: List[str] = field(default_factory=list) # PersonaGeneratorAgentによって生成された具体的なペルソナ記述のリスト
