@@ -154,6 +154,39 @@ export const useArticleGenerationRealtime = ({
               console.log('📝 Setting outline from context:', outlineData);
               newState.outline = outlineData;
             }
+            
+            // Set generated content from context
+            if (context.generated_sections_html && Array.isArray(context.generated_sections_html)) {
+              console.log('📄 Setting generated sections from context:', context.generated_sections_html.length, 'sections');
+              newState.generatedContent = context.generated_sections_html.join('\n\n');
+              
+              // Update completed sections
+              newState.completedSections = context.generated_sections_html.map((content: string, index: number) => ({
+                index: index + 1,
+                heading: `Section ${index + 1}`,
+                content: content,
+                imagePlaceholders: []
+              }));
+            }
+            
+            // Set final article if available
+            if (context.final_article_html) {
+              console.log('📰 Setting final article from context');
+              newState.finalArticle = {
+                title: 'Generated Article',
+                content: context.final_article_html
+              };
+              newState.generatedContent = context.final_article_html;
+            }
+            
+            // Set sections progress if available
+            if (context.current_section_index && context.generated_sections_html) {
+              newState.sectionsProgress = {
+                currentSection: context.current_section_index + 1,
+                totalSections: context.generated_sections_html.length,
+                sectionHeading: `Section ${context.current_section_index + 1}`
+              };
+            }
           }
           
           // Update step statuses based on current step
@@ -208,12 +241,20 @@ export const useArticleGenerationRealtime = ({
           break;
 
         case 'generation_completed':
+        case 'article_created':
+        case 'article_saved':
           newState.currentStep = 'completed';
+          
+          // Set final article data
+          const articleData = event.event_data;
           newState.finalArticle = {
-            title: event.event_data.title || 'Generated Article',
-            content: event.event_data.final_html_content || newState.generatedContent || '',
+            title: articleData.title || 'Generated Article',
+            content: articleData.final_html_content || articleData.content || newState.generatedContent || '',
           };
-          newState.articleId = event.event_data.article_id;
+          
+          // Set article ID from various possible fields
+          newState.articleId = articleData.article_id || articleData.id || event.event_data.article_id;
+          
           newState.isWaitingForInput = false;
           newState.inputType = undefined;
           
@@ -222,6 +263,11 @@ export const useArticleGenerationRealtime = ({
             ...step,
             status: 'completed' as StepStatus
           }));
+          
+          console.log('🎉 Generation completed!', {
+            articleId: newState.articleId,
+            finalArticleLength: newState.finalArticle?.content?.length || 0
+          });
           break;
 
         case 'generation_error':
@@ -269,6 +315,27 @@ export const useArticleGenerationRealtime = ({
           console.log('🔬 Research synthesis started');
           break;
 
+        case 'section_writing_started':
+          newState.currentStep = 'writing_sections';
+          updateStepStatus(newState, 'writing_sections', 'in_progress');
+          console.log('✍️ Section writing started');
+          break;
+
+        case 'section_writing_progress':
+          newState.sectionsProgress = {
+            currentSection: event.event_data.current_section || 1,
+            totalSections: event.event_data.total_sections || 1,
+            sectionHeading: event.event_data.section_heading || ''
+          };
+          console.log('✍️ Section writing progress:', newState.sectionsProgress);
+          break;
+
+        case 'editing_started':
+          newState.currentStep = 'editing';
+          updateStepStatus(newState, 'editing', 'in_progress');
+          console.log('✏️ Editing started');
+          break;
+
         case 'section_completed':
           if (!newState.completedSections) {
             newState.completedSections = [];
@@ -314,7 +381,12 @@ export const useArticleGenerationRealtime = ({
         themeCount: newState.themes?.length || 0,
         hasResearchPlan: !!newState.researchPlan,
         hasOutline: !!newState.outline,
-        outlineKeys: newState.outline ? Object.keys(newState.outline) : []
+        outlineKeys: newState.outline ? Object.keys(newState.outline) : [],
+        hasGeneratedContent: !!newState.generatedContent,
+        generatedContentLength: newState.generatedContent?.length || 0,
+        hasFinalArticle: !!newState.finalArticle,
+        completedSections: newState.completedSections?.length || 0,
+        sectionsProgress: newState.sectionsProgress
       });
       
       return newState;
@@ -334,13 +406,41 @@ export const useArticleGenerationRealtime = ({
     
     console.log('📊 Updating step statuses:', { currentStep, currentStepIndex, status: processData.status });
     
-    if (currentStepIndex >= 0) {
+    // Determine the actual current step based on article_context
+    let actualCurrentStep = currentStep;
+    if (processData.article_context) {
+      const context = processData.article_context;
+      
+      // If we have final article, we're completed
+      if (context.final_article_html) {
+        actualCurrentStep = 'completed';
+      }
+      // If we have generated sections but no final article, we're editing
+      else if (context.generated_sections_html && context.generated_sections_html.length > 0) {
+        actualCurrentStep = 'editing';
+      }
+      // If we're in the middle of section writing
+      else if (context.current_section_index !== undefined) {
+        actualCurrentStep = 'writing_sections';
+      }
+    }
+    
+    // Update state.currentStep if we determined a different step
+    if (actualCurrentStep !== currentStep) {
+      state.currentStep = actualCurrentStep;
+      console.log('📊 Corrected current step from', currentStep, 'to', actualCurrentStep);
+    }
+    
+    const actualStepIndex = state.steps.findIndex((s: GenerationStep) => s.id === actualCurrentStep);
+    
+    if (actualStepIndex >= 0) {
       state.steps = state.steps.map((step: GenerationStep, index: number) => {
-        if (step.id === currentStep) {
+        if (step.id === actualCurrentStep) {
           // If waiting for user input, mark current step as completed but waiting
-          const status = processData.status === 'user_input_required' ? 'completed' : 'in_progress';
+          const status = processData.status === 'user_input_required' ? 'completed' : 
+                        actualCurrentStep === 'completed' ? 'completed' : 'in_progress';
           return { ...step, status: status as StepStatus };
-        } else if (index < currentStepIndex) {
+        } else if (index < actualStepIndex) {
           return { ...step, status: 'completed' as StepStatus };
         } else {
           return { ...step, status: 'pending' as StepStatus };
