@@ -150,7 +150,7 @@ export default memo(function CompactGenerationFlow({
   
   // リセット機能（新しい記事生成時）
   useEffect(() => {
-    if (currentStep === 'start' || currentStep === 'keyword_analyzing') {
+    if (currentStep === 'keyword_analyzing') {
       console.log('CompactGenerationFlow: Resetting animation states');
       setShowCompletionAnimation(false);
       setHideProcessCards(false);
@@ -379,7 +379,7 @@ export default memo(function CompactGenerationFlow({
                     <h3 className={`font-medium text-xs leading-tight transition-colors duration-300 ${
                       isActive ? 'text-blue-700' : ''
                     }`}>
-                      {step.title}
+                      {step.name || step.title}
                     </h3>
                     
                     {step.status === 'in_progress' && (

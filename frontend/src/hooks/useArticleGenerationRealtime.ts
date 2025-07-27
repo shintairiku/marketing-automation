@@ -32,23 +32,16 @@ export const useArticleGenerationRealtime = ({
   
   // Generation state
   const [state, setState] = useState<GenerationState>({
-    currentStep: 'start',
+    currentStep: 'keyword_analyzing',
     steps: [
-      { id: 'start', name: '開始', status: 'pending' },
       { id: 'keyword_analyzing', name: 'キーワード分析', status: 'pending' },
       { id: 'persona_generating', name: 'ペルソナ生成', status: 'pending' },
-      { id: 'persona_generated', name: 'ペルソナ選択', status: 'pending' },
-      { id: 'theme_generating', name: 'テーマ生成', status: 'pending' },
-      { id: 'theme_proposed', name: 'テーマ選択', status: 'pending' },
+      { id: 'theme_generating', name: 'テーマ提案', status: 'pending' },
       { id: 'research_planning', name: 'リサーチ計画', status: 'pending' },
-      { id: 'research_plan_generated', name: '計画承認', status: 'pending' },
-      { id: 'researching', name: 'リサーチ実行', status: 'pending' },
-      { id: 'research_synthesizing', name: 'リサーチ要約', status: 'pending' },
-      { id: 'outline_generating', name: 'アウトライン生成', status: 'pending' },
-      { id: 'outline_generated', name: 'アウトライン承認', status: 'pending' },
-      { id: 'writing_sections', name: 'セクション執筆', status: 'pending' },
-      { id: 'editing', name: '編集', status: 'pending' },
-      { id: 'completed', name: '完成', status: 'pending' },
+      { id: 'researching', name: 'リサーチ実行（リサーチ要約）', status: 'pending' },
+      { id: 'outline_generating', name: 'アウトライン作成', status: 'pending' },
+      { id: 'writing_sections', name: '執筆', status: 'pending' },
+      { id: 'editing', name: '編集・校正', status: 'pending' },
     ],
     isWaitingForInput: false,
     personas: undefined,
@@ -70,6 +63,38 @@ export const useArticleGenerationRealtime = ({
     isInitializing: false,
     hasStarted: false,
   });
+
+  // Helper function to map backend steps to UI steps
+  const mapBackendStepToUIStep = (backendStep: string): string => {
+    const stepMapping: Record<string, string> = {
+      'start': 'keyword_analyzing',
+      'keyword_analyzing': 'keyword_analyzing',
+      'keyword_analyzed': 'persona_generating',
+      'persona_generating': 'persona_generating',
+      'persona_generated': 'persona_generating',
+      'persona_selected': 'theme_generating',
+      'theme_generating': 'theme_generating',
+      'theme_proposed': 'theme_generating',
+      'theme_selected': 'research_planning',
+      'research_planning': 'research_planning',
+      'research_plan_generated': 'research_planning',
+      'research_plan_approved': 'researching',
+      'researching': 'researching',
+      'research_synthesizing': 'researching',
+      'research_report_generated': 'outline_generating',
+      'outline_generating': 'outline_generating',
+      'outline_generated': 'outline_generating',
+      'outline_approved': 'writing_sections',
+      'writing_sections': 'writing_sections',
+      'editing': 'editing',
+      'completed': 'editing',
+      'error': 'keyword_analyzing',
+      'paused': 'keyword_analyzing',
+      'cancelled': 'keyword_analyzing',
+    };
+    
+    return stepMapping[backendStep] || 'keyword_analyzing';
+  };
 
   const handleRealtimeEvent = useCallback((event: ProcessEvent) => {
     console.log('🔄 Processing realtime event:', event.event_type, event.event_data);
@@ -108,9 +133,10 @@ export const useArticleGenerationRealtime = ({
         case 'step_changed':
           const processData = event.event_data;
           // Handle both current_step and current_step_name fields from backend
-          const currentStep = processData.current_step || processData.current_step_name;
-          if (currentStep) {
-            newState.currentStep = currentStep;
+          const backendStep = processData.current_step || processData.current_step_name;
+          if (backendStep) {
+            const uiStep = mapBackendStepToUIStep(backendStep);
+            newState.currentStep = uiStep;
           }
           newState.isWaitingForInput = processData.is_waiting_for_input || false;
           newState.inputType = processData.input_type;
@@ -194,12 +220,14 @@ export const useArticleGenerationRealtime = ({
           break;
 
         case 'step_started':
-          newState.currentStep = event.event_data.step_name;
-          updateStepStatus(newState, event.event_data.step_name, 'in_progress');
+          const startedStep = mapBackendStepToUIStep(event.event_data.step_name);
+          newState.currentStep = startedStep;
+          updateStepStatus(newState, startedStep, 'in_progress');
           break;
 
         case 'step_completed':
-          updateStepStatus(newState, event.event_data.step_name, 'completed');
+          const completedStep = mapBackendStepToUIStep(event.event_data.step_name);
+          updateStepStatus(newState, completedStep, 'completed');
           break;
 
         case 'user_input_required':
@@ -401,46 +429,30 @@ export const useArticleGenerationRealtime = ({
 
   const updateStepStatuses = (state: GenerationState, processData: ProcessData) => {
     // Handle both current_step and current_step_name fields from backend
-    const currentStep = processData.current_step || processData.current_step_name;
-    const currentStepIndex = state.steps.findIndex((s: GenerationStep) => s.id === currentStep);
+    const backendStep = processData.current_step || processData.current_step_name;
     
-    console.log('📊 Updating step statuses:', { currentStep, currentStepIndex, status: processData.status });
+    console.log('📊 Updating step statuses:', { 
+      backendStep, 
+      currentUIStep: state.currentStep,
+      status: processData.status 
+    });
     
-    // Determine the actual current step based on article_context
-    let actualCurrentStep = currentStep;
-    if (processData.article_context) {
-      const context = processData.article_context;
-      
-      // If we have final article, we're completed
-      if (context.final_article_html) {
-        actualCurrentStep = 'completed';
-      }
-      // If we have generated sections but no final article, we're editing
-      else if (context.generated_sections_html && context.generated_sections_html.length > 0) {
-        actualCurrentStep = 'editing';
-      }
-      // If we're in the middle of section writing
-      else if (context.current_section_index !== undefined) {
-        actualCurrentStep = 'writing_sections';
-      }
+    // If we have a backend step, map it to UI step and use it
+    if (backendStep) {
+      const mappedUIStep = mapBackendStepToUIStep(backendStep);
+      state.currentStep = mappedUIStep;
+      console.log('📊 Mapped backend step', backendStep, 'to UI step', mappedUIStep);
     }
+    // If no backend step, keep the current UI step as is
     
-    // Update state.currentStep if we determined a different step
-    if (actualCurrentStep !== currentStep) {
-      state.currentStep = actualCurrentStep;
-      console.log('📊 Corrected current step from', currentStep, 'to', actualCurrentStep);
-    }
+    const currentStepIndex = state.steps.findIndex((s: GenerationStep) => s.id === state.currentStep);
     
-    const actualStepIndex = state.steps.findIndex((s: GenerationStep) => s.id === actualCurrentStep);
-    
-    if (actualStepIndex >= 0) {
+    if (currentStepIndex >= 0) {
       state.steps = state.steps.map((step: GenerationStep, index: number) => {
-        if (step.id === actualCurrentStep) {
-          // If waiting for user input, mark current step as completed but waiting
-          const status = processData.status === 'user_input_required' ? 'completed' : 
-                        actualCurrentStep === 'completed' ? 'completed' : 'in_progress';
-          return { ...step, status: status as StepStatus };
-        } else if (index < actualStepIndex) {
+        if (step.id === state.currentStep) {
+          // Current step is in progress
+          return { ...step, status: 'in_progress' as StepStatus };
+        } else if (index < currentStepIndex) {
           return { ...step, status: 'completed' as StepStatus };
         } else {
           return { ...step, status: 'pending' as StepStatus };
@@ -485,7 +497,7 @@ export const useArticleGenerationRealtime = ({
       // Reset state for new generation
       setState((prev: GenerationState) => ({
         ...prev,
-        currentStep: 'start',
+        currentStep: 'keyword_analyzing',
         steps: prev.steps.map((step: GenerationStep) => ({ ...step, status: 'pending' as StepStatus, message: undefined })),
         personas: undefined,
         themes: undefined,

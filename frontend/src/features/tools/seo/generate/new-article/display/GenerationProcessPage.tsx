@@ -162,57 +162,32 @@ export default function GenerationProcessPage({ jobId }: GenerationProcessPagePr
     }, [state.currentStep, state.articleId, state.error, state.steps, router]);
 
     const getProgressPercentage = () => {
-        // ユーザー入力待ちの場合は、実際の進捗を計算
-        if (state.isWaitingForInput) {
-            // ユーザー入力待ちステップごとの進捗を定義
-            const inputStepProgress = {
-                'persona_generated': 20,    // ペルソナ生成完了 -> 20%
-                'theme_proposed': 25,       // テーマ提案完了 -> 25%
-                'research_plan_generated': 40, // リサーチ計画完了 -> 40%
-                'outline_generated': 65,    // アウトライン完了 -> 65%
-            };
-            
-            return inputStepProgress[state.currentStep as keyof typeof inputStepProgress] || 0;
-        }
-        
-        const stepOrder = [
-            'start', 'keyword_analyzing', 'keyword_analyzed', 'persona_generating', 'persona_generated',
-            'theme_generating', 'theme_proposed', 'research_planning', 'research_plan_generated',
-            'researching', 'research_synthesizing', 'outline_generating', 'outline_generated',
-            'writing_sections', 'editing', 'completed'
-        ];
-        
-        if (state.currentStep === 'completed') {
-            return 100;
-        }
-        
-        const currentStepIndex = stepOrder.indexOf(state.currentStep);
-        if (currentStepIndex === -1) return 0;
-        
-        // 各ステップの進捗を手動で定義
+        // 8つのステップに基づく進捗計算
         const stepProgressMap = {
-            'start': 0,
-            'keyword_analyzing': 5,
-            'keyword_analyzed': 10,
-            'persona_generating': 15,
-            'persona_generated': 20,
-            'theme_generating': 20,
-            'theme_proposed': 25,
-            'research_planning': 30,
-            'research_plan_generated': 40,
-            'researching': 50,
-            'research_synthesizing': 60,
-            'outline_generating': 60,
-            'outline_generated': 65,
-            'writing_sections': 80,
-            'editing': 90,
-            'completed': 100
+            'keyword_analyzing': 12.5,      // キーワード分析: 12.5%
+            'persona_generating': 25,       // ペルソナ生成: 25%
+            'theme_generating': 37.5,       // テーマ提案: 37.5%
+            'research_planning': 50,        // リサーチ計画: 50%
+            'researching': 62.5,            // リサーチ実行（リサーチ要約）: 62.5%
+            'outline_generating': 75,       // アウトライン作成: 75%
+            'writing_sections': 87.5,       // 執筆: 87.5%
+            'editing': 100,                 // 編集・校正: 100%
         };
         
-        return stepProgressMap[state.currentStep as keyof typeof stepProgressMap] || 0;
+        // ユーザー入力待ちの場合は、現在のステップの進捗を返す
+        const progress = stepProgressMap[state.currentStep as keyof typeof stepProgressMap];
+        if (progress !== undefined) {
+            return progress;
+        }
+        
+        // フォールバック: ステップ配列から計算
+        const currentStepIndex = state.steps.findIndex(step => step.id === state.currentStep);
+        if (currentStepIndex === -1) return 0;
+        
+        return ((currentStepIndex + 1) / state.steps.length) * 100;
     };
 
-    const isGenerating = state.currentStep !== 'start' && state.currentStep !== 'completed' && state.currentStep !== 'error';
+    const isGenerating = state.currentStep !== 'completed' && state.currentStep !== 'error';
 
     // 復帰ダイアログのハンドラー
     const handleResume = async () => {
