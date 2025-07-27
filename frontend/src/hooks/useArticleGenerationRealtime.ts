@@ -103,6 +103,7 @@ export const useArticleGenerationRealtime = ({
 
         case 'process_created':
         case 'process_state_updated':
+        case 'process_updated':
         case 'status_changed':
         case 'step_changed':
           const processData = event.event_data;
@@ -147,10 +148,11 @@ export const useArticleGenerationRealtime = ({
               newState.researchPlan = context.research_plan;
             }
             
-            // Set outline if available
-            if (context.outline) {
-              console.log('📝 Setting outline from context:', context.outline);
-              newState.outline = context.outline;
+            // Set outline if available (check both outline and generated_outline keys)
+            const outlineData = context.outline || context.generated_outline;
+            if (outlineData) {
+              console.log('📝 Setting outline from context:', outlineData);
+              newState.outline = outlineData;
             }
           }
           
@@ -260,6 +262,11 @@ export const useArticleGenerationRealtime = ({
 
         case 'image_placeholders_generated':
           newState.imagePlaceholders = event.event_data.placeholders || [];
+          break;
+
+        case 'research_synthesis_started':
+          // Handle research synthesis started event
+          console.log('🔬 Research synthesis started');
           break;
 
         case 'section_completed':
