@@ -1,16 +1,13 @@
 # -*- coding: utf-8 -*-
 import asyncio
-import json
 import time
-import traceback
 import logging
-from datetime import datetime, timezone
-from typing import List, Dict, Any, Optional, Union
-from fastapi import WebSocket, WebSocketDisconnect, status
+from typing import List, Dict, Any, Optional
+from fastapi import WebSocketDisconnect
 from starlette.websockets import WebSocketState
-from openai import AsyncOpenAI, BadRequestError, InternalServerError, AuthenticationError
+from openai import BadRequestError, InternalServerError, AuthenticationError
 from openai.types.responses import ResponseTextDeltaEvent, ResponseCompletedEvent
-from agents import Runner, RunConfig, Agent, trace
+from agents import Runner, trace
 from agents.exceptions import AgentsException, MaxTurnsExceeded, ModelBehaviorError, UserError
 from agents.tracing import custom_span
 from rich.console import Console
@@ -20,18 +17,10 @@ from pydantic import ValidationError, BaseModel
 from app.core.config import settings
 from app.domains.seo_article.schemas import (
     # Server event payloads
-    StatusUpdatePayload, ThemeProposalPayload, ResearchPlanPayload, ResearchProgressPayload,
-    ResearchCompletePayload, OutlinePayload, SectionChunkPayload, EditingStartPayload, ImagePlaceholderData,
-    FinalResultPayload, GeneratedPersonasPayload, SerpKeywordAnalysisPayload, SerpAnalysisArticleData,
-    # Client response payloads
-    SelectThemePayload, ApprovePayload, SelectPersonaPayload, GeneratedPersonaData, 
-    EditAndProceedPayload, EditThemePayload, EditPlanPayload, EditOutlinePayload,
-    # Data models
-    ThemeProposalData, ResearchPlanData, ResearchPlanQueryData, OutlineData, OutlineSectionData
+    SectionChunkPayload, SelectThemePayload, ApprovePayload, SelectPersonaPayload, EditAndProceedPayload, EditThemePayload, EditPlanPayload, EditOutlinePayload
 )
 from app.common.schemas import (
-    WebSocketMessage, ServerEventMessage, ClientResponseMessage,
-    ErrorPayload, UserInputRequestPayload, UserInputType
+    ServerEventMessage, ErrorPayload, UserInputRequestPayload, UserInputType
 )
 from app.domains.seo_article.context import ArticleContext
 

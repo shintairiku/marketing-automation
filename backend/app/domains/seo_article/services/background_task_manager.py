@@ -9,7 +9,6 @@ and Supabase Realtime event publishing.
 
 import asyncio
 import logging
-import json
 import uuid
 from typing import Dict, Optional, Any, List
 from datetime import datetime, timezone, timedelta
@@ -96,10 +95,10 @@ class BackgroundTaskManager:
             logger.info(f"✅ [BGT] Background task created with ID: {task_id}")
             
             # Start task execution in background with proper error handling
-            logger.info(f"🚀 [BGT] Creating asyncio task for execution loop")
+            logger.info("🚀 [BGT] Creating asyncio task for execution loop")
             task = asyncio.create_task(self._execute_task_loop(task_id))
             self.active_tasks[task_id] = task
-            logger.info(f"✅ [BGT] Asyncio task created and added to active_tasks")
+            logger.info("✅ [BGT] Asyncio task created and added to active_tasks")
             
             # Add done callback for cleanup
             def cleanup_task(t):
@@ -117,7 +116,7 @@ class BackgroundTaskManager:
             
         except Exception as e:
             logger.error(f"💀 [BGT] Error starting generation process {process_id}: {e}")
-            logger.exception(f"[BGT] Full exception details:")
+            logger.exception("[BGT] Full exception details:")
             raise
     
     async def resume_generation_process(
@@ -246,7 +245,7 @@ class BackgroundTaskManager:
             logger.exception(f"[TASK {task_id}] Fatal error full details:")
             try:
                 await self._update_task_status(task_id, "failed", str(e))
-            except:
+            except Exception:
                 pass  # Don't raise on cleanup errors
     
     async def _execute_generation_start(self, task_id: str, task_data: Dict[str, Any]):
@@ -931,7 +930,7 @@ class BackgroundTaskManager:
             supabase = get_supabase_client()
             
             # Update process status to paused
-            result = await self.service.persistence_service.update_process_status(
+            await self.service.persistence_service.update_process_status(
                 process_id=process_id,
                 status="paused",
                 metadata={
@@ -968,7 +967,7 @@ class BackgroundTaskManager:
             supabase = get_supabase_client()
             
             # Update process status to cancelled
-            result = await self.service.persistence_service.update_process_status(
+            await self.service.persistence_service.update_process_status(
                 process_id=process_id,
                 status="cancelled",
                 metadata={
