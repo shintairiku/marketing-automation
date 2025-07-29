@@ -1,10 +1,10 @@
 'use client';
 
-import { useCallback,useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { supabase } from '@/libs/supabase/supabase-client';
-import { RealtimeChannel } from '@supabase/supabase-js';
 import { useAuth } from '@clerk/nextjs';
+import { RealtimeChannel } from '@supabase/supabase-js';
 
 export interface ProcessEvent {
   id: string;
