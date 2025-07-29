@@ -34,8 +34,9 @@ try:
     LOGGING_ENABLED = True
 except ImportError as e:
     logger.warning(f"Logging system not available: {e}")
-    LoggingService = None
-    CostCalculationService = None
+    # Use None and handle the checks properly
+    LoggingService = None  # type: ignore
+    CostCalculationService = None  # type: ignore
     LOGGING_ENABLED = False
 
 def safe_trace_context(workflow_name: str, trace_id: str, group_id: str):
@@ -135,7 +136,8 @@ class GenerationUtils:
             try:
                 # Check WebSocket state before attempting to send
                 if context.websocket.client_state == WebSocketState.CONNECTED:
-                    message = ServerEventMessage(payload=payload)
+                    payload_dict = payload.model_dump() if hasattr(payload, 'model_dump') else payload
+                    message = ServerEventMessage(payload=payload_dict)
                     await context.websocket.send_json(message.model_dump())
                 else:
                     console.print("[yellow]WebSocket not connected, skipping message send.[/yellow]")
@@ -190,14 +192,16 @@ class GenerationUtils:
         """クライアントに特定のタイプの入力を要求し、応答を待つ"""
         context.expected_user_input = request_type
         context.user_response = None # 前回の応答をクリア
-        context.user_response_event.clear() # イベントをリセット
+        if context.user_response_event:
+            context.user_response_event.clear() # イベントをリセット
 
         payload = UserInputRequestPayload(request_type=request_type, data=data)
         await self.send_server_event(context, payload)
 
         # クライアントからの応答を待つ (タイムアウトは handle_websocket_connection で処理)
         console.print(f"[blue]ユーザー応答を待機中... (request_type: {request_type})[/blue]")
-        await context.user_response_event.wait()
+        if context.user_response_event:
+            await context.user_response_event.wait()
         console.print("[blue]ユーザー応答を受信しました！[/blue]")
 
         response = context.user_response
@@ -255,7 +259,7 @@ class GenerationUtils:
                     model_name = getattr(last_response, 'model', 'gpt-4o')
                     
                     # 新しいコスト計算サービスを使用
-                    if CostCalculationService:
+                    if CostCalculationService is not None:
                         cost_info = CostCalculationService.calculate_cost(
                             model_name=model_name,
                             prompt_tokens=input_tokens,
@@ -283,7 +287,7 @@ class GenerationUtils:
             logger.warning("No usage data found in result, using fallback values")
             
             # 新しいコスト計算サービスを使用
-            if CostCalculationService:
+            if CostCalculationService is not None:
                 cost_info = CostCalculationService.calculate_cost(
                     model_name="gpt-4o",
                     prompt_tokens=100,  # 概算値
@@ -331,7 +335,7 @@ class GenerationUtils:
             model_name = metadata.get('model', 'gpt-4o')
             
             # 新しいコスト計算サービスを使用
-            if CostCalculationService:
+            if CostCalculationService is not None:
                 cost_info = CostCalculationService.calculate_cost(
                     model_name=model_name,
                     prompt_tokens=input_tokens,
@@ -352,7 +356,7 @@ class GenerationUtils:
         """OpenAI Agents SDKの実行結果から会話履歴を詳細に抽出"""
         try:
             console.print(f"[debug]Starting conversation history extraction. Agent input type: {type(agent_input)}")
-            conversation_data = {
+            conversation_data: Dict[str, Any] = {
                 "system_prompt": "",
                 "user_prompt": str(agent_input) if agent_input else "",
                 "assistant_response": "",
@@ -411,7 +415,7 @@ class GenerationUtils:
                                         content = getattr(output_item, 'content', '')
                                         if isinstance(content, list):
                                             # リストの場合、各要素を結合
-                                            content_parts = []
+                                            content_parts: List[str] = []
                                             for part in content:
                                                 if hasattr(part, 'text'):
                                                     content_parts.append(str(part.text))

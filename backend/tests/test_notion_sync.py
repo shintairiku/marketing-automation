@@ -5,7 +5,7 @@ Notion同期システムのテストスクリプト
 """
 import sys
 import os
-from app.infrastructure.external_apis.notion_service import NotionSyncService
+from app.infrastructure.external_apis.notion_service import NotionService
 
 # パスを追加（services/を正しくインポートするため）
 sys.path.append('.')

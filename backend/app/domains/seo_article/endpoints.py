@@ -41,25 +41,41 @@ article_service = ArticleGenerationService()
 
 # Flow service stubs
 class ArticleFlowService:
-    async def create_flow(self, **kwargs): return {}
-    async def get_user_flows(self, **kwargs): return []
-    async def get_flow(self, **kwargs): return None
-    async def update_flow(self, **kwargs): return {}
-    async def delete_flow(self, **kwargs): return False
-    async def start_flow_execution(self, **kwargs): return None
-    async def get_generation_state(self, **kwargs): return None
-    async def pause_generation(self, **kwargs): return False
-    async def cancel_generation(self, **kwargs): return False
+    async def create_flow(self, user_id: str, organization_id: Optional[str], flow_data: Any) -> Dict[str, Any]: return {}
+    async def get_user_flows(self, user_id: str, organization_id: Optional[str] = None) -> List[ArticleFlowRead]: return []
+    async def get_flow(self, flow_id: str, user_id: str) -> Optional[ArticleFlowRead]: return None
+    async def update_flow(self, flow_id: str, user_id: str, update_data: Dict[str, Any]) -> Optional[Dict[str, Any]]: return {}
+    async def delete_flow(self, flow_id: str, user_id: str) -> bool: return False
+    async def start_flow_execution(self, user_id: str, execution_request: Any) -> Optional[str]: return None
+    async def get_generation_state(self, process_id: str, user_id: str) -> Optional[Dict[str, Any]]: return None
+    async def pause_generation(self, process_id: str, user_id: str) -> bool: return False
+    async def cancel_generation(self, process_id: str, user_id: str) -> bool: return False
 
 article_flow_service = ArticleFlowService()
 
 
 class ArticleFlowCreate(BaseModel):
     name: str = "stub"
+    description: Optional[str] = None
+    is_template: bool = False
+    steps: List[Dict[str, Any]] = []
     
+class _StubStep:
+    step_order: int = 0
+    step_type: str = "stub"
+    agent_name: str = "stub"
+    prompt_template_id: str = "stub"
+    tool_config: Dict[str, Any] = {}
+    output_schema: Dict[str, Any] = {}
+    is_interactive: bool = False
+    skippable: bool = False
+    config: Dict[str, Any] = {}
+
 class ArticleFlowRead(BaseModel):
     id: str = "stub"
     name: str = "stub"
+    is_template: bool = False
+    steps: List[_StubStep] = []
     
 class GeneratedArticleStateRead(BaseModel):
     status: str = "stub"
@@ -351,7 +367,8 @@ async def ai_edit_block(
             temperature=0.7,
         )
 
-        new_content = completion.choices[0].message.content.strip()
+        content = completion.choices[0].message.content
+        new_content = content.strip() if content else ""
 
         return {"new_content": new_content}
 

@@ -8,8 +8,8 @@ import uuid
 
 # ログシステムのインポート
 try:
-    from services.logging_service import LoggingService
-    from agents_logging_integration import MultiAgentWorkflowLogger
+    from app.infrastructure.logging.service import LoggingService
+    from app.infrastructure.logging.agents_logging_integration import MultiAgentWorkflowLogger
     LOGGING_AVAILABLE = True
 except ImportError as e:
     print(f"ログシステムのインポートに失敗: {e}")
@@ -180,7 +180,8 @@ async def test_logging_system():
         # 9. 実際のLLMログテーブルの確認
         print("\n9️⃣ LLMログテーブルの確認")
         try:
-            from database.supabase_client import supabase
+            from app.domains.seo_article.services.flow_service import get_supabase_client
+            supabase = get_supabase_client()
             
             # 作成したセッションのLLM呼び出しログを確認
             llm_logs = supabase.table("llm_call_logs") \

@@ -9,7 +9,7 @@ from fastapi import WebSocket # <<< WebSocket をインポート
 from app.domains.seo_article.schemas import (
     ThemeProposalData as ThemeIdea, ResearchPlan, ResearchQueryResult, ResearchReport, 
     Outline, AgentOutput, ArticleSection, SerpKeywordAnalysisReport, ImagePlaceholder,
-    ClientResponsePayload, AgeGroup, PersonaType
+    ClientResponsePayload, AgeGroup, PersonaType, RevisedArticle
 )
 # WebSocketメッセージスキーマもインポート (型ヒント用)
 from app.common.schemas import UserInputType
@@ -99,9 +99,12 @@ class ArticleContext:
     research_report: Optional[ResearchReport] = None
     generated_outline: Optional[Outline] = None
     current_section_index: int = 0
+    generated_sections: List[ArticleSection] = field(default_factory=list)
     generated_sections_html: List[str] = field(default_factory=list)
     full_draft_html: Optional[str] = None
+    final_article: Optional[RevisedArticle] = None
     final_article_html: Optional[str] = None
+    final_article_id: Optional[str] = None
     error_message: Optional[str] = None
     last_agent_output: Optional[Union[AgentOutput, ArticleSection]] = None
     section_writer_history: List[Dict[str, Any]] = field(default_factory=list)

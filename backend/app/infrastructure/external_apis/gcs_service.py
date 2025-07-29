@@ -8,7 +8,20 @@ import uuid
 from typing import Optional, Tuple, Dict, Any
 import mimetypes
 
-from google.api_core import exceptions as gcs_exceptions
+try:
+    from google.api_core import exceptions as gcs_exceptions
+    from google.cloud.exceptions import GoogleCloudError
+except ImportError:
+    # Fallback for when Google Cloud libraries are not available
+    GoogleCloudError = Exception  # type: ignore[misc]
+    
+    # Create a fake gcs_exceptions module for fallback
+    class _FakeExceptions:
+        class NotFound(Exception):
+            pass
+        GoogleCloudError = Exception
+    
+    gcs_exceptions = _FakeExceptions()  # type: ignore[assignment]
 
 from app.core.config import settings
 from app.core.logger import logger
@@ -110,7 +123,7 @@ class GCSService:
             logger.info(f"Image uploaded to GCS: {gcs_path}")
             return True, gcs_url, gcs_path, None
             
-        except gcs_exceptions.GoogleCloudError as e:
+        except GoogleCloudError as e:
             logger.error(f"GCS upload failed: {e}")
             return False, None, None, f"GCS upload error: {str(e)}"
         except Exception as e:
@@ -139,7 +152,7 @@ class GCSService:
         except gcs_exceptions.NotFound:
             logger.warning(f"Image not found in GCS: {gcs_path}")
             return False, "Image not found"
-        except gcs_exceptions.GoogleCloudError as e:
+        except GoogleCloudError as e:
             logger.error(f"GCS delete failed: {e}")
             return False, f"GCS delete error: {str(e)}"
         except Exception as e:

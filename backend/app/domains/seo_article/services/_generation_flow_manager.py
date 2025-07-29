@@ -24,7 +24,7 @@ from app.domains.seo_article.schemas import (
     SelectThemePayload, ApprovePayload, SelectPersonaPayload, GeneratedPersonaData, 
     EditAndProceedPayload, EditThemePayload, EditPlanPayload, EditOutlinePayload,
     # Data models
-    ThemeProposalData, OutlineData, OutlineSectionData
+    ThemeProposalData
 )
 from app.common.schemas import (
     UserInputType
@@ -33,7 +33,7 @@ from app.domains.seo_article.context import ArticleContext
 from app.domains.seo_article.schemas import (
     ThemeProposal, ResearchPlan, ResearchQueryResult, ResearchReport, Outline, OutlineSection,
     RevisedArticle, ClarificationNeeded, StatusUpdate, ArticleSection, GeneratedPersonasResponse, ThemeProposal as ThemeIdea,
-    SerpKeywordAnalysisReport,
+    SerpKeywordAnalysisReport, OutlineData, OutlineSectionData,
     ArticleSectionWithImages
 )
 from app.domains.seo_article.agents.definitions import (
@@ -56,10 +56,11 @@ try:
     NOTION_SYNC_ENABLED = True
 except ImportError as e:
     logger.warning(f"Logging system not available: {e}")
-    LoggingService = None
-    MultiAgentWorkflowLogger = None
-    NotionSyncService = None
-    CostCalculationService = None
+    # Use None and handle the checks properly
+    LoggingService = None  # type: ignore
+    MultiAgentWorkflowLogger = None  # type: ignore
+    NotionSyncService = None  # type: ignore
+    CostCalculationService = None  # type: ignore
     LOGGING_ENABLED = False
     NOTION_SYNC_ENABLED = False
 
@@ -1255,6 +1256,81 @@ class GenerationFlowManager:
             image_mode=getattr(context, 'image_mode', False)
         ))
 
+    async def handle_researching_step(self, context: ArticleContext, run_config: RunConfig, process_id: Optional[str] = None, user_id: Optional[str] = None):
+        """リサーチ実行ステップの処理"""
+        if not context.research_plan or not hasattr(context.research_plan, 'queries'):
+            await self.service.utils.send_error(context, "リサーチ計画がありません。リサーチをスキップします。")
+            context.current_step = "error"
+            return
+
+        # 重複実行防止チェック
+        if context.executing_step == "researching":
+            console.print("[yellow]リサーチは既に実行中です。スキップします。[/yellow]")
+            await asyncio.sleep(1)
+            return
+        
+        context.executing_step = "researching"
+        
+        try:
+            # Initialize research query results if not exists
+            if not hasattr(context, 'research_query_results'):
+                context.research_query_results = []
+            
+            total_queries = len(context.research_plan.queries)
+            console.print(f"[cyan]{total_queries}件のリサーチクエリを実行します...[/cyan]")
+            
+            for i, query in enumerate(context.research_plan.queries):
+                console.print(f"🔍 クエリ {i+1}/{total_queries}: {query.query if hasattr(query, 'query') else str(query)}")
+                
+                # Send research progress update
+                if context.websocket:
+                    await self.service.utils.send_server_event(context, ResearchProgressPayload(
+                        current_query=i + 1,
+                        total_queries=total_queries,
+                        query=query.query if hasattr(query, 'query') else str(query),
+                        progress_percentage=int((i / total_queries) * 100)
+                    ))
+                
+                # Execute research query
+                current_agent = researcher_agent
+                agent_input = f"以下のクエリについて詳細にリサーチしてください: {query.query if hasattr(query, 'query') else str(query)}"
+                console.print(f"🤖 {current_agent.name} にリサーチクエリを依頼します...")
+                agent_output = await self.run_agent(current_agent, agent_input, context, run_config)
+
+                if isinstance(agent_output, ResearchQueryResult):
+                    context.research_query_results.append(agent_output)
+                    console.print(f"[green]クエリ {i+1} が完了しました。[/green]")
+                else:
+                    console.print(f"[yellow]クエリ {i+1} で予期しないエージェント出力タイプを受け取りました: {type(agent_output)}[/yellow]")
+                    # Continue with other queries even if one fails
+                
+                # Small delay to prevent overwhelming the system
+                await asyncio.sleep(0.5)
+            
+            # Move to synthesis step
+            context.current_step = "research_synthesizing"
+            context.executing_step = None
+            console.print(f"[green]{len(context.research_query_results)}件のリサーチが完了しました。統合ステップに進みます。[/green]")
+            
+            # Save context after research completion
+            if process_id and user_id:
+                try:
+                    await self.service.persistence_service.save_context_to_db(context, process_id=process_id, user_id=user_id)
+                    logger.info("Context saved successfully after research completion")
+                except Exception as save_err:
+                    logger.error(f"Failed to save context after research completion: {save_err}")
+            
+            await self.service.utils.send_server_event(context, StatusUpdatePayload(
+                step=context.current_step, 
+                message="Research completed, proceeding to synthesis.", 
+                image_mode=getattr(context, 'image_mode', False)
+            ))
+            
+        except Exception as e:
+            context.executing_step = None
+            await self.service.utils.send_error(context, f"リサーチ実行中にエラーが発生しました: {str(e)}")
+            context.current_step = "error"
+
     async def execute_research_synthesizing_background(self, context: "ArticleContext", run_config: RunConfig):
         """リサーチ統合のバックグラウンド実行"""
         if not context.research_query_results:
@@ -1272,10 +1348,27 @@ class GenerationFlowManager:
             context.current_step = "outline_generating"
             console.print("[cyan]リサーチ報告書が完成しました。[/cyan]")
             if context.websocket:
+                from app.domains.seo_article.schemas import ResearchReportData, KeyPointData
+                
+                # Convert research report to the expected format
+                key_points = []
+                if hasattr(agent_output, 'key_findings') and agent_output.key_findings:
+                    for finding in agent_output.key_findings:
+                        key_points.append(KeyPointData(
+                            point=finding if isinstance(finding, str) else str(finding),
+                            supporting_sources=[]  # Will be empty for now
+                        ))
+                
+                report_data = ResearchReportData(
+                    topic=context.selected_theme.title if context.selected_theme else "Research Topic",
+                    overall_summary=getattr(agent_output, 'summary', ''),
+                    key_points=key_points,
+                    interesting_angles=[],  # Will be empty for now  
+                    all_sources=[]  # Will be empty for now
+                )
+                
                 await self.service.utils.send_server_event(context, ResearchCompletePayload(
-                    summary=agent_output.summary,
-                    key_findings=agent_output.key_findings,
-                    sources_used=len(context.research_query_results)
+                    report=report_data
                 ))
         else:
             console.print("[red]リサーチ合成中に予期しないエージェント出力タイプを受け取りました。[/red]")
@@ -1374,7 +1467,7 @@ class GenerationFlowManager:
         context.current_step = "editing"
         console.print("[cyan]全セクションの執筆が完了しました。[/cyan]")
 
-    async def execute_editing_background(self, context: "ArticleContext", run_config: RunConfig, process_id: Optional[str] = None):
+    async def execute_editing_background(self, context: "ArticleContext", run_config: RunConfig, process_id: Optional[str] = None, user_id: Optional[str] = None):
         """編集のバックグラウンド実行"""
         if not context.generated_sections_html:
             console.print("[red]生成されたセクションがありません。編集をスキップします。[/red]")
@@ -1402,8 +1495,18 @@ class GenerationFlowManager:
             })
             console.print("[green]記事の編集が完了しました！[/green]")
             
+            # Save context to database if available
+            if process_id and user_id:
+                try:
+                    await self.service.persistence_service.save_context_to_db(context, process_id=process_id, user_id=user_id)
+                    logger.info("Context saved successfully after article editing")
+                except Exception as save_err:
+                    logger.error(f"Failed to save context after article editing: {save_err}")
+            
             # ワークフローロガーを最終化（記事編集完了）
-            if hasattr(context, 'process_id') and context.process_id:
+            if process_id:
+                await self.finalize_workflow_logger(process_id, "completed")
+            elif hasattr(context, 'process_id') and context.process_id:
                 await self.finalize_workflow_logger(context.process_id, "completed")
         elif isinstance(agent_output, str):
             # EditorAgent returns HTML directly as string
@@ -1416,8 +1519,18 @@ class GenerationFlowManager:
             })
             console.print("[green]記事の編集が完了しました！[/green]")
             
+            # Save context to database if available
+            if process_id and user_id:
+                try:
+                    await self.service.persistence_service.save_context_to_db(context, process_id=process_id, user_id=user_id)
+                    logger.info("Context saved successfully after article editing")
+                except Exception as save_err:
+                    logger.error(f"Failed to save context after article editing: {save_err}")
+            
             # ワークフローロガーを最終化（記事編集完了）
-            if hasattr(context, 'process_id') and context.process_id:
+            if process_id:
+                await self.finalize_workflow_logger(process_id, "completed")
+            elif hasattr(context, 'process_id') and context.process_id:
                 await self.finalize_workflow_logger(context.process_id, "completed")
         else:
             console.print(f"[red]編集中に予期しないエージェント出力タイプを受け取りました: {type(agent_output)}[/red]")
@@ -1440,10 +1553,27 @@ class GenerationFlowManager:
             console.print("[green]リサーチレポートを生成しました。[/green]")
             
             # WebSocketでレポートを送信（承認は求めず、情報提供のみ）
+            from app.domains.seo_article.schemas import ResearchReportData, KeyPointData
+            
+            # Convert research report to the expected format
+            key_points = []
+            if hasattr(agent_output, 'key_findings') and agent_output.key_findings:
+                for finding in agent_output.key_findings:
+                    key_points.append(KeyPointData(
+                        point=finding if isinstance(finding, str) else str(finding),
+                        supporting_sources=[]  # Will be empty for now
+                    ))
+            
+            report_data = ResearchReportData(
+                topic=context.selected_theme.title if context.selected_theme else "Research Topic",
+                overall_summary=getattr(agent_output, 'summary', ''),
+                key_points=key_points,
+                interesting_angles=[],  # Will be empty for now  
+                all_sources=[]  # Will be empty for now
+            )
+            
             await self.service.utils.send_server_event(context, ResearchCompletePayload(
-                summary=agent_output.summary,
-                key_findings=agent_output.key_findings,
-                sources_used=len(context.research_query_results) if hasattr(context, 'research_query_results') else 0
+                report=report_data
             ))
             
             # Save context after research report generation
@@ -1513,18 +1643,7 @@ class GenerationFlowManager:
     async def handle_outline_generated_step(self, context: ArticleContext, process_id: Optional[str] = None, user_id: Optional[str] = None):
         """アウトライン生成完了ステップの処理"""
         if context.generated_outline:
-            def convert_section_to_data(section: OutlineSection) -> OutlineSectionData:
-                return OutlineSectionData(
-                    heading=section.heading,
-                    estimated_chars=getattr(section, 'estimated_chars', None),
-                    subsections=[convert_section_to_data(s) for s in section.subsections] if hasattr(section, 'subsections') and section.subsections else None
-                )
-            
-            outline_data_for_client = OutlineData(
-                title=context.generated_outline.title,
-                suggested_tone=getattr(context.generated_outline, 'suggested_tone', '丁寧で読みやすい解説調'),
-                sections=[convert_section_to_data(s) for s in context.generated_outline.sections]
-            )
+            outline_data_for_client = context.generated_outline
             
             user_response_message = await self.service.utils.request_user_input(
                 context,
@@ -1574,7 +1693,7 @@ class GenerationFlowManager:
                             edited_sections = []
                             for section_data in edited_outline_data["sections"]:
                                 if isinstance(section_data.get("heading"), str):
-                                    edited_sections.append(OutlineSection(
+                                    edited_sections.append(OutlineSectionData(
                                         heading=section_data["heading"],
                                         estimated_chars=section_data.get("estimated_chars", 400)
                                     ))
@@ -1617,7 +1736,7 @@ class GenerationFlowManager:
                             edited_sections = []
                             for section_data in edited_outline_data["sections"]:
                                 if isinstance(section_data.get("heading"), str):
-                                    edited_sections.append(OutlineSection(
+                                    edited_sections.append(OutlineSectionData(
                                         heading=section_data["heading"],
                                         estimated_chars=section_data.get("estimated_chars", 400)
                                     ))
@@ -2216,10 +2335,10 @@ class GenerationFlowManager:
         
         elif context.current_step == "research_plan_generated":
             if context.research_plan:
-                from app.domains.seo_article.schemas import ResearchPlanData
+                from app.domains.seo_article.schemas import ResearchPlanData, ResearchPlanQueryData
                 plan_data = ResearchPlanData(
                     topic=context.research_plan.topic,
-                    queries=[{"query": q.query, "focus": q.focus} for q in context.research_plan.queries]
+                    queries=[ResearchPlanQueryData(query=q.query, focus=q.focus) for q in context.research_plan.queries]
                 )
                 
                 user_response_message = await self.service.utils.request_user_input(

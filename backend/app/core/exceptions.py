@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
+from typing import Dict, Type, Callable, Awaitable, Any
 from fastapi import Request, status
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from fastapi.exceptions import RequestValidationError
 from pydantic import ValidationError
 import traceback
@@ -56,7 +57,7 @@ async def generic_exception_handler(request: Request, exc: Exception):
     )
 
 # 例外ハンドラを登録するための辞書
-exception_handlers = {
+exception_handlers: Dict[Type[Exception], Callable[[Request, Any], Awaitable[Response]]] = {
     RequestValidationError: validation_exception_handler,
     ValidationError: pydantic_validation_exception_handler, # Pydantic単体のエラーも捕捉
     AgentsException: agents_exception_handler, # Agents SDKの基底例外
