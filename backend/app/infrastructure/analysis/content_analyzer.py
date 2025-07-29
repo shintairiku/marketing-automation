@@ -1,5 +1,5 @@
 
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Union, Sequence
 from collections import Counter # Added for analyze_user_intent, _find_common_heading_patterns
 import numpy as np # ★ Added for statistical analysis
 import json # ★ Added for JSON export
@@ -15,7 +15,7 @@ class ContentAnalyzer:
     """
     
     @classmethod
-    def quick_analyze(cls, scraped_articles: List[ScrapedArticle], output_file: str = None, language: str = "jp") -> Dict[str, Any]:
+    def quick_analyze(cls, scraped_articles: List[ScrapedArticle], output_file: Optional[str] = None, language: str = "jp") -> Dict[str, Any]:
         """
         ワンライナーで分析を実行し、結果を返す簡易メソッド
         
@@ -36,7 +36,7 @@ class ContentAnalyzer:
         return results
     
     @classmethod 
-    async def quick_analyze_with_ai(cls, scraped_articles: List[ScrapedArticle], output_file: str = None, language: str = "jp") -> Dict[str, Any]:
+    async def quick_analyze_with_ai(cls, scraped_articles: List[ScrapedArticle], output_file: Optional[str] = None, language: str = "jp") -> Dict[str, Any]:
         """
         Gemini AIを使った高度分析をワンライナーで実行
         
@@ -85,12 +85,12 @@ class ContentAnalyzer:
 
         if not filtered_articles:
             print("警告: ContentAnalyzer - フィルタリングの結果、分析対象となる有効な記事が0件です。")
-            self.articles: List[ScrapedArticle] = []
+            self.articles = []
         else:
-            self.articles: List[ScrapedArticle] = filtered_articles
+            self.articles = filtered_articles
             print(f"ContentAnalyzer初期化完了: 分析対象の記事数 {len(self.articles)}件。")
 
-    def _analyze_distribution(self, data: List[float], feature_name: str) -> Dict[str, Any]:
+    def _analyze_distribution(self, data: Sequence[Union[int, float]], feature_name: str) -> Dict[str, Any]:
         """数値リストの分布を分析する内部メソッド"""
         if not data:
             return {

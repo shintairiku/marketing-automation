@@ -13,7 +13,8 @@ try:
     LOGGING_SERVICE_AVAILABLE = True
 except ImportError as e:
     logging.warning(f"Logging service not available: {e}")
-    LoggingService = None
+    # Use None and handle the checks properly
+    LoggingService = None  # type: ignore
     LOGGING_SERVICE_AVAILABLE = False
 
 class MultiAgentWorkflowLogger:
@@ -24,7 +25,7 @@ class MultiAgentWorkflowLogger:
         article_uuid: str,
         user_id: str,
         organization_id: Optional[str] = None,
-        initial_config: Dict[str, Any] = None
+        initial_config: Optional[Dict[str, Any]] = None
     ):
         self.article_uuid = article_uuid
         self.user_id = user_id
@@ -63,7 +64,7 @@ class MultiAgentWorkflowLogger:
             self.session_id = str(uuid.uuid4())
             return self.session_id
     
-    def log_workflow_step(self, step_name: str, step_data: Dict[str, Any] = None, primary_execution_id: str = None):
+    def log_workflow_step(self, step_name: str, step_data: Optional[Dict[str, Any]] = None, primary_execution_id: Optional[str] = None):
         """ワークフローステップをログに記録"""
         if self.logging_service and self.session_id:
             try:
@@ -99,7 +100,7 @@ class MultiAgentWorkflowLogger:
                 logging.warning(f"Failed to log workflow step: {e}")
                 return None
     
-    def update_workflow_step_status(self, step_id: str, status: str, step_output: Dict[str, Any] = None, duration_ms: int = None):
+    def update_workflow_step_status(self, step_id: str, status: str, step_output: Optional[Dict[str, Any]] = None, duration_ms: Optional[int] = None):
         """ワークフローステップの状態を更新"""
         if self.logging_service and step_id:
             try:

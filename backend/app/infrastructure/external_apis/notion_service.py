@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 class NotionService:
     """Notion API統合サービスクラス"""
     
-    def __init__(self, api_key: str = None, database_id: str = None):
+    def __init__(self, api_key: Optional[str] = None, database_id: Optional[str] = None):
         self.api_key = api_key or settings.notion_api_key
         self.database_id = database_id or settings.notion_database_id
         self.base_url = "https://api.notion.com/v1"
@@ -62,7 +62,7 @@ class NotionService:
             
             # 開始日時プロパティを追加
             if session_data.get('created_at'):
-                properties["開始日時"] = {
+                properties["開始日時"] = {  # type: ignore[dict-item]
                     "date": {
                         "start": session_data['created_at']
                     }
@@ -146,7 +146,7 @@ class NotionService:
 
     def _build_session_content_blocks(self, session_data: Dict[str, Any]) -> List[Dict[str, Any]]:
         """セッションデータからNotionブロックを構築"""
-        blocks = []
+        blocks: List[Dict[str, Any]] = []
         
         # ヘッダー情報
         blocks.append({
@@ -345,7 +345,7 @@ class NotionService:
     
     def _build_llm_call_blocks(self, llm_call: Dict[str, Any], call_number: int) -> List[Dict[str, Any]]:
         """LLM呼び出し詳細のブロックを構築"""
-        blocks = []
+        blocks: List[Dict[str, Any]] = []
         
         # LLM呼び出しヘッダー
         blocks.append({
@@ -427,7 +427,7 @@ class NotionService:
     
     def _split_text_into_blocks(self, text: str) -> List[Dict[str, Any]]:
         """長いテキストを複数のパラグラフブロックに分割"""
-        blocks = []
+        blocks: List[Dict[str, Any]] = []
         # Notion APIの制限に合わせて1900文字ごとに分割（安全マージン）
         chunk_size = 1900
         
@@ -460,7 +460,7 @@ class NotionService:
     
     def _format_response_content(self, content: str) -> List[Dict[str, Any]]:
         """アシスタント出力をフォーマットして表示"""
-        blocks = []
+        blocks: List[Dict[str, Any]] = []
         
         try:
             # JSONかどうかチェック

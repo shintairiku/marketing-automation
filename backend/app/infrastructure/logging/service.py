@@ -18,15 +18,15 @@ class LoggingService:
         article_uuid: str,
         user_id: str,
         organization_id: Optional[str] = None,
-        initial_input: Dict[str, Any] = None,
+        initial_input: Optional[Dict[str, Any]] = None,
         seo_keywords: Optional[List[str]] = None,
         image_mode_enabled: bool = False,
-        article_style_info: Dict[str, Any] = None,
+        article_style_info: Optional[Dict[str, Any]] = None,
         generation_theme_count: int = 1,
         target_age_group: Optional[str] = None,
-        persona_settings: Dict[str, Any] = None,
-        company_info: Dict[str, Any] = None,
-        session_metadata: Dict[str, Any] = None
+        persona_settings: Optional[Dict[str, Any]] = None,
+        company_info: Optional[Dict[str, Any]] = None,
+        session_metadata: Optional[Dict[str, Any]] = None
     ) -> str:
         """新しいログセッションを作成"""
         try:
@@ -68,7 +68,7 @@ class LoggingService:
     ) -> None:
         """セッションの状態を更新"""
         try:
-            update_data = {"status": status}
+            update_data: Dict[str, Any] = {"status": status}
             
             # valid_step_counts制約を満たすため、ステップ数の整合性をチェック
             if total_steps is not None or completed_steps is not None:
@@ -114,10 +114,10 @@ class LoggingService:
         agent_type: str,
         step_number: int,
         sub_step_number: int = 1,
-        input_data: Dict[str, Any] = None,
+        input_data: Optional[Dict[str, Any]] = None,
         llm_model: Optional[str] = None,
         llm_provider: str = "openai",
-        execution_metadata: Dict[str, Any] = None
+        execution_metadata: Optional[Dict[str, Any]] = None
     ) -> str:
         """エージェント実行ログを作成"""
         try:
@@ -161,7 +161,7 @@ class LoggingService:
     ) -> None:
         """エージェント実行ログを更新"""
         try:
-            update_data = {"status": status}
+            update_data: Dict[str, Any] = {"status": status}
             
             if output_data is not None:
                 update_data["output_data"] = output_data
@@ -198,9 +198,9 @@ class LoggingService:
         provider: str = "openai",
         system_prompt: Optional[str] = None,
         user_prompt: Optional[str] = None,
-        full_prompt_data: Dict[str, Any] = None,
+        full_prompt_data: Optional[Dict[str, Any]] = None,
         response_content: Optional[str] = None,
-        response_data: Dict[str, Any] = None,
+        response_data: Optional[Dict[str, Any]] = None,
         prompt_tokens: int = 0,
         completion_tokens: int = 0,
         total_tokens: int = 0,
@@ -257,8 +257,8 @@ class LoggingService:
         tool_name: str,
         tool_function: str,
         call_sequence: int,
-        input_parameters: Dict[str, Any] = None,
-        output_data: Dict[str, Any] = None,
+        input_parameters: Optional[Dict[str, Any]] = None,
+        output_data: Optional[Dict[str, Any]] = None,
         status: str = "started",
         execution_time_ms: Optional[int] = None,
         data_size_bytes: Optional[int] = None,
@@ -266,7 +266,7 @@ class LoggingService:
         error_type: Optional[str] = None,
         error_message: Optional[str] = None,
         retry_count: int = 0,
-        tool_metadata: Dict[str, Any] = None
+        tool_metadata: Optional[Dict[str, Any]] = None
     ) -> str:
         """ツール呼び出しログを作成"""
         try:
@@ -311,7 +311,7 @@ class LoggingService:
     ) -> None:
         """ツール呼び出しログを更新"""
         try:
-            update_data = {"status": status}
+            update_data: Dict[str, Any] = {"status": status}
             
             if output_data is not None:
                 update_data["output_data"] = output_data
@@ -337,9 +337,9 @@ class LoggingService:
         step_name: str,
         step_type: str,
         step_order: int,
-        step_input: Dict[str, Any] = None,
+        step_input: Optional[Dict[str, Any]] = None,
         primary_execution_id: Optional[str] = None,
-        step_metadata: Dict[str, Any] = None
+        step_metadata: Optional[Dict[str, Any]] = None
     ) -> str:
         """ワークフローステップログを作成"""
         try:
@@ -374,7 +374,7 @@ class LoggingService:
     ) -> None:
         """ワークフローステップログを更新"""
         try:
-            update_data = {"status": status}
+            update_data: Dict[str, Any] = {"status": status}
             
             if step_output is not None:
                 update_data["step_output"] = step_output

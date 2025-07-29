@@ -5,7 +5,7 @@ Notion統合の修正をテストするスクリプト
 """
 import sys
 from pathlib import Path
-from app.infrastructure.external_apis.notion_service import NotionSyncService
+from app.infrastructure.external_apis.notion_service import NotionService
 from app.infrastructure.analysis.cost_calculation_service import CostCalculationService
 
 # プロジェクトルートをパスに追加

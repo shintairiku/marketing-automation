@@ -377,10 +377,10 @@ ImagePlaceholder = ImagePlaceholderData
 
 # AgentOutput のインポート
 try:
-    from agents import AgentOutputSchema as AgentOutput
+    from agents import AgentOutputSchema as AgentOutput  # type: ignore[attr-defined]
 except ImportError:
     # Fallback: 簡易AgentOutputクラスを定義
-    class AgentOutput(BaseModel):
+    class AgentOutput(BaseModel):  # type: ignore[no-redef]
         """エージェント出力の基底クラス"""
         content: Any = Field(description="出力内容")
         metadata: Dict[str, Any] = Field(default_factory=dict, description="メタデータ")

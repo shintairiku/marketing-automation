@@ -29,8 +29,9 @@ try:
     LOGGING_ENABLED = True
     NOTION_SYNC_ENABLED = True
 except ImportError:
-    LoggingService = None
-    NotionSyncService = None
+    # Use None and handle the checks properly
+    LoggingService = None  # type: ignore
+    NotionSyncService = None  # type: ignore
     LOGGING_ENABLED = False
     NOTION_SYNC_ENABLED = False
 
@@ -120,7 +121,13 @@ class ArticleGenerationService:
 
     async def get_background_task_status(self, process_id: str) -> Optional[str]:
         """Get the status of a background task"""
-        return await self.websocket_handler.get_background_task_status(process_id)
+        # DEPRECATED: WebSocket functionality replaced by Supabase Realtime
+        task = self.background_tasks.get(process_id)
+        if task and not task.done():
+            return "running"
+        elif task and task.done():
+            return "completed" if not task.exception() else "failed"
+        return None
 
     # ============================================================================
     # NEW: Supabase Realtime Migration Methods
@@ -417,23 +424,34 @@ class ArticleGenerationService:
 
     async def _start_heartbeat_monitor(self, websocket, process_id: str, context):
         """WebSocket接続のハートビート監視を開始 (旧メソッド互換性)"""
-        return await self.websocket_handler.start_heartbeat_monitor(websocket, process_id, context)
+        # DEPRECATED: WebSocket functionality replaced by Supabase Realtime
+        logger.warning("_start_heartbeat_monitor is deprecated. Use Supabase Realtime for real-time updates.")
+        return None
 
     async def _handle_disconnection(self, process_id: str, context):
         """WebSocket切断時の処理 (旧メソッド互換性)"""
-        return await self.websocket_handler.handle_disconnection(process_id, context)
+        # DEPRECATED: WebSocket functionality replaced by Supabase Realtime
+        logger.warning("_handle_disconnection is deprecated. Use Supabase Realtime for real-time updates.")
+        return None
 
     async def _start_background_processing(self, process_id: str, context):
         """切断されたプロセスのバックグラウンド処理を開始 (旧メソッド互換性)"""
-        return await self.websocket_handler.start_background_processing(process_id, context)
+        # DEPRECATED: WebSocket functionality replaced by Supabase Realtime
+        logger.warning("_start_background_processing is deprecated. Use background_task_manager instead.")
+        return await self.background_task_manager.start_background_processing(process_id, context)
 
     async def _get_process_lock(self, process_id: str):
         """プロセスIDに対応するロックを取得または作成 (旧メソッド互換性)"""
-        return await self.websocket_handler.get_process_lock(process_id)
+        # DEPRECATED: WebSocket functionality replaced by Supabase Realtime
+        if process_id not in self.process_locks:
+            self.process_locks[process_id] = asyncio.Lock()
+        return self.process_locks[process_id]
 
     async def _check_and_manage_existing_connection(self, process_id: str, new_websocket):
         """既存の接続をチェックし、必要に応じて管理する (旧メソッド互換性)"""
-        return await self.websocket_handler.check_and_manage_existing_connection(process_id, new_websocket)
+        # DEPRECATED: WebSocket functionality replaced by Supabase Realtime
+        logger.warning("_check_and_manage_existing_connection is deprecated. Use Supabase Realtime for real-time updates.")
+        return None
 
     async def _run_generation_loop(self, context, run_config, process_id: Optional[str] = None, user_id: Optional[str] = None):
         """記事生成のメインループ（WebSocketインタラクティブ版） (旧メソッド互換性)"""
@@ -467,7 +485,7 @@ class ArticleGenerationService:
         """WebSocket経由でエラーイベントを送信するヘルパー関数 (旧メソッド互換性)"""
         return await self.utils.send_error(context, error_message, step)
 
-    async def _request_user_input(self, context, request_type, data: Optional[Dict[str, Any]] = None):
+    async def _request_user_input(self, context, request_type, data: Optional[Dict[Any, Any]] = None):
         """クライアントに特定のタイプの入力を要求し、応答を待つ (旧メソッド互換性)"""
         return await self.utils.request_user_input(context, request_type, data)
 
@@ -475,19 +493,20 @@ class ArticleGenerationService:
         """Convert dictionary payload to appropriate Pydantic model based on response type (旧メソッド互換性)"""
         return self.utils.convert_payload_to_model(payload, response_type)
 
-    async def _update_process_status(self, process_id: str, status: str, current_step: str = None, metadata: dict = None):
+    async def _update_process_status(self, process_id: str, status: str, current_step: Optional[str] = None, metadata: Optional[Dict[Any, Any]] = None):
         """Update process status in database (旧メソッド互換性)"""
         return await self.persistence_service.update_process_status(process_id, status, current_step, metadata)
 
     async def _cleanup_background_tasks(self):
         """Clean up completed background tasks (旧メソッド互換性)"""
-        return await self.websocket_handler.cleanup_background_tasks()
+        # DEPRECATED: WebSocket functionality replaced by Supabase Realtime
+        return await self.background_task_manager.cleanup_background_tasks()
 
     async def _ensure_workflow_logger(self, context, process_id: Optional[str] = None, user_id: Optional[str] = None):
         """ワークフローロガーを確実に確保する (旧メソッド互換性)"""
         return await self.flow_manager.ensure_workflow_logger(context, process_id, user_id)
 
-    async def _log_workflow_step(self, context, step_name: str, step_data: Dict[str, Any] = None):
+    async def _log_workflow_step(self, context, step_name: str, step_data: Optional[Dict[str, Any]] = None):
         """ワークフローステップをログに記録 (旧メソッド互換性)"""
         return await self.flow_manager.log_workflow_step(context, step_name, step_data)
 
@@ -517,7 +536,9 @@ class ArticleGenerationService:
 
     async def _handle_resumed_user_input_step(self, context, process_id: str, user_id: str):
         """復帰時にユーザー入力待ちステップの場合の処理 (旧メソッド互換性)"""
-        return await self.websocket_handler.handle_resumed_user_input_step(context, process_id, user_id)
+        # DEPRECATED: WebSocket functionality replaced by Supabase Realtime
+        logger.warning("_handle_resumed_user_input_step is deprecated. Use flow_manager instead.")
+        return await self.flow_manager.handle_user_input_step(context, process_id, user_id)
 
     async def _save_image_placeholders_to_db(self, context, image_placeholders: list, section_index: int):
         """画像プレースホルダー情報をデータベースに保存 (旧メソッド互換性)"""
@@ -535,7 +556,7 @@ class ArticleGenerationService:
         """記事内容から画像プレースホルダーを抽出してデータベースに保存する (旧メソッド互換性)"""
         return await self.persistence_service.extract_and_save_placeholders(supabase, article_id, content)
 
-    async def _add_step_to_history(self, process_id: str, step_name: str, status: str, data: dict = None):
+    async def _add_step_to_history(self, process_id: str, step_name: str, status: str, data: Optional[Dict[Any, Any]] = None):
         """Add step to history using database function for process tracking (旧メソッド互換性)"""
         return await self.persistence_service.add_step_to_history(process_id, step_name, status, data)
 
@@ -547,7 +568,7 @@ class ArticleGenerationService:
         """トレーシングエラーを安全にハンドリングするコンテキストマネージャー (旧メソッド互換性)"""
         return self.utils.safe_trace_context(workflow_name, trace_id, group_id)
 
-    def safe_custom_span(self, name: str, data: dict = None):
+    def safe_custom_span(self, name: str, data: Optional[Dict[Any, Any]] = None):
         """カスタムスパンを安全にハンドリングするコンテキストマネージャー (旧メソッド互換性)"""
         return self.utils.safe_custom_span(name, data)
 
