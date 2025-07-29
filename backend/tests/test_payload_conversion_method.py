@@ -212,7 +212,6 @@ class TestPayloadConversion(unittest.TestCase):
         class MockUserInputType:
             UNKNOWN_TYPE = "unknown_type"
         
-        payload = {"some_field": "some_value"}
         # We can't test this directly since UserInputType is an enum,
         # but the actual implementation would return None for unknown types
         
@@ -280,7 +279,7 @@ def run_tests():
     passed = total_tests - failures - errors
     
     print(f"\n{'='*60}")
-    print(f"TEST SUMMARY")
+    print("TEST SUMMARY")
     print(f"{'='*60}")
     print(f"Total tests: {total_tests}")
     print(f"Passed: {passed}")
@@ -289,7 +288,7 @@ def run_tests():
     print(f"Success rate: {(passed/total_tests*100):.1f}%")
     
     if failures == 0 and errors == 0:
-        print(f"\n🎉 All tests passed!")
+        print("\n🎉 All tests passed!")
         print("The _convert_payload_to_model method correctly handles:")
         print("  ✓ SELECT_THEME with SelectThemePayload")
         print("  ✓ APPROVE_PLAN with ApprovePayload")  

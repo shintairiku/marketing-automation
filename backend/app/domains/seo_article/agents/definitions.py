@@ -8,10 +8,10 @@ from datetime import datetime, timezone
 # from .tools import web_search_tool, analyze_competitors, get_company_data
 # from .context import ArticleContext
 from app.domains.seo_article.schemas import (
-    AgentOutput, ResearchQueryResult, ResearchReport, RevisedArticle, 
+    ResearchQueryResult, ResearchReport, RevisedArticle, 
     GeneratedPersonasResponse, SerpKeywordAnalysisReport, 
     ArticleSectionWithImages, ThemeProposal, ClarificationNeeded,
-    ResearchPlan, Outline, GeneratedThemesResponse, SourceSnippet
+    ResearchPlan, Outline
 )
 from app.domains.seo_article.agents.tools import web_search_tool, analyze_competitors, get_company_data
 from app.domains.seo_article.context import ArticleContext

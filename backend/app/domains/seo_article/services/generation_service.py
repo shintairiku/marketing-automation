@@ -28,7 +28,7 @@ try:
     from app.infrastructure.external_apis.notion_service import NotionService as NotionSyncService
     LOGGING_ENABLED = True
     NOTION_SYNC_ENABLED = True
-except ImportError as e:
+except ImportError:
     LoggingService = None
     NotionSyncService = None
     LOGGING_ENABLED = False
@@ -136,11 +136,10 @@ class ArticleGenerationService:
         try:
             logger.info(f"🔨 [CREATE_PROCESS] Creating generation process for user: {user_id}")
             
-            from ..schemas import GenerateArticleRequest
             from ..context import ArticleContext
             
             # Convert request data to proper format if needed
-            logger.info(f"📊 [CREATE_PROCESS] Converting request data to dictionary format")
+            logger.info("📊 [CREATE_PROCESS] Converting request data to dictionary format")
             if hasattr(request_data, 'dict'):
                 request_dict = request_data.dict()
             elif hasattr(request_data, 'model_dump'):
@@ -151,7 +150,7 @@ class ArticleGenerationService:
             logger.info(f"✅ [CREATE_PROCESS] Request data converted, image_mode: {request_dict.get('image_mode', False)}")
             
             # Create ArticleContext from request
-            logger.info(f"🧠 [CREATE_PROCESS] Creating ArticleContext")
+            logger.info("🧠 [CREATE_PROCESS] Creating ArticleContext")
             context = ArticleContext(
                 initial_keywords=request_dict.get("initial_keywords", []),
                 target_age_group=request_dict.get("target_age_group"),
@@ -174,7 +173,7 @@ class ArticleGenerationService:
             logger.info(f"✅ [CREATE_PROCESS] ArticleContext created, current_step: {context.current_step}")
             
             # Save context to database and get process_id
-            logger.info(f"💾 [CREATE_PROCESS] Saving context to database")
+            logger.info("💾 [CREATE_PROCESS] Saving context to database")
             process_id = await self.persistence_service.save_context_to_db(
                 context, 
                 user_id=user_id, 
@@ -183,16 +182,16 @@ class ArticleGenerationService:
             logger.info(f"✅ [CREATE_PROCESS] Context saved to database with process_id: {process_id}")
             
             # Publish process_created event immediately
-            logger.info(f"📢 [CREATE_PROCESS] Publishing process_created event")
+            logger.info("📢 [CREATE_PROCESS] Publishing process_created event")
             await self._publish_process_created_event(process_id, user_id, context)
-            logger.info(f"✅ [CREATE_PROCESS] process_created event published")
+            logger.info("✅ [CREATE_PROCESS] process_created event published")
             
             logger.info(f"🎉 [CREATE_PROCESS] Successfully created generation process {process_id} for user {user_id}")
             return process_id
             
         except Exception as e:
             logger.error(f"💥 [CREATE_PROCESS] Error creating generation process: {e}")
-            logger.exception(f"[CREATE_PROCESS] Full exception details:")
+            logger.exception("[CREATE_PROCESS] Full exception details:")
             raise
 
     async def run_generation_background_task(
@@ -214,7 +213,7 @@ class ArticleGenerationService:
             logger.info(f"✅ [GEN_SERVICE] Background task started successfully for process {process_id}")
         except Exception as e:
             logger.error(f"💥 [GEN_SERVICE] Error running generation background task for {process_id}: {e}")
-            logger.exception(f"[GEN_SERVICE] Full exception details:")
+            logger.exception("[GEN_SERVICE] Full exception details:")
             # Update process status to error
             try:
                 await self.persistence_service.update_process_status(
@@ -222,7 +221,7 @@ class ArticleGenerationService:
                     status="error",
                     metadata={"error_message": str(e)}
                 )
-            except:
+            except Exception:
                 pass  # Don't raise on cleanup errors
 
     async def resume_generation_background_task(
@@ -245,7 +244,7 @@ class ArticleGenerationService:
                     status="error",
                     metadata={"error_message": str(e)}
                 )
-            except:
+            except Exception:
                 pass  # Don't raise on cleanup errors
 
     async def process_user_input(
@@ -294,8 +293,6 @@ class ArticleGenerationService:
         """Continue generation after receiving user input"""
         try:
             # Get the most recent user input from database
-            from .flow_service import get_supabase_client
-            supabase = get_supabase_client()
             
             process_state = await self.persistence_service.get_generation_process_state(process_id, user_id)
             if not process_state:
@@ -326,7 +323,7 @@ class ArticleGenerationService:
                     status="error",
                     metadata={"error_message": str(e)}
                 )
-            except:
+            except Exception:
                 pass  # Don't raise on cleanup errors
 
     async def pause_generation_process(self, process_id: str, user_id: str) -> bool:

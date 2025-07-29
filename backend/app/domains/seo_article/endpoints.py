@@ -16,7 +16,7 @@ from pydantic import BaseModel, Field
 
 # 新しいインポートパス（修正版）
 from .services.generation_service import ArticleGenerationService
-from .schemas import GenerateArticleRequest, ClientResponsePayload
+from .schemas import GenerateArticleRequest
 # from .services.flow_service import (  # 後で実装
 #     article_flow_service,
 #     ArticleFlowCreate,
@@ -391,7 +391,7 @@ async def start_generation_process(
         logger.info(f"🎯 [ENDPOINT] Starting generation process for user: {user_id}")
         
         # Create process in database
-        logger.info(f"📝 [ENDPOINT] Creating process in database")
+        logger.info("📝 [ENDPOINT] Creating process in database")
         process_id = await article_service.create_generation_process(
             user_id=user_id,
             organization_id=organization_id,
@@ -400,7 +400,7 @@ async def start_generation_process(
         logger.info(f"✅ [ENDPOINT] Process created with ID: {process_id}")
         
         # Start background task
-        logger.info(f"🚀 [ENDPOINT] Adding background task to FastAPI BackgroundTasks")
+        logger.info("🚀 [ENDPOINT] Adding background task to FastAPI BackgroundTasks")
         background_tasks.add_task(
             article_service.run_generation_background_task,
             process_id=process_id,

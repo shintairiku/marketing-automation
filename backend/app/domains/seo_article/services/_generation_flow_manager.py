@@ -4,17 +4,14 @@ import json
 import time
 import traceback
 import logging
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import List, Dict, Any, Optional, Union
-from fastapi import WebSocket, WebSocketDisconnect, status
-from starlette.websockets import WebSocketState
-from openai import AsyncOpenAI, BadRequestError, InternalServerError, AuthenticationError
-from openai.types.responses import ResponseTextDeltaEvent, ResponseCompletedEvent
+from openai import BadRequestError, AuthenticationError
 from agents import Runner, RunConfig, Agent, trace
-from agents.exceptions import AgentsException, MaxTurnsExceeded, ModelBehaviorError, UserError
+from agents.exceptions import MaxTurnsExceeded, ModelBehaviorError, UserError
 from agents.tracing import custom_span
 from rich.console import Console
-from pydantic import ValidationError, BaseModel
+from pydantic import ValidationError
 
 # 内部モジュールのインポート
 from app.core.config import settings
@@ -27,17 +24,15 @@ from app.domains.seo_article.schemas import (
     SelectThemePayload, ApprovePayload, SelectPersonaPayload, GeneratedPersonaData, 
     EditAndProceedPayload, EditThemePayload, EditPlanPayload, EditOutlinePayload,
     # Data models
-    ThemeProposalData, ResearchPlanData, ResearchPlanQueryData, OutlineData, OutlineSectionData
+    ThemeProposalData, OutlineData, OutlineSectionData
 )
 from app.common.schemas import (
-    WebSocketMessage, ServerEventMessage, ClientResponseMessage,
-    ErrorPayload, UserInputRequestPayload, UserInputType
+    UserInputType
 )
 from app.domains.seo_article.context import ArticleContext
 from app.domains.seo_article.schemas import (
     ThemeProposal, ResearchPlan, ResearchQueryResult, ResearchReport, Outline, OutlineSection,
-    RevisedArticle, ClarificationNeeded, StatusUpdate, ArticleSection, GeneratedPersonasResponse, ResearchQuery,
-    ThemeProposal as ThemeIdea,
+    RevisedArticle, ClarificationNeeded, StatusUpdate, ArticleSection, GeneratedPersonasResponse, ThemeProposal as ThemeIdea,
     SerpKeywordAnalysisReport,
     ArticleSectionWithImages
 )
@@ -111,8 +106,6 @@ class GenerationFlowManager:
         
     async def run_generation_loop(self, context: ArticleContext, run_config: RunConfig, process_id: Optional[str] = None, user_id: Optional[str] = None):
         """記事生成のメインループ（WebSocketインタラクティブ版）"""
-        current_agent: Optional[Agent[ArticleContext]] = None
-        agent_input: Union[str, List[Dict[str, Any]]]
 
         # ワークフローロガーを確実に確保
         await self.ensure_workflow_logger(context, process_id, user_id)
@@ -561,8 +554,6 @@ class GenerationFlowManager:
 
     async def execute_single_step(self, context: "ArticleContext", run_config: RunConfig, process_id: Optional[str] = None, user_id: Optional[str] = None):
         """単一ステップの実行（WebSocket不要版）"""
-        current_agent: Optional[Agent["ArticleContext"]] = None
-        agent_input: Union[str, List[Dict[str, Any]]]
         
         # ワークフローロガーの確保
         await self.ensure_workflow_logger(context, process_id, user_id)
@@ -878,9 +869,9 @@ class GenerationFlowManager:
         """エージェント実行のログ記録"""
         if LOGGING_ENABLED and workflow_logger and self.service.logging_service:
             try:
-                # トークン使用量と会話履歴を抽出
-                token_usage = self.service.utils.extract_token_usage_from_result(result)
-                conversation_history = self.service.utils.extract_conversation_history_from_result(result, "")
+                # トークン使用量と会話履歴を抽出（ログ目的のみ、実際には使用されない）
+                # token_usage = self.service.utils.extract_token_usage_from_result(result)
+                # conversation_history = self.service.utils.extract_conversation_history_from_result(result, "")
                 
                 # ログ更新処理（簡略化）
                 console.print(f"[cyan]📋 Agent execution logged for {agent.name}[/cyan]")
@@ -947,7 +938,7 @@ class GenerationFlowManager:
                                 else:
                                     console.print(f"[red]❌ Notion自動同期失敗: {process_id}[/red]")
                             else:
-                                console.print(f"[yellow]⚠️ Notion同期メソッドが利用できません。スキップします。[/yellow]")
+                                console.print("[yellow]⚠️ Notion同期メソッドが利用できません。スキップします。[/yellow]")
                         except Exception as sync_err:
                             logger.warning(f"Notion auto-sync failed: {sync_err}")
                             console.print(f"[red]❌ Notion自動同期エラー: {sync_err}[/red]")
@@ -1233,7 +1224,7 @@ class GenerationFlowManager:
                             else:
                                 console.print(f"[red]❌ Notion自動同期失敗: {process_id}[/red]")
                         else:
-                            console.print(f"[yellow]⚠️ Notion同期メソッドが利用できません。スキップします。[/yellow]")
+                            console.print("[yellow]⚠️ Notion同期メソッドが利用できません。スキップします。[/yellow]")
                     except Exception as sync_err:
                         logger.warning(f"Notion auto-sync failed: {sync_err}")
                         console.print(f"[red]❌ Notion自動同期エラー: {sync_err}[/red]")
@@ -1449,7 +1440,6 @@ class GenerationFlowManager:
             console.print("[green]リサーチレポートを生成しました。[/green]")
             
             # WebSocketでレポートを送信（承認は求めず、情報提供のみ）
-            report_data = agent_output.model_dump()
             await self.service.utils.send_server_event(context, ResearchCompletePayload(
                 summary=agent_output.summary,
                 key_findings=agent_output.key_findings,
@@ -1984,7 +1974,6 @@ class GenerationFlowManager:
         from app.domains.seo_article.schemas import (
             GeneratedPersonasPayload, GeneratedPersonaData,
             ThemeProposalPayload, ThemeProposalData,
-            ResearchPlanPayload, OutlinePayload,
             SelectPersonaPayload, SelectThemePayload, ApprovePayload,
             EditAndProceedPayload
         )
@@ -2423,7 +2412,7 @@ class GenerationFlowManager:
             # Execute persona generation without WebSocket interaction
             current_agent = persona_generator_agent
             agent_input = f"キーワード: {context.initial_keywords}, 年代: {context.target_age_group}, 属性: {context.persona_type}, 独自ペルソナ: {context.custom_persona}, 生成数: {context.num_persona_examples}"
-            logger.info(f"PersonaGeneratorAgent に具体的なペルソナ生成を依頼します...")
+            logger.info("PersonaGeneratorAgent に具体的なペルソナ生成を依頼します...")
             
             agent_output = await self.run_agent(current_agent, agent_input, context, run_config)
 
@@ -2461,7 +2450,7 @@ class GenerationFlowManager:
             # Execute theme generation without WebSocket interaction
             current_agent = theme_agent
             agent_input = self.create_theme_agent_input(context)
-            logger.info(f"ThemeAgent にテーマ提案を依頼します...")
+            logger.info("ThemeAgent にテーマ提案を依頼します...")
             
             agent_output = await self.run_agent(current_agent, agent_input, context, run_config)
 

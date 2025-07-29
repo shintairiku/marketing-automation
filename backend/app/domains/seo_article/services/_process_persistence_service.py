@@ -1,17 +1,11 @@
 # -*- coding: utf-8 -*-
-import asyncio
-import json
-import time
-import traceback
 import logging
-from datetime import datetime, timezone
-from typing import List, Dict, Any, Optional, Union
+from typing import List, Dict, Any, Optional
 from rich.console import Console
 
 # 内部モジュールのインポート
 from app.core.config import settings
 from app.domains.seo_article.context import ArticleContext
-from app.domains.seo_article.schemas import AgeGroup, PersonaType
 
 console = Console()
 logger = logging.getLogger(__name__)
