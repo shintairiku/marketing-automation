@@ -2,18 +2,18 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { AnimatePresence,motion } from 'framer-motion';
+import { AnimatePresence, motion } from 'framer-motion';
 import { AlertCircle, CheckCircle, Wifi, WifiOff } from 'lucide-react';
 
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
+import { useArticleGenerationRealtime } from '@/hooks/useArticleGenerationRealtime';
 import { useUser } from '@clerk/nextjs';
 
 import CompactGenerationFlow from "../component/CompactGenerationFlow";
 import CompactUserInteraction from "../component/CompactUserInteraction";
 import GenerationErrorHandler from "../component/GenerationErrorHandler";
-import { useArticleGenerationRealtime } from '@/hooks/useArticleGenerationRealtime';
 
 import ExplainDialog from "./ExplainDialog";
 import InputSection from "./InputSection";
@@ -251,11 +251,13 @@ export default function IndexPage() {
                                                 approveOutline(approved);
                                             }
                                         }}
-                                        onRegenerate={regenerate}
+                                        onRegenerate={() => {
+                                            // TODO: Implement regenerate functionality
+                                            console.log('Regenerate not implemented');
+                                        }}
                                         onEditAndProceed={(editedContent) => {
-                                            if (state.inputType) {
-                                                editAndProceed(editedContent, state.inputType);
-                                            }
+                                            // TODO: Implement edit and proceed functionality
+                                            console.log('Edit and proceed not implemented', editedContent);
                                         }}
                                         isWaiting={false}
                                     />

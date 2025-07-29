@@ -1,8 +1,8 @@
 // Client-side Supabase client for browser use
 
-import { createBrowserClient } from '@supabase/ssr';
 import { Database } from '@/libs/supabase/types';
 import { getEnvVar } from '@/utils/get-env-var';
+import { createBrowserClient } from '@supabase/ssr';
 
 // Create a single instance that can be reused across the app
 export const supabase = createBrowserClient<Database>(
