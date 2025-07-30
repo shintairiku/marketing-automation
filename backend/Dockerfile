@@ -9,8 +9,8 @@ ENV PYTHONUNBUFFERED 1
 WORKDIR /app
 
 # 依存関係をインストール
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+COPY pyproject.toml .
+RUN pip install --upgrade pip && pip install --no-cache-dir .
 
 # アプリケーションコードをコピー
 COPY . .
