@@ -31,3 +31,7 @@ dependencies = [
     "sqlalchemy>=2.0.41",
     "ruff>=0.12.4",
 ]
+
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
