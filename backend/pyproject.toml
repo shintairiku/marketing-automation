@@ -28,6 +28,7 @@ dependencies = [
     "psycopg2-binary>=2.9.10",
     "sqlalchemy>=2.0.41",
     "ruff>=0.12.4",
+    "numpy>=1.26.0",
 ]
 
 [build-system]
