@@ -27,8 +27,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-
-import { GenerationStep } from '../hooks/useArticleGeneration';
+import { GenerationStep } from '@/types/article-generation';
 
 import ArticlePreviewStyles from './ArticlePreviewStyles';
 import CompletedArticleView from './CompletedArticleView';
@@ -92,7 +91,7 @@ const stepIcons = {
   editing: Edit3,
 };
 
-const stepColors = {
+const stepColors: Record<string, string> = {
   pending: 'bg-gray-100 text-gray-500',
   in_progress: 'bg-blue-100 text-blue-600 border-blue-300',
   completed: 'bg-green-100 text-green-600 border-green-300',
@@ -151,7 +150,7 @@ export default memo(function CompactGenerationFlow({
   
   // リセット機能（新しい記事生成時）
   useEffect(() => {
-    if (currentStep === 'start' || currentStep === 'keyword_analyzing') {
+    if (currentStep === 'keyword_analyzing') {
       console.log('CompactGenerationFlow: Resetting animation states');
       setShowCompletionAnimation(false);
       setHideProcessCards(false);
@@ -380,7 +379,7 @@ export default memo(function CompactGenerationFlow({
                     <h3 className={`font-medium text-xs leading-tight transition-colors duration-300 ${
                       isActive ? 'text-blue-700' : ''
                     }`}>
-                      {step.title}
+                      {step.name || step.title}
                     </h3>
                     
                     {step.status === 'in_progress' && (

@@ -3,17 +3,14 @@
 """
 Notion統合の修正をテストするスクリプト
 """
-import asyncio
-import os
 import sys
 from pathlib import Path
+from app.infrastructure.external_apis.notion_service import NotionService
+from app.infrastructure.analysis.cost_calculation_service import CostCalculationService
 
 # プロジェクトルートをパスに追加
 project_root = Path(__file__).parent
 sys.path.insert(0, str(project_root))
-
-from services.notion_sync_service import NotionSyncService
-from services.cost_calculation_service import CostCalculationService
 
 def test_cost_calculation_service():
     """コスト計算サービスのテスト"""

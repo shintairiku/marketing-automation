@@ -24,8 +24,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
-
-import { PersonaOption, ThemeOption } from '../hooks/useArticleGeneration';
+import { PersonaOption, ThemeOption } from '@/types/article-generation';
 
 interface CompactUserInteractionProps {
   type: 'select_persona' | 'select_theme' | 'approve_plan' | 'approve_outline';
@@ -52,6 +51,19 @@ export default function CompactUserInteraction({
   onEditAndProceed,
   isWaiting = false
 }: CompactUserInteractionProps) {
+  
+  // Debug props
+  console.log('🎭 CompactUserInteraction rendering with:', {
+    type,
+    hasPersonas: !!personas,
+    personaCount: personas?.length,
+    hasThemes: !!themes,
+    themeCount: themes?.length,
+    hasResearchPlan: !!researchPlan,
+    hasOutline: !!outline,
+    outlineType: typeof outline,
+    outlineKeys: outline ? Object.keys(outline) : []
+  });
 
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
   const [editMode, setEditMode] = useState<{
@@ -419,7 +431,7 @@ export default function CompactUserInteraction({
                           {theme.description}
                         </p>
                         <div className="flex flex-wrap gap-2">
-                          {theme.keywords.map((keyword, kIndex) => (
+                          {theme.keywords.map((keyword: string, kIndex: number) => (
                             <Badge key={kIndex} variant="outline" className="text-xs">
                               {keyword}
                             </Badge>
@@ -650,7 +662,15 @@ export default function CompactUserInteraction({
   }
 
   // アウトライン承認 - インライン表示
+  console.log('📝 Checking outline approval condition:', {
+    type,
+    isApproveOutline: type === 'approve_outline',
+    hasOutline: !!outline,
+    outlineContent: outline
+  });
+  
   if (type === 'approve_outline' && outline) {
+    console.log('📝 Rendering outline approval UI');
     return (
       <motion.div
         initial={{ opacity: 0, y: 20 }}
@@ -818,5 +838,13 @@ export default function CompactUserInteraction({
     );
   }
 
+  console.log('🚫 CompactUserInteraction: No matching condition found, returning null', {
+    type,
+    hasPersonas: !!personas,
+    hasThemes: !!themes,
+    hasResearchPlan: !!researchPlan,
+    hasOutline: !!outline
+  });
+  
   return null;
 } 

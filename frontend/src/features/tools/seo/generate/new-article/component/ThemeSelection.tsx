@@ -6,8 +6,7 @@ import { Lightbulb, RefreshCw } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-
-import { ThemeOption } from '../hooks/useArticleGeneration';
+import { ThemeOption } from '@/types/article-generation';
 
 interface ThemeSelectionProps {
   themes: ThemeOption[];
@@ -58,7 +57,7 @@ export default function ThemeSelection({
                 <div className="space-y-2">
                   <h4 className="text-sm font-medium text-gray-800">関連キーワード</h4>
                   <div className="flex flex-wrap gap-2">
-                    {theme.keywords.map((keyword, keywordIndex) => (
+                    {theme.keywords.map((keyword: string, keywordIndex: number) => (
                       <Badge key={keywordIndex} variant="secondary" className="text-xs">
                         {keyword}
                       </Badge>

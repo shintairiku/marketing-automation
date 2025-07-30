@@ -2,18 +2,18 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { AnimatePresence,motion } from 'framer-motion';
+import { AnimatePresence, motion } from 'framer-motion';
 import { AlertCircle, CheckCircle, Wifi, WifiOff } from 'lucide-react';
 
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
+import { useArticleGenerationRealtime } from '@/hooks/useArticleGenerationRealtime';
 import { useUser } from '@clerk/nextjs';
 
 import CompactGenerationFlow from "../component/CompactGenerationFlow";
 import CompactUserInteraction from "../component/CompactUserInteraction";
 import GenerationErrorHandler from "../component/GenerationErrorHandler";
-import { useArticleGeneration } from '../hooks/useArticleGeneration';
 
 import ExplainDialog from "./ExplainDialog";
 import InputSection from "./InputSection";
@@ -36,18 +36,16 @@ export default function IndexPage() {
         selectTheme,
         approvePlan,
         approveOutline,
-        regenerate,
-        editAndProceed,
-    } = useArticleGeneration({
+        pauseGeneration,
+        resumeGeneration,
+        cancelGeneration,
+    } = useArticleGenerationRealtime({
         userId: user?.id,
+        autoConnect: true,
     });
 
-    // WebSocket接続を自動で開始
-    useEffect(() => {
-        if (user?.id && !isConnected && !isConnecting) {
-            connect();
-        }
-    }, [user?.id, isConnected, isConnecting, connect]);
+    // Supabase Realtime接続は自動で開始される（autoConnect: true）
+    // useEffectでの手動接続は不要
 
     // 思考メッセージの更新
     useEffect(() => {
@@ -81,7 +79,7 @@ export default function IndexPage() {
             messages.push('記事全体を校正し、最終調整を行っています...');
         } else if (state.currentStep === 'completed') {
             messages.push('記事生成が完了しました！');
-        } else if (state.currentStep === 'error' || state.steps.some(step => step.status === 'error')) {
+        } else if (state.currentStep === 'error' || state.steps.some((step: any) => step.status === 'error')) {
             messages.push('記事生成中にエラーが発生しました。再試行してください。');
         }
         
@@ -104,34 +102,32 @@ export default function IndexPage() {
     };
 
     const getProgressPercentage = () => {
-        const stepOrder = [
-            'start', 'keyword_analyzing', 'keyword_analyzed', 'persona_generating', 'persona_generated',
-            'theme_generating', 'theme_proposed', 'research_planning', 'research_plan_generated',
-            'researching', 'research_synthesizing', 'outline_generating', 'outline_generated',
-            'writing_sections', 'editing', 'completed'
-        ];
+        // 8つのステップに基づく進捗計算
+        const stepProgressMap = {
+            'keyword_analyzing': 12.5,      // キーワード分析: 12.5%
+            'persona_generating': 25,       // ペルソナ生成: 25%
+            'theme_generating': 37.5,       // テーマ提案: 37.5%
+            'research_planning': 50,        // リサーチ計画: 50%
+            'researching': 62.5,            // リサーチ実行（リサーチ要約）: 62.5%
+            'outline_generating': 75,       // アウトライン作成: 75%
+            'writing_sections': 87.5,       // 執筆: 87.5%
+            'editing': 100,                 // 編集・校正: 100%
+        };
         
-        // 完了状態の場合は100%
-        if (state.currentStep === 'completed') {
-            return 100;
+        // ユーザー入力待ちの場合は、現在のステップの進捗を返す
+        const progress = stepProgressMap[state.currentStep as keyof typeof stepProgressMap];
+        if (progress !== undefined) {
+            return progress;
         }
         
-        const currentStepIndex = stepOrder.indexOf(state.currentStep);
+        // フォールバック: ステップ配列から計算
+        const currentStepIndex = state.steps.findIndex((step: any) => step.id === state.currentStep);
         if (currentStepIndex === -1) return 0;
         
-        // 完了したステップ数を計算
-        const completedSteps = state.steps.filter(step => step.status === 'completed').length;
-        const inProgressSteps = state.steps.filter(step => step.status === 'in_progress').length;
-        
-        // 実行中のステップは50%の重みを付ける
-        const totalProgress = completedSteps + (inProgressSteps * 0.5);
-        const percentage = Math.round((totalProgress / state.steps.length) * 100);
-        
-        // 完了前は最大95%まで、完了時は100%
-        return state.currentStep === 'completed' ? 100 : Math.min(percentage, 95);
+        return ((currentStepIndex + 1) / state.steps.length) * 100;
     };
 
-    const isGenerating = state.currentStep !== 'start' && state.currentStep !== 'completed' && state.currentStep !== 'error';
+    const isGenerating = state.currentStep !== 'completed' && state.currentStep !== 'error';
 
     return (
         <div className="w-full max-w-7xl mx-auto space-y-6 p-4 min-h-screen">
@@ -145,12 +141,12 @@ export default function IndexPage() {
                         {isConnected ? (
                             <><Wifi className="h-4 w-4 text-green-600" />
                             <AlertDescription className="text-green-800">
-                                サーバーに接続されています（開発用）
+                                Supabase Realtimeに接続されています
                             </AlertDescription></>
                         ) : (
                             <><WifiOff className="h-4 w-4 text-red-600" />
                             <AlertDescription className="text-red-800">
-                                サーバーに接続できません
+                                Supabase Realtimeに接続できません
                                 <Button 
                                     variant="ghost" 
                                     size="sm" 
@@ -255,11 +251,13 @@ export default function IndexPage() {
                                                 approveOutline(approved);
                                             }
                                         }}
-                                        onRegenerate={regenerate}
+                                        onRegenerate={() => {
+                                            // TODO: Implement regenerate functionality
+                                            console.log('Regenerate not implemented');
+                                        }}
                                         onEditAndProceed={(editedContent) => {
-                                            if (state.inputType) {
-                                                editAndProceed(editedContent, state.inputType);
-                                            }
+                                            // TODO: Implement edit and proceed functionality
+                                            console.log('Edit and proceed not implemented', editedContent);
                                         }}
                                         isWaiting={false}
                                     />
