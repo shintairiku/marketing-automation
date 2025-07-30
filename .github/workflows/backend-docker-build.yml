@@ -1,0 +1,49 @@
+name: Backend Docker Build Test
+
+on:
+  pull_request:
+    branches: [ main, develop ]
+    paths:
+      - 'backend/**'
+      - '.github/workflows/backend-docker-build.yml'
+  push:
+    branches: [ main, develop ]
+    paths:
+      - 'backend/**'
+      - '.github/workflows/backend-docker-build.yml'
+
+jobs:
+  docker-build-test:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+      
+    - name: Build Docker image
+      uses: docker/build-push-action@v5
+      with:
+        context: ./backend
+        file: ./backend/Dockerfile
+        push: false
+        tags: marketing-automation-backend:test
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+        
+    - name: Test Docker image runs
+      run: |
+        docker run --rm -d --name test-container -p 8000:8000 marketing-automation-backend:test
+        sleep 10
+        
+        # ヘルスチェック（アプリケーションが起動しているか確認）
+        if docker ps | grep test-container; then
+          echo "✅ Container is running successfully"
+          docker stop test-container
+        else
+          echo "❌ Container failed to start"
+          docker logs test-container || true
+          exit 1
+        fi
