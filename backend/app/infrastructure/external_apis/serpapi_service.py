@@ -3,7 +3,7 @@ import asyncio
 from typing import List, Dict, Any, Optional, Tuple
 from dataclasses import dataclass
 import requests
-from bs4 import BeautifulSoup, NavigableString, Tag, PageElement
+from bs4 import BeautifulSoup, NavigableString
 from serpapi.google_search import GoogleSearch  # type: ignore[import-untyped]
 from app.core.config import settings
 import urllib.robotparser

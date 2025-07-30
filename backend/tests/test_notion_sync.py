@@ -5,10 +5,14 @@ Notion同期システムのテストスクリプト
 """
 import sys
 import os
-from app.infrastructure.external_apis.notion_service import NotionService
 
 # パスを追加（services/を正しくインポートするため）
 sys.path.append('.')
+
+try:
+    from app.infrastructure.external_apis.notion_service import NotionService as NotionSyncService
+except ImportError:
+    NotionSyncService = None
 
 # 環境変数をチェック
 def check_environment():

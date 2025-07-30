@@ -39,28 +39,14 @@ from app.common.auth import get_current_user_id_from_token
 # 実際のサービスインスタンスを使用
 article_service = ArticleGenerationService()
 
-# Flow service stubs
-class ArticleFlowService:
-    async def create_flow(self, user_id: str, organization_id: Optional[str], flow_data: Any) -> Dict[str, Any]: return {}
-    async def get_user_flows(self, user_id: str, organization_id: Optional[str] = None) -> List[ArticleFlowRead]: return []
-    async def get_flow(self, flow_id: str, user_id: str) -> Optional[ArticleFlowRead]: return None
-    async def update_flow(self, flow_id: str, user_id: str, update_data: Dict[str, Any]) -> Optional[Dict[str, Any]]: return {}
-    async def delete_flow(self, flow_id: str, user_id: str) -> bool: return False
-    async def start_flow_execution(self, user_id: str, execution_request: Any) -> Optional[str]: return None
-    async def get_generation_state(self, process_id: str, user_id: str) -> Optional[Dict[str, Any]]: return None
-    async def pause_generation(self, process_id: str, user_id: str) -> bool: return False
-    async def cancel_generation(self, process_id: str, user_id: str) -> bool: return False
-
-article_flow_service = ArticleFlowService()
-
-
+# Define models first
 class ArticleFlowCreate(BaseModel):
     name: str = "stub"
     description: Optional[str] = None
     is_template: bool = False
     steps: List[Dict[str, Any]] = []
     
-class _StubStep:
+class _StubStep(BaseModel):
     step_order: int = 0
     step_type: str = "stub"
     agent_name: str = "stub"
@@ -76,6 +62,20 @@ class ArticleFlowRead(BaseModel):
     name: str = "stub"
     is_template: bool = False
     steps: List[_StubStep] = []
+
+# Flow service stubs
+class ArticleFlowService:
+    async def create_flow(self, user_id: str, organization_id: Optional[str], flow_data: Any) -> Dict[str, Any]: return {}
+    async def get_user_flows(self, user_id: str, organization_id: Optional[str] = None) -> List[ArticleFlowRead]: return []
+    async def get_flow(self, flow_id: str, user_id: str) -> Optional[ArticleFlowRead]: return None
+    async def update_flow(self, flow_id: str, user_id: str, update_data: Dict[str, Any]) -> Optional[Dict[str, Any]]: return {}
+    async def delete_flow(self, flow_id: str, user_id: str) -> bool: return False
+    async def start_flow_execution(self, user_id: str, execution_request: Any) -> Optional[str]: return None
+    async def get_generation_state(self, process_id: str, user_id: str) -> Optional[Dict[str, Any]]: return None
+    async def pause_generation(self, process_id: str, user_id: str) -> bool: return False
+    async def cancel_generation(self, process_id: str, user_id: str) -> bool: return False
+
+article_flow_service = ArticleFlowService()
     
 class GeneratedArticleStateRead(BaseModel):
     status: str = "stub"

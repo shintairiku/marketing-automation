@@ -33,7 +33,7 @@ from app.domains.seo_article.context import ArticleContext
 from app.domains.seo_article.schemas import (
     ThemeProposal, ResearchPlan, ResearchQueryResult, ResearchReport, Outline, OutlineSection,
     RevisedArticle, ClarificationNeeded, StatusUpdate, ArticleSection, GeneratedPersonasResponse, ThemeProposal as ThemeIdea,
-    SerpKeywordAnalysisReport, OutlineData, OutlineSectionData,
+    SerpKeywordAnalysisReport, OutlineSectionData,
     ArticleSectionWithImages
 )
 from app.domains.seo_article.agents.definitions import (

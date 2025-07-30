@@ -1558,10 +1558,10 @@ dependencies = [
     { name = "google-auth" },
     { name = "google-cloud-aiplatform" },
     { name = "google-cloud-storage" },
-    { name = "google-genai" },
     { name = "google-generativeai" },
     { name = "google-search-results" },
     { name = "griffe" },
+    { name = "numpy" },
     { name = "openai" },
     { name = "openai-agents" },
     { name = "pillow" },
@@ -1575,7 +1575,6 @@ dependencies = [
     { name = "sqlalchemy" },
     { name = "sse-starlette" },
     { name = "supabase" },
-    { name = "uuid" },
     { name = "uvicorn", extra = ["standard"] },
 ]
 
@@ -1586,25 +1585,24 @@ requires-dist = [
     { name = "fastapi" },
     { name = "google-auth" },
     { name = "google-cloud-aiplatform" },
-    { name = "google-cloud-storage", specifier = ">=2.19.0" },
-    { name = "google-genai", specifier = ">=1.21.1" },
+    { name = "google-cloud-storage" },
     { name = "google-generativeai" },
     { name = "google-search-results" },
     { name = "griffe" },
+    { name = "numpy" },
     { name = "openai" },
-    { name = "openai-agents", specifier = "==0.0.16" },
+    { name = "openai-agents" },
     { name = "pillow" },
-    { name = "psycopg2-binary", specifier = ">=2.9.10" },
+    { name = "psycopg2-binary" },
     { name = "pydantic", extras = ["email"] },
     { name = "pydantic-settings" },
-    { name = "pyjwt", specifier = ">=2.10.1" },
+    { name = "pyjwt" },
     { name = "python-dotenv" },
     { name = "rich" },
-    { name = "ruff", specifier = ">=0.12.4" },
-    { name = "sqlalchemy", specifier = ">=2.0.41" },
+    { name = "ruff" },
+    { name = "sqlalchemy" },
     { name = "sse-starlette" },
     { name = "supabase" },
-    { name = "uuid" },
     { name = "uvicorn", extras = ["standard"] },
 ]
 
@@ -1846,12 +1844,6 @@ sdist = { url = "https://files.pythonhosted.org/packages/8a/78/16493d9c386d8e60e
 wheels = [
     { url = "https://files.pythonhosted.org/packages/6b/11/cc635220681e93a0183390e26485430ca2c7b5f9d33b15c74c2861cb8091/urllib3-2.4.0-py3-none-any.whl", hash = "sha256:4e16665048960a0900c702d4a66415956a584919c03361cac9f1df5c5dd7e813", size = 128680 },
 ]
-
-[[package]]
-name = "uuid"
-version = "1.30"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/ce/63/f42f5aa951ebf2c8dac81f77a8edcc1c218640a2a35a03b9ff2d4aa64c3d/uuid-1.30.tar.gz", hash = "sha256:1f87cc004ac5120466f36c5beae48b4c48cc411968eed0eaecd3da82aa96193f", size = 5811 }
 
 [[package]]
 name = "uvicorn"
