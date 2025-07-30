@@ -25,3 +25,7 @@ pillow
 aiofiles
 # Google Cloud Storage
 google-cloud-storage>=2.10.0
+ruff
+sqlalchemy
+pyjwt
+psycopg2-binary
