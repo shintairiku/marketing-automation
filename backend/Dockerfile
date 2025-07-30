@@ -10,7 +10,7 @@ WORKDIR /app
 
 # 依存関係をインストール
 COPY pyproject.toml .
-RUN pip install --upgrade pip && pip install --no-cache-dir .
+RUN pip install --upgrade pip && pip install wheel setuptools && pip install --no-cache-dir .
 
 # アプリケーションコードをコピー
 COPY . .
