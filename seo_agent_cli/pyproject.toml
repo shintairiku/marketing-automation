@@ -1,0 +1,21 @@
+[project]
+name = "seo_agent_cli"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "openai",
+    "openai-agents",
+    "python-dotenv",
+    "rich",
+    "pydantic-settings",
+    "google-search-results",
+    "google-generativeai>=0.8.0,<0.9.0",
+    "google-cloud-aiplatform>=1.100.0,<2.0.0",
+    "google-auth>=2.20.0,<3.0.0",
+    "pillow",
+    "aiofiles",
+    "google-cloud-storage>=2.10.0,<3.0.0",
+    "typer>=0.16.0",
+]
