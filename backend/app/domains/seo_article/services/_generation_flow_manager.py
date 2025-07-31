@@ -4,7 +4,7 @@ import json
 import time
 import traceback
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Dict, Any, Optional, Union
 from openai import BadRequestError, AuthenticationError
 from agents import Runner, RunConfig, Agent, trace
@@ -64,11 +64,11 @@ except ImportError as e:
     LOGGING_ENABLED = False
     NOTION_SYNC_ENABLED = False
 
-# ステップ分類定数
+# ステップ分類定数 - 完全なステップカバレッジ
 AUTONOMOUS_STEPS = {
-    'keyword_analyzing', 'persona_generating', 'theme_generating',
-    'research_planning', 'researching', 'research_synthesizing', 
-    'writing_sections', 'editing'
+    'keyword_analyzing', 'keyword_analyzed', 'persona_generating', 'theme_generating',
+    'research_planning', 'researching', 'research_synthesizing', 'research_report_generated',
+    'outline_generating', 'writing_sections', 'editing'
 }
 
 USER_INPUT_STEPS = {
@@ -76,10 +76,28 @@ USER_INPUT_STEPS = {
     'research_plan_generated', 'outline_generated'
 }
 
-DISCONNECTION_RESILIENT_STEPS = {
-    'research_planning', 'researching', 'research_synthesizing',
-    'writing_sections', 'editing'
+TRANSITION_STEPS = {
+    'persona_selected', 'theme_selected', 'research_plan_approved'
 }
+
+TERMINAL_STEPS = {
+    'completed', 'error'
+}
+
+INITIAL_STEPS = {
+    'start'
+}
+
+DISCONNECTION_RESILIENT_STEPS = {
+    'research_planning', 'researching', 'research_synthesizing', 'research_report_generated',
+    'outline_generating', 'writing_sections', 'editing'
+}
+
+# 全ステップの統合リスト（デバッグ・検証用）
+ALL_VALID_STEPS = (
+    AUTONOMOUS_STEPS | USER_INPUT_STEPS | TRANSITION_STEPS | 
+    TERMINAL_STEPS | INITIAL_STEPS
+)
 
 def safe_trace_context(workflow_name: str, trace_id: str, group_id: str):
     """トレーシングエラーを安全にハンドリングするコンテキストマネージャー"""
@@ -149,7 +167,7 @@ class GenerationFlowManager:
         elif context.current_step == "persona_generating":
             await self.handle_persona_generating_step(context, run_config, process_id, user_id)
         elif context.current_step == "persona_selected":
-            await self.handle_persona_selected_step(context)
+            await self.handle_persona_selected_step(context, process_id, user_id)
         elif context.current_step == "theme_generating":
             await self.handle_theme_generating_step(context, run_config, process_id, user_id)
         elif context.current_step == "theme_selected":
@@ -157,7 +175,7 @@ class GenerationFlowManager:
         elif context.current_step == "research_planning":
             await self.handle_research_planning_step(context, run_config, process_id, user_id)
         elif context.current_step == "research_plan_approved":
-            await self.handle_research_plan_approved_step(context)
+            await self.handle_research_plan_approved_step(context, process_id, user_id)
         elif context.current_step == "researching":
             await self.handle_researching_step(context, run_config, process_id, user_id)
         elif context.current_step == "research_synthesizing":
@@ -167,7 +185,7 @@ class GenerationFlowManager:
         elif context.current_step == "outline_generated":
             await self.handle_outline_generated_step(context, process_id, user_id)
         elif context.current_step == "outline_approved":
-            await self.handle_outline_approved_step(context)
+            await self.handle_outline_approved_step(context, process_id, user_id)
         elif context.current_step == "writing_sections":
             await self.handle_writing_sections_step(context, run_config, process_id, user_id)
         elif context.current_step == "editing":
@@ -333,9 +351,18 @@ class GenerationFlowManager:
         await self.service.utils.send_error(context, f"予期しない応答 ({response_type}, {payload_type}) がペルソナ選択で受信されました。")
         context.current_step = "persona_generated"
 
-    async def handle_persona_selected_step(self, context: ArticleContext):
+    async def handle_persona_selected_step(self, context: ArticleContext, process_id: Optional[str] = None, user_id: Optional[str] = None):
         """ペルソナ選択完了ステップの処理"""
         context.current_step = "theme_generating"
+        
+        # データベースに現在の状態を保存
+        if process_id and user_id:
+            try:
+                await self.service.persistence_service.save_context_to_db(context, process_id=process_id, user_id=user_id)
+                logger.info("Context saved successfully after persona selection step")
+            except Exception as save_err:
+                logger.error(f"Failed to save context after persona selection step: {save_err}")
+        
         await self.service.utils.send_server_event(context, StatusUpdatePayload(
             step=context.current_step, 
             message="Persona selected, proceeding to theme generation.", 
@@ -349,6 +376,14 @@ class GenerationFlowManager:
             await self.service.utils.send_error(context, "詳細ペルソナが選択されていません。テーマ生成をスキップします。", "theme_generating")
             context.current_step = "error"
             return
+        
+        # データベースに現在の状態を保存（テーマ生成開始時）
+        if process_id and user_id:
+            try:
+                await self.service.persistence_service.save_context_to_db(context, process_id=process_id, user_id=user_id)
+                logger.info("Context saved successfully at theme generation start")
+            except Exception as save_err:
+                logger.error(f"Failed to save context at theme generation start: {save_err}")
         
         # SerpAPI分析結果を含めたプロンプト作成
         agent_input = self.create_theme_agent_input(context)
@@ -1246,10 +1281,19 @@ class GenerationFlowManager:
         # ユーザー入力処理の実装（簡略化）
         console.print("[cyan]リサーチ計画承認待ち[/cyan]")
 
-    async def handle_research_plan_approved_step(self, context: ArticleContext):
+    async def handle_research_plan_approved_step(self, context: ArticleContext, process_id: Optional[str] = None, user_id: Optional[str] = None):
         """リサーチ計画承認ステップの処理"""
         context.current_step = "researching"
         console.print("リサーチ実行ステップに進みます...")
+        
+        # データベースに現在の状態を保存
+        if process_id and user_id:
+            try:
+                await self.service.persistence_service.save_context_to_db(context, process_id=process_id, user_id=user_id)
+                logger.info("Context saved successfully after research plan approval step")
+            except Exception as save_err:
+                logger.error(f"Failed to save context after research plan approval step: {save_err}")
+        
         await self.service.utils.send_server_event(context, StatusUpdatePayload(
             step=context.current_step, 
             message="Moving to research execution.", 
@@ -1345,8 +1389,35 @@ class GenerationFlowManager:
 
         if isinstance(agent_output, ResearchReport):
             context.research_report = agent_output
-            context.current_step = "outline_generating"
             console.print("[cyan]リサーチ報告書が完成しました。[/cyan]")
+            
+            # Publish research synthesis completion event for Supabase Realtime
+            try:
+                from .flow_service import get_supabase_client
+                supabase = get_supabase_client()
+                
+                result = supabase.rpc('create_process_event', {
+                    'p_process_id': getattr(context, 'process_id', 'unknown'),
+                    'p_event_type': 'research_synthesis_completed',
+                    'p_event_data': {
+                        'step': 'research_synthesizing',
+                        'message': 'Research synthesis completed successfully',
+                        'report_summary': getattr(agent_output, 'summary', ''),
+                        'key_findings_count': len(getattr(agent_output, 'key_findings', [])),
+                        'timestamp': datetime.now(timezone.utc).isoformat()
+                    },
+                    'p_event_category': 'step_completion',
+                    'p_event_source': 'flow_manager'
+                }).execute()
+                
+                if result.data:
+                    logger.info(f"Published research_synthesis_completed event for process {getattr(context, 'process_id', 'unknown')}")
+                    
+            except Exception as e:
+                logger.error(f"Error publishing research_synthesis_completed event: {e}")
+            
+            context.current_step = "outline_generating"
+            
             if context.websocket:
                 from app.domains.seo_article.schemas import ResearchReportData, KeyPointData
                 
@@ -1381,6 +1452,31 @@ class GenerationFlowManager:
             context.current_step = "error"
             return
 
+        # Publish outline generation start event for Supabase Realtime
+        try:
+            from .flow_service import get_supabase_client
+            supabase = get_supabase_client()
+            
+            result = supabase.rpc('create_process_event', {
+                'p_process_id': getattr(context, 'process_id', 'unknown'),
+                'p_event_type': 'outline_generation_started',
+                'p_event_data': {
+                    'step': 'outline_generating',
+                    'message': 'Outline generation started',
+                    'theme_title': getattr(context.selected_theme, 'title', 'Unknown'),
+                    'target_length': context.target_length,
+                    'timestamp': datetime.now(timezone.utc).isoformat()
+                },
+                'p_event_category': 'step_start',
+                'p_event_source': 'flow_manager'
+            }).execute()
+            
+            if result.data:
+                logger.info(f"Published outline_generation_started event for process {getattr(context, 'process_id', 'unknown')}")
+                
+        except Exception as e:
+            logger.error(f"Error publishing outline_generation_started event: {e}")
+
         current_agent = outline_agent
         agent_input = f"テーマ: {context.selected_theme.title}\nペルソナ: {context.selected_detailed_persona}\nリサーチ報告書: {context.research_report.model_dump_json(indent=2)}\n目標文字数: {context.target_length}"
         console.print(f"🤖 {current_agent.name} にアウトライン生成を依頼します...")
@@ -1390,6 +1486,32 @@ class GenerationFlowManager:
             context.generated_outline = agent_output
             context.current_step = "outline_generated"
             console.print(f"[cyan]アウトライン（{len(agent_output.sections)}セクション）を生成しました。[/cyan]")
+            
+            # Publish outline generation completion event for Supabase Realtime
+            try:
+                from .flow_service import get_supabase_client
+                supabase = get_supabase_client()
+                
+                result = supabase.rpc('create_process_event', {
+                    'p_process_id': getattr(context, 'process_id', 'unknown'),
+                    'p_event_type': 'outline_generation_completed',
+                    'p_event_data': {
+                        'step': 'outline_generated',
+                        'message': 'Outline generation completed successfully',
+                        'outline_title': agent_output.title,
+                        'sections_count': len(agent_output.sections),
+                        'suggested_tone': getattr(agent_output, 'suggested_tone', ''),
+                        'timestamp': datetime.now(timezone.utc).isoformat()
+                    },
+                    'p_event_category': 'step_completion',
+                    'p_event_source': 'flow_manager'
+                }).execute()
+                
+                if result.data:
+                    logger.info(f"Published outline_generation_completed event for process {getattr(context, 'process_id', 'unknown')}")
+                    
+            except Exception as e:
+                logger.error(f"Error publishing outline_generation_completed event: {e}")
         else:
             console.print("[red]アウトライン生成中に予期しないエージェント出力タイプを受け取りました。[/red]")
             context.current_step = "error"
@@ -1412,6 +1534,33 @@ class GenerationFlowManager:
         for i, section in enumerate(sections):
             console.print(f"✍️ セクション {i+1}/{total_sections}: {section.heading}")
             
+            # Publish section start event for background processing
+            try:
+                from .flow_service import get_supabase_client
+                supabase = get_supabase_client()
+                
+                result = supabase.rpc('create_process_event', {
+                    'p_process_id': getattr(context, 'process_id', 'unknown'),
+                    'p_event_type': 'section_writing_started',
+                    'p_event_data': {
+                        'step': 'writing_sections',
+                        'section_index': i,
+                        'section_heading': section.heading,
+                        'total_sections': total_sections,
+                        'image_mode': is_image_mode,
+                        'message': f'Started writing section {i + 1}: {section.heading}',
+                        'timestamp': datetime.now(timezone.utc).isoformat()
+                    },
+                    'p_event_category': 'section_progress',
+                    'p_event_source': 'flow_manager_background'
+                }).execute()
+                
+                if result.data:
+                    logger.info(f"Published section_writing_started event for section {i + 1} (background)")
+                    
+            except Exception as e:
+                logger.error(f"Error publishing section_writing_started event: {e}")
+            
             # コンテキストの現在のセクションインデックスを設定
             context.current_section_index = i
             
@@ -1428,6 +1577,7 @@ class GenerationFlowManager:
             agent_output = await self.run_agent(current_agent, agent_input, context, run_config)
 
             # 出力処理
+            section_content_length = 0
             if is_image_mode and isinstance(agent_output, ArticleSectionWithImages):
                 # ArticleSectionWithImagesをArticleSectionに変換
                 article_section = ArticleSection(
@@ -1436,6 +1586,7 @@ class GenerationFlowManager:
                     order=agent_output.order
                 )
                 context.generated_sections.append(article_section)
+                section_content_length = len(agent_output.content)
                 
                 # 画像プレースホルダー情報をコンテキストに保存
                 if not hasattr(context, 'image_placeholders'):
@@ -1446,6 +1597,7 @@ class GenerationFlowManager:
                 
             elif not is_image_mode and isinstance(agent_output, ArticleSection):
                 context.generated_sections.append(agent_output)
+                section_content_length = len(agent_output.content)
                 console.print(f"[green]セクション {i+1} が完了しました。[/green]")
                 
             elif isinstance(agent_output, str):
@@ -1456,16 +1608,77 @@ class GenerationFlowManager:
                     order=i
                 )
                 context.generated_sections.append(article_section)
+                section_content_length = len(agent_output)
                 console.print(f"[green]セクション {i+1} が完了しました（HTML文字列形式）。[/green]")
                 
             else:
                 console.print(f"[red]セクション {i+1} で予期しないエージェント出力タイプを受け取りました: {type(agent_output)}[/red]")
                 context.current_step = "error"
                 return
+            
+            # Publish section completion event for background processing
+            try:
+                from .flow_service import get_supabase_client
+                supabase = get_supabase_client()
+                
+                result = supabase.rpc('create_process_event', {
+                    'p_process_id': getattr(context, 'process_id', 'unknown'),
+                    'p_event_type': 'section_completed',
+                    'p_event_data': {
+                        'step': 'writing_sections',
+                        'section_index': i,
+                        'section_heading': section.heading,
+                        'section_content_length': section_content_length,
+                        'completed_sections': i + 1,
+                        'total_sections': total_sections,
+                        'image_mode': is_image_mode,
+                        'placeholders_count': len(getattr(agent_output, 'image_placeholders', [])) if hasattr(agent_output, 'image_placeholders') else 0,
+                        'message': f'Completed section {i + 1}: {section.heading}',
+                        'progress_percentage': int(((i + 1) / total_sections) * 100),
+                        'batch_completion': True,
+                        'timestamp': datetime.now(timezone.utc).isoformat()
+                    },
+                    'p_event_category': 'section_completion',
+                    'p_event_source': 'flow_manager_background'
+                }).execute()
+                
+                if result.data:
+                    logger.info(f"Published section_completed event for section {i + 1} (background)")
+                    
+            except Exception as e:
+                logger.error(f"Error publishing section_completed event: {e}")
 
         # 全セクション完了
         context.current_step = "editing"
         console.print("[cyan]全セクションの執筆が完了しました。[/cyan]")
+        
+        # Publish all sections completion event
+        try:
+            from .flow_service import get_supabase_client
+            supabase = get_supabase_client()
+            
+            result = supabase.rpc('create_process_event', {
+                'p_process_id': getattr(context, 'process_id', 'unknown'),
+                'p_event_type': 'all_sections_completed',
+                'p_event_data': {
+                    'step': 'writing_sections',
+                    'total_sections': total_sections,
+                    'image_mode': is_image_mode,
+                    'total_content_length': sum(len(getattr(s, 'content', '')) for s in context.generated_sections),
+                    'total_placeholders': len(getattr(context, 'image_placeholders', [])),
+                    'message': f'All {total_sections} sections completed successfully',
+                    'next_step': 'editing',
+                    'timestamp': datetime.now(timezone.utc).isoformat()
+                },
+                'p_event_category': 'step_completion',
+                'p_event_source': 'flow_manager_background'
+            }).execute()
+            
+            if result.data:
+                logger.info(f"Published all_sections_completed event for {total_sections} sections")
+                
+        except Exception as e:
+            logger.error(f"Error publishing all_sections_completed event: {e}")
 
     async def execute_editing_background(self, context: "ArticleContext", run_config: RunConfig, process_id: Optional[str] = None, user_id: Optional[str] = None):
         """編集のバックグラウンド実行"""
@@ -1825,7 +2038,7 @@ class GenerationFlowManager:
             console.print("[yellow]アウトラインが見つからないため生成ステップに戻します。[/yellow]")
             context.current_step = "outline_generating"
 
-    async def handle_outline_approved_step(self, context: ArticleContext):
+    async def handle_outline_approved_step(self, context: ArticleContext, process_id: Optional[str] = None, user_id: Optional[str] = None):
         """アウトライン承認ステップの処理"""
         console.print("記事執筆ステップに進みます...")
         
@@ -1837,6 +2050,15 @@ class GenerationFlowManager:
         console.print(f"[yellow]セクションライティング初期化: {len(context.generated_outline.sections)}セクションを実行予定[/yellow]")
         
         context.current_step = "writing_sections"
+        
+        # データベースに現在の状態を保存
+        if process_id and user_id:
+            try:
+                await self.service.persistence_service.save_context_to_db(context, process_id=process_id, user_id=user_id)
+                logger.info("Context saved successfully after outline approval step")
+            except Exception as save_err:
+                logger.error(f"Failed to save context after outline approval step: {save_err}")
+        
         await self.service.utils.send_server_event(context, StatusUpdatePayload(
             step=context.current_step, 
             message="Outline approved, starting section writing.", 
@@ -1977,23 +2199,63 @@ class GenerationFlowManager:
                     await self.service.utils.send_error(context, f"画像モードで予期しないAgent出力タイプ: {type(agent_output)}")
                     context.current_step = "error"
             else:
-                # 通常モード: ストリーミング実行
-                console.print(f"🤖 {current_agent.name} にセクション {target_index + 1} の執筆を依頼します (Streaming)...")
+                # 通常モード: バッチ実行 (Converted from streaming to batch processing)
+                console.print(f"🤖 {current_agent.name} にセクション {target_index + 1} の執筆を依頼します (Batch)...")
                 await self.service.utils.send_server_event(context, StatusUpdatePayload(
                     step=context.current_step, 
                     message=f"Writing section {target_index + 1}: {target_heading}", 
                     image_mode=False
                 ))
 
-                # ストリーミング実行を行う
-                accumulated_html = await self.service.utils.handle_streaming_execution(
-                    current_agent, agent_input, context, run_config, target_index, target_heading
-                )
+                # Publish section start event for Supabase Realtime
+                try:
+                    from .flow_service import get_supabase_client
+                    supabase = get_supabase_client()
+                    
+                    result = supabase.rpc('create_process_event', {
+                        'p_process_id': getattr(context, 'process_id', 'unknown'),
+                        'p_event_type': 'section_writing_started',
+                        'p_event_data': {
+                            'step': 'writing_sections',
+                            'section_index': target_index,
+                            'section_heading': target_heading,
+                            'total_sections': len(context.generated_outline.sections),
+                            'message': f'Started writing section {target_index + 1}: {target_heading}',
+                            'timestamp': datetime.now(timezone.utc).isoformat()
+                        },
+                        'p_event_category': 'section_progress',
+                        'p_event_source': 'flow_manager'
+                    }).execute()
+                    
+                    if result.data:
+                        logger.info(f"Published section_writing_started event for section {target_index + 1}")
+                        
+                except Exception as e:
+                    logger.error(f"Error publishing section_writing_started event: {e}")
 
-                # セクション内容の最終化
-                generated_section = await self.service.utils.finalize_section_content(
-                    context, accumulated_html, target_index, target_heading
-                )
+                # バッチ実行 - Use regular Runner.run instead of streaming
+                agent_output = await self.run_agent(current_agent, agent_input, context, run_config)
+
+                # セクション内容の処理 - Convert agent output to section
+                if isinstance(agent_output, str):
+                    # HTML string format (legacy support)
+                    from app.domains.seo_article.schemas import ArticleSection
+                    generated_section = ArticleSection(
+                        title=target_heading,
+                        content=agent_output,
+                        order=target_index
+                    )
+                elif hasattr(agent_output, 'content') and hasattr(agent_output, 'title'):
+                    # ArticleSection format
+                    generated_section = agent_output
+                else:
+                    # Handle unexpected output format
+                    console.print(f"[red]予期しないエージェント出力タイプ: {type(agent_output)}[/red]")
+                    generated_section = ArticleSection(
+                        title=target_heading,
+                        content=str(agent_output),
+                        order=target_index
+                    )
 
                 # セクション内容をcontextに保存
                 if len(context.generated_sections_html) <= target_index:
@@ -2012,6 +2274,36 @@ class GenerationFlowManager:
                 # セクション完了後にインデックスを更新
                 context.current_section_index = target_index + 1
                 
+                # Publish section completion event for Supabase Realtime (batch format)
+                try:
+                    from .flow_service import get_supabase_client
+                    supabase = get_supabase_client()
+                    
+                    result = supabase.rpc('create_process_event', {
+                        'p_process_id': getattr(context, 'process_id', 'unknown'),
+                        'p_event_type': 'section_completed',
+                        'p_event_data': {
+                            'step': 'writing_sections',
+                            'section_index': target_index,
+                            'section_heading': target_heading,
+                            'section_content_length': len(generated_section.content),
+                            'completed_sections': context.current_section_index,
+                            'total_sections': len(context.generated_outline.sections),
+                            'message': f'Completed section {target_index + 1}: {target_heading}',
+                            'progress_percentage': int((context.current_section_index / len(context.generated_outline.sections)) * 100),
+                            'batch_completion': True,  # Flag to indicate this is batch completion
+                            'timestamp': datetime.now(timezone.utc).isoformat()
+                        },
+                        'p_event_category': 'section_completion',
+                        'p_event_source': 'flow_manager'
+                    }).execute()
+                    
+                    if result.data:
+                        logger.info(f"Published section_completed event for section {target_index + 1} (batch processing)")
+                        
+                except Exception as e:
+                    logger.error(f"Error publishing section_completed event: {e}")
+                
                 # Save context after each section completion（必須）
                 if process_id and user_id:
                     try:
@@ -2022,6 +2314,19 @@ class GenerationFlowManager:
                         # セーブに失敗しても処理は継続
                 
                 console.print(f"[blue]セクション {target_index + 1} 完了。次のセクション: {context.current_section_index + 1}[/blue]")
+                
+                # Send batch section completion event to WebSocket if available (for backward compatibility)
+                if context.websocket:
+                    try:
+                        await self.service.utils.send_server_event(context, SectionChunkPayload(
+                            section_index=target_index,
+                            heading=target_heading,
+                            html_content_chunk=generated_section.content,
+                            is_complete=True,
+                            batch_mode=True  # Flag to indicate batch completion
+                        ))
+                    except Exception as ws_err:
+                        console.print(f"[dim]WebSocket section completion event error (continuing): {ws_err}[/dim]")
 
     async def handle_editing_step(self, context: ArticleContext, run_config: RunConfig, process_id: Optional[str] = None, user_id: Optional[str] = None):
         """編集ステップの処理"""

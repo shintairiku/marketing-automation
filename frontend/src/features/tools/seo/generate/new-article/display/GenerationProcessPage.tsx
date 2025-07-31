@@ -22,7 +22,7 @@ interface GenerationProcessPageProps {
 }
 
 export default function GenerationProcessPage({ jobId }: GenerationProcessPageProps) {
-    const { user } = useUser();
+    const { user, isLoaded } = useUser();
     const router = useRouter();
     const [thinkingMessages, setThinkingMessages] = useState<string[]>([]);
     const [isLoading, setIsLoading] = useState(true);
@@ -47,8 +47,25 @@ export default function GenerationProcessPage({ jobId }: GenerationProcessPagePr
         cancelGeneration,
     } = useArticleGenerationRealtime({
         processId: jobId,
-        userId: user?.id,
+        userId: isLoaded && user?.id ? user.id : undefined,
     });
+
+    // Debug: Check Clerk authentication state
+    useEffect(() => {
+        console.log('🔍 [DEBUG] Clerk authentication state:', {
+            isLoaded,
+            hasUser: !!user,
+            userId: user?.id,
+            isSignedIn: !!user?.id,
+            jobId,
+            shouldConnect: isLoaded && !!user?.id && !!jobId,
+            userObject: user ? {
+                id: user.id,
+                emailAddresses: user.emailAddresses?.length || 0,
+                createdAt: user.createdAt
+            } : null
+        });
+    }, [user, jobId, isLoaded]);
 
     // プロセス状態の読み込み
     useEffect(() => {
