@@ -6,25 +6,27 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import clsx from 'clsx';
 import {
-IoAnalytics, IoBug, IoCalendar, 
-IoCash, 
-  /* LINE */
-  IoChatbubbles as IoChat,  /* ←重複を避けるためエイリアス */
-IoChatbubbles, IoClipboard, IoCloudUpload,
-IoCode, IoDocumentText,   IoGitBranch,
-  /* SEO */
+  IoAnalytics, IoBug, IoCalendar, 
+  IoCash, 
+  IoChatbubbles as IoChat,
+  IoChatbubbles, IoClipboard, IoCloudUpload,
+  IoCode, IoDocumentText, IoGitBranch,
   IoGlobe, 
-IoHelp, 
-  /* Home / Dashboard */
+  IoHelp, 
   IoHome, IoImage, IoLinkSharp, IoList, 
-  /* Instagram */
-  IoLogoInstagram, IoMail, IoMegaphone,IoNewspaper, IoPencil, IoPeople, IoPerson,
-IoPricetag, IoSchool, IoSettings, IoSparkles,
-IoStatsChart,
-  IoSync, IoText} from 'react-icons/io5';
+  IoLogoInstagram, IoMail, IoMegaphone, IoNewspaper, IoPencil, IoPeople, IoPerson,
+  IoPricetag, IoSchool, IoSettings, IoSparkles,
+  IoStatsChart,
+  IoSync, IoText,
+  IoChevronBack,
+  IoChevronForward,
+} from 'react-icons/io5';
 
 import { groups } from '@/components/constant/route';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { Button } from '@/components/ui/button';
+import { cn } from '@/utils/cn';
+import { useSidebar } from '@/contexts/SidebarContext';
 
 export const iconMap: Record<string, React.ReactElement<{ size?: number }>> = {
   /* ───────── 1. Dashboard ───────── */
@@ -152,9 +154,11 @@ function findSelectedMenu(pathname: string) {
 export default function Sidebar() {
   const pathname = usePathname();
   const selectedMenu = findSelectedMenu(pathname);
+  const { isSubSidebarOpen, setIsSubSidebarOpen } = useSidebar();
 
   return (
     <div className="flex h-[calc(100vh-45px)]">
+      {/* Main Sidebar */}
       <aside className="group w-[64px] hover:w-[250px] h-full bg-primary text-white relative transition-all duration-300 ease-in-out z-20">
         <ScrollArea className="h-full py-10">
           <nav className="flex flex-col gap-2">
@@ -191,8 +195,12 @@ export default function Sidebar() {
         </div>
       </aside>
 
-      <aside className="absolute left-[64px] w-[250px] h-full bg-white text-black shadow-[10px_0_10px_rgba(0,0,0,0.1)] z-10">
-        <div className="flex flex-col gap-2 p-5">
+      {/* Sub Sidebar */}
+      <aside className={cn(
+        "relative h-full bg-white text-black shadow-[10px_0_10px_rgba(0,0,0,0.1)] z-10 transition-all duration-300 ease-in-out",
+        isSubSidebarOpen ? "w-[250px]" : "w-[64px]"
+      )}>
+        <div className={cn("flex flex-col gap-2 p-5 transition-opacity duration-300", !isSubSidebarOpen && "opacity-0 pointer-events-none")}>
           <div className="flex items-center justify-center gap-2">
             {selectedMenu?.imageurl && (
               <div className="relative w-6 h-6">
@@ -208,35 +216,50 @@ export default function Sidebar() {
             <p className="text-lg font-bold whitespace-nowrap text-center">{selectedMenu?.sublabel}</p>
           </div>
         </div>
-        <ScrollArea className="h-[calc(100%-80px)]">
+        <ScrollArea className={cn("h-[calc(100%-80px)] transition-all duration-300", !isSubSidebarOpen && "h-full pt-12")}>
           {selectedMenu?.subLinks?.map((section) => (
             <div key={section.title} className="flex flex-col gap-2 p-[8px] py-5">
-              <div className="flex items-center justify-between gap-2">
-                <p className="font-bold text-primary">{section.title}</p>
-                <div className='h-[1px] bg-primary flex-1'></div>
+              <div className={cn("flex items-center justify-between gap-2", !isSubSidebarOpen && "justify-center")}>
+                <p className={cn("font-bold text-primary transition-opacity duration-200", !isSubSidebarOpen && "opacity-0 hidden")}>{section.title}</p>
+                <div className={cn('h-[1px] bg-primary flex-1 transition-opacity duration-200', !isSubSidebarOpen && "opacity-0 hidden")}></div>
               </div>
               <div className="flex flex-col">
                 {section.links.map((link) => {
                   const isDisabled = link.disabled;
-                  
+                  const linkContent = (
+                    <>
+                      <div className={cn("text-foreground", {"text-gray-400": isDisabled})}>
+                        {iconMap[link.href]}
+                      </div>
+                      <span className={cn(
+                        "text-sm whitespace-nowrap text-foreground transition-opacity duration-200 ml-2",
+                        !isSubSidebarOpen && "opacity-0 hidden",
+                        {"text-gray-400": isDisabled}
+                      )}>
+                        {link.label}
+                      </span>
+                      {isDisabled && (
+                        <span className={cn(
+                          "ml-auto text-xs text-gray-400 bg-gray-200 px-2 py-1 rounded transition-opacity duration-200",
+                          !isSubSidebarOpen && "opacity-0 hidden"
+                        )}>
+                          開発中
+                        </span>
+                      )}
+                    </>
+                  );
+
                   if (isDisabled) {
                     return (
                       <div
                         key={link.href || link.label}
                         className={clsx(
                           "flex items-center gap-2 p-[8px] rounded-lg",
-                          "opacity-50 cursor-not-allowed text-gray-400"
+                          "opacity-50 cursor-not-allowed",
+                          !isSubSidebarOpen && "justify-center"
                         )}
                       >
-                        <div className="text-gray-400">
-                          {iconMap[link.href]}
-                        </div>
-                        <span className="text-sm whitespace-nowrap text-gray-400">
-                          {link.label}
-                        </span>
-                        <span className="ml-auto text-xs text-gray-400 bg-gray-200 px-2 py-1 rounded">
-                          開発中
-                        </span>
+                        {linkContent}
                       </div>
                     );
                   }
@@ -249,15 +272,11 @@ export default function Sidebar() {
                         "flex items-center gap-2 p-[8px] rounded-lg",
                         pathname === link.href
                           ? "bg-primary/10 text-primary"
-                          : "hover:bg-gray-100 cursor-pointer"
+                          : "hover:bg-gray-100 cursor-pointer",
+                        !isSubSidebarOpen && "justify-center"
                       )}
                     >
-                      <div className="text-foreground">
-                        {iconMap[link.href]}
-                      </div>
-                      <span className="text-sm whitespace-nowrap text-foreground">
-                        {link.label}
-                      </span>
+                      {linkContent}
                     </Link>
                   );
                 })}
@@ -265,6 +284,12 @@ export default function Sidebar() {
             </div>
           ))}
         </ScrollArea>
+        <Button
+          onClick={() => setIsSubSidebarOpen(!isSubSidebarOpen)}
+          className="absolute top-4 right-4 bg-primary hover:bg-primary/80 text-white rounded-full h-8 w-8 flex items-center justify-center z-30"
+        >
+          {isSubSidebarOpen ? <IoChevronBack size={20} /> : <IoChevronForward size={20} />}
+        </Button>
       </aside>
     </div>
   );
