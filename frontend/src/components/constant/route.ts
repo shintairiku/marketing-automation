@@ -84,15 +84,15 @@ export const groups: Group[] = [
     title: 'Company',
     links: [
       {
-        href: '/company-settings/home',
+        href: '/company-settings/company',
         label: '会社設定',
-        sublabel: 'Company Settings',
+        sublabel: '会社設定',
         subLinks: [
           {
             title: '基本設定',
             links: [
               { href: '/company-settings/company', label: '会社情報設定' },
-              { href: '/company-settings/style-guide', label: 'スタイルガイド設定' },
+              { href: '/company-settings/style-guide', label: '記事スタイル設定' },
             ],
           },
         ],
@@ -103,7 +103,7 @@ export const groups: Group[] = [
     title: 'Settings',
     links: [
       {
-        href: '/settings/home',
+        href: '/settings/account',
         label: '設定',
         sublabel: 'Settings',
         subLinks: [

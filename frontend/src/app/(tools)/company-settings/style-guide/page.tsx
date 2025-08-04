@@ -274,9 +274,9 @@ export default function StyleGuideSettingsPage() {
       <div className="container mx-auto p-6 space-y-6">
             <div className="flex justify-between items-start">
               <div className="space-y-2">
-                <h1 className="text-3xl font-bold">スタイルガイド設定</h1>
+                <h1 className="text-3xl font-bold">記事スタイル設定</h1>
                 <p className="text-muted-foreground">
-                  SEO記事生成で使用するスタイルガイドテンプレートを管理します。
+                  SEO記事生成で使用する記事スタイルのテンプレートを管理します。
                 </p>
               </div>
               <Button onClick={openCreateDialog}>
@@ -288,8 +288,7 @@ export default function StyleGuideSettingsPage() {
             <Alert>
               <Settings className="h-4 w-4" />
               <AlertDescription>
-                スタイルテンプレートを設定すると、SEO記事生成時にカスタムスタイルを適用できます。
-                デフォルト設定では従来のプロンプトが使用されます。
+              記事スタイルを設定すると、SEO記事生成時に「記事表現の文体やトーン、構成の形式」などのカスタムスタイルを適用できます。記事スタイルテンプレートを設定していない状態であれば、あらかじめ準備された文章表現技法が適用されます。
               </AlertDescription>
             </Alert>
 

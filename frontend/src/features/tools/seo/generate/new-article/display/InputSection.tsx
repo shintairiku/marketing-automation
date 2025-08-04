@@ -335,7 +335,7 @@ export default function InputSection({ onStartGeneration, isConnected, isGenerat
                 )}
                 
                 <div className="text-xs text-gray-500">
-                  <Link href="/settings/style-guide" className="text-blue-600 hover:text-blue-800 underline">
+                  <Link href="/company-settings/style-guide" className="text-blue-600 hover:text-blue-800 underline">
                     記事スタイルのテンプレートを管理
                   </Link>
                 </div>
@@ -461,7 +461,7 @@ export default function InputSection({ onStartGeneration, isConnected, isGenerat
                   )}
                 </div>
               </div>
-              <Link href="/settings/company">
+              <Link href="/company-settings/company">
                 <Button variant="outline" size="sm">
                   {hasCompany ? '編集' : '設定'}
                 </Button>

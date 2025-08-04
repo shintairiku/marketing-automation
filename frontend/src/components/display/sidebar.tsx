@@ -51,7 +51,6 @@ export const iconMap: Record<string, React.ReactElement<{ size?: number }>> = {
   '/seo/input/persona'         : <IoPerson size={24} />,
 
   /* ───────── 3. Company Settings ───────── */
-  '/company-settings/home'     : <IoClipboard size={24} />,
   '/company-settings/company'  : <IoClipboard size={24} />,
   '/company-settings/style-guide' : <IoPencil size={24} />,
 
@@ -87,12 +86,10 @@ export const iconMap: Record<string, React.ReactElement<{ size?: number }>> = {
   '/line/input/persona'         : <IoPerson size={24} />,
 
   /* ───────── 6. Settings ───────── */
-  '/settings/home'              : <IoSettings size={24} />,
+  '/settings/account'           : <IoSettings size={24} />,
   '/settings/account'           : <IoPerson size={24} />,
   '/settings/members'           : <IoPeople size={24} />,
   '/settings/billing'           : <IoCash size={24} />,
-  '/settings/company'           : <IoClipboard size={24} />,
-  '/settings/style-guide'       : <IoPencil size={24} />,
   '/settings/integrations/wordpress' : <IoLinkSharp size={24} />,
   '/settings/integrations/instagram' : <IoLogoInstagram size={24} />,
   '/settings/integrations/line'      : <IoChat size={24} />,
@@ -141,9 +138,15 @@ function findSelectedMenu(pathname: string) {
     if (menu) return menu;
   }
 
+  // 5.5. 会社設定ページの判定
+  if (pathname.startsWith('/company-settings/')) {
+    menu = groups.flatMap(g => g.links).find(l => l.href === '/company-settings/company');
+    if (menu) return menu;
+  }
+
   // 6. 設定ページの判定
   if (pathname.startsWith('/settings/')) {
-    menu = groups.flatMap(g => g.links).find(l => l.href === '/settings/home');
+    menu = groups.flatMap(g => g.links).find(l => l.href === '/settings/account');
     if (menu) return menu;
   }
 

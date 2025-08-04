@@ -330,12 +330,12 @@ export default function CompanySettingsPage() {
                       </div>
 
                       <div className="space-y-2">
-                        <Label htmlFor="description">会社概要 *</Label>
+                        <Label htmlFor="description">事業内容 *</Label>
                         <Textarea
                           id="description"
                           value={formData.description}
                           onChange={(e) => setFormData({...formData, description: e.target.value})}
-                          placeholder="どのような事業を行っている会社かを詳しく記載してください"
+                          placeholder="事業内容を詳細に入力してください。"
                           rows={3}
                         />
                         <p className="text-xs text-muted-foreground">
@@ -349,7 +349,7 @@ export default function CompanySettingsPage() {
                           id="usp"
                           value={formData.usp}
                           onChange={(e) => setFormData({...formData, usp: e.target.value})}
-                          placeholder="他社にはない御社独自の強みや差別化ポイントを記載してください"
+                          placeholder="他社にはない自社独自の強みや差別化ポイントを入力してください。"
                           rows={2}
                         />
                         <p className="text-xs text-muted-foreground">
@@ -358,12 +358,12 @@ export default function CompanySettingsPage() {
                       </div>
 
                       <div className="space-y-2">
-                        <Label htmlFor="target_persona">ターゲットペルソナ *</Label>
+                        <Label htmlFor="target_persona">ターゲット・ペルソナ *</Label>
                         <Textarea
                           id="target_persona"
                           value={formData.target_persona}
                           onChange={(e) => setFormData({...formData, target_persona: e.target.value})}
-                          placeholder="中小企業の経営者（従業員10-50名、年商1-10億円、デジタル化に課題を感じている40-60代の男性経営者）"
+                          placeholder="35歳専業主婦・家族構成：4人家族（中小企業勤務38歳の夫、小学1年生の長男、幼稚園年中の長女）・現在の住まい：賃貸マンション（3LDK）・世帯年収：約700万円（夫の収入のみ）"
                           rows={3}
                         />
                         <p className="text-xs text-muted-foreground">
@@ -585,7 +585,7 @@ export default function CompanySettingsPage() {
                         </a>
                       </div>
                       <div>
-                        <p className="text-sm font-medium text-muted-foreground">会社概要</p>
+                        <p className="text-sm font-medium text-muted-foreground">事業内容</p>
                         <p className="text-sm">{company.description}</p>
                       </div>
                       <div>

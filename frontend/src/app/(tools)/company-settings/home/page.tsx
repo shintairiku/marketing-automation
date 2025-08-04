@@ -15,7 +15,7 @@ export default function CompanySettingsHomePage() {
         >
           <h2 className="text-xl font-semibold mb-2">会社情報設定</h2>
           <p className="text-gray-600">
-            会社概要、USP、ターゲットペルソナなど、SEO記事生成に必要な会社情報を管理します。
+            事業内容、USP、ターゲットペルソナなど、SEO記事生成に必要な会社情報を管理します。
           </p>
         </a>
         
@@ -23,7 +23,7 @@ export default function CompanySettingsHomePage() {
           href="/company-settings/style-guide"
           className="block p-6 bg-white rounded-lg border border-gray-200 hover:border-gray-300 transition-colors"
         >
-          <h2 className="text-xl font-semibold mb-2">スタイルガイド設定</h2>
+          <h2 className="text-xl font-semibold mb-2">記事スタイル設定</h2>
           <p className="text-gray-600">
             記事の文体、トーン、構成などのスタイルテンプレートを管理します。
           </p>
