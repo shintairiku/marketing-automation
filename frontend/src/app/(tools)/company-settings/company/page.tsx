@@ -288,13 +288,13 @@ export default function CompanySettingsPage() {
                 <DialogTrigger asChild>
                   <Button>
                     <Plus className="mr-2 h-4 w-4" />
-                    会社を追加
+                    会社情報を追加
                   </Button>
                 </DialogTrigger>
                 <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
                   <DialogHeader>
                     <DialogTitle>
-                      {isEditing ? '会社情報を編集' : '新しい会社を追加'}
+                      {isEditing ? '会社情報を編集' : '新しい会社情報を追加'}
                     </DialogTitle>
                     <DialogDescription>
                       SEO記事生成で使用する会社情報を設定してください。必須項目を入力後、詳細設定で更に細かく設定できます。

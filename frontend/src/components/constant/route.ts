@@ -55,8 +55,8 @@ export const groups: Group[] = [
     links: [
       {
         href: '/seo/generate/new-article',
-        label: 'SEO Blog',
-        sublabel: 'SEO記事作成・管理',
+        label: 'SEO記事作成',
+        sublabel: 'SEO記事作成',
         subLinks: [
           {
             title: '記事生成',
@@ -85,7 +85,7 @@ export const groups: Group[] = [
     links: [
       {
         href: '/company-settings/company',
-        label: '会社設定',
+        label: '会社情報設定',
         sublabel: '会社設定',
         subLinks: [
           {

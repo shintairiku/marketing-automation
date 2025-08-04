@@ -33,7 +33,7 @@ import { useUser } from '@clerk/nextjs';
 const platforms = [
   {
     id: 'seo',
-    name: 'SEO Blog',
+    name: 'SEO記事作成',
     icon: IoGlobe,
     color: 'from-purple-500 to-indigo-600',
     bgColor: 'bg-purple-50',
@@ -132,9 +132,6 @@ export default function DashboardPage() {
             <h1 className="text-3xl font-bold text-gray-900 mb-2">
               {greeting}、{user?.firstName || 'ユーザー'}さん
             </h1>
-            <p className="text-gray-600">
-              今日もマーケティング活動を効率化しましょう。
-            </p>
           </div>
           <div className="flex gap-3">
             <Button variant="outline" asChild>
