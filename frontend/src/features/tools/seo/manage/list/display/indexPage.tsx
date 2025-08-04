@@ -235,72 +235,69 @@ export default function IndexPage() {
           {processes.map((process) => (
             <Card 
               key={process.id} 
-              className="overflow-hidden hover:shadow-lg transition-shadow duration-200 cursor-pointer bg-white"
+              className="overflow-hidden hover:shadow-md hover:border-gray-300 transition-all duration-200 cursor-pointer bg-white border border-gray-200 flex flex-col h-full"
               onClick={() => handleRowClick(process.id)}
             >
-              {/* カードヘッダー画像風エリア */}
-              <div className={`h-48 relative ${process.process_type === 'article' ? 'bg-gradient-to-br from-green-50 to-emerald-100' : 'bg-gradient-to-br from-blue-50 to-indigo-100'}`}>
-                <div className="absolute top-4 left-4 flex items-center gap-2">
-                  <span className={`px-3 py-1 text-xs font-medium rounded-full flex items-center gap-1 ${getStatusColor(process.status)}`}>
+              {/* カードコンテンツ */}
+              <div className="p-6 flex-1 flex flex-col">
+                {/* ステータスバッジ */}
+                <div className="flex items-center justify-between mb-4">
+                  <span className={`px-2.5 py-1 text-xs font-medium rounded-md flex items-center gap-1.5 ${getStatusColor(process.status)}`}>
                     {getStatusIcon(process.status, process.process_type)}
                     {getStatusDisplay(process.status)}
                   </span>
+                  <div className="text-xs text-gray-400">
+                    {formatDate(process.postdate)}
+                  </div>
                 </div>
-                <div className="absolute bottom-4 left-4 right-4">
-                  <h3 className="text-lg font-bold text-gray-900 line-clamp-2 leading-tight">
-                    {process.title}
-                  </h3>
-                </div>
-              </div>
-              
-              {/* カードコンテンツ */}
-              <div className="p-6">
-                <p className="text-gray-600 text-sm line-clamp-3 mb-4">
+
+                {/* タイトル */}
+                <h3 className="text-lg font-semibold text-gray-900 line-clamp-2 leading-snug mb-3">
+                  {process.title}
+                </h3>
+                {/* 概要 */}
+                <p className="text-gray-600 text-sm line-clamp-2 mb-4 leading-relaxed">
                   {process.shortdescription || "概要が設定されていません"}
                 </p>
                 
                 {/* メタ情報 */}
-                <div className="space-y-2 mb-4">
-                  <div className="flex items-center text-sm text-gray-500">
-                    <Calendar className="w-4 h-4 mr-2" />
-                    <span>{formatDate(process.postdate)}</span>
-                  </div>
+                <div className="space-y-2 mb-5 flex-1">
                   {process.target_audience && (
-                    <div className="flex items-center text-sm text-gray-500">
-                      <User className="w-4 h-4 mr-2" />
+                    <div className="flex items-center text-xs text-gray-500">
+                      <User className="w-3.5 h-3.5 mr-2" />
                       <span className="line-clamp-1">{process.target_audience}</span>
                     </div>
                   )}
                   {process.current_step && process.process_type === 'generation' && (
-                    <div className="flex items-center text-sm text-gray-500">
-                      <Clock className="w-4 h-4 mr-2" />
-                      <span className="line-clamp-1">ステップ: {process.current_step}</span>
+                    <div className="flex items-center text-xs text-gray-500">
+                      <Clock className="w-3.5 h-3.5 mr-2" />
+                      <span className="line-clamp-1">現在のステップ: {process.current_step}</span>
                     </div>
                   )}
                 </div>
                 
                 {/* アクションボタン */}
-                <div className="flex gap-2">
+                <div className="flex gap-2.5">
                   {process.process_type === 'article' ? (
                     <>
                       <Button 
                         size="sm" 
-                        className="flex-1 bg-secondary hover:bg-secondary/90"
+                        className="flex-1 bg-secondary hover:bg-secondary/90 text-xs font-medium"
                         onClick={(e) => handleEditClick(process, e)}
                       >
-                        <Edit className="w-4 h-4 mr-1" />
+                        <Edit className="w-3.5 h-3.5 mr-1.5" />
                         編集
                       </Button>
                       <Button 
                         size="sm" 
                         variant="outline" 
-                        className="flex-1"
+                        className="flex-1 text-xs font-medium"
                         onClick={(e) => {
                           e.stopPropagation();
                           handleRowClick(process.id);
                         }}
                       >
-                        <Eye className="w-4 h-4 mr-1" />
+                        <Eye className="w-3.5 h-3.5 mr-1.5" />
                         表示
                       </Button>
                     </>
@@ -309,20 +306,20 @@ export default function IndexPage() {
                       {process.is_recoverable ? (
                         <Button 
                           size="sm" 
-                          className="flex-1 bg-blue-600 hover:bg-blue-700 text-white"
+                          className="flex-1 bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium"
                           onClick={(e) => handleResumeClick(process.process_id!, e)}
                         >
-                          <Play className="w-4 h-4 mr-1" />
+                          <Play className="w-3.5 h-3.5 mr-1.5" />
                           再開
                         </Button>
                       ) : (
                         <Button 
                           size="sm" 
                           variant="outline" 
-                          className="flex-1"
+                          className="flex-1 text-xs font-medium"
                           onClick={(e) => handleEditClick(process, e)}
                         >
-                          <Eye className="w-4 h-4 mr-1" />
+                          <Eye className="w-3.5 h-3.5 mr-1.5" />
                           詳細
                         </Button>
                       )}
@@ -330,14 +327,13 @@ export default function IndexPage() {
                         <Button 
                           size="sm" 
                           variant="outline" 
-                          className="flex-1 border-red-200 text-red-600 hover:bg-red-50"
+                          className="flex-1 border-red-200 text-red-600 hover:bg-red-50 text-xs font-medium"
                           onClick={(e) => {
                             e.stopPropagation();
-                            // エラー詳細を表示するためのアクション
                             handleRowClick(process.id);
                           }}
                         >
-                          <AlertCircle className="w-4 h-4 mr-1" />
+                          <AlertCircle className="w-3.5 h-3.5 mr-1.5" />
                           エラー
                         </Button>
                       )}
