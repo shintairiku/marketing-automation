@@ -187,12 +187,6 @@ export default function Sidebar() {
             ))}
           </nav>
         </ScrollArea>
-        <div className='absolute right-0 top-0 size-[36px] translate-x-full bg-primary'>
-          <div className='size-[36px] bg-white' style={{ clipPath: 'circle(100% at 100% 100%)' }}></div>
-        </div>
-        <div className='absolute right-0 bottom-0 size-[36px] translate-x-full bg-primary'>
-          <div className='size-[36px] bg-white' style={{ clipPath: 'circle(100% at 100% 0%)' }}></div>
-        </div>
       </aside>
 
       {/* Sub Sidebar */}
