@@ -46,7 +46,7 @@ const platforms = [
     recentActivity: '3時間前に記事を公開',
     link: '/seo/home',
     quickActions: [
-      { label: '新規記事作成', href: '/seo/generate/new-article', icon: IoPencil },
+      { label: '新規SEO記事生成', href: '/seo/generate/new-article', icon: IoPencil },
       { label: '記事管理', href: '/seo/manage/list', icon: IoDocumentText },
       { label: 'ダッシュボード', href: '/seo/analyze/dashboard', icon: IoAnalytics }
     ]

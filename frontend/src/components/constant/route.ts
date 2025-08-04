@@ -54,37 +54,45 @@ export const groups: Group[] = [
     title: 'SNS Content',
     links: [
       {
-        href: '/seo/home',
+        href: '/seo/generate/new-article',
         label: 'SEO Blog',
-        sublabel: 'SEO Tiger',
-        imageurl: '/seoTiger.png',
+        sublabel: 'SEO記事作成・管理',
         subLinks: [
           {
             title: '記事生成',
             links: [
-              { href: '/seo/generate/new-article',     label: '新規記事作成' },
+              { href: '/seo/generate/new-article',     label: '新規SEO記事生成' },
             ],
           },
           {
             title: '記事管理',
             links: [
               { href: '/seo/manage/list',     label: '記事管理' },
-              { href: '/seo/manage/status',     label: '記事ステータス管理' },
-              { href: '/seo/manage/schedule',     label: '配信カレンダー' },
             ],
           },
           {
             title: '効果測定',
             links: [
               { href: '/seo/analyze/dashboard',      label: 'ダッシュボード' },
-              { href: '/seo/analyze/report',   label: 'SEO効果レポート' },
-              { href: '/seo/analyze/feedback', label: 'AIフィードバック' }, 
             ],
           },
+        ],
+      },
+    ],
+  },
+  {
+    title: 'Company',
+    links: [
+      {
+        href: '/company-settings/home',
+        label: '会社設定',
+        sublabel: 'Company Settings',
+        subLinks: [
           {
-            title: '入力値調整',
+            title: '基本設定',
             links: [
-              { href: '/seo/input/persona',      label: '独自ペルソナ設定' },
+              { href: '/company-settings/company', label: '会社情報設定' },
+              { href: '/company-settings/style-guide', label: 'スタイルガイド設定' },
             ],
           },
         ],
@@ -105,13 +113,6 @@ export const groups: Group[] = [
               { href: '/settings/account', label: 'アカウント設定' },
               { href: '/settings/members', label: 'メンバー設定' },
               { href: '/settings/billing', label: '請求&契約設定' },
-            ],
-          },
-          {
-            title: '会社情報設定',
-            links: [
-              { href: '/settings/company', label: '会社情報設定' },
-              { href: '/settings/style-guide', label: 'スタイルガイド設定' },
             ],
           },
           {

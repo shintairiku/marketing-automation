@@ -245,19 +245,7 @@ export default function IndexPage() {
                     {getStatusIcon(process.status, process.process_type)}
                     {getStatusDisplay(process.status)}
                   </span>
-                  {process.process_type === 'generation' && (
-                    <span className="px-2 py-1 text-xs bg-purple-100 text-purple-700 rounded">
-                      プロセス
-                    </span>
-                  )}
                 </div>
-                {process.process_type === 'generation' && process.progress_percentage !== undefined && (
-                  <div className="absolute top-4 right-4">
-                    <div className="text-xs text-gray-600 bg-white/80 px-2 py-1 rounded">
-                      {process.progress_percentage}%
-                    </div>
-                  </div>
-                )}
                 <div className="absolute bottom-4 left-4 right-4">
                   <h3 className="text-lg font-bold text-gray-900 line-clamp-2 leading-tight">
                     {process.title}

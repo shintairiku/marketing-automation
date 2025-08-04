@@ -50,7 +50,12 @@ export const iconMap: Record<string, React.ReactElement<{ size?: number }>> = {
 
   '/seo/input/persona'         : <IoPerson size={24} />,
 
-  /* ───────── 3. Generate / Instagram ───────── */
+  /* ───────── 3. Company Settings ───────── */
+  '/company-settings/home'     : <IoClipboard size={24} />,
+  '/company-settings/company'  : <IoClipboard size={24} />,
+  '/company-settings/style-guide' : <IoPencil size={24} />,
+
+  /* ───────── 4. Generate / Instagram ───────── */
   '/instagram/home'            : <IoLogoInstagram size={24} />,
   '/instagram/generate/caption'    : <IoText size={24} />,
   '/instagram/generate/hashtags'   : <IoPricetag size={24} />,
@@ -65,7 +70,7 @@ export const iconMap: Record<string, React.ReactElement<{ size?: number }>> = {
 
   '/instagram/input/persona'    : <IoPerson size={24} />,
 
-  /* ───────── 4. Generate / LINE ───────── */
+  /* ───────── 5. Generate / LINE ───────── */
   '/line/home'                 : <IoChat size={24} />,
   '/line/generate/text'            : <IoText size={24} />,
   '/line/generate/image'           : <IoImage size={24} />,
@@ -81,7 +86,7 @@ export const iconMap: Record<string, React.ReactElement<{ size?: number }>> = {
 
   '/line/input/persona'         : <IoPerson size={24} />,
 
-  /* ───────── 4. Settings ───────── */
+  /* ───────── 6. Settings ───────── */
   '/settings/home'              : <IoSettings size={24} />,
   '/settings/account'           : <IoPerson size={24} />,
   '/settings/members'           : <IoPeople size={24} />,
@@ -92,7 +97,7 @@ export const iconMap: Record<string, React.ReactElement<{ size?: number }>> = {
   '/settings/integrations/instagram' : <IoLogoInstagram size={24} />,
   '/settings/integrations/line'      : <IoChat size={24} />,
 
-  /* ───────── 5. Help ───────── */
+  /* ───────── 7. Help ───────── */
   '/help/home'                  : <IoHelp size={24} />,
   '/help/getting-started'       : <IoSchool size={24} />,
   '/help/faq'                   : <IoChatbubbles size={24} />,
@@ -121,7 +126,7 @@ function findSelectedMenu(pathname: string) {
 
   // 4. パス階層で判定（/seo/で始まる場合はSEOメニューを返す）
   if (pathname.startsWith('/seo/')) {
-    menu = groups.flatMap(g => g.links).find(l => l.href === '/seo/home');
+    menu = groups.flatMap(g => g.links).find(l => l.href === '/seo/generate/new-article');
     if (menu) return menu;
   }
   
