@@ -35,15 +35,12 @@ export const groups: Group[] = [
             title: 'ホーム',
             links: [
               { href: '/dashboard', label: 'ダッシュボード' },
-              { href: '/dashboard/news', label: '運営からのお知らせ' },
             ],
           },
           {
             title: 'コンテンツ管理',
             links: [
-              { href: '/dashboard/overview', label: '生成コンテンツ一覧' },
-              { href: '/dashboard/calendar', label: '配信カレンダー' },
-              { href: '/dashboard/performance', label: '全体効果測定' },
+              { href: '/seo/manage/list', label: '生成コンテンツ一覧' },
             ],
           },
         ],
@@ -54,114 +51,45 @@ export const groups: Group[] = [
     title: 'SNS Content',
     links: [
       {
-        href: '/seo/home',
-        label: 'SEO Blog',
-        sublabel: 'SEO Tiger',
-        imageurl: '/seoTiger.png',
+        href: '/seo/generate/new-article',
+        label: 'SEO記事作成・管理',
+        sublabel: 'SEO記事作成',
         subLinks: [
           {
             title: '記事生成',
             links: [
-              { href: '/seo/generate/new-article',     label: '新規記事作成' },
+              { href: '/seo/generate/new-article',     label: '新規SEO記事生成' },
             ],
           },
           {
             title: '記事管理',
             links: [
               { href: '/seo/manage/list',     label: '記事管理' },
-              { href: '/seo/manage/status',     label: '記事ステータス管理' },
-              { href: '/seo/manage/schedule',     label: '配信カレンダー' },
             ],
           },
           {
             title: '効果測定',
             links: [
               { href: '/seo/analyze/dashboard',      label: 'ダッシュボード' },
-              { href: '/seo/analyze/report',   label: 'SEO効果レポート' },
-              { href: '/seo/analyze/feedback', label: 'AIフィードバック' }, 
-            ],
-          },
-          {
-            title: '入力値調整',
-            links: [
-              { href: '/seo/input/persona',      label: '独自ペルソナ設定' },
             ],
           },
         ],
       },
+    ],
+  },
+  {
+    title: 'Company',
+    links: [
       {
-        href: '/instagram/home',
-        label: 'Instagram',
-        sublabel: 'Instagram Turtle',
+        href: '/company-settings/company',
+        label: '会社情報設定',
+        sublabel: '会社設定',
         subLinks: [
           {
-            title: 'コンテンツ生成',
+            title: '基本設定',
             links: [
-              { href: '/instagram/generate/caption', label: 'キャプション生成' },
-              { href: '/instagram/generate/hashtags',label: 'ハッシュタグ提案' },
-              { href: '/instagram/generate/image',   label: '画像生成支援' },
-              { href: '/instagram/generate/rewrite', label: 'AI 校正' },
-              { href: '/instagram/generate/schedule',label: '予約投稿' },
-            ],
-          },
-          {
-            title: 'コンテンツ管理',
-            links: [
-              { href: '/instagram/manage/list',     label: 'コンテンツ一覧' },
-              { href: '/instagram/manage/status',     label: 'コンテンツステータス管理' },
-              { href: '/instagram/manage/schedule',     label: '配信カレンダー' },
-            ],
-          },
-          {
-            title: '効果測定',
-            links: [
-              { href: '/instagram/analyze/dashboard',      label: 'ダッシュボード' },
-              { href: '/instagram/analyze/report',   label: '効果レポート' },
-              { href: '/instagram/analyze/feedback', label: 'AIフィードバック' }, 
-            ],
-          },
-          {
-            title: '入力値調整',
-            links: [
-              { href: '/instagram/input/persona',      label: '独自ペルソナ設定' },
-            ],
-          },
-        ],
-      },
-      {
-        href: '/line/home',
-        label: 'LINE',
-        sublabel: 'LINE Rabbit',
-        subLinks: [
-          {
-            title: 'コンテンツ生成',
-            links: [
-              { href: '/line/generate/text', label: '文章生成' },
-              { href: '/line/generate/image',   label: '画像生成' },
-              { href: '/line/generate/rewrite', label: 'ステップ配信' },
-              { href: '/line/generate/schedule',label: 'リッチメニュー生成' },
-            ],
-          },
-          {
-            title: 'コンテンツ管理',
-            links: [
-              { href: '/line/manage/list',     label: 'コンテンツ一覧' },
-              { href: '/line/manage/status',     label: 'コンテンツステータス管理' },
-              { href: '/line/manage/schedule',     label: '配信カレンダー' },
-            ],
-          },
-          {
-            title: '効果測定',
-            links: [
-              { href: '/line/analyze/dashboard',      label: 'ダッシュボード' },
-              { href: '/line/analyze/report',   label: '効果レポート' },
-              { href: '/line/analyze/feedback', label: 'AIフィードバック' }, 
-            ],
-          },
-          {
-            title: '入力値調整',
-            links: [
-              { href: '/line/input/persona',      label: '独自ペルソナ設定' },
+              { href: '/company-settings/company', label: '会社情報設定' },
+              { href: '/company-settings/style-guide', label: '記事スタイル設定' },
             ],
           },
         ],
@@ -172,7 +100,7 @@ export const groups: Group[] = [
     title: 'Settings',
     links: [
       {
-        href: '/settings/home',
+        href: '/settings/account',
         label: '設定',
         sublabel: 'Settings',
         subLinks: [
@@ -182,13 +110,6 @@ export const groups: Group[] = [
               { href: '/settings/account', label: 'アカウント設定' },
               { href: '/settings/members', label: 'メンバー設定' },
               { href: '/settings/billing', label: '請求&契約設定' },
-            ],
-          },
-          {
-            title: '会社情報設定',
-            links: [
-              { href: '/settings/company', label: '会社情報設定' },
-              { href: '/settings/style-guide', label: 'スタイルガイド設定' },
             ],
           },
           {

@@ -21,6 +21,7 @@ import {
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Textarea } from '@/components/ui/textarea';
 import { useArticleDetail } from '@/hooks/useArticles';
+import { useAutoSave } from '@/hooks/useAutoSave';
 import { cn } from "@/utils/cn";
 import { useAuth } from '@clerk/nextjs';
 
@@ -76,6 +77,7 @@ const SafeImage = ({ src, alt, className, style, width, height, onClick }: {
 
   if (imageError) {
     return (
+      // eslint-disable-next-line @next/next/no-img-element
       <img
         src={src}
         alt={alt}
@@ -107,6 +109,9 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
   const [blocks, setBlocks] = useState<ArticleBlock[]>([]);
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  
+  // 自動保存の制御状態
+  const [autoSaveEnabled, setAutoSaveEnabled] = useState(true);
 
   const [hoveredBlockId, setHoveredBlockId] = useState<string | null>(null);
   const [aiEditingLoading, setAiEditingLoading] = useState(false);
@@ -140,7 +145,7 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
   };
 
   // HTMLコンテンツをブロックに分割（画像プレースホルダー対応）
-  const parseHtmlToBlocks = (html: string): ArticleBlock[] => {
+  const parseHtmlToBlocks = useCallback((html: string): ArticleBlock[] => {
     const blocks: ArticleBlock[] = [];
     let blockIndex = 0;
     
@@ -260,10 +265,10 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
       if (block.content === '<br>' || block.content === '<br />') return false;
       return true;
     });
-  };
+  }, []);
 
   // ブロックをHTMLに戻す（画像プレースホルダー対応）
-  const blocksToHtml = (blocks: ArticleBlock[]): string => {
+  const blocksToHtml = useCallback((blocks: ArticleBlock[]): string => {
     return blocks.map(block => {
       if (block.type === 'image_placeholder') {
         // 画像プレースホルダーは完全な情報を含むコメント形式で出力
@@ -295,7 +300,7 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
       
       return `<${block.type}>${block.content}</${block.type}>`;
     }).join('\n');
-  };
+  }, []);
 
   // 記事の画像を復元する関数
   const restoreArticleImages = useCallback(async () => {
@@ -382,7 +387,7 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
       // エラーの場合は元のコンテンツを使用
       setBlocks(parseHtmlToBlocks(article.content));
     }
-  }, [article?.id, getToken]);
+  }, [article?.id, article?.content, getToken, parseHtmlToBlocks]);
 
   // 記事データが更新されたときにブロックを再構築（画像復元含む）
   useEffect(() => {
@@ -511,23 +516,41 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
         setAiConfirmations(newConfirmations);
         
       } else if (currentBlockForAi) {
-        if (token) headers["Authorization"] = `Bearer ${token}`;
+        const requestContent = `<${currentBlockForAi.type}>${currentBlockForAi.content}</${currentBlockForAi.type}>`;
+        console.log('AI編集リクエスト:', {
+          content: requestContent,
+          instruction: aiInstruction,
+          url: `/api/proxy/articles/${articleId}/ai-edit`
+        });
         
         const resp = await fetch(`/api/proxy/articles/${articleId}/ai-edit`, {
           method: 'POST',
           headers,
           body: JSON.stringify({
-            content: `<${currentBlockForAi.type}>${currentBlockForAi.content}</${currentBlockForAi.type}>`,
+            content: requestContent,
             instruction: aiInstruction
           })
         });
 
+        console.log('AI編集レスポンス:', {
+          status: resp.status,
+          statusText: resp.statusText,
+          ok: resp.ok
+        });
+
         if (!resp.ok) {
           const errorData = await resp.json().catch(() => ({ detail: 'レスポンスがJSON形式ではありません' }));
+          console.error('AI編集エラーレスポンス:', errorData);
           throw new Error(`AI編集に失敗しました: ${errorData.detail || resp.statusText}`);
         }
         
         const result = await resp.json();
+        console.log('AI編集結果:', result);
+
+        if (!result.edited_content) {
+          console.error('AI編集結果が空です:', result);
+          throw new Error('AIによる編集結果が空でした。もう一度お試しください。');
+        }
 
         const aiConfirmationState: AiConfirmationState = {
           blockId: currentBlockForAi.id,
@@ -537,6 +560,9 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
         };
         setAiConfirmations([aiConfirmationState]);
       }
+      
+      // 再生成用に最後の指示を保存
+      setLastAiInstruction(aiInstruction);
     } catch (error) {
       console.error('AI編集エラー:', error);
       const errorMessage = error instanceof Error ? error.message : String(error);
@@ -550,7 +576,10 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
 
   const handleRegenerate = async (blockId: string) => {
     const confirmation = aiConfirmations.find(c => c.blockId === blockId);
-    if (!confirmation || !lastAiInstruction) return;
+    if (!confirmation || !lastAiInstruction) {
+      console.warn('再生成に必要な情報が不足:', { confirmation, lastAiInstruction });
+      return;
+    }
 
     try {
       setAiEditingLoading(true);
@@ -560,21 +589,41 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
       };
       if (token) headers["Authorization"] = `Bearer ${token}`;
 
+      const requestContent = `<${confirmation.originalType}>${confirmation.originalContent}</${confirmation.originalType}>`;
+      console.log('AI再編集リクエスト:', {
+        content: requestContent,
+        instruction: lastAiInstruction,
+        blockId
+      });
+
       const resp = await fetch(`/api/proxy/articles/${articleId}/ai-edit`, {
         method: 'POST',
         headers,
         body: JSON.stringify({
-          content: `<${confirmation.originalType}>${confirmation.originalContent}</${confirmation.originalType}>`,
+          content: requestContent,
           instruction: lastAiInstruction
         })
       });
 
+      console.log('AI再編集レスポンス:', {
+        status: resp.status,
+        statusText: resp.statusText,
+        ok: resp.ok
+      });
+
       if (!resp.ok) {
         const errorData = await resp.json().catch(() => ({ detail: 'レスポンスがJSON形式ではありません' }));
+        console.error('AI再編集エラーレスポンス:', errorData);
         throw new Error(`AI再編集に失敗しました: ${errorData.detail || resp.statusText}`);
       }
 
       const result = await resp.json();
+      console.log('AI再編集結果:', result);
+
+      if (!result.edited_content) {
+        console.error('AI再編集結果が空です:', result);
+        throw new Error('AIによる再編集結果が空でした。もう一度お試しください。');
+      }
       
       setAiConfirmations(prev => prev.map(c => 
         c.blockId === blockId ? { ...c, newContent: result.edited_content } : c
@@ -1005,6 +1054,105 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
     }
   };
 
+  // 自動保存用のラッパー関数
+  const autoSaveArticle = useCallback(async () => {
+    if (!article || isSaving) return;
+
+    try {
+      const token = await getToken();
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+      };
+      
+      if (token) {
+        headers["Authorization"] = `Bearer ${token}`;
+      }
+
+      const updatedContent = blocksToHtml(blocks);
+      
+      // 空のimgタグを含むコンテンツの保存を防ぐ
+      if (updatedContent.includes('<img />') || updatedContent.includes('<img/>')) {
+        console.warn('自動保存をスキップ: 空の画像タグが含まれています');
+        return;
+      }
+
+      const response = await fetch(`/api/proxy/articles/${articleId}`, {
+        method: 'PATCH',
+        headers,
+        body: JSON.stringify({
+          content: updatedContent,
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ detail: "レスポンスがJSON形式ではありません" }));
+        throw new Error(`自動保存失敗: ${errorData.detail || response.statusText}`);
+      }
+      
+      console.log('自動保存が完了しました');
+
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error('自動保存エラー:', errorMessage);
+      throw error; // useAutoSaveフックがエラーを処理します
+    }
+  }, [article, articleId, blocks, blocksToHtml, getToken, isSaving]);
+
+  // コンテンツ抽出関数：UI状態を除外して実際のコンテンツのみを抽出
+  const extractContent = useCallback((blocks: ArticleBlock[]) => {
+    return blocks.map(block => ({
+      id: block.id,
+      type: block.type,
+      content: block.content,
+      placeholderData: block.placeholderData,
+      imageData: block.imageData
+    }));
+  }, []);
+
+  // 自動保存フックの設定
+  const autoSave = useAutoSave(blocks, autoSaveArticle, {
+    delay: 2000, // 2秒のデバウンス
+    enabled: autoSaveEnabled && !!article && blocks.length > 0,
+    maxRetries: 3, // 最大3回リトライ
+    retryDelay: 1000, // 1秒後にリトライ開始
+    excludeKeys: ['isEditing', 'isSelected'], // UI状態を除外
+    contentExtractor: (blocks: ArticleBlock[]) => JSON.stringify(extractContent(blocks)), // コンテンツのみを抽出
+  });
+
+  // 自動保存の制御: 特定の操作中は無効化
+  useEffect(() => {
+    // AI編集中、手動保存中、画像関連の操作中は自動保存を無効化
+    const hasAnyLoading = aiEditingLoading || 
+                         isSaving || 
+                         Object.values(imageUploadLoading).some(loading => loading) ||
+                         Object.values(imageGenerationLoading).some(loading => loading);
+    
+    if (hasAnyLoading) {
+      setAutoSaveEnabled(false);
+    } else {
+      // 操作が完了したら少し遅延してから自動保存を再有効化
+      const timer = setTimeout(() => {
+        setAutoSaveEnabled(true);
+      }, 1000);
+      
+      return () => clearTimeout(timer);
+    }
+  }, [aiEditingLoading, isSaving, imageUploadLoading, imageGenerationLoading]);
+
+  // 初期化時は自動保存を無効化（画像復元完了まで）
+  useEffect(() => {
+    if (loading) {
+      setAutoSaveEnabled(false);
+    } else if (article && blocks.length > 0) {
+      // 記事とブロックが読み込まれたら自動保存を有効化
+      const timer = setTimeout(() => {
+        setAutoSaveEnabled(true);
+      }, 2000); // 画像復元などの初期化完了を待つ
+      
+      return () => clearTimeout(timer);
+    }
+  }, [loading, article, blocks.length]);
+
 
   // ブロックコンテンツのレンダリング（リッチプレビュー対応）
   const renderBlockContent = (block: ArticleBlock) => {
@@ -1319,6 +1467,49 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
             </Alert>
           )}
           
+          {/* 自動保存ステータス */}
+          <div className="flex items-center gap-2">
+            {autoSave.isAutoSaving && (
+              <div className="flex items-center gap-2 text-sm text-blue-600">
+                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
+                {autoSave.isRetrying ? `リトライ中... (${autoSave.retryCount}/3)` : '自動保存中...'}
+              </div>
+            )}
+            {autoSave.lastSaved && !autoSave.isAutoSaving && !autoSave.error && (
+              <div className="text-sm text-green-600">
+                自動保存済み {autoSave.lastSaved.toLocaleTimeString('ja-JP', { 
+                  hour: '2-digit', 
+                  minute: '2-digit' 
+                })}
+              </div>
+            )}
+            {autoSave.error && (
+              <div className="flex items-center gap-1 text-sm text-red-600">
+                <AlertCircle className="h-4 w-4" />
+                <span>自動保存エラー</span>
+                {autoSave.retryCount > 0 && (
+                  <span className="text-xs">({autoSave.retryCount}/3 試行)</span>
+                )}
+                <Button 
+                  variant="ghost" 
+                  size="sm" 
+                  onClick={autoSave.retryNow}
+                  className="h-auto px-2 py-1 text-xs text-red-600 hover:text-red-700 hover:bg-red-50"
+                >
+                  再試行
+                </Button>
+                <Button 
+                  variant="ghost" 
+                  size="sm" 
+                  onClick={autoSave.clearError}
+                  className="h-auto p-1 text-red-600 hover:text-red-700"
+                >
+                  <X className="h-3 w-3" />
+                </Button>
+              </div>
+            )}
+          </div>
+
           {/* HTMLエクスポートボタン */}
           <div className="flex items-center gap-2">
             <Button

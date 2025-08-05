@@ -97,6 +97,11 @@ class ArticleUpdateRequest(BaseModel):
     shortdescription: Optional[str] = None
     target_audience: Optional[str] = None
     keywords: Optional[List[str]] = None
+    status: Optional[str] = Field(None, description="記事の公開状態 (draft, published)")
+
+class ArticleStatusUpdateRequest(BaseModel):
+    """記事公開状態更新専用リクエスト"""
+    status: str = Field(..., description="記事の公開状態 (draft, published)")
 
 class AIEditRequest(BaseModel):
     """AIによるブロック編集リクエスト"""
@@ -324,6 +329,62 @@ async def update_article(
             detail="Failed to update article"
         )
 
+@router.patch("/{article_id}/status", response_model=dict, status_code=status.HTTP_200_OK)
+async def update_article_status(
+    article_id: str,
+    status_data: ArticleStatusUpdateRequest,
+    user_id: str = Depends(get_current_user_id_from_token)
+):
+    """
+    記事の公開状態を更新します。
+    
+    **Parameters:**
+    - article_id: 記事ID
+    - status_data: 公開状態データ (draft または published)
+    - user_id: ユーザーID（認証から取得）
+    
+    **Returns:**
+    - 更新された記事情報
+    """
+    try:
+        # ステータス値の検証
+        valid_statuses = ['draft', 'published']
+        if status_data.status not in valid_statuses:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid status. Must be one of: {', '.join(valid_statuses)}"
+            )
+        
+        # まず記事が存在し、ユーザーがアクセス権限を持つことを確認
+        existing_article = await article_service.get_article(article_id, user_id)
+        if not existing_article:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Article not found or access denied"
+            )
+        
+        # 記事の公開状態を更新
+        updated_article = await article_service.update_article(
+            article_id=article_id,
+            user_id=user_id,
+            update_data={"status": status_data.status}
+        )
+        
+        return {
+            "id": article_id,
+            "status": status_data.status,
+            "message": f"記事の状態を「{status_data.status}」に更新しました",
+            "updated_at": updated_article.get("updated_at") if updated_article else None
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating article status {article_id}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to update article status"
+        )
+
 @router.post("/{article_id}/ai-edit", response_model=dict, status_code=status.HTTP_200_OK)
 async def ai_edit_block(
     article_id: str,
@@ -370,7 +431,7 @@ async def ai_edit_block(
         content = completion.choices[0].message.content
         new_content = content.strip() if content else ""
 
-        return {"new_content": new_content}
+        return {"edited_content": new_content}
 
     except HTTPException:
         raise

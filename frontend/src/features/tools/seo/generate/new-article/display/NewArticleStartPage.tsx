@@ -70,10 +70,10 @@ export default function NewArticleStartPage() {
                 className="text-center space-y-4"
             >
                 <h1 className="text-3xl font-bold text-gray-900">
-                    SEO記事生成
+                    新規SEO記事作成
                 </h1>
                 <p className="text-lg text-gray-600">
-                    AI を活用して高品質なSEO記事を自動生成します
+                    AI を活用して高品質なSEO記事を自動生成します。*マークは必須項目です。
                 </p>
             </motion.div>
 

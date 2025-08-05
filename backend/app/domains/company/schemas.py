@@ -18,7 +18,7 @@ class CompanyInfoBase(BaseModel):
     """会社情報の基本スキーマ"""
     name: str = Field(..., description="会社名", max_length=200)
     website_url: HttpUrl = Field(..., description="企業HP URL")
-    description: str = Field(..., description="会社概要", max_length=2000)
+    description: str = Field(..., description="事業内容", max_length=2000)
     usp: str = Field(..., description="USP（企業の強み・差別化ポイント）", max_length=1000)
     target_persona: str = Field(..., description="ターゲットペルソナ", max_length=1000)
     
@@ -38,7 +38,7 @@ class CompanyInfoUpdate(BaseModel):
     """会社情報更新用スキーマ（部分更新対応）"""
     name: Optional[str] = Field(None, description="会社名", max_length=200)
     website_url: Optional[HttpUrl] = Field(None, description="企業HP URL")
-    description: Optional[str] = Field(None, description="会社概要", max_length=2000)
+    description: Optional[str] = Field(None, description="事業内容", max_length=2000)
     usp: Optional[str] = Field(None, description="USP（企業の強み・差別化ポイント）", max_length=1000)
     target_persona: Optional[str] = Field(None, description="ターゲットペルソナ", max_length=1000)
     is_default: Optional[bool] = Field(None, description="デフォルト会社として設定するか")

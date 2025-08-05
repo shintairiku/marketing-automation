@@ -4,8 +4,6 @@ import { useEffect,useState } from "react";
 import { AlertCircle, Building2, Check,ChevronDown, ChevronUp, Pencil, Plus, Star, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
-import Header from "@/components/display/header";
-import Sidebar from "@/components/display/sidebar";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -274,14 +272,7 @@ export default function CompanySettingsPage() {
   const defaultCompany = companies.find(c => c.is_default);
 
   return (
-    <div className="min-h-screen bg-background">
-      <Header />
-      <div className="flex mt-[45px]">
-        <div className="fixed left-0 top-[45px] h-[calc(100vh-45px)]">
-          <Sidebar />
-        </div>
-        <main className="flex-1 ml-[314px] p-5">
-          <div className="container mx-auto p-6 space-y-6">
+    <div className="container mx-auto p-6 space-y-6">
             <div className="flex justify-between items-center">
               <div className="space-y-2">
                 <h1 className="text-3xl font-bold">会社情報設定</h1>
@@ -297,13 +288,13 @@ export default function CompanySettingsPage() {
                 <DialogTrigger asChild>
                   <Button>
                     <Plus className="mr-2 h-4 w-4" />
-                    会社を追加
+                    会社情報を追加
                   </Button>
                 </DialogTrigger>
                 <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
                   <DialogHeader>
                     <DialogTitle>
-                      {isEditing ? '会社情報を編集' : '新しい会社を追加'}
+                      {isEditing ? '会社情報を編集' : '新しい会社情報を追加'}
                     </DialogTitle>
                     <DialogDescription>
                       SEO記事生成で使用する会社情報を設定してください。必須項目を入力後、詳細設定で更に細かく設定できます。
@@ -339,12 +330,12 @@ export default function CompanySettingsPage() {
                       </div>
 
                       <div className="space-y-2">
-                        <Label htmlFor="description">会社概要 *</Label>
+                        <Label htmlFor="description">事業内容 *</Label>
                         <Textarea
                           id="description"
                           value={formData.description}
                           onChange={(e) => setFormData({...formData, description: e.target.value})}
-                          placeholder="どのような事業を行っている会社かを詳しく記載してください"
+                          placeholder="事業内容を詳細に入力してください。"
                           rows={3}
                         />
                         <p className="text-xs text-muted-foreground">
@@ -358,7 +349,7 @@ export default function CompanySettingsPage() {
                           id="usp"
                           value={formData.usp}
                           onChange={(e) => setFormData({...formData, usp: e.target.value})}
-                          placeholder="他社にはない御社独自の強みや差別化ポイントを記載してください"
+                          placeholder="他社にはない自社独自の強みや差別化ポイントを入力してください。"
                           rows={2}
                         />
                         <p className="text-xs text-muted-foreground">
@@ -367,12 +358,12 @@ export default function CompanySettingsPage() {
                       </div>
 
                       <div className="space-y-2">
-                        <Label htmlFor="target_persona">ターゲットペルソナ *</Label>
+                        <Label htmlFor="target_persona">ターゲット・ペルソナ *</Label>
                         <Textarea
                           id="target_persona"
                           value={formData.target_persona}
                           onChange={(e) => setFormData({...formData, target_persona: e.target.value})}
-                          placeholder="中小企業の経営者（従業員10-50名、年商1-10億円、デジタル化に課題を感じている40-60代の男性経営者）"
+                          placeholder="35歳専業主婦・家族構成：4人家族（中小企業勤務38歳の夫、小学1年生の長男、幼稚園年中の長女）・現在の住まい：賃貸マンション（3LDK）・世帯年収：約700万円（夫の収入のみ）"
                           rows={3}
                         />
                         <p className="text-xs text-muted-foreground">
@@ -594,7 +585,7 @@ export default function CompanySettingsPage() {
                         </a>
                       </div>
                       <div>
-                        <p className="text-sm font-medium text-muted-foreground">会社概要</p>
+                        <p className="text-sm font-medium text-muted-foreground">事業内容</p>
                         <p className="text-sm">{company.description}</p>
                       </div>
                       <div>
@@ -627,9 +618,6 @@ export default function CompanySettingsPage() {
                 ))}
               </div>
             )}
-          </div>
-        </main>
-      </div>
     </div>
   );
 }

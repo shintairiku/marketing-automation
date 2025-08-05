@@ -45,7 +45,7 @@ function Footer() {
           <div className='flex flex-col gap-2 lg:gap-6'>
             <div className='font-semibold text-neutral-100'>会社情報</div>
             <nav className='flex flex-col gap-2 lg:gap-6'>
-              <Link href='/about-us'>会社概要</Link>
+              <Link href='/about-us'>事業内容</Link>
               <Link href='/privacy'>プライバシーポリシー</Link>
               <Link href='/terms'>利用規約</Link>
             </nav>

@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { AlertCircle, BarChart3, Calendar, CheckCircle,Clock, Edit, Eye, Play, User } from "lucide-react";
+import { AlertCircle, BarChart3, Calendar, CheckCircle,Clock, Edit, Eye, Globe, GlobeLock, Play, User } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -45,6 +45,7 @@ export default function IndexPage() {
   const [selectedArticleId, setSelectedArticleId] = useState<string | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [statusFilter, setStatusFilter] = useState<string>("");
+  const [updatingStatus, setUpdatingStatus] = useState<string | null>(null);
 
   // 全プロセス（記事+未完成プロセス）を取得
   const {
@@ -54,7 +55,8 @@ export default function IndexPage() {
     currentPage,
     totalPages,
     setPage,
-    refetch
+    refetch,
+    updateArticleStatus
   } = useAllProcesses(PAGE_SIZE, statusFilter || undefined);
 
   // 選択された記事の詳細を取得
@@ -92,6 +94,25 @@ export default function IndexPage() {
   const handleResumeClick = (processId: string, e: React.MouseEvent) => {
     e.stopPropagation(); // カードクリックイベントを防ぐ
     router.push(`/seo/generate/new-article/${processId}`);
+  };
+
+  const handleStatusToggle = async (articleId: string, currentStatus: string, e: React.MouseEvent) => {
+    e.stopPropagation(); // カードクリックイベントを防ぐ
+    
+    const newStatus = currentStatus === 'published' ? 'draft' : 'published';
+    setUpdatingStatus(articleId);
+    
+    try {
+      const success = await updateArticleStatus(articleId, newStatus);
+      if (!success) {
+        // エラーハンドリング - 必要に応じてトーストやアラートを表示
+        console.error("Failed to update article status");
+      }
+    } catch (error) {
+      console.error("Error updating article status:", error);
+    } finally {
+      setUpdatingStatus(null);
+    }
   };
 
   const formatDate = (dateString: string) => {
@@ -235,84 +256,89 @@ export default function IndexPage() {
           {processes.map((process) => (
             <Card 
               key={process.id} 
-              className="overflow-hidden hover:shadow-lg transition-shadow duration-200 cursor-pointer bg-white"
+              className="overflow-hidden hover:shadow-md hover:border-gray-300 transition-all duration-200 cursor-pointer bg-white border border-gray-200 flex flex-col h-full"
               onClick={() => handleRowClick(process.id)}
             >
-              {/* カードヘッダー画像風エリア */}
-              <div className={`h-48 relative ${process.process_type === 'article' ? 'bg-gradient-to-br from-green-50 to-emerald-100' : 'bg-gradient-to-br from-blue-50 to-indigo-100'}`}>
-                <div className="absolute top-4 left-4 flex items-center gap-2">
-                  <span className={`px-3 py-1 text-xs font-medium rounded-full flex items-center gap-1 ${getStatusColor(process.status)}`}>
+              {/* カードコンテンツ */}
+              <div className="p-6 flex-1 flex flex-col">
+                {/* ステータスバッジ */}
+                <div className="flex items-center justify-between mb-4">
+                  <span className={`px-2.5 py-1 text-xs font-medium rounded-md flex items-center gap-1.5 ${getStatusColor(process.status)}`}>
                     {getStatusIcon(process.status, process.process_type)}
                     {getStatusDisplay(process.status)}
                   </span>
-                  {process.process_type === 'generation' && (
-                    <span className="px-2 py-1 text-xs bg-purple-100 text-purple-700 rounded">
-                      プロセス
-                    </span>
-                  )}
-                </div>
-                {process.process_type === 'generation' && process.progress_percentage !== undefined && (
-                  <div className="absolute top-4 right-4">
-                    <div className="text-xs text-gray-600 bg-white/80 px-2 py-1 rounded">
-                      {process.progress_percentage}%
-                    </div>
+                  <div className="text-xs text-gray-400">
+                    {formatDate(process.postdate)}
                   </div>
-                )}
-                <div className="absolute bottom-4 left-4 right-4">
-                  <h3 className="text-lg font-bold text-gray-900 line-clamp-2 leading-tight">
-                    {process.title}
-                  </h3>
                 </div>
-              </div>
-              
-              {/* カードコンテンツ */}
-              <div className="p-6">
-                <p className="text-gray-600 text-sm line-clamp-3 mb-4">
+
+                {/* タイトル */}
+                <h3 className="text-lg font-semibold text-gray-900 line-clamp-2 leading-snug mb-3">
+                  {process.title}
+                </h3>
+                {/* 概要 */}
+                <p className="text-gray-600 text-sm line-clamp-2 mb-4 leading-relaxed">
                   {process.shortdescription || "概要が設定されていません"}
                 </p>
                 
                 {/* メタ情報 */}
-                <div className="space-y-2 mb-4">
-                  <div className="flex items-center text-sm text-gray-500">
-                    <Calendar className="w-4 h-4 mr-2" />
-                    <span>{formatDate(process.postdate)}</span>
-                  </div>
+                <div className="space-y-2 mb-5 flex-1">
                   {process.target_audience && (
-                    <div className="flex items-center text-sm text-gray-500">
-                      <User className="w-4 h-4 mr-2" />
+                    <div className="flex items-center text-xs text-gray-500">
+                      <User className="w-3.5 h-3.5 mr-2" />
                       <span className="line-clamp-1">{process.target_audience}</span>
                     </div>
                   )}
                   {process.current_step && process.process_type === 'generation' && (
-                    <div className="flex items-center text-sm text-gray-500">
-                      <Clock className="w-4 h-4 mr-2" />
-                      <span className="line-clamp-1">ステップ: {process.current_step}</span>
+                    <div className="flex items-center text-xs text-gray-500">
+                      <Clock className="w-3.5 h-3.5 mr-2" />
+                      <span className="line-clamp-1">現在のステップ: {process.current_step}</span>
                     </div>
                   )}
                 </div>
                 
                 {/* アクションボタン */}
-                <div className="flex gap-2">
+                <div className="flex gap-2.5">
                   {process.process_type === 'article' ? (
                     <>
                       <Button 
                         size="sm" 
-                        className="flex-1 bg-secondary hover:bg-secondary/90"
+                        className="flex-1 bg-secondary hover:bg-secondary/90 text-xs font-medium"
                         onClick={(e) => handleEditClick(process, e)}
                       >
-                        <Edit className="w-4 h-4 mr-1" />
+                        <Edit className="w-3.5 h-3.5 mr-1.5" />
                         編集
                       </Button>
                       <Button 
                         size="sm" 
+                        variant={process.status === 'published' ? 'default' : 'outline'}
+                        className={`flex-1 text-xs font-medium ${
+                          process.status === 'published' 
+                            ? 'bg-green-600 hover:bg-green-700 text-white'
+                            : 'border-blue-200 text-blue-600 hover:bg-blue-50'
+                        }`}
+                        disabled={updatingStatus === process.id}
+                        onClick={(e) => handleStatusToggle(process.id, process.status, e)}
+                      >
+                        {updatingStatus === process.id ? (
+                          <div className="w-3.5 h-3.5 animate-spin rounded-full border-2 border-current border-t-transparent mr-1.5" />
+                        ) : process.status === 'published' ? (
+                          <Globe className="w-3.5 h-3.5 mr-1.5" />
+                        ) : (
+                          <GlobeLock className="w-3.5 h-3.5 mr-1.5" />
+                        )}
+                        {process.status === 'published' ? '公開' : '未公開'}
+                      </Button>
+                      <Button 
+                        size="sm" 
                         variant="outline" 
-                        className="flex-1"
+                        className="flex-1 text-xs font-medium"
                         onClick={(e) => {
                           e.stopPropagation();
                           handleRowClick(process.id);
                         }}
                       >
-                        <Eye className="w-4 h-4 mr-1" />
+                        <Eye className="w-3.5 h-3.5 mr-1.5" />
                         表示
                       </Button>
                     </>
@@ -321,20 +347,20 @@ export default function IndexPage() {
                       {process.is_recoverable ? (
                         <Button 
                           size="sm" 
-                          className="flex-1 bg-blue-600 hover:bg-blue-700 text-white"
+                          className="flex-1 bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium"
                           onClick={(e) => handleResumeClick(process.process_id!, e)}
                         >
-                          <Play className="w-4 h-4 mr-1" />
+                          <Play className="w-3.5 h-3.5 mr-1.5" />
                           再開
                         </Button>
                       ) : (
                         <Button 
                           size="sm" 
                           variant="outline" 
-                          className="flex-1"
+                          className="flex-1 text-xs font-medium"
                           onClick={(e) => handleEditClick(process, e)}
                         >
-                          <Eye className="w-4 h-4 mr-1" />
+                          <Eye className="w-3.5 h-3.5 mr-1.5" />
                           詳細
                         </Button>
                       )}
@@ -342,14 +368,13 @@ export default function IndexPage() {
                         <Button 
                           size="sm" 
                           variant="outline" 
-                          className="flex-1 border-red-200 text-red-600 hover:bg-red-50"
+                          className="flex-1 border-red-200 text-red-600 hover:bg-red-50 text-xs font-medium"
                           onClick={(e) => {
                             e.stopPropagation();
-                            // エラー詳細を表示するためのアクション
                             handleRowClick(process.id);
                           }}
                         >
-                          <AlertCircle className="w-4 h-4 mr-1" />
+                          <AlertCircle className="w-3.5 h-3.5 mr-1.5" />
                           エラー
                         </Button>
                       )}
@@ -469,17 +494,38 @@ export default function IndexPage() {
               </div>
               <div className="flex gap-3">
                 {selectedArticle && (
-                  <Button
-                    onClick={() => {
-                      // 記事編集ページに遷移
-                      const editUrl = `/seo/generate/edit-article/${selectedArticle.id}`;
-                      window.open(editUrl, '_blank');
-                    }}
-                    className="bg-blue-600 hover:bg-blue-700 text-white"
-                  >
-                    <Edit className="h-4 w-4 mr-2" />
-                    編集
-                  </Button>
+                  <>
+                    <Button
+                      variant={selectedArticle.status === 'published' ? 'default' : 'outline'}
+                      className={`${
+                        selectedArticle.status === 'published' 
+                          ? 'bg-green-600 hover:bg-green-700 text-white'
+                          : 'border-blue-200 text-blue-600 hover:bg-blue-50'
+                      }`}
+                      disabled={updatingStatus === selectedArticle.id}
+                      onClick={() => handleStatusToggle(selectedArticle.id, selectedArticle.status, { stopPropagation: () => {} } as React.MouseEvent)}
+                    >
+                      {updatingStatus === selectedArticle.id ? (
+                        <div className="w-4 h-4 animate-spin rounded-full border-2 border-current border-t-transparent mr-2" />
+                      ) : selectedArticle.status === 'published' ? (
+                        <Globe className="h-4 w-4 mr-2" />
+                      ) : (
+                        <GlobeLock className="h-4 w-4 mr-2" />
+                      )}
+                      {selectedArticle.status === 'published' ? '公開中' : '未公開'}
+                    </Button>
+                    <Button
+                      onClick={() => {
+                        // 記事編集ページに遷移
+                        const editUrl = `/seo/generate/edit-article/${selectedArticle.id}`;
+                        window.open(editUrl, '_blank');
+                      }}
+                      className="bg-blue-600 hover:bg-blue-700 text-white"
+                    >
+                      <Edit className="h-4 w-4 mr-2" />
+                      編集
+                    </Button>
+                  </>
                 )}
                 <DrawerClose asChild>
                   <Button variant="outline">

@@ -224,7 +224,7 @@ export default function InputSection({ onStartGeneration, isConnected, isGenerat
                 
                 {/* ヘルプテキスト */}
                 <div className="text-sm text-muted-foreground">
-                  キーワードを入力してプラスボタンをクリックするか、Enterキーを押して追加してください
+                  キーワードを入力し、Enterを押す（＋ボタンを押す）と追加されます。キーワードを複数使用する際は、1キーワード入力ごとに追加してください。
                 </div>
               </div>
             </CardContent>
@@ -235,14 +235,14 @@ export default function InputSection({ onStartGeneration, isConnected, isGenerat
             <CardHeader>
               <CardTitle className="text-lg flex items-center gap-2">
                 <Image className="h-5 w-5" />
-                画像プレースホルダー機能
+                画像生成・挿入機能
               </CardTitle>
             </CardHeader>
             <CardContent>
               <div className="space-y-4">
                 <div className="flex items-center justify-between">
                   <div className="space-y-1">
-                    <Label className="text-sm font-medium">画像モードを有効にする</Label>
+                    <Label className="text-sm font-medium">有効にする</Label>
                     <p className="text-sm text-muted-foreground">
                       記事に画像プレースホルダーを挿入し、後から画像生成や画像アップロードができます
                     </p>
@@ -266,10 +266,12 @@ export default function InputSection({ onStartGeneration, isConnected, isGenerat
                           AIが記事の適切な箇所に画像プレースホルダーを配置します。生成後の編集画面で：
                         </p>
                         <ul className="text-sm text-blue-800 list-disc list-inside ml-2 space-y-1">
-                          <li>Vertex AI Imagen 4.0で自動画像生成</li>
+                          <li>Imagen 4.0で自動画像生成</li>
                           <li>手動での画像アップロード</li>
-                          <li>プレースホルダーと画像の入れ替え</li>
                         </ul>
+                        <p className="text-sm text-blue-800">
+                          などが可能です。
+                        </p>
                       </div>
                     </div>
                   </div>
@@ -333,8 +335,8 @@ export default function InputSection({ onStartGeneration, isConnected, isGenerat
                 )}
                 
                 <div className="text-xs text-gray-500">
-                  <Link href="/settings/style-guide" className="text-blue-600 hover:text-blue-800 underline">
-                    スタイルテンプレートを管理
+                  <Link href="/company-settings/style-guide" className="text-blue-600 hover:text-blue-800 underline">
+                    記事スタイルのテンプレートを管理
                   </Link>
                 </div>
               </div>
@@ -344,7 +346,7 @@ export default function InputSection({ onStartGeneration, isConnected, isGenerat
           {/* Card4: テーマ数 */}
           <Card>
             <CardHeader>
-              <CardTitle className="text-lg">生成テーマ数</CardTitle>
+              <CardTitle className="text-lg">生成する記事テーマ数</CardTitle>
             </CardHeader>
             <CardContent>
               <div className="space-y-4">
@@ -394,7 +396,7 @@ export default function InputSection({ onStartGeneration, isConnected, isGenerat
           </Card>
 
           {/* Card6: ペルソナ */}
-          <Card>
+          <Card className="md:col-span-2">
             <CardHeader>
               <CardTitle className="text-lg">ペルソナ設定</CardTitle>
             </CardHeader>
@@ -407,7 +409,7 @@ export default function InputSection({ onStartGeneration, isConnected, isGenerat
                   <SelectContent>
                     {hasCompany && company?.target_persona && (
                       <SelectItem value="会社設定">
-                        会社設定のペルソナ（推奨）
+                        事前設定済みのペルソナ（推奨）
                       </SelectItem>
                     )}
                     <SelectItem value="主婦">主婦</SelectItem>
@@ -445,7 +447,7 @@ export default function InputSection({ onStartGeneration, isConnected, isGenerat
               <div className="flex items-center space-x-3">
                 <Settings className="h-5 w-5 text-gray-500" />
                 <div>
-                  <h3 className="font-medium">会社情報設定</h3>
+                  <h3 className="font-medium">会社情報・マーケティング戦略設定</h3>
                   {companyLoading ? (
                     <p className="text-sm text-gray-500">読み込み中...</p>
                   ) : hasCompany ? (
@@ -459,7 +461,7 @@ export default function InputSection({ onStartGeneration, isConnected, isGenerat
                   )}
                 </div>
               </div>
-              <Link href="/settings/company">
+              <Link href="/company-settings/company">
                 <Button variant="outline" size="sm">
                   {hasCompany ? '編集' : '設定'}
                 </Button>

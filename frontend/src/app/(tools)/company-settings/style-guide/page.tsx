@@ -1,10 +1,8 @@
 "use client";
 
-import { useEffect,useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Copy, Edit, Plus, Settings,Star, Trash2 } from "lucide-react";
 
-import Header from "@/components/display/header";
-import Sidebar from "@/components/display/sidebar";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -61,7 +59,7 @@ export default function StyleGuideSettingsPage() {
     settings: DEFAULT_SETTINGS
   });
 
-  const fetchTemplates = async () => {
+  const fetchTemplates = useCallback(async () => {
     try {
       const token = await getToken();
       const headers: Record<string, string> = {
@@ -90,11 +88,11 @@ export default function StyleGuideSettingsPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [getToken, toast]);
 
   useEffect(() => {
     fetchTemplates();
-  }, []);
+  }, [fetchTemplates]);
 
   const handleCreateTemplate = async () => {
     try {
@@ -272,19 +270,13 @@ export default function StyleGuideSettingsPage() {
   };
 
   return (
-    <div className="min-h-screen bg-background">
-      <Header />
-      <div className="flex mt-[45px]">
-        <div className="fixed left-0 top-[45px] h-[calc(100vh-45px)]">
-          <Sidebar />
-        </div>
-        <main className="flex-1 ml-[314px] p-5">
-          <div className="container mx-auto p-6 space-y-6">
+    <>
+      <div className="container mx-auto p-6 space-y-6">
             <div className="flex justify-between items-start">
               <div className="space-y-2">
-                <h1 className="text-3xl font-bold">スタイルガイド設定</h1>
+                <h1 className="text-3xl font-bold">記事スタイル設定</h1>
                 <p className="text-muted-foreground">
-                  SEO記事生成で使用するスタイルガイドテンプレートを管理します。
+                  SEO記事生成で使用する記事スタイルのテンプレートを管理します。
                 </p>
               </div>
               <Button onClick={openCreateDialog}>
@@ -296,8 +288,7 @@ export default function StyleGuideSettingsPage() {
             <Alert>
               <Settings className="h-4 w-4" />
               <AlertDescription>
-                スタイルテンプレートを設定すると、SEO記事生成時にカスタムスタイルを適用できます。
-                デフォルト設定では従来のプロンプトが使用されます。
+              記事スタイルを設定すると、SEO記事生成時に「記事表現の文体やトーン、構成の形式」などのカスタムスタイルを適用できます。記事スタイルテンプレートを設定していない状態であれば、あらかじめ準備された文章表現技法が適用されます。
               </AlertDescription>
             </Alert>
 
@@ -397,8 +388,6 @@ export default function StyleGuideSettingsPage() {
                 )}
               </div>
             )}
-          </div>
-        </main>
       </div>
 
       {/* Create/Edit Dialog */}
@@ -545,6 +534,6 @@ export default function StyleGuideSettingsPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </div>
+    </>
   );
 }
