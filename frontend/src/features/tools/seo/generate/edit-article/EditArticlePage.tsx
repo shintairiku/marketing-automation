@@ -511,23 +511,41 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
         setAiConfirmations(newConfirmations);
         
       } else if (currentBlockForAi) {
-        if (token) headers["Authorization"] = `Bearer ${token}`;
+        const requestContent = `<${currentBlockForAi.type}>${currentBlockForAi.content}</${currentBlockForAi.type}>`;
+        console.log('AI編集リクエスト:', {
+          content: requestContent,
+          instruction: aiInstruction,
+          url: `/api/proxy/articles/${articleId}/ai-edit`
+        });
         
         const resp = await fetch(`/api/proxy/articles/${articleId}/ai-edit`, {
           method: 'POST',
           headers,
           body: JSON.stringify({
-            content: `<${currentBlockForAi.type}>${currentBlockForAi.content}</${currentBlockForAi.type}>`,
+            content: requestContent,
             instruction: aiInstruction
           })
         });
 
+        console.log('AI編集レスポンス:', {
+          status: resp.status,
+          statusText: resp.statusText,
+          ok: resp.ok
+        });
+
         if (!resp.ok) {
           const errorData = await resp.json().catch(() => ({ detail: 'レスポンスがJSON形式ではありません' }));
+          console.error('AI編集エラーレスポンス:', errorData);
           throw new Error(`AI編集に失敗しました: ${errorData.detail || resp.statusText}`);
         }
         
         const result = await resp.json();
+        console.log('AI編集結果:', result);
+
+        if (!result.edited_content) {
+          console.error('AI編集結果が空です:', result);
+          throw new Error('AIによる編集結果が空でした。もう一度お試しください。');
+        }
 
         const aiConfirmationState: AiConfirmationState = {
           blockId: currentBlockForAi.id,
@@ -537,6 +555,9 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
         };
         setAiConfirmations([aiConfirmationState]);
       }
+      
+      // 再生成用に最後の指示を保存
+      setLastAiInstruction(aiInstruction);
     } catch (error) {
       console.error('AI編集エラー:', error);
       const errorMessage = error instanceof Error ? error.message : String(error);
@@ -550,7 +571,10 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
 
   const handleRegenerate = async (blockId: string) => {
     const confirmation = aiConfirmations.find(c => c.blockId === blockId);
-    if (!confirmation || !lastAiInstruction) return;
+    if (!confirmation || !lastAiInstruction) {
+      console.warn('再生成に必要な情報が不足:', { confirmation, lastAiInstruction });
+      return;
+    }
 
     try {
       setAiEditingLoading(true);
@@ -560,21 +584,41 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
       };
       if (token) headers["Authorization"] = `Bearer ${token}`;
 
+      const requestContent = `<${confirmation.originalType}>${confirmation.originalContent}</${confirmation.originalType}>`;
+      console.log('AI再編集リクエスト:', {
+        content: requestContent,
+        instruction: lastAiInstruction,
+        blockId
+      });
+
       const resp = await fetch(`/api/proxy/articles/${articleId}/ai-edit`, {
         method: 'POST',
         headers,
         body: JSON.stringify({
-          content: `<${confirmation.originalType}>${confirmation.originalContent}</${confirmation.originalType}>`,
+          content: requestContent,
           instruction: lastAiInstruction
         })
       });
 
+      console.log('AI再編集レスポンス:', {
+        status: resp.status,
+        statusText: resp.statusText,
+        ok: resp.ok
+      });
+
       if (!resp.ok) {
         const errorData = await resp.json().catch(() => ({ detail: 'レスポンスがJSON形式ではありません' }));
+        console.error('AI再編集エラーレスポンス:', errorData);
         throw new Error(`AI再編集に失敗しました: ${errorData.detail || resp.statusText}`);
       }
 
       const result = await resp.json();
+      console.log('AI再編集結果:', result);
+
+      if (!result.edited_content) {
+        console.error('AI再編集結果が空です:', result);
+        throw new Error('AIによる再編集結果が空でした。もう一度お試しください。');
+      }
       
       setAiConfirmations(prev => prev.map(c => 
         c.blockId === blockId ? { ...c, newContent: result.edited_content } : c

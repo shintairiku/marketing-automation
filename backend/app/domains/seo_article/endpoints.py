@@ -431,7 +431,7 @@ async def ai_edit_block(
         content = completion.choices[0].message.content
         new_content = content.strip() if content else ""
 
-        return {"new_content": new_content}
+        return {"edited_content": new_content}
 
     except HTTPException:
         raise
