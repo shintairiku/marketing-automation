@@ -8,19 +8,28 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
+import { CompletedSection, SectionsProgress } from '@/types/article-generation';
+
+import BatchSectionProgress from './BatchSectionProgress';
 
 interface ContentGenerationProps {
   currentStep: string;
   generatedContent?: string;
   outline?: any;
   progress: number;
+  completedSections?: CompletedSection[];
+  sectionsProgress?: SectionsProgress;
+  showBatchProgress?: boolean;
 }
 
 export default function ContentGeneration({ 
   currentStep, 
   generatedContent, 
   outline,
-  progress 
+  progress,
+  completedSections = [],
+  sectionsProgress,
+  showBatchProgress = false
 }: ContentGenerationProps) {
   const getStepIcon = (step: string) => {
     switch (step) {
@@ -71,8 +80,15 @@ export default function ContentGeneration({
       </Card>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* アウトライン表示 */}
-        {outline && (
+        {/* アウトライン表示 or バッチ進捗表示 */}
+        {showBatchProgress && currentStep === 'writing_sections' && outline?.sections ? (
+          <BatchSectionProgress
+            completedSections={completedSections}
+            sectionsProgress={sectionsProgress}
+            totalSections={outline.sections.length}
+            isActive={currentStep === 'writing_sections'}
+          />
+        ) : outline ? (
           <Card className="h-fit">
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
@@ -102,7 +118,7 @@ export default function ContentGeneration({
               </div>
             </CardContent>
           </Card>
-        )}
+        ) : null}
 
         {/* 生成中コンテンツ */}
         <Card className="h-fit">

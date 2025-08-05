@@ -1,4 +1,4 @@
-import { useEffect,useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import { useAuth } from "@clerk/nextjs";
 
@@ -11,6 +11,24 @@ export interface Article {
   keywords: string[];
   target_audience: string;
   updated_at: string;
+}
+
+export interface Process {
+  id: string;
+  process_id?: string;
+  title: string;
+  shortdescription: string;
+  postdate: string;
+  status: string;
+  process_type: 'article' | 'generation';
+  keywords: string[];
+  target_audience: string;
+  updated_at: string;
+  current_step?: string;
+  progress_percentage?: number;
+  can_resume?: boolean;
+  is_recoverable?: boolean;
+  error_message?: string;
 }
 
 export interface ArticleDetail extends Article {
@@ -37,7 +55,112 @@ interface UseArticleDetailResult {
   refetch: () => Promise<void>;
 }
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8008";
+interface UseAllProcessesResult {
+  processes: Process[];
+  loading: boolean;
+  error: string | null;
+  total: number;
+  currentPage: number;
+  totalPages: number;
+  setPage: (page: number) => void;
+  refetch: () => Promise<void>;
+  updateArticleStatus: (articleId: string, status: 'draft' | 'published') => Promise<boolean>;
+}
+
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+
+export interface ArticleStats {
+  total_generated: number;
+  total_published: number;
+  total_draft: number;
+  this_month_count: number;
+}
+
+interface UseArticleStatsResult {
+  stats: ArticleStats | null;
+  loading: boolean;
+  error: string | null;
+  refetch: () => Promise<void>;
+}
+
+export function useArticleStats(): UseArticleStatsResult {
+  const [stats, setStats] = useState<ArticleStats | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const { getToken } = useAuth();
+
+  const fetchStats = useCallback(async () => {
+    try {
+      setLoading(true);
+      setError(null);
+
+      // Get auth token from Clerk
+      const token = await getToken();
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+      };
+      
+      if (token) {
+        headers["Authorization"] = `Bearer ${token}`;
+      }
+
+      // 全プロセスを取得して統計を計算
+      const response = await fetch(`${API_BASE_URL}/articles/all-processes?limit=1000`, {
+        method: "GET",
+        headers,
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const processes = await response.json();
+      
+      // 統計を計算
+      const articles = processes.filter((p: any) => p.process_type === 'article');
+      const totalGenerated = articles.length;
+      const totalPublished = articles.filter((a: any) => a.status === 'published').length;
+      const totalDraft = articles.filter((a: any) => a.status === 'draft').length;
+      
+      // 今月の記事数を計算
+      const currentMonth = new Date().getMonth();
+      const currentYear = new Date().getFullYear();
+      const thisMonthCount = articles.filter((a: any) => {
+        const createdDate = new Date(a.postdate);
+        return createdDate.getMonth() === currentMonth && createdDate.getFullYear() === currentYear;
+      }).length;
+
+      const calculatedStats: ArticleStats = {
+        total_generated: totalGenerated,
+        total_published: totalPublished,
+        total_draft: totalDraft,
+        this_month_count: thisMonthCount
+      };
+
+      setStats(calculatedStats);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "統計の取得に失敗しました");
+      setStats(null);
+    } finally {
+      setLoading(false);
+    }
+  }, [getToken]);
+
+  const refetch = useCallback(async () => {
+    await fetchStats();
+  }, [fetchStats]);
+
+  useEffect(() => {
+    fetchStats();
+  }, [fetchStats]);
+
+  return {
+    stats,
+    loading,
+    error,
+    refetch,
+  };
+}
 
 export function useArticles(pageSize: number = 20, statusFilter?: string): UseArticlesResult {
   const [articles, setArticles] = useState<Article[]>([]);
@@ -47,7 +170,7 @@ export function useArticles(pageSize: number = 20, statusFilter?: string): UseAr
   const [total, setTotal] = useState(0);
   const { getToken } = useAuth();
 
-  const fetchArticles = async (page: number) => {
+  const fetchArticles = useCallback(async (page: number) => {
     try {
       setLoading(true);
       setError(null);
@@ -93,19 +216,19 @@ export function useArticles(pageSize: number = 20, statusFilter?: string): UseAr
     } finally {
       setLoading(false);
     }
-  };
+  }, [pageSize, statusFilter, getToken]);
 
   const setPage = (page: number) => {
     setCurrentPage(page);
   };
 
-  const refetch = async () => {
+  const refetch = useCallback(async () => {
     await fetchArticles(currentPage);
-  };
+  }, [fetchArticles, currentPage]);
 
   useEffect(() => {
     fetchArticles(currentPage);
-  }, [currentPage, pageSize, statusFilter]);
+  }, [currentPage, fetchArticles]);
 
   const totalPages = Math.ceil(total / pageSize);
 
@@ -127,7 +250,7 @@ export function useArticleDetail(articleId: string | null): UseArticleDetailResu
   const [error, setError] = useState<string | null>(null);
   const { getToken } = useAuth();
 
-  const fetchArticle = async (id: string) => {
+  const fetchArticle = useCallback(async (id: string) => {
     try {
       setLoading(true);
       setError(null);
@@ -162,13 +285,13 @@ export function useArticleDetail(articleId: string | null): UseArticleDetailResu
     } finally {
       setLoading(false);
     }
-  };
+  }, [getToken]);
 
-  const refetch = async () => {
+  const refetch = useCallback(async () => {
     if (articleId) {
       await fetchArticle(articleId);
     }
-  };
+  }, [articleId, fetchArticle]);
 
   useEffect(() => {
     if (articleId) {
@@ -178,12 +301,125 @@ export function useArticleDetail(articleId: string | null): UseArticleDetailResu
       setLoading(false);
       setError(null);
     }
-  }, [articleId]);
+  }, [articleId, fetchArticle]);
 
   return {
     article,
     loading,
     error,
     refetch,
+  };
+}
+
+export function useAllProcesses(pageSize: number = 20, statusFilter?: string): UseAllProcessesResult {
+  const [processes, setProcesses] = useState<Process[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [total, setTotal] = useState(0);
+  const { getToken } = useAuth();
+
+  const fetchProcesses = useCallback(async (page: number) => {
+    try {
+      setLoading(true);
+      setError(null);
+
+      const offset = (page - 1) * pageSize;
+      const params = new URLSearchParams({
+        limit: pageSize.toString(),
+        offset: offset.toString(),
+      });
+
+      if (statusFilter) {
+        params.append("status_filter", statusFilter);
+      }
+
+      // Get auth token from Clerk
+      const token = await getToken();
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+      };
+      
+      if (token) {
+        headers["Authorization"] = `Bearer ${token}`;
+      }
+
+      const response = await fetch(`${API_BASE_URL}/articles/all-processes?${params}`, {
+        method: "GET",
+        headers,
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const data = await response.json();
+      setProcesses(data);
+      
+      // For now, we'll estimate total from returned data
+      // In a real implementation, the API should return total count
+      setTotal(data.length === pageSize ? page * pageSize + 1 : (page - 1) * pageSize + data.length);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "プロセスの取得に失敗しました");
+      setProcesses([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [pageSize, statusFilter, getToken]);
+
+  const setPage = (page: number) => {
+    setCurrentPage(page);
+  };
+
+  const refetch = useCallback(async () => {
+    await fetchProcesses(currentPage);
+  }, [fetchProcesses, currentPage]);
+
+  const updateArticleStatus = useCallback(async (articleId: string, status: 'draft' | 'published'): Promise<boolean> => {
+    try {
+      const token = await getToken();
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+      };
+      
+      if (token) {
+        headers["Authorization"] = `Bearer ${token}`;
+      }
+
+      const response = await fetch(`${API_BASE_URL}/articles/${articleId}/status`, {
+        method: "PATCH",
+        headers,
+        body: JSON.stringify({ status }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      // 成功したらプロセスリストを再取得
+      await refetch();
+      return true;
+    } catch (err) {
+      console.error(`Failed to update article status: ${err}`);
+      return false;
+    }
+  }, [getToken, refetch]);
+
+  useEffect(() => {
+    fetchProcesses(currentPage);
+  }, [currentPage, fetchProcesses]);
+
+  const totalPages = Math.ceil(total / pageSize);
+
+  return {
+    processes,
+    loading,
+    error,
+    total,
+    currentPage,
+    totalPages,
+    setPage,
+    refetch,
+    updateArticleStatus,
   };
 } 

@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { BarChart3, Calendar, Edit, Eye,User } from "lucide-react";
+import { AlertCircle, BarChart3, Calendar, CheckCircle,Clock, Edit, Eye, Globe, GlobeLock, Play, User } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -15,20 +15,19 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import {
+  Drawer,
+  DrawerClose,
+  DrawerContent,
+  DrawerHeader,
+  DrawerTitle,
+} from "@/components/ui/drawer";
+import {
   Pagination,
   PaginationContent,
   PaginationItem,
   PaginationNext,
   PaginationPrevious,
 } from "@/components/ui/pagination";
-import {
-  Sheet,
-  SheetClose,
-  SheetContent,
-  SheetHeader,
-  SheetTitle,
-  SheetTrigger,
-} from "@/components/ui/sheet";
 import {
   Table,
   TableBody,
@@ -37,26 +36,28 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { useArticleDetail,useArticles } from "@/hooks/useArticles";
+import { useAllProcesses,useArticleDetail, useArticles } from "@/hooks/useArticles";
 
 const PAGE_SIZE = 20;
 
 export default function IndexPage() {
   const router = useRouter();
   const [selectedArticleId, setSelectedArticleId] = useState<string | null>(null);
-  const [sheetOpen, setSheetOpen] = useState(false);
+  const [drawerOpen, setDrawerOpen] = useState(false);
   const [statusFilter, setStatusFilter] = useState<string>("");
+  const [updatingStatus, setUpdatingStatus] = useState<string | null>(null);
 
-  // 記事一覧を取得
+  // 全プロセス（記事+未完成プロセス）を取得
   const {
-    articles,
-    loading: articlesLoading,
-    error: articlesError,
+    processes,
+    loading: processesLoading,
+    error: processesError,
     currentPage,
     totalPages,
     setPage,
-    refetch
-  } = useArticles(PAGE_SIZE, statusFilter || undefined);
+    refetch,
+    updateArticleStatus
+  } = useAllProcesses(PAGE_SIZE, statusFilter || undefined);
 
   // 選択された記事の詳細を取得
   const {
@@ -67,7 +68,7 @@ export default function IndexPage() {
 
   const handleRowClick = (articleId: string) => {
     setSelectedArticleId(articleId);
-    setSheetOpen(true);
+    setDrawerOpen(true);
   };
 
   const handleFilterApply = (filter: string) => {
@@ -80,9 +81,38 @@ export default function IndexPage() {
     setPage(1); // Reset to first page when clearing filter
   };
 
-  const handleEditClick = (articleId: string, e: React.MouseEvent) => {
+  const handleEditClick = (processItem: any, e: React.MouseEvent) => {
     e.stopPropagation(); // カードクリックイベントを防ぐ
-    router.push(`/seo/generate/edit-article/${articleId}`);
+    if (processItem.process_type === 'article') {
+      router.push(`/seo/generate/edit-article/${processItem.id}`);
+    } else {
+      // Generation process - redirect to generation page
+      router.push(`/seo/generate/new-article/${processItem.process_id}`);
+    }
+  };
+
+  const handleResumeClick = (processId: string, e: React.MouseEvent) => {
+    e.stopPropagation(); // カードクリックイベントを防ぐ
+    router.push(`/seo/generate/new-article/${processId}`);
+  };
+
+  const handleStatusToggle = async (articleId: string, currentStatus: string, e: React.MouseEvent) => {
+    e.stopPropagation(); // カードクリックイベントを防ぐ
+    
+    const newStatus = currentStatus === 'published' ? 'draft' : 'published';
+    setUpdatingStatus(articleId);
+    
+    try {
+      const success = await updateArticleStatus(articleId, newStatus);
+      if (!success) {
+        // エラーハンドリング - 必要に応じてトーストやアラートを表示
+        console.error("Failed to update article status");
+      }
+    } catch (error) {
+      console.error("Error updating article status:", error);
+    } finally {
+      setUpdatingStatus(null);
+    }
   };
 
   const formatDate = (dateString: string) => {
@@ -101,8 +131,11 @@ export default function IndexPage() {
     switch (status) {
       case 'completed': return '完了';
       case 'in_progress': return '進行中';
+      case 'user_input_required': return '入力待ち';
+      case 'paused': return '一時停止';
       case 'error': return 'エラー';
       case 'cancelled': return 'キャンセル';
+      case 'resuming': return '再開中';
       default: return status;
     }
   };
@@ -111,17 +144,37 @@ export default function IndexPage() {
     switch (status) {
       case 'completed': return 'bg-green-100 text-green-800';
       case 'in_progress': return 'bg-blue-100 text-blue-800';
+      case 'user_input_required': return 'bg-yellow-100 text-yellow-800';
+      case 'paused': return 'bg-gray-100 text-gray-800';
       case 'error': return 'bg-red-100 text-red-800';
+      case 'cancelled': return 'bg-gray-100 text-gray-600';
+      case 'resuming': return 'bg-purple-100 text-purple-800';
       default: return 'bg-gray-100 text-gray-800';
     }
   };
 
-  if (articlesError) {
+  const getStatusIcon = (status: string, processType: string) => {
+    if (processType === 'article') {
+      return <CheckCircle className="w-4 h-4" />;
+    }
+    
+    switch (status) {
+      case 'completed': return <CheckCircle className="w-4 h-4" />;
+      case 'in_progress': return <Clock className="w-4 h-4 animate-pulse" />;
+      case 'user_input_required': return <AlertCircle className="w-4 h-4" />;
+      case 'paused': return <Clock className="w-4 h-4" />;
+      case 'error': return <AlertCircle className="w-4 h-4" />;
+      case 'resuming': return <Play className="w-4 h-4" />;
+      default: return <Clock className="w-4 h-4" />;
+    }
+  };
+
+  if (processesError) {
     return (
       <div className="space-y-6">
         <Card className="p-4">
           <div className="text-center text-red-600">
-            <p>記事の読み込み中にエラーが発生しました: {articlesError}</p>
+            <p>プロセスの読み込み中にエラーが発生しました: {processesError}</p>
             <Button onClick={refetch} className="mt-2">
               再試行
             </Button>
@@ -159,6 +212,8 @@ export default function IndexPage() {
                     <option value="">すべて</option>
                     <option value="completed">完了</option>
                     <option value="in_progress">進行中</option>
+                    <option value="user_input_required">入力待ち</option>
+                    <option value="paused">一時停止</option>
                     <option value="error">エラー</option>
                     <option value="cancelled">キャンセル</option>
                   </select>
@@ -177,89 +232,154 @@ export default function IndexPage() {
       </div>
 
       {/* メインコンテンツエリア */}
-      {articlesLoading ? (
+      {processesLoading ? (
         <div className="flex justify-center items-center py-16">
           <div className="text-center">
             <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-gray-900 mx-auto"></div>
-            <p className="mt-4 text-lg text-gray-600">記事を読み込み中...</p>
+            <p className="mt-4 text-lg text-gray-600">プロセスを読み込み中...</p>
           </div>
         </div>
-      ) : articles.length === 0 ? (
+      ) : processes.length === 0 ? (
         <div className="text-center py-16">
           <div className="max-w-md mx-auto">
             <div className="bg-gray-100 rounded-full w-16 h-16 flex items-center justify-center mx-auto mb-4">
               <Edit className="w-8 h-8 text-gray-600" />
             </div>
-            <h3 className="text-xl font-semibold text-gray-900 mb-2">記事がありません</h3>
+            <h3 className="text-xl font-semibold text-gray-900 mb-2">プロセスがありません</h3>
             <p className="text-gray-600">
-              {statusFilter ? `「${getStatusDisplay(statusFilter)}」ステータスの記事が見つかりません` : "まだ記事が生成されていません"}
+              {statusFilter ? `「${getStatusDisplay(statusFilter)}」ステータスのプロセスが見つかりません` : "まだプロセスが生成されていません"}
             </p>
           </div>
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {articles.map((article) => (
+          {processes.map((process) => (
             <Card 
-              key={article.id} 
-              className="overflow-hidden hover:shadow-lg transition-shadow duration-200 cursor-pointer bg-white"
-              onClick={() => handleRowClick(article.id)}
+              key={process.id} 
+              className="overflow-hidden hover:shadow-md hover:border-gray-300 transition-all duration-200 cursor-pointer bg-white border border-gray-200 flex flex-col h-full"
+              onClick={() => handleRowClick(process.id)}
             >
-              {/* カードヘッダー画像風エリア */}
-              <div className="h-48 bg-gradient-to-br from-blue-50 to-indigo-100 relative">
-                <div className="absolute top-4 left-4">
-                  <span className={`px-3 py-1 text-xs font-medium rounded-full ${getStatusColor(article.status)}`}>
-                    {getStatusDisplay(article.status)}
-                  </span>
-                </div>
-                <div className="absolute bottom-4 left-4 right-4">
-                  <h3 className="text-lg font-bold text-gray-900 line-clamp-2 leading-tight">
-                    {article.title}
-                  </h3>
-                </div>
-              </div>
-              
               {/* カードコンテンツ */}
-              <div className="p-6">
-                <p className="text-gray-600 text-sm line-clamp-3 mb-4">
-                  {article.shortdescription || "記事の概要が設定されていません"}
+              <div className="p-6 flex-1 flex flex-col">
+                {/* ステータスバッジ */}
+                <div className="flex items-center justify-between mb-4">
+                  <span className={`px-2.5 py-1 text-xs font-medium rounded-md flex items-center gap-1.5 ${getStatusColor(process.status)}`}>
+                    {getStatusIcon(process.status, process.process_type)}
+                    {getStatusDisplay(process.status)}
+                  </span>
+                  <div className="text-xs text-gray-400">
+                    {formatDate(process.postdate)}
+                  </div>
+                </div>
+
+                {/* タイトル */}
+                <h3 className="text-lg font-semibold text-gray-900 line-clamp-2 leading-snug mb-3">
+                  {process.title}
+                </h3>
+                {/* 概要 */}
+                <p className="text-gray-600 text-sm line-clamp-2 mb-4 leading-relaxed">
+                  {process.shortdescription || "概要が設定されていません"}
                 </p>
                 
                 {/* メタ情報 */}
-                <div className="space-y-2 mb-4">
-                  <div className="flex items-center text-sm text-gray-500">
-                    <Calendar className="w-4 h-4 mr-2" />
-                    <span>{formatDate(article.postdate)}</span>
-                  </div>
-                  {article.target_audience && (
-                    <div className="flex items-center text-sm text-gray-500">
-                      <User className="w-4 h-4 mr-2" />
-                      <span className="line-clamp-1">{article.target_audience}</span>
+                <div className="space-y-2 mb-5 flex-1">
+                  {process.target_audience && (
+                    <div className="flex items-center text-xs text-gray-500">
+                      <User className="w-3.5 h-3.5 mr-2" />
+                      <span className="line-clamp-1">{process.target_audience}</span>
+                    </div>
+                  )}
+                  {process.current_step && process.process_type === 'generation' && (
+                    <div className="flex items-center text-xs text-gray-500">
+                      <Clock className="w-3.5 h-3.5 mr-2" />
+                      <span className="line-clamp-1">現在のステップ: {process.current_step}</span>
                     </div>
                   )}
                 </div>
                 
                 {/* アクションボタン */}
-                <div className="flex gap-2">
-                  <Button 
-                    size="sm" 
-                    className="flex-1 bg-secondary hover:bg-secondary/90"
-                    onClick={(e) => handleEditClick(article.id, e)}
-                  >
-                    <Edit className="w-4 h-4 mr-1" />
-                    修正
-                  </Button>
-                  <Button 
-                    size="sm" 
-                    variant="outline" 
-                    className="flex-1"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleRowClick(article.id);
-                    }}
-                  >
-                    <Eye className="w-4 h-4 mr-1" />
-                    分析
-                  </Button>
+                <div className="flex gap-2.5">
+                  {process.process_type === 'article' ? (
+                    <>
+                      <Button 
+                        size="sm" 
+                        className="flex-1 bg-secondary hover:bg-secondary/90 text-xs font-medium"
+                        onClick={(e) => handleEditClick(process, e)}
+                      >
+                        <Edit className="w-3.5 h-3.5 mr-1.5" />
+                        編集
+                      </Button>
+                      <Button 
+                        size="sm" 
+                        variant={process.status === 'published' ? 'default' : 'outline'}
+                        className={`flex-1 text-xs font-medium ${
+                          process.status === 'published' 
+                            ? 'bg-green-600 hover:bg-green-700 text-white'
+                            : 'border-blue-200 text-blue-600 hover:bg-blue-50'
+                        }`}
+                        disabled={updatingStatus === process.id}
+                        onClick={(e) => handleStatusToggle(process.id, process.status, e)}
+                      >
+                        {updatingStatus === process.id ? (
+                          <div className="w-3.5 h-3.5 animate-spin rounded-full border-2 border-current border-t-transparent mr-1.5" />
+                        ) : process.status === 'published' ? (
+                          <Globe className="w-3.5 h-3.5 mr-1.5" />
+                        ) : (
+                          <GlobeLock className="w-3.5 h-3.5 mr-1.5" />
+                        )}
+                        {process.status === 'published' ? '公開' : '未公開'}
+                      </Button>
+                      <Button 
+                        size="sm" 
+                        variant="outline" 
+                        className="flex-1 text-xs font-medium"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleRowClick(process.id);
+                        }}
+                      >
+                        <Eye className="w-3.5 h-3.5 mr-1.5" />
+                        表示
+                      </Button>
+                    </>
+                  ) : (
+                    <>
+                      {process.is_recoverable ? (
+                        <Button 
+                          size="sm" 
+                          className="flex-1 bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium"
+                          onClick={(e) => handleResumeClick(process.process_id!, e)}
+                        >
+                          <Play className="w-3.5 h-3.5 mr-1.5" />
+                          再開
+                        </Button>
+                      ) : (
+                        <Button 
+                          size="sm" 
+                          variant="outline" 
+                          className="flex-1 text-xs font-medium"
+                          onClick={(e) => handleEditClick(process, e)}
+                        >
+                          <Eye className="w-3.5 h-3.5 mr-1.5" />
+                          詳細
+                        </Button>
+                      )}
+                      {process.status === 'error' && (
+                        <Button 
+                          size="sm" 
+                          variant="outline" 
+                          className="flex-1 border-red-200 text-red-600 hover:bg-red-50 text-xs font-medium"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleRowClick(process.id);
+                          }}
+                        >
+                          <AlertCircle className="w-3.5 h-3.5 mr-1.5" />
+                          エラー
+                        </Button>
+                      )}
+                    </>
+                  )}
                 </div>
               </div>
             </Card>
@@ -268,7 +388,7 @@ export default function IndexPage() {
       )}
 
       {/* 下部：ページネーション */}
-      {articles.length > 0 && (
+      {processes.length > 0 && (
         <div className="flex justify-center items-center gap-2">
           <Pagination>
             <PaginationContent>
@@ -294,68 +414,129 @@ export default function IndexPage() {
         </div>
       )}
 
-      {/* サイドシート（記事プレビュー） */}
-      <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
-        <SheetContent side="right" className="max-w-xl w-full">
-          <SheetHeader>
-            <SheetTitle>記事プレビュー</SheetTitle>
-          </SheetHeader>
-          <div className="mt-4">
+      {/* ボトムドロワー（記事プレビュー） */}
+      <Drawer open={drawerOpen} onOpenChange={setDrawerOpen}>
+        <DrawerContent className="h-[90vh] flex flex-col">
+          <DrawerHeader className="border-b pb-4">
+            <DrawerTitle>記事プレビュー</DrawerTitle>
+          </DrawerHeader>
+          
+          <div className="flex-1 overflow-hidden p-6">
             {articleLoading ? (
-              <div className="flex justify-center items-center py-8">
+              <div className="flex justify-center items-center h-full">
                 <div className="text-center">
-                  <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-gray-900 mx-auto"></div>
-                  <p className="mt-2 text-sm text-gray-600">記事を読み込み中...</p>
+                  <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-gray-900 mx-auto"></div>
+                  <p className="mt-4 text-lg text-gray-600">記事を読み込み中...</p>
                 </div>
               </div>
             ) : articleError ? (
-              <div className="text-center text-red-600 py-4">
-                <p>記事の読み込みに失敗しました: {articleError}</p>
+              <div className="flex justify-center items-center h-full">
+                <div className="text-center text-red-600">
+                  <p className="text-lg">記事の読み込みに失敗しました</p>
+                  <p className="text-sm mt-2">{articleError}</p>
+                </div>
               </div>
             ) : selectedArticle ? (
-              <div className="space-y-4">
-                <div>
-                  <h3 className="text-lg font-semibold">{selectedArticle.title}</h3>
-                  <p className="text-sm text-gray-600 mt-1">
-                    投稿日: {selectedArticle.postdate} | ステータス: {selectedArticle.status}
-                  </p>
-                </div>
-                
-                <div className="prose prose-sm max-w-none">
-                  <div dangerouslySetInnerHTML={{ __html: selectedArticle.content }} />
-                </div>
-                
-                {selectedArticle.keywords && selectedArticle.keywords.length > 0 && (
-                  <div>
-                    <h4 className="text-sm font-medium mb-2">キーワード:</h4>
-                    <div className="flex flex-wrap gap-1">
-                      {selectedArticle.keywords.map((keyword, index) => (
-                        <span key={index} className="px-2 py-1 bg-gray-100 text-xs rounded">
-                          {keyword}
-                        </span>
-                      ))}
+              <div className="h-full overflow-y-auto">
+                <div className="max-w-4xl mx-auto space-y-6">
+                  {/* 記事ヘッダー情報 */}
+                  <div className="bg-gray-50 rounded-lg p-6">
+                    <h1 className="text-2xl font-bold text-gray-900 mb-3">{selectedArticle.title}</h1>
+                    <div className="flex flex-wrap gap-4 text-sm text-gray-600">
+                      <span>投稿日: {selectedArticle.postdate}</span>
+                      <span>ステータス: {selectedArticle.status}</span>
+                      {selectedArticle.target_audience && (
+                        <span>ターゲット: {selectedArticle.target_audience}</span>
+                      )}
                     </div>
                   </div>
-                )}
-                
-                {selectedArticle.target_audience && (
-                  <div>
-                    <h4 className="text-sm font-medium mb-2">ターゲット:</h4>
-                    <p className="text-sm text-gray-700">{selectedArticle.target_audience}</p>
+                  
+                  {/* キーワード */}
+                  {selectedArticle.keywords && selectedArticle.keywords.length > 0 && (
+                    <div className="bg-white border rounded-lg p-4">
+                      <h4 className="text-sm font-semibold mb-3 text-gray-900">キーワード</h4>
+                      <div className="flex flex-wrap gap-2">
+                        {selectedArticle.keywords.map((keyword, index) => (
+                          <span key={index} className="px-3 py-1 bg-blue-100 text-blue-800 text-sm rounded-full">
+                            {keyword}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  
+                  {/* 記事コンテンツ */}
+                  <div className="bg-white border rounded-lg p-6">
+                    <h4 className="text-lg font-semibold mb-4 text-gray-900">記事コンテンツ</h4>
+                    <div className="prose prose-lg max-w-none">
+                      <div 
+                        dangerouslySetInnerHTML={{ __html: selectedArticle.content }} 
+                        className="leading-relaxed"
+                      />
+                    </div>
                   </div>
-                )}
+                </div>
               </div>
             ) : (
-              <p className="text-gray-600">記事を選択してください</p>
+              <div className="flex justify-center items-center h-full">
+                <p className="text-gray-600 text-lg">記事を選択してください</p>
+              </div>
             )}
           </div>
-          <SheetClose asChild>
-            <Button className="mt-6 w-full" variant="outline">
-              閉じる
-            </Button>
-          </SheetClose>
-        </SheetContent>
-      </Sheet>
+          
+          {/* フッター */}
+          <div className="border-t p-6 bg-gray-50">
+            <div className="max-w-4xl mx-auto flex justify-between items-center">
+              <div className="text-sm text-gray-600">
+                {selectedArticle && (
+                  <span>最終更新: {new Date(selectedArticle.postdate).toLocaleDateString('ja-JP')}</span>
+                )}
+              </div>
+              <div className="flex gap-3">
+                {selectedArticle && (
+                  <>
+                    <Button
+                      variant={selectedArticle.status === 'published' ? 'default' : 'outline'}
+                      className={`${
+                        selectedArticle.status === 'published' 
+                          ? 'bg-green-600 hover:bg-green-700 text-white'
+                          : 'border-blue-200 text-blue-600 hover:bg-blue-50'
+                      }`}
+                      disabled={updatingStatus === selectedArticle.id}
+                      onClick={() => handleStatusToggle(selectedArticle.id, selectedArticle.status, { stopPropagation: () => {} } as React.MouseEvent)}
+                    >
+                      {updatingStatus === selectedArticle.id ? (
+                        <div className="w-4 h-4 animate-spin rounded-full border-2 border-current border-t-transparent mr-2" />
+                      ) : selectedArticle.status === 'published' ? (
+                        <Globe className="h-4 w-4 mr-2" />
+                      ) : (
+                        <GlobeLock className="h-4 w-4 mr-2" />
+                      )}
+                      {selectedArticle.status === 'published' ? '公開中' : '未公開'}
+                    </Button>
+                    <Button
+                      onClick={() => {
+                        // 記事編集ページに遷移
+                        const editUrl = `/seo/generate/edit-article/${selectedArticle.id}`;
+                        window.open(editUrl, '_blank');
+                      }}
+                      className="bg-blue-600 hover:bg-blue-700 text-white"
+                    >
+                      <Edit className="h-4 w-4 mr-2" />
+                      編集
+                    </Button>
+                  </>
+                )}
+                <DrawerClose asChild>
+                  <Button variant="outline">
+                    閉じる
+                  </Button>
+                </DrawerClose>
+              </div>
+            </div>
+          </div>
+        </DrawerContent>
+      </Drawer>
     </div>
   );
 }

@@ -12,11 +12,9 @@ import {
   Edit3,
   Eye,
   FileText, 
+  Image,
   Lightbulb, 
-  Pause,
   PenTool,
-  Play,
-  RotateCcw,
   Search, 
   Sparkles,
   Target,
@@ -29,8 +27,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-
-import { GenerationStep } from '../hooks/useArticleGeneration';
+import { GenerationStep } from '@/types/article-generation';
 
 import ArticlePreviewStyles from './ArticlePreviewStyles';
 import CompletedArticleView from './CompletedArticleView';
@@ -40,9 +37,6 @@ interface CompactGenerationFlowProps {
   currentStep: string;
   isConnected: boolean;
   isGenerating: boolean;
-  onPause?: () => void;
-  onResume?: () => void;
-  onCancel?: () => void;
   progressPercentage: number;
   finalArticle?: {
     title: string;
@@ -66,6 +60,24 @@ interface CompactGenerationFlowProps {
     totalSections: number;
     sectionHeading: string;
   };
+  imageMode?: boolean;
+  imagePlaceholders?: Array<{
+    placeholder_id: string;
+    description_jp: string;
+    prompt_en: string;
+    alt_text: string;
+  }>;
+  completedSections?: Array<{
+    index: number;
+    heading: string;
+    content: string;
+    imagePlaceholders?: Array<{
+      placeholder_id: string;
+      description_jp: string;
+      prompt_en: string;
+      alt_text: string;
+    }>;
+  }>;
 }
 
 const stepIcons = {
@@ -79,7 +91,7 @@ const stepIcons = {
   editing: Edit3,
 };
 
-const stepColors = {
+const stepColors: Record<string, string> = {
   pending: 'bg-gray-100 text-gray-500',
   in_progress: 'bg-blue-100 text-blue-600 border-blue-300',
   completed: 'bg-green-100 text-green-600 border-green-300',
@@ -91,9 +103,6 @@ export default memo(function CompactGenerationFlow({
   currentStep,
   isConnected,
   isGenerating,
-  onPause,
-  onResume,
-  onCancel,
   progressPercentage,
   finalArticle,
   currentMessage,
@@ -101,20 +110,13 @@ export default memo(function CompactGenerationFlow({
   currentSection,
   outline,
   researchProgress,
-  sectionsProgress
+  sectionsProgress,
+  imageMode,
+  imagePlaceholders,
+  completedSections,
 }: CompactGenerationFlowProps) {
-  const [isPaused, setIsPaused] = useState(false);
   const [showCompletionAnimation, setShowCompletionAnimation] = useState(false);
   const [hideProcessCards, setHideProcessCards] = useState(false);
-
-  const handlePause = () => {
-    setIsPaused(!isPaused);
-    if (isPaused) {
-      onResume?.();
-    } else {
-      onPause?.();
-    }
-  };
 
   // プレビュー表示が必要かどうかを判定
   const shouldShowPreview = currentStep === 'writing_sections' || currentStep === 'editing' || currentStep === 'completed';
@@ -129,7 +131,8 @@ export default memo(function CompactGenerationFlow({
       hideProcessCards 
     });
     
-    if (currentStep === 'completed' && progressPercentage >= 95 && finalArticle) {
+    // 実際に完了している場合のみアニメーションを表示
+    if (currentStep === 'completed' && finalArticle && progressPercentage === 100) {
       console.log('CompactGenerationFlow: Starting completion animation');
       setShowCompletionAnimation(true);
       // 2秒後に完了アニメーションを隠し、すぐにプロセスカードも隠して記事を表示
@@ -137,20 +140,22 @@ export default memo(function CompactGenerationFlow({
         console.log('CompactGenerationFlow: Hiding completion animation and process cards');
         setShowCompletionAnimation(false);
         setHideProcessCards(true);
-      }, 2000); // 3秒から2秒に短縮
+      }, 2000);
       
       // クリーンアップ関数でタイマーをクリア
       return () => clearTimeout(timer);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentStep, progressPercentage, finalArticle]);
   
   // リセット機能（新しい記事生成時）
   useEffect(() => {
-    if (currentStep === 'start' || currentStep === 'keyword_analyzing') {
+    if (currentStep === 'keyword_analyzing') {
       console.log('CompactGenerationFlow: Resetting animation states');
       setShowCompletionAnimation(false);
       setHideProcessCards(false);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentStep]);
   
   // finalArticleが存在する場合、即座にプロセスカードを隠す（アニメーション無しで）
@@ -203,40 +208,32 @@ export default memo(function CompactGenerationFlow({
                   >
                     <Zap className="w-4 h-4 text-yellow-500" />
                   </motion.div>
+                  {/* 画像モード表示バッジ */}
+                  {imageMode && (
+                    <motion.div
+                      initial={{ scale: 0 }}
+                      animate={{ scale: 1 }}
+                      transition={{ type: "spring", stiffness: 400, damping: 17 }}
+                    >
+                      <Badge className="bg-purple-100 text-purple-800 border-purple-200 shadow-sm">
+                        <Image className="w-3 h-3 mr-1" />
+                        画像モード
+                      </Badge>
+                    </motion.div>
+                  )}
                 </h2>
                 <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                  <div className={`w-2 h-2 rounded-full ${
-                    isConnected ? 'bg-green-500 animate-pulse' : 'bg-red-500'
-                  }`} />
-                  {isConnected ? 'リアルタイム接続中' : '接続待機中'}
+                  {/* 接続状態表示を削除 */}
+                  {/* 画像プレースホルダー数表示 */}
+                  {imageMode && imagePlaceholders && imagePlaceholders.length > 0 && (
+                    <div className="text-xs text-purple-600 bg-purple-50 px-2 py-0.5 rounded-full">
+                      📸 {imagePlaceholders.length} 個のプレースホルダー
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
             
-            <div className="flex items-center gap-2">
-              {isGenerating && (
-                <div className="flex gap-1">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={handlePause}
-                    className="flex items-center gap-1 h-8 px-2"
-                  >
-                    {isPaused ? <Play className="w-3 h-3" /> : <Pause className="w-3 h-3" />}
-                    <span className="text-xs">{isPaused ? '再開' : '停止'}</span>
-                  </Button>
-                  <Button
-                    variant="destructive"
-                    size="sm"
-                    onClick={onCancel}
-                    className="flex items-center gap-1 h-8 px-2"
-                  >
-                    <RotateCcw className="w-3 h-3" />
-                    <span className="text-xs">中止</span>
-                  </Button>
-                </div>
-              )}
-            </div>
           </div>
 
           {/* Compact Progress Section */}
@@ -382,7 +379,7 @@ export default memo(function CompactGenerationFlow({
                     <h3 className={`font-medium text-xs leading-tight transition-colors duration-300 ${
                       isActive ? 'text-blue-700' : ''
                     }`}>
-                      {step.title}
+                      {step.name || step.title}
                     </h3>
                     
                     {step.status === 'in_progress' && (
@@ -485,7 +482,79 @@ export default memo(function CompactGenerationFlow({
                           />
                         </ArticlePreviewStyles>
                       </motion.div>
+                    ) : imageMode && completedSections && completedSections.length > 0 ? (
+                      /* 画像モード：セクション別表示 */
+                      (() => {
+                        console.log('🎨 Rendering image mode sections:', {
+                          imageMode,
+                          completedSectionsCount: completedSections?.length,
+                          completedSections: completedSections?.map(s => ({ index: s.index, heading: s.heading?.substring(0, 50) }))
+                        });
+                        return (
+                          <div className="space-y-3">
+                            <div className="flex items-center space-x-2 text-sm text-gray-600 pb-2 border-b bg-purple-50/50 rounded p-2">
+                              <motion.div 
+                                className="w-2 h-2 bg-purple-500 rounded-full"
+                                animate={{ 
+                                  scale: [1, 1.3, 1],
+                                  opacity: [0.7, 1, 0.7]
+                                }}
+                                transition={{ duration: 1.5, repeat: Infinity }}
+                              />
+                              <span className="font-medium">画像モード進行中...</span>
+                              <motion.div
+                                initial={{ scale: 0 }}
+                                animate={{ scale: 1 }}
+                                transition={{ type: "spring", stiffness: 400, damping: 17 }}
+                              >
+                                <Badge className="bg-purple-100 text-purple-800 border-purple-200 shadow-sm">
+                                  <Image className="w-3 h-3 mr-1" />
+                                  {completedSections.length} セクション完了
+                                </Badge>
+                              </motion.div>
+                            </div>
+                        
+                        <div className="space-y-4">
+                          {completedSections
+                            .sort((a, b) => a.index - b.index)
+                            .map((section, index) => (
+                              <motion.div
+                                key={section.index}
+                                initial={{ opacity: 0, y: 20 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                transition={{ duration: 0.5, delay: index * 0.1 }}
+                                className="border border-green-200 bg-green-50/50 rounded-lg p-4"
+                              >
+                                <div className="flex items-center justify-between mb-3">
+                                  <h3 className="font-semibold text-gray-800 text-base">{section.heading}</h3>
+                                  <Badge variant="secondary" className="text-xs bg-green-100 text-green-700 border-green-300">
+                                    <Check className="w-3 h-3 mr-1" />
+                                    完了
+                                  </Badge>
+                                </div>
+                                
+                                {/* 画像プレースホルダー情報 */}
+                                {section.imagePlaceholders && section.imagePlaceholders.length > 0 && (
+                                  <div className="mb-3 text-xs text-purple-600 bg-purple-50 rounded px-2 py-1 border border-purple-200">
+                                    <Image className="w-3 h-3 inline mr-1" />
+                                    画像プレースホルダー {section.imagePlaceholders.length}個含む
+                                  </div>
+                                )}
+                                
+                                <ArticlePreviewStyles>
+                                  <div 
+                                    dangerouslySetInnerHTML={{ __html: section.content }}
+                                    className="prose prose-sm max-w-none"
+                                  />
+                                </ArticlePreviewStyles>
+                              </motion.div>
+                            ))}
+                        </div>
+                          </div>
+                        );
+                      })()
                     ) : generatedContent ? (
+                      /* 通常モード：ストリーミング表示 */
                       <div className="space-y-3">
                         <div className="flex items-center space-x-2 text-sm text-gray-600 pb-2 border-b bg-blue-50/50 rounded p-2">
                           <motion.div 
@@ -503,6 +572,7 @@ export default memo(function CompactGenerationFlow({
                             </span>
                           )}
                         </div>
+                        
                         <ArticlePreviewStyles>
                           <motion.div 
                             dangerouslySetInnerHTML={{ 
@@ -513,6 +583,54 @@ export default memo(function CompactGenerationFlow({
                             transition={{ duration: 0.3 }}
                           />
                         </ArticlePreviewStyles>
+                      </div>
+                    ) : imageMode && currentStep === 'writing_sections' ? (
+                      /* 画像モード：セクション生成中でまだ完了したセクションがない場合 */
+                      <div className="space-y-3">
+                        <div className="flex items-center space-x-2 text-sm text-gray-600 pb-2 border-b bg-purple-50/50 rounded p-2">
+                          <motion.div 
+                            className="w-2 h-2 bg-purple-500 rounded-full"
+                            animate={{ 
+                              scale: [1, 1.3, 1],
+                              opacity: [0.7, 1, 0.7]
+                            }}
+                            transition={{ duration: 1.5, repeat: Infinity }}
+                          />
+                          <span className="font-medium">画像モードでセクション生成中...</span>
+                          {currentSection && (
+                            <span className="text-purple-600 font-medium text-xs bg-purple-100 px-2 py-1 rounded-full">
+                              {currentSection.heading}
+                            </span>
+                          )}
+                          <motion.div
+                            initial={{ scale: 0 }}
+                            animate={{ scale: 1 }}
+                            transition={{ type: "spring", stiffness: 400, damping: 17 }}
+                          >
+                            <Badge className="bg-purple-100 text-purple-800 border-purple-200 shadow-sm">
+                              <Image className="w-3 h-3 mr-1" />
+                              画像モード
+                            </Badge>
+                          </motion.div>
+                        </div>
+                        
+                        <div className="flex items-center justify-center h-32 text-purple-600">
+                          <motion.div 
+                            className="text-center"
+                            initial={{ opacity: 0, y: 10 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            transition={{ duration: 0.5 }}
+                          >
+                            <motion.div
+                              animate={{ rotate: [0, 10, -10, 0] }}
+                              transition={{ duration: 3, repeat: Infinity }}
+                            >
+                              <BookOpen className="w-10 h-10 mx-auto mb-2 text-purple-400" />
+                            </motion.div>
+                            <p className="text-sm">セクション生成中...</p>
+                            <p className="text-xs text-purple-500 mt-1">完了したセクションは順次表示されます</p>
+                          </motion.div>
+                        </div>
                       </div>
                     ) : steps.some(step => step.status === 'error') ? (
                       <div className="flex items-center justify-center h-32 text-red-500">

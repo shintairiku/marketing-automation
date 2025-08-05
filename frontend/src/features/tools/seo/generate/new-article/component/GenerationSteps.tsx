@@ -3,7 +3,7 @@
 import { motion } from 'framer-motion';
 import { AlertCircle,Check, Clock } from 'lucide-react';
 
-import { GenerationStep } from '../hooks/useArticleGeneration';
+import { GenerationStep } from '@/types/article-generation';
 
 interface GenerationStepsProps {
   steps: GenerationStep[];
