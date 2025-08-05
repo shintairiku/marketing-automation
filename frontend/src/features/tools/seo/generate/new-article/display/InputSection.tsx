@@ -396,7 +396,7 @@ export default function InputSection({ onStartGeneration, isConnected, isGenerat
           </Card>
 
           {/* Card6: ペルソナ */}
-          <Card>
+          <Card className="md:col-span-2">
             <CardHeader>
               <CardTitle className="text-lg">ペルソナ設定</CardTitle>
             </CardHeader>
