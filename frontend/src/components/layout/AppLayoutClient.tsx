@@ -5,9 +5,9 @@ import { usePathname } from 'next/navigation';
 
 import Header from '@/components/display/header';
 import Sidebar from '@/components/display/sidebar';
+import { SidebarProvider, useSidebar } from '@/contexts/SidebarContext';
 import { cn } from '@/utils/cn';
 import { useUser } from '@clerk/nextjs';
-import { SidebarProvider, useSidebar } from '@/contexts/SidebarContext';
 
 function AppLayoutContent({ children }: PropsWithChildren) {
   const pathname = usePathname();

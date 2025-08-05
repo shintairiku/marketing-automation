@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect,useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Copy, Edit, Plus, Settings,Star, Trash2 } from "lucide-react";
 
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -59,7 +59,7 @@ export default function StyleGuideSettingsPage() {
     settings: DEFAULT_SETTINGS
   });
 
-  const fetchTemplates = async () => {
+  const fetchTemplates = useCallback(async () => {
     try {
       const token = await getToken();
       const headers: Record<string, string> = {
@@ -88,11 +88,11 @@ export default function StyleGuideSettingsPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [getToken, toast]);
 
   useEffect(() => {
     fetchTemplates();
-  }, []);
+  }, [fetchTemplates]);
 
   const handleCreateTemplate = async () => {
     try {

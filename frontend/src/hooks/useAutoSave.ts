@@ -247,7 +247,7 @@ export function useAutoSave<T>(
         clearTimeout(retryTimerRef.current);
       }
     };
-  }, [data, enabled, delay, triggerAutoSave]);
+  }, [data, enabled, delay, triggerAutoSave, contentExtractor, excludeKeys]);
 
   // コンポーネントがアンマウントされる時のクリーンアップ
   useEffect(() => {

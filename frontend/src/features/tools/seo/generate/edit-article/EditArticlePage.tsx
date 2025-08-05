@@ -77,6 +77,7 @@ const SafeImage = ({ src, alt, className, style, width, height, onClick }: {
 
   if (imageError) {
     return (
+      // eslint-disable-next-line @next/next/no-img-element
       <img
         src={src}
         alt={alt}
@@ -144,7 +145,7 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
   };
 
   // HTMLコンテンツをブロックに分割（画像プレースホルダー対応）
-  const parseHtmlToBlocks = (html: string): ArticleBlock[] => {
+  const parseHtmlToBlocks = useCallback((html: string): ArticleBlock[] => {
     const blocks: ArticleBlock[] = [];
     let blockIndex = 0;
     
@@ -264,10 +265,10 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
       if (block.content === '<br>' || block.content === '<br />') return false;
       return true;
     });
-  };
+  }, []);
 
   // ブロックをHTMLに戻す（画像プレースホルダー対応）
-  const blocksToHtml = (blocks: ArticleBlock[]): string => {
+  const blocksToHtml = useCallback((blocks: ArticleBlock[]): string => {
     return blocks.map(block => {
       if (block.type === 'image_placeholder') {
         // 画像プレースホルダーは完全な情報を含むコメント形式で出力
@@ -299,7 +300,7 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
       
       return `<${block.type}>${block.content}</${block.type}>`;
     }).join('\n');
-  };
+  }, []);
 
   // 記事の画像を復元する関数
   const restoreArticleImages = useCallback(async () => {
@@ -386,7 +387,7 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
       // エラーの場合は元のコンテンツを使用
       setBlocks(parseHtmlToBlocks(article.content));
     }
-  }, [article?.id, getToken]);
+  }, [article?.id, article?.content, getToken, parseHtmlToBlocks]);
 
   // 記事データが更新されたときにブロックを再構築（画像復元含む）
   useEffect(() => {

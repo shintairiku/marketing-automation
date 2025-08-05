@@ -1,7 +1,7 @@
 'use client';
 
 import React,
-{ createContext, useContext, useState, useEffect, PropsWithChildren } from 'react';
+{ createContext, PropsWithChildren,useContext, useEffect, useState } from 'react';
 
 interface SidebarContextType {
   isSubSidebarOpen: boolean;

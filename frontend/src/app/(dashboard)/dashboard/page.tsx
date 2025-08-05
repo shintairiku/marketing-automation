@@ -11,6 +11,7 @@ import {
   IoPencil,
   IoSparkles,
   IoTrendingUp} from 'react-icons/io5';
+
 import { Button } from '@/components/ui/button';
 import {
   Card,
@@ -19,8 +20,8 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card';
-import { useUser } from '@clerk/nextjs';
 import { useArticleStats } from '@/hooks/useArticles';
+import { useUser } from '@clerk/nextjs';
 
 // SEOプラットフォームのデータ
 const seoplatform = {

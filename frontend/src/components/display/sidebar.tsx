@@ -9,7 +9,9 @@ import {
   IoAnalytics, IoBug, IoCalendar, 
   IoCash, 
   IoChatbubbles as IoChat,
-  IoChatbubbles, IoClipboard, IoCloudUpload,
+  IoChatbubbles,   IoChevronBack,
+  IoChevronForward,
+IoClipboard, IoCloudUpload,
   IoCode, IoDocumentText, IoGitBranch,
   IoGlobe, 
   IoHelp, 
@@ -18,15 +20,13 @@ import {
   IoPricetag, IoSchool, IoSettings, IoSparkles,
   IoStatsChart,
   IoSync, IoText,
-  IoChevronBack,
-  IoChevronForward,
 } from 'react-icons/io5';
 
 import { groups } from '@/components/constant/route';
-import { ScrollArea } from '@/components/ui/scroll-area';
 import { Button } from '@/components/ui/button';
-import { cn } from '@/utils/cn';
+import { ScrollArea } from '@/components/ui/scroll-area';
 import { useSidebar } from '@/contexts/SidebarContext';
+import { cn } from '@/utils/cn';
 
 export const iconMap: Record<string, React.ReactElement<{ size?: number }>> = {
   /* ───────── 1. Dashboard ───────── */
@@ -81,7 +81,6 @@ export const iconMap: Record<string, React.ReactElement<{ size?: number }>> = {
   '/line/input/persona'         : <IoPerson size={24} />,
 
   /* ───────── 6. Settings ───────── */
-  '/settings/account'           : <IoSettings size={24} />,
   '/settings/account'           : <IoPerson size={24} />,
   '/settings/members'           : <IoPeople size={24} />,
   '/settings/billing'           : <IoCash size={24} />,
