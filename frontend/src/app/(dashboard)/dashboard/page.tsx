@@ -10,7 +10,6 @@ import {
   IoDocumentText,
   IoGlobe,
   IoLogoInstagram,
-  IoNotifications,
   IoPencil,
   IoRocket,
   IoSparkles,
@@ -134,16 +133,10 @@ export default function DashboardPage() {
             </h1>
           </div>
           <div className="flex gap-3">
-            <Button variant="outline" asChild>
-              <Link href="/dashboard/news">
-                <IoNotifications className="mr-2" size={18} />
-                お知らせ
-              </Link>
-            </Button>
-            <Button variant="sexy" asChild>
+            <Button className="bg-primary hover:bg-primary/90 text-white" asChild>
               <Link href="/seo/generate/new-article">
                 <IoSparkles className="mr-2" size={18} />
-                コンテンツを作成
+                新規SEO記事を作成
               </Link>
             </Button>
           </div>
