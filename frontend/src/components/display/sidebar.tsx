@@ -167,7 +167,7 @@ export default function Sidebar() {
   return (
     <div className="flex h-[calc(100vh-45px)]">
       {/* Main Sidebar */}
-      <aside className="group w-[64px] hover:w-[250px] h-full bg-primary text-white relative transition-all duration-300 ease-in-out z-20">
+      <aside className="group absolute left-0 top-0 w-[64px] hover:w-[250px] h-full bg-primary text-white transition-all duration-300 ease-in-out z-30">
         <ScrollArea className="h-full py-10">
           <nav className="flex flex-col gap-2">
             {groups.map((g) => (
@@ -199,7 +199,7 @@ export default function Sidebar() {
 
       {/* Sub Sidebar */}
       <aside className={cn(
-        "relative h-full bg-white text-black shadow-[10px_0_10px_rgba(0,0,0,0.1)] z-10 transition-all duration-300 ease-in-out",
+        "ml-[64px] h-full bg-white text-black shadow-[10px_0_10px_rgba(0,0,0,0.1)] z-10 transition-all duration-300 ease-in-out",
         isSubSidebarOpen ? "w-[250px]" : "w-[64px]"
       )}>
         <div className={cn("flex flex-col gap-2 p-5 transition-opacity duration-300", !isSubSidebarOpen && "opacity-0 pointer-events-none")}>
