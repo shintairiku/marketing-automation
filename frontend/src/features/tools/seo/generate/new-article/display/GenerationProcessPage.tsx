@@ -45,6 +45,7 @@ export default function GenerationProcessPage({ jobId }: GenerationProcessPagePr
         pauseGeneration,
         resumeGeneration,
         cancelGeneration,
+        submitUserInput,
     } = useArticleGenerationRealtime({
         processId: jobId,
         userId: isLoaded && user?.id ? user.id : undefined,
@@ -386,13 +387,39 @@ export default function GenerationProcessPage({ jobId }: GenerationProcessPagePr
                                                 approveOutline(approved);
                                             }
                                         }}
-                                        onRegenerate={() => {
-                                            // TODO: Implement regenerate with HTTP API
-                                            console.log('Regenerate not yet implemented for Supabase Realtime');
+                                        onRegenerate={async () => {
+                                            try {
+                                                console.log('🔄 Regenerate requested:', {
+                                                    inputType: state.inputType,
+                                                    currentStep: state.currentStep,
+                                                    processId: jobId,
+                                                    isWaitingForInput: state.isWaitingForInput
+                                                });
+                                                await submitUserInput({
+                                                    response_type: 'regenerate',
+                                                    payload: {}
+                                                });
+                                                console.log('✅ Regenerate request sent successfully');
+                                            } catch (error) {
+                                                console.error('❌ Failed to regenerate:', error);
+                                            }
                                         }}
-                                        onEditAndProceed={(editedContent) => {
-                                            // TODO: Implement editAndProceed with HTTP API
-                                            console.log('EditAndProceed not yet implemented for Supabase Realtime', { editedContent, inputType: state.inputType });
+                                        onEditAndProceed={async (editedContent) => {
+                                            try {
+                                                console.log('✏️ Edit and proceed requested:', {
+                                                    editedContent,
+                                                    inputType: state.inputType,
+                                                    processId: jobId
+                                                });
+                                                await submitUserInput({
+                                                    response_type: 'edit_and_proceed',
+                                                    payload: {
+                                                        edited_content: editedContent
+                                                    }
+                                                });
+                                            } catch (error) {
+                                                console.error('Failed to edit and proceed:', error);
+                                            }
                                         }}
                                         isWaiting={false}
                                     />

@@ -22,6 +22,7 @@ export default function IndexPage() {
     const { user } = useUser();
     const router = useRouter();
     const [thinkingMessages, setThinkingMessages] = useState<string[]>([]);
+    const [processId, setProcessId] = useState<string | undefined>(undefined);
 
     
     const {
@@ -39,13 +40,20 @@ export default function IndexPage() {
         pauseGeneration,
         resumeGeneration,
         cancelGeneration,
+        submitUserInput,
     } = useArticleGenerationRealtime({
+        processId: processId,
         userId: user?.id,
-        autoConnect: true,
+        autoConnect: !!processId && !!user?.id,
     });
 
-    // Supabase Realtime接続は自動で開始される（autoConnect: true）
-    // useEffectでの手動接続は不要
+    // プロセスIDが設定されたときに Supabase Realtime接続を開始
+    useEffect(() => {
+        if (processId && user?.id && !isConnected) {
+            console.log('🔌 Connecting to Supabase Realtime for process:', processId);
+            connect();
+        }
+    }, [processId, user?.id, isConnected, connect]);
 
     // 思考メッセージの更新
     useEffect(() => {
@@ -97,8 +105,16 @@ export default function IndexPage() {
         }
     }, [state.currentStep, state.articleId, router]);
 
-    const handleStartGeneration = (requestData: any) => {
-        startArticleGeneration(requestData);
+    const handleStartGeneration = async (requestData: any) => {
+        try {
+            const result = await startArticleGeneration(requestData);
+            if (result?.process_id) {
+                setProcessId(result.process_id);
+                console.log('🎯 Generation started with process ID:', result.process_id);
+            }
+        } catch (error) {
+            console.error('Failed to start generation:', error);
+        }
     };
 
     const getProgressPercentage = () => {
@@ -251,13 +267,33 @@ export default function IndexPage() {
                                                 approveOutline(approved);
                                             }
                                         }}
-                                        onRegenerate={() => {
-                                            // TODO: Implement regenerate functionality
-                                            console.log('Regenerate not implemented');
+                                        onRegenerate={async () => {
+                                            try {
+                                                console.log('🔄 Regenerate requested for:', state.inputType, 'processId:', processId);
+                                                await submitUserInput({
+                                                    response_type: 'regenerate',
+                                                    payload: {}
+                                                });
+                                            } catch (error) {
+                                                console.error('Failed to regenerate:', error);
+                                            }
                                         }}
-                                        onEditAndProceed={(editedContent) => {
-                                            // TODO: Implement edit and proceed functionality
-                                            console.log('Edit and proceed not implemented', editedContent);
+                                        onEditAndProceed={async (editedContent) => {
+                                            try {
+                                                console.log('✏️ Edit and proceed requested:', {
+                                                    editedContent,
+                                                    inputType: state.inputType,
+                                                    processId: processId
+                                                });
+                                                await submitUserInput({
+                                                    response_type: 'edit_and_proceed',
+                                                    payload: {
+                                                        edited_content: editedContent
+                                                    }
+                                                });
+                                            } catch (error) {
+                                                console.error('Failed to edit and proceed:', error);
+                                            }
                                         }}
                                         isWaiting={false}
                                     />

@@ -586,23 +586,34 @@ async def submit_user_input(
     - status: Updated process status
     """
     try:
+        logger.info(f"🔍 [SUBMIT_INPUT] Processing user input for process {process_id}, user {user_id}")
+        logger.info(f"📝 [SUBMIT_INPUT] Input data: {input_data.dict()}")
+        
         # Validate process state
         process_state = await article_service.get_generation_process_state(process_id, user_id)
         if not process_state:
+            logger.error(f"❌ [SUBMIT_INPUT] Process {process_id} not found for user {user_id}")
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Process not found or access denied"
             )
         
+        logger.info(f"📊 [SUBMIT_INPUT] Process state: {process_state}")
+        
         if not process_state.get("is_waiting_for_input"):
+            logger.error(f"❌ [SUBMIT_INPUT] Process {process_id} is not waiting for input: {process_state.get('is_waiting_for_input')}")
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Process is not waiting for user input"
             )
         
-        # Validate input type matches expected
+        # Validate input type matches expected (skip validation for special request types)
         expected_input_type = process_state.get("input_type")
-        if expected_input_type and expected_input_type != input_data.response_type:
+        special_request_types = ["regenerate", "edit_and_proceed"]
+        
+        if (expected_input_type and 
+            expected_input_type != input_data.response_type and 
+            input_data.response_type not in special_request_types):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Expected input type '{expected_input_type}', got '{input_data.response_type}'"
@@ -632,10 +643,11 @@ async def submit_user_input(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error processing user input for {process_id}: {e}")
+        logger.error(f"💥 [SUBMIT_INPUT] Error processing user input for {process_id}: {e}")
+        logger.exception(f"[SUBMIT_INPUT] Full exception details for process {process_id}:")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to process user input"
+            detail=f"Failed to process user input: {str(e)}"
         )
 
 @router.post("/generation/{process_id}/pause", response_model=dict, status_code=status.HTTP_200_OK)

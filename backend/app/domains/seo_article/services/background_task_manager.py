@@ -767,6 +767,8 @@ class BackgroundTaskManager:
             response_type = user_input.get("response_type")
             payload = user_input.get("payload", {})
             
+            logger.info(f"📝 Applying user input - response_type: {response_type}, current_step: {context.current_step}")
+            
             if response_type == "select_persona":
                 selected_id = payload.get("selected_id")
                 if selected_id is not None and hasattr(context, 'generated_detailed_personas') and context.generated_detailed_personas:
@@ -792,6 +794,144 @@ class BackgroundTaskManager:
                     context.current_step = "writing_sections"
                 else:
                     context.current_step = "outline_generating"  # Regenerate
+            
+            # Handle regeneration requests
+            elif response_type == "regenerate":
+                # Determine what to regenerate based on current step
+                if context.current_step == "persona_generated":
+                    context.current_step = "persona_generating"
+                    context.generated_detailed_personas = []
+                    logger.info("Regenerating personas from persona_generated step")
+                elif context.current_step == "theme_proposed":
+                    context.current_step = "theme_generating"
+                    context.generated_themes = []
+                    logger.info("Regenerating themes from theme_proposed step")
+                elif context.current_step == "research_plan_generated":
+                    context.current_step = "research_planning"
+                    context.research_plan = None
+                    logger.info("Regenerating research plan from research_plan_generated step")
+                elif context.current_step == "outline_generated":
+                    context.current_step = "outline_generating"
+                    context.generated_outline = None
+                    context.outline = None
+                    logger.info("Regenerating outline from outline_generated step")
+                else:
+                    logger.warning(f"Regeneration not supported for step: {context.current_step}")
+            
+            # Handle edit and proceed requests
+            elif response_type == "edit_and_proceed":
+                edited_content = payload.get("edited_content", {})
+                
+                if context.current_step == "persona_generated":
+                    # Edit persona
+                    persona_description = edited_content.get("description")
+                    if persona_description and isinstance(persona_description, str):
+                        context.selected_detailed_persona = persona_description
+                        context.current_step = "theme_generating"
+                        logger.info("Applied persona edit and proceeding to theme generation")
+                    else:
+                        logger.error("Invalid persona description in edit_and_proceed")
+                        
+                elif context.current_step == "theme_proposed":
+                    # Edit theme
+                    logger.info(f"🎨 [EDIT_THEME] Processing theme edit: {edited_content}")
+                    logger.info(f"🔍 [EDIT_THEME] Validation - title: {type(edited_content.get('title'))}, description: {type(edited_content.get('description'))}, keywords: {type(edited_content.get('keywords'))}")
+                    
+                    if (isinstance(edited_content.get("title"), str) and 
+                        isinstance(edited_content.get("description"), str) and 
+                        isinstance(edited_content.get("keywords"), list)):
+                        
+                        try:
+                            # Import ThemeProposalData from schemas
+                            from app.domains.seo_article.schemas import ThemeProposalData
+                            context.selected_theme = ThemeProposalData(**edited_content)
+                            context.current_step = "research_planning"
+                            logger.info("✅ [EDIT_THEME] Applied theme edit and proceeding to research planning")
+                        except Exception as theme_error:
+                            logger.error(f"💥 [EDIT_THEME] Error creating ThemeProposalData: {theme_error}")
+                            raise
+                    else:
+                        logger.error(f"❌ [EDIT_THEME] Invalid theme structure in edit_and_proceed: {edited_content}")
+                        
+                elif context.current_step == "research_plan_generated":
+                    # Edit research plan
+                    logger.info(f"📋 [EDIT_RESEARCH_PLAN] Processing research plan edit: {edited_content}")
+                    topic = edited_content.get("topic")
+                    queries = edited_content.get("queries", [])
+                    
+                    logger.info(f"🔍 [EDIT_RESEARCH_PLAN] Validation - topic: {type(topic)}, queries: {type(queries)}")
+                    
+                    if topic and isinstance(queries, list):
+                        try:
+                            # Import ResearchPlanData and ResearchPlanQueryData from schemas
+                            from app.domains.seo_article.schemas import ResearchPlanData, ResearchPlanQueryData
+                            
+                            # Convert queries to proper format
+                            processed_queries = []
+                            for query_item in queries:
+                                if isinstance(query_item, dict):
+                                    processed_queries.append(ResearchPlanQueryData(
+                                        query=query_item.get("query", ""),
+                                        focus=query_item.get("focus", "")
+                                    ))
+                                elif isinstance(query_item, str):
+                                    processed_queries.append(ResearchPlanQueryData(
+                                        query=query_item,
+                                        focus=""
+                                    ))
+                            
+                            context.research_plan = ResearchPlanData(
+                                topic=topic,
+                                queries=processed_queries
+                            )
+                            context.current_step = "researching"
+                            logger.info("✅ [EDIT_RESEARCH_PLAN] Applied research plan edit and proceeding to research execution")
+                        except Exception as research_error:
+                            logger.error(f"💥 [EDIT_RESEARCH_PLAN] Error creating ResearchPlanData: {research_error}")
+                            raise
+                    else:
+                        logger.error(f"❌ [EDIT_RESEARCH_PLAN] Invalid research plan structure in edit_and_proceed: topic={topic}, queries={queries}")
+                        
+                elif context.current_step == "outline_generated":
+                    # Edit outline
+                    logger.info(f"📋 [EDIT_OUTLINE] Processing outline edit: {edited_content}")
+                    title = edited_content.get("title")
+                    suggested_tone = edited_content.get("suggested_tone", "")
+                    sections = edited_content.get("sections", [])
+                    
+                    logger.info(f"🔍 [EDIT_OUTLINE] Validation - title: {type(title)}, suggested_tone: {type(suggested_tone)}, sections: {type(sections)}")
+                    
+                    if title and isinstance(sections, list):
+                        try:
+                            # Import OutlineData and OutlineSectionData from schemas
+                            from app.domains.seo_article.schemas import OutlineData, OutlineSectionData
+                            
+                            # Convert sections to proper format
+                            processed_sections = []
+                            for section in sections:
+                                if isinstance(section, dict):
+                                    processed_sections.append(OutlineSectionData(
+                                        heading=section.get("heading", ""),
+                                        estimated_chars=section.get("estimated_chars", 300),
+                                        subsections=section.get("subsections", [])
+                                    ))
+                            
+                            context.generated_outline = OutlineData(
+                                title=title,
+                                suggested_tone=suggested_tone,
+                                sections=processed_sections
+                            )
+                            context.outline = context.generated_outline
+                            context.current_step = "writing_sections"
+                            logger.info("✅ [EDIT_OUTLINE] Applied outline edit and proceeding to section writing")
+                        except Exception as outline_error:
+                            logger.error(f"💥 [EDIT_OUTLINE] Error creating OutlineData: {outline_error}")
+                            raise
+                    else:
+                        logger.error(f"❌ [EDIT_OUTLINE] Invalid outline structure in edit_and_proceed: title={title}, sections={sections}")
+                        
+                else:
+                    logger.warning(f"Edit and proceed not supported for step: {context.current_step}")
             
             # Clear user input waiting state
             if hasattr(context, 'expected_user_input'):

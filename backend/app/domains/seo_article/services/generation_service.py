@@ -289,7 +289,8 @@ class ArticleGenerationService:
             logger.info(f"Processed user input for process {process_id}")
             
         except Exception as e:
-            logger.error(f"Error processing user input for {process_id}: {e}")
+            logger.error(f"💥 [PROCESS_USER_INPUT] Error processing user input for {process_id}: {e}")
+            logger.exception(f"[PROCESS_USER_INPUT] Full exception details for process {process_id}:")
             raise
 
     async def continue_generation_after_input(
@@ -322,7 +323,8 @@ class ArticleGenerationService:
             )
             
         except Exception as e:
-            logger.error(f"Error continuing generation after input for {process_id}: {e}")
+            logger.error(f"💥 [CONTINUE_GENERATION] Error continuing generation after input for {process_id}: {e}")
+            logger.exception(f"[CONTINUE_GENERATION] Full exception details for process {process_id}:")
             # Update process status to error
             try:
                 await self.persistence_service.update_process_status(

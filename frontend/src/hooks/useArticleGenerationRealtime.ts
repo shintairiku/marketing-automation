@@ -1237,6 +1237,7 @@ export const useArticleGenerationRealtime = ({
     pauseGeneration,
     resumeGeneration,
     cancelGeneration,
+    submitUserInput,
     refreshData,
     
     // Data integrity
