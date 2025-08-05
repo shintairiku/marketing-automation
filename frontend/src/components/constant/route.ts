@@ -52,7 +52,7 @@ export const groups: Group[] = [
     links: [
       {
         href: '/seo/generate/new-article',
-        label: 'SEO記事作成',
+        label: 'SEO記事作成・管理',
         sublabel: 'SEO記事作成',
         subLinks: [
           {
