@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { AlertCircle, BarChart3, Calendar, CheckCircle,Clock, Edit, Eye, Play, User } from "lucide-react";
+import { AlertCircle, BarChart3, Calendar, CheckCircle,Clock, Edit, Eye, Globe, GlobeLock, Play, User } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -45,6 +45,7 @@ export default function IndexPage() {
   const [selectedArticleId, setSelectedArticleId] = useState<string | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [statusFilter, setStatusFilter] = useState<string>("");
+  const [updatingStatus, setUpdatingStatus] = useState<string | null>(null);
 
   // 全プロセス（記事+未完成プロセス）を取得
   const {
@@ -54,7 +55,8 @@ export default function IndexPage() {
     currentPage,
     totalPages,
     setPage,
-    refetch
+    refetch,
+    updateArticleStatus
   } = useAllProcesses(PAGE_SIZE, statusFilter || undefined);
 
   // 選択された記事の詳細を取得
@@ -92,6 +94,25 @@ export default function IndexPage() {
   const handleResumeClick = (processId: string, e: React.MouseEvent) => {
     e.stopPropagation(); // カードクリックイベントを防ぐ
     router.push(`/seo/generate/new-article/${processId}`);
+  };
+
+  const handleStatusToggle = async (articleId: string, currentStatus: string, e: React.MouseEvent) => {
+    e.stopPropagation(); // カードクリックイベントを防ぐ
+    
+    const newStatus = currentStatus === 'published' ? 'draft' : 'published';
+    setUpdatingStatus(articleId);
+    
+    try {
+      const success = await updateArticleStatus(articleId, newStatus);
+      if (!success) {
+        // エラーハンドリング - 必要に応じてトーストやアラートを表示
+        console.error("Failed to update article status");
+      }
+    } catch (error) {
+      console.error("Error updating article status:", error);
+    } finally {
+      setUpdatingStatus(null);
+    }
   };
 
   const formatDate = (dateString: string) => {
@@ -290,6 +311,26 @@ export default function IndexPage() {
                       </Button>
                       <Button 
                         size="sm" 
+                        variant={process.status === 'published' ? 'default' : 'outline'}
+                        className={`flex-1 text-xs font-medium ${
+                          process.status === 'published' 
+                            ? 'bg-green-600 hover:bg-green-700 text-white'
+                            : 'border-blue-200 text-blue-600 hover:bg-blue-50'
+                        }`}
+                        disabled={updatingStatus === process.id}
+                        onClick={(e) => handleStatusToggle(process.id, process.status, e)}
+                      >
+                        {updatingStatus === process.id ? (
+                          <div className="w-3.5 h-3.5 animate-spin rounded-full border-2 border-current border-t-transparent mr-1.5" />
+                        ) : process.status === 'published' ? (
+                          <Globe className="w-3.5 h-3.5 mr-1.5" />
+                        ) : (
+                          <GlobeLock className="w-3.5 h-3.5 mr-1.5" />
+                        )}
+                        {process.status === 'published' ? '公開' : '未公開'}
+                      </Button>
+                      <Button 
+                        size="sm" 
                         variant="outline" 
                         className="flex-1 text-xs font-medium"
                         onClick={(e) => {
@@ -453,17 +494,38 @@ export default function IndexPage() {
               </div>
               <div className="flex gap-3">
                 {selectedArticle && (
-                  <Button
-                    onClick={() => {
-                      // 記事編集ページに遷移
-                      const editUrl = `/seo/generate/edit-article/${selectedArticle.id}`;
-                      window.open(editUrl, '_blank');
-                    }}
-                    className="bg-blue-600 hover:bg-blue-700 text-white"
-                  >
-                    <Edit className="h-4 w-4 mr-2" />
-                    編集
-                  </Button>
+                  <>
+                    <Button
+                      variant={selectedArticle.status === 'published' ? 'default' : 'outline'}
+                      className={`${
+                        selectedArticle.status === 'published' 
+                          ? 'bg-green-600 hover:bg-green-700 text-white'
+                          : 'border-blue-200 text-blue-600 hover:bg-blue-50'
+                      }`}
+                      disabled={updatingStatus === selectedArticle.id}
+                      onClick={() => handleStatusToggle(selectedArticle.id, selectedArticle.status, { stopPropagation: () => {} } as React.MouseEvent)}
+                    >
+                      {updatingStatus === selectedArticle.id ? (
+                        <div className="w-4 h-4 animate-spin rounded-full border-2 border-current border-t-transparent mr-2" />
+                      ) : selectedArticle.status === 'published' ? (
+                        <Globe className="h-4 w-4 mr-2" />
+                      ) : (
+                        <GlobeLock className="h-4 w-4 mr-2" />
+                      )}
+                      {selectedArticle.status === 'published' ? '公開中' : '未公開'}
+                    </Button>
+                    <Button
+                      onClick={() => {
+                        // 記事編集ページに遷移
+                        const editUrl = `/seo/generate/edit-article/${selectedArticle.id}`;
+                        window.open(editUrl, '_blank');
+                      }}
+                      className="bg-blue-600 hover:bg-blue-700 text-white"
+                    >
+                      <Edit className="h-4 w-4 mr-2" />
+                      編集
+                    </Button>
+                  </>
                 )}
                 <DrawerClose asChild>
                   <Button variant="outline">

@@ -31,13 +31,8 @@ import { useSidebar } from '@/contexts/SidebarContext';
 export const iconMap: Record<string, React.ReactElement<{ size?: number }>> = {
   /* ───────── 1. Dashboard ───────── */
   '/dashboard'                 : <IoHome size={24} />,
-  '/dashboard/news'            : <IoNewspaper size={24} />,
-  '/dashboard/overview'        : <IoClipboard size={24} />,
-  '/dashboard/calendar'        : <IoCalendar size={24} />,
-  '/dashboard/performance'     : <IoStatsChart size={24} />,
 
   /* ───────── 2. Generate / SEO ───────── */
-  '/seo/home'              : <IoGlobe size={24} />,
   '/seo/generate/new-article'        : <IoText size={24} />,
 
   '/seo/manage/list'           : <IoList size={24} />,
@@ -129,12 +124,12 @@ function findSelectedMenu(pathname: string) {
   
   // 5. 他のプラットフォームも同様に判定
   if (pathname.startsWith('/instagram/')) {
-    menu = groups.flatMap(g => g.links).find(l => l.href === '/instagram/home');
+    menu = groups.flatMap(g => g.links).find(l => l.href === '/instagram/generate/caption');
     if (menu) return menu;
   }
   
   if (pathname.startsWith('/line/')) {
-    menu = groups.flatMap(g => g.links).find(l => l.href === '/line/home');
+    menu = groups.flatMap(g => g.links).find(l => l.href === '/line/generate/text');
     if (menu) return menu;
   }
 

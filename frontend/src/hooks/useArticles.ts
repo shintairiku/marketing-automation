@@ -64,9 +64,103 @@ interface UseAllProcessesResult {
   totalPages: number;
   setPage: (page: number) => void;
   refetch: () => Promise<void>;
+  updateArticleStatus: (articleId: string, status: 'draft' | 'published') => Promise<boolean>;
 }
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+
+export interface ArticleStats {
+  total_generated: number;
+  total_published: number;
+  total_draft: number;
+  this_month_count: number;
+}
+
+interface UseArticleStatsResult {
+  stats: ArticleStats | null;
+  loading: boolean;
+  error: string | null;
+  refetch: () => Promise<void>;
+}
+
+export function useArticleStats(): UseArticleStatsResult {
+  const [stats, setStats] = useState<ArticleStats | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const { getToken } = useAuth();
+
+  const fetchStats = useCallback(async () => {
+    try {
+      setLoading(true);
+      setError(null);
+
+      // Get auth token from Clerk
+      const token = await getToken();
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+      };
+      
+      if (token) {
+        headers["Authorization"] = `Bearer ${token}`;
+      }
+
+      // 全プロセスを取得して統計を計算
+      const response = await fetch(`${API_BASE_URL}/articles/all-processes?limit=1000`, {
+        method: "GET",
+        headers,
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const processes = await response.json();
+      
+      // 統計を計算
+      const articles = processes.filter((p: any) => p.process_type === 'article');
+      const totalGenerated = articles.length;
+      const totalPublished = articles.filter((a: any) => a.status === 'published').length;
+      const totalDraft = articles.filter((a: any) => a.status === 'draft').length;
+      
+      // 今月の記事数を計算
+      const currentMonth = new Date().getMonth();
+      const currentYear = new Date().getFullYear();
+      const thisMonthCount = articles.filter((a: any) => {
+        const createdDate = new Date(a.postdate);
+        return createdDate.getMonth() === currentMonth && createdDate.getFullYear() === currentYear;
+      }).length;
+
+      const calculatedStats: ArticleStats = {
+        total_generated: totalGenerated,
+        total_published: totalPublished,
+        total_draft: totalDraft,
+        this_month_count: thisMonthCount
+      };
+
+      setStats(calculatedStats);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "統計の取得に失敗しました");
+      setStats(null);
+    } finally {
+      setLoading(false);
+    }
+  }, [getToken]);
+
+  const refetch = useCallback(async () => {
+    await fetchStats();
+  }, [fetchStats]);
+
+  useEffect(() => {
+    fetchStats();
+  }, [fetchStats]);
+
+  return {
+    stats,
+    loading,
+    error,
+    refetch,
+  };
+}
 
 export function useArticles(pageSize: number = 20, statusFilter?: string): UseArticlesResult {
   const [articles, setArticles] = useState<Article[]>([]);
@@ -281,6 +375,36 @@ export function useAllProcesses(pageSize: number = 20, statusFilter?: string): U
     await fetchProcesses(currentPage);
   }, [fetchProcesses, currentPage]);
 
+  const updateArticleStatus = useCallback(async (articleId: string, status: 'draft' | 'published'): Promise<boolean> => {
+    try {
+      const token = await getToken();
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+      };
+      
+      if (token) {
+        headers["Authorization"] = `Bearer ${token}`;
+      }
+
+      const response = await fetch(`${API_BASE_URL}/articles/${articleId}/status`, {
+        method: "PATCH",
+        headers,
+        body: JSON.stringify({ status }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      // 成功したらプロセスリストを再取得
+      await refetch();
+      return true;
+    } catch (err) {
+      console.error(`Failed to update article status: ${err}`);
+      return false;
+    }
+  }, [getToken, refetch]);
+
   useEffect(() => {
     fetchProcesses(currentPage);
   }, [currentPage, fetchProcesses]);
@@ -296,5 +420,6 @@ export function useAllProcesses(pageSize: number = 20, statusFilter?: string): U
     totalPages,
     setPage,
     refetch,
+    updateArticleStatus,
   };
 } 

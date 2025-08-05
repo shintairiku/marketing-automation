@@ -35,15 +35,12 @@ export const groups: Group[] = [
             title: 'ホーム',
             links: [
               { href: '/dashboard', label: 'ダッシュボード' },
-              { href: '/dashboard/news', label: '運営からのお知らせ' },
             ],
           },
           {
             title: 'コンテンツ管理',
             links: [
-              { href: '/dashboard/overview', label: '生成コンテンツ一覧' },
-              { href: '/dashboard/calendar', label: '配信カレンダー' },
-              { href: '/dashboard/performance', label: '全体効果測定' },
+              { href: '/seo/manage/list', label: '生成コンテンツ一覧' },
             ],
           },
         ],
