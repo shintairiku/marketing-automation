@@ -218,9 +218,27 @@ export default function Sidebar() {
             <p className="text-lg font-bold whitespace-nowrap text-center">{selectedMenu?.sublabel}</p>
           </div>
         </div>
-        <ScrollArea className={cn("h-[calc(100%-80px)] transition-all duration-300", !isSubSidebarOpen && "h-full pt-12")}>
+        
+        {/* 縮小時のヘッダー */}
+        <div className={cn("flex items-center justify-center pt-4 pb-2 transition-opacity duration-300", isSubSidebarOpen && "opacity-0 pointer-events-none absolute")}>
+          {selectedMenu?.imageurl && (
+            <div className="relative w-5 h-5">
+              <Image 
+                src={selectedMenu.imageurl} 
+                alt={selectedMenu.sublabel || ''} 
+                fill
+                style={{ objectFit: 'contain' }}
+                priority
+              />
+            </div>
+          )}
+        </div>
+        <ScrollArea className={cn("h-[calc(100%-80px)] transition-all duration-300", !isSubSidebarOpen && "h-[calc(100%-50px)]")}>
           {selectedMenu?.subLinks?.map((section) => (
-            <div key={section.title} className="flex flex-col gap-2 p-[8px] py-5">
+            <div key={section.title} className={cn(
+              "flex flex-col gap-2 p-[8px]",
+              isSubSidebarOpen ? "py-5" : "py-1"
+            )}>
               <div className={cn("flex items-center justify-between gap-2", !isSubSidebarOpen && "justify-center")}>
                 <p className={cn("font-bold text-primary transition-opacity duration-200", !isSubSidebarOpen && "opacity-0 hidden")}>{section.title}</p>
                 <div className={cn('h-[1px] bg-primary flex-1 transition-opacity duration-200', !isSubSidebarOpen && "opacity-0 hidden")}></div>
@@ -230,7 +248,11 @@ export default function Sidebar() {
                   const isDisabled = link.disabled;
                   const linkContent = (
                     <>
-                      <div className={cn("text-foreground", {"text-gray-400": isDisabled})}>
+                      <div className={cn(
+                        "text-foreground transition-all duration-200",
+                        {"text-gray-400": isDisabled},
+                        !isSubSidebarOpen && "scale-90"
+                      )}>
                         {iconMap[link.href]}
                       </div>
                       <span className={cn(
@@ -256,9 +278,9 @@ export default function Sidebar() {
                       <div
                         key={link.href || link.label}
                         className={clsx(
-                          "flex items-center gap-2 p-[8px] rounded-lg",
+                          "flex items-center gap-2 rounded-lg transition-all duration-200",
                           "opacity-50 cursor-not-allowed",
-                          !isSubSidebarOpen && "justify-center"
+                          isSubSidebarOpen ? "p-[8px]" : "p-[6px] justify-center mx-1"
                         )}
                       >
                         {linkContent}
@@ -271,11 +293,13 @@ export default function Sidebar() {
                       key={link.href}
                       href={link.href}
                       className={clsx(
-                        "flex items-center gap-2 p-[8px] rounded-lg",
+                        "flex items-center gap-2 rounded-lg transition-all duration-200",
                         pathname === link.href
                           ? "bg-primary/10 text-primary"
                           : "hover:bg-gray-100 cursor-pointer",
-                        !isSubSidebarOpen && "justify-center"
+                        isSubSidebarOpen 
+                          ? "p-[8px]" 
+                          : "p-[6px] justify-center mx-1 hover:bg-primary/5"
                       )}
                     >
                       {linkContent}
@@ -288,9 +312,14 @@ export default function Sidebar() {
         </ScrollArea>
         <Button
           onClick={() => setIsSubSidebarOpen(!isSubSidebarOpen)}
-          className="absolute top-4 right-4 bg-primary hover:bg-primary/80 text-white rounded-full h-8 w-8 flex items-center justify-center z-30"
+          className={cn(
+            "absolute bg-primary hover:bg-primary/80 text-white rounded-full flex items-center justify-center z-30 transition-all duration-300",
+            isSubSidebarOpen 
+              ? "top-4 right-4 h-8 w-8" 
+              : "top-4 right-2 h-6 w-6"
+          )}
         >
-          {isSubSidebarOpen ? <IoChevronBack size={20} /> : <IoChevronForward size={20} />}
+          {isSubSidebarOpen ? <IoChevronBack size={20} /> : <IoChevronForward size={16} />}
         </Button>
       </aside>
     </div>
