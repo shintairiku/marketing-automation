@@ -667,7 +667,7 @@ class GenerationFlowManager:
             context.current_step = "error"
 
     async def execute_researching_background(self, context: "ArticleContext", run_config: RunConfig):
-        """リサーチのバックグラウンド実行"""
+        """リサーチのバックグラウンド実行（並列処理）"""
         if not context.research_plan:
             console.print("[red]承認されたリサーチ計画がありません。リサーチをスキップします。[/red]")
             context.current_step = "error"
@@ -676,38 +676,96 @@ class GenerationFlowManager:
         context.research_query_results = []
         total_queries = len(context.research_plan.queries)
         
-        for i, query in enumerate(context.research_plan.queries):
-            console.print(f"🔍 リサーチクエリ {i+1}/{total_queries}: {query.query}")
-            
-            current_agent = researcher_agent
-            agent_input = query.query
-            agent_output = await self.run_agent(current_agent, agent_input, context, run_config)
+        console.print(f"[cyan]🚀 {total_queries}件のリサーチクエリを並列実行開始...[/cyan]")
+        
+        # Create tasks for parallel execution
+        async def execute_single_query(query, query_index: int):
+            """Execute a single research query"""
+            try:
+                console.print(f"🔍 リサーチクエリ {query_index+1}/{total_queries}: {query.query}")
+                
+                current_agent = researcher_agent
+                agent_input = query.query
+                agent_output = await self.run_agent(current_agent, agent_input, context, run_config)
 
-            if isinstance(agent_output, ResearchQueryResult):
+                if isinstance(agent_output, ResearchQueryResult):
+                    console.print(f"[green]✅ クエリ {query_index+1} のリサーチが完了しました。[/green]")
+                    return query_index, agent_output, True
+                else:
+                    console.print(f"[red]❌ リサーチクエリ {query_index+1} で予期しないエージェント出力タイプを受け取りました。[/red]")
+                    return query_index, None, False
+                    
+            except Exception as e:
+                console.print(f"[red]❌ リサーチクエリ {query_index+1} でエラーが発生: {e}[/red]")
+                logger.error(f"Error in research query {query_index + 1}: {e}")
+                return query_index, None, False
+        
+        # Execute all queries in parallel with concurrency limit
+        # Limit concurrent requests to prevent API rate limiting
+        semaphore = asyncio.Semaphore(5)  # Max 5 concurrent research queries
+        
+        async def execute_with_semaphore(query, query_index: int):
+            """Execute query with concurrency control"""
+            async with semaphore:
+                return await execute_single_query(query, query_index)
+        
+        tasks = [
+            execute_with_semaphore(query, i) 
+            for i, query in enumerate(context.research_plan.queries)
+        ]
+        
+        # Wait for all queries to complete
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        
+        # Process results in original order
+        successful_queries = 0
+        failed_queries = []
+        
+        # Sort results by query_index to maintain order
+        sorted_results = []
+        for result in results:
+            if isinstance(result, Exception):
+                logger.error(f"Research query failed with exception: {result}")
+                failed_queries.append(str(result))
+            elif isinstance(result, tuple):
+                query_index, agent_output, success = result
+                sorted_results.append((query_index, agent_output, success))
+                if success:
+                    successful_queries += 1
+                else:
+                    failed_queries.append(f"Query {query_index + 1}")
+        
+        # Sort by query_index and add successful results to context
+        sorted_results.sort(key=lambda x: x[0])
+        for query_index, agent_output, success in sorted_results:
+            if success and agent_output:
                 context.research_query_results.append(agent_output)
-                console.print(f"[green]クエリ {i+1} のリサーチが完了しました。[/green]")
-                
-                # 進捗更新
-                context.research_progress = {
-                    'current_query': i + 1,
-                    'total_queries': total_queries,
-                    'completed_queries': i + 1
-                }
-                
-                if context.websocket:
-                    await self.service.utils.send_server_event(context, ResearchProgressPayload(
-                        current_query=i + 1,
-                        total_queries=total_queries,
-                        query_text=query.query,
-                        completed=False
-                    ))
-            else:
-                console.print(f"[red]リサーチクエリ {i+1} で予期しないエージェント出力タイプを受け取りました。[/red]")
-                context.current_step = "error"
-                return
-
+        
+        # Update progress
+        context.research_progress = {
+            'current_query': total_queries,
+            'total_queries': total_queries,
+            'completed_queries': successful_queries,
+            'failed_queries': len(failed_queries)
+        }
+        
+        # Send final progress update via WebSocket if available
+        if context.websocket:
+            await self.service.utils.send_server_event(context, ResearchProgressPayload(
+                current_query=total_queries,
+                total_queries=total_queries,
+                query_text="並列リサーチ完了",
+                completed=True
+            ))
+        
+        console.print(f"[cyan]🎉 並列リサーチ完了: {successful_queries}/{total_queries} 成功[/cyan]")
+        
+        if successful_queries == 0:
+            console.print("[red]❌ 全てのリサーチクエリが失敗しました。[/red]")
+            context.current_step = "error"
+            return
+        
         context.current_step = "research_synthesizing"
-        console.print("[cyan]全てのリサーチクエリが完了しました。[/cyan]")
 
     async def ensure_serp_analysis_fields(self, agent_output: SerpKeywordAnalysisReport, context: ArticleContext):
         """SerpAPI分析結果に必要なフィールドを確保"""
@@ -1321,35 +1379,82 @@ class GenerationFlowManager:
                 context.research_query_results = []
             
             total_queries = len(context.research_plan.queries)
-            console.print(f"[cyan]{total_queries}件のリサーチクエリを実行します...[/cyan]")
+            console.print(f"[cyan]🚀 {total_queries}件のリサーチクエリを並列実行します...[/cyan]")
             
-            for i, query in enumerate(context.research_plan.queries):
-                console.print(f"🔍 クエリ {i+1}/{total_queries}: {query.query if hasattr(query, 'query') else str(query)}")
-                
-                # Send research progress update
-                if context.websocket:
-                    await self.service.utils.send_server_event(context, ResearchProgressPayload(
-                        current_query=i + 1,
-                        total_queries=total_queries,
-                        query=query.query if hasattr(query, 'query') else str(query),
-                        progress_percentage=int((i / total_queries) * 100)
-                    ))
-                
-                # Execute research query
-                current_agent = researcher_agent
-                agent_input = f"以下のクエリについて詳細にリサーチしてください: {query.query if hasattr(query, 'query') else str(query)}"
-                console.print(f"🤖 {current_agent.name} にリサーチクエリを依頼します...")
-                agent_output = await self.run_agent(current_agent, agent_input, context, run_config)
+            # Create tasks for parallel execution with WebSocket progress updates
+            async def execute_query_with_websocket_progress(query, query_index: int):
+                """Execute a single research query with WebSocket progress reporting"""
+                try:
+                    console.print(f"🔍 クエリ {query_index+1}/{total_queries}: {query.query if hasattr(query, 'query') else str(query)}")
+                    
+                    # Send research progress update
+                    if context.websocket:
+                        await self.service.utils.send_server_event(context, ResearchProgressPayload(
+                            current_query=query_index + 1,
+                            total_queries=total_queries,
+                            query=query.query if hasattr(query, 'query') else str(query),
+                            progress_percentage=int((query_index / total_queries) * 100)
+                        ))
+                    
+                    # Execute research query
+                    current_agent = researcher_agent
+                    agent_input = f"以下のクエリについて詳細にリサーチしてください: {query.query if hasattr(query, 'query') else str(query)}"
+                    agent_output = await self.run_agent(current_agent, agent_input, context, run_config)
 
-                if isinstance(agent_output, ResearchQueryResult):
+                    if isinstance(agent_output, ResearchQueryResult):
+                        console.print(f"[green]✅ クエリ {query_index+1} が完了しました。[/green]")
+                        return query_index, agent_output, True
+                    else:
+                        console.print(f"[yellow]⚠️ クエリ {query_index+1} で予期しないエージェント出力タイプを受け取りました: {type(agent_output)}[/yellow]")
+                        return query_index, None, False
+                        
+                except Exception as e:
+                    console.print(f"[red]❌ クエリ {query_index+1} でエラーが発生: {e}[/red]")
+                    logger.error(f"Error in research query {query_index + 1}: {e}")
+                    return query_index, None, False
+            
+            # Execute all queries in parallel
+            tasks = [
+                execute_query_with_websocket_progress(query, i) 
+                for i, query in enumerate(context.research_plan.queries)
+            ]
+            
+            # Wait for all queries to complete
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+            
+            # Process results in original order
+            successful_queries = 0
+            failed_queries = []
+            
+            # Sort results by query_index to maintain order
+            sorted_results = []
+            for result in results:
+                if isinstance(result, Exception):
+                    logger.error(f"Research query failed with exception: {result}")
+                    failed_queries.append(str(result))
+                elif isinstance(result, tuple):
+                    query_index, agent_output, success = result
+                    sorted_results.append((query_index, agent_output, success))
+                    if success:
+                        successful_queries += 1
+                    else:
+                        failed_queries.append(f"Query {query_index + 1}")
+            
+            # Sort by query_index and add successful results to context
+            sorted_results.sort(key=lambda x: x[0])
+            for query_index, agent_output, success in sorted_results:
+                if success and agent_output:
                     context.research_query_results.append(agent_output)
-                    console.print(f"[green]クエリ {i+1} が完了しました。[/green]")
-                else:
-                    console.print(f"[yellow]クエリ {i+1} で予期しないエージェント出力タイプを受け取りました: {type(agent_output)}[/yellow]")
-                    # Continue with other queries even if one fails
-                
-                # Small delay to prevent overwhelming the system
-                await asyncio.sleep(0.5)
+            
+            console.print(f"[cyan]🎉 並列リサーチ完了: {successful_queries}/{total_queries} 成功[/cyan]")
+            
+            # Check if we have any successful results
+            if successful_queries == 0:
+                console.print("[red]❌ 全てのリサーチクエリが失敗しました。[/red]")
+                context.current_step = "error"
+                context.executing_step = None
+                await self.service.utils.send_error(context, "All research queries failed")
+                return
             
             # Move to synthesis step
             context.current_step = "research_synthesizing"
@@ -1366,7 +1471,7 @@ class GenerationFlowManager:
             
             await self.service.utils.send_server_event(context, StatusUpdatePayload(
                 step=context.current_step, 
-                message="Research completed, proceeding to synthesis.", 
+                message=f"Research completed ({successful_queries}/{total_queries} successful), proceeding to synthesis.", 
                 image_mode=getattr(context, 'image_mode', False)
             ))
             

@@ -531,28 +531,109 @@ class BackgroundTaskManager:
             raise
     
     async def _execute_research_with_progress(self, context: ArticleContext, process_id: str):
-        """Execute research with progress events"""
+        """Execute research with progress events (parallel execution)"""
         
         if not context.research_plan or not hasattr(context.research_plan, 'queries'):
             raise Exception("No research plan available")
         
         total_queries = len(context.research_plan.queries)
         
-        for i, query in enumerate(context.research_plan.queries):
-            # Publish progress event
-            await self._publish_realtime_event(
-                process_id=process_id,
-                event_type="research_progress",
-                event_data={
-                    "current_query": i + 1,
-                    "total_queries": total_queries,
-                    "query": query.query if hasattr(query, 'query') else str(query),
-                    "progress_percentage": int((i / total_queries) * 100)
-                }
-            )
-            
-            # Execute the research query using flow manager
-            await self.service.flow_manager.execute_single_research_query(context, query, i)
+        # Initialize research query results
+        if not hasattr(context, 'research_query_results'):
+            context.research_query_results = []
+        
+        # Publish research start event
+        await self._publish_realtime_event(
+            process_id=process_id,
+            event_type="research_started",
+            event_data={
+                "message": f"Starting parallel research execution for {total_queries} queries",
+                "total_queries": total_queries
+            }
+        )
+        
+        # Shared progress tracker for efficient updates
+        completed_queries = 0
+        progress_lock = asyncio.Lock()
+        
+        async def update_shared_progress():
+            """Update progress to frontend periodically"""
+            nonlocal completed_queries
+            async with progress_lock:
+                completed_queries += 1
+                await self._publish_realtime_event(
+                    process_id=process_id,
+                    event_type="research_progress",
+                    event_data={
+                        "completed_queries": completed_queries,
+                        "total_queries": total_queries,
+                        "progress_percentage": int((completed_queries / total_queries) * 100),
+                        "status": "executing" if completed_queries < total_queries else "completed"
+                    }
+                )
+        
+        # Create tasks for parallel execution
+        async def execute_query_with_progress(query, query_index: int):
+            """Execute a single query with optimized progress reporting"""
+            try:
+                # Execute the research query using flow manager
+                await self.service.flow_manager.execute_single_research_query(context, query, query_index)
+                
+                # Update shared progress counter
+                await update_shared_progress()
+                
+                return query_index, True
+                
+            except Exception as e:
+                logger.error(f"Error in research query {query_index + 1}: {e}")
+                # Still update progress for failed queries
+                await update_shared_progress()
+                return query_index, False
+        
+        # Execute all queries in parallel with concurrency limit
+        # Limit concurrent requests to prevent API rate limiting
+        semaphore = asyncio.Semaphore(5)  # Max 5 concurrent research queries
+        
+        async def execute_with_semaphore(query, query_index: int):
+            """Execute query with concurrency control"""
+            async with semaphore:
+                return await execute_query_with_progress(query, query_index)
+        
+        tasks = [
+            execute_with_semaphore(query, i) 
+            for i, query in enumerate(context.research_plan.queries)
+        ]
+        
+        # Wait for all queries to complete
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        
+        # Process results and handle any failures
+        successful_queries = 0
+        failed_queries = []
+        
+        for result in results:
+            if isinstance(result, Exception):
+                logger.error(f"Research query failed with exception: {result}")
+                failed_queries.append(str(result))
+            elif isinstance(result, tuple):
+                query_index, success = result
+                if success:
+                    successful_queries += 1
+                else:
+                    failed_queries.append(f"Query {query_index + 1}")
+        
+        # Publish completion summary
+        await self._publish_realtime_event(
+            process_id=process_id,
+            event_type="research_completed",
+            event_data={
+                "message": f"Research execution completed: {successful_queries}/{total_queries} queries successful",
+                "successful_queries": successful_queries,
+                "total_queries": total_queries,
+                "failed_queries": failed_queries,
+                "total_results": len(context.research_query_results) if hasattr(context, 'research_query_results') else 0
+            }
+        )
         
         # Move to synthesis
         context.current_step = "research_synthesizing"
