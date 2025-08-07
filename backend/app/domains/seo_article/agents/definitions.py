@@ -13,7 +13,7 @@ from app.domains.seo_article.schemas import (
     ArticleSectionWithImages, ThemeProposal, ClarificationNeeded,
     ResearchPlan, Outline
 )
-from app.domains.seo_article.agents.tools import web_search_tool, analyze_competitors, get_company_data
+from app.domains.seo_article.agents.tools import web_search_tool
 from app.domains.seo_article.context import ArticleContext
 from app.core.config import settings # 設定をインポート
 from app.domains.seo_article.schemas import PersonaType
@@ -301,12 +301,25 @@ def create_outline_instructions(base_prompt: str) -> Callable[[RunContextWrapper
 
         research_summary = ctx.context.research_report.overall_summary
         company_info_str = ""
-        if ctx.context.company_name or ctx.context.company_description:
+        if ctx.context.company_name or ctx.context.company_description or ctx.context.company_style_guide:
             company_info_str = f"\nクライアント情報:\n  企業名: {ctx.context.company_name or '未設定'}\n  企業概要: {ctx.context.company_description or '未設定'}\n"
+            if ctx.context.company_style_guide:
+                company_info_str += f"  スタイルガイド（トンマナ）: {ctx.context.company_style_guide}\n"
 
         # SerpAPI分析結果を含める
         seo_structure_guidance = ""
         if ctx.context.serp_analysis_report:
+            # 上位記事の具体的な見出し一覧を取得
+            specific_headings_list = ""
+            if hasattr(ctx.context.serp_analysis_report, 'analyzed_articles') and ctx.context.serp_analysis_report.analyzed_articles:
+                specific_headings_list = "\n=== 上位記事の具体的な見出し一覧（参考用） ===\n"
+                for i, article_data in enumerate(ctx.context.serp_analysis_report.analyzed_articles[:3]):  # 上位3記事
+                    if isinstance(article_data, dict) and 'headings' in article_data:
+                        specific_headings_list += f"\n【記事{i+1}】{article_data.get('title', 'N/A')}\n"
+                        for heading in article_data['headings'][:10]:  # 各記事の上位10見出し
+                            specific_headings_list += f"  • {heading}\n"
+                specific_headings_list += "\n上記見出しを参考に、独自性を保ちながら効果的な構成を設計してください。\n"
+            
             seo_structure_guidance = f"""
 
 === SerpAPI構成戦略ガイダンス ===
@@ -315,8 +328,9 @@ def create_outline_instructions(base_prompt: str) -> Callable[[RunContextWrapper
 コンテンツギャップ（新規追加推奨）: {', '.join(ctx.context.serp_analysis_report.content_gaps)}
 差別化ポイント: {', '.join(ctx.context.serp_analysis_report.competitive_advantages)}
 コンテンツ戦略: {', '.join(ctx.context.serp_analysis_report.content_strategy_recommendations)}
-
-上記を参考に、競合に勝る構成を設計してください。共通見出しは参考程度に留め、差別化要素を強く反映したアウトラインを作成してください。
+{specific_headings_list}
+上記の競合分析を参考に、競合記事を上回る価値を提供できる独自の構成を設計してください。
+競合見出しの模倣ではなく、差別化要素を強く反映したアウトラインを作成してください。
 """
 
         full_prompt = f"""{base_prompt}
@@ -336,9 +350,9 @@ def create_outline_instructions(base_prompt: str) -> Callable[[RunContextWrapper
 ---
 
 **重要:**
-- 上記のテーマと**詳細なリサーチ結果**、そして競合分析の結果（ツール使用）に基づいて、記事のアウトラインを作成してください。
+- 上記のテーマと**詳細なリサーチ結果**、SerpAPI分析結果に基づいて、記事のアウトラインを作成してください。
 - リサーチ結果の**キーポイント（出典情報も考慮）**や面白い切り口をアウトラインに反映させてください。
-- **ターゲットペルソナ「{persona_description}」** が読みやすいように、日本の一般的なブログやコラムのような、**親しみやすく分かりやすいトーン**でアウトラインを作成してください。記事全体のトーンも提案してください。
+- **ターゲットペルソナ「{persona_description}」** が読みやすいように、記事全体のトーンを提案してください。{f'**クライアントのスタイルガイド（{ctx.context.company_style_guide}）に従って**' if ctx.context.company_style_guide else '日本の一般的なブログやコラムのような、**親しみやすく分かりやすいトーン**で'}トーンを決定してください。
 - SerpAPI分析で判明した競合の弱点を補強し、差別化要素を強調した構成にしてください。
 - あなたの応答は必ず `Outline` または `ClarificationNeeded` 型のJSON形式で出力してください。 (APIコンテキストではClarificationNeededはエラーとして処理)
 - 文字数指定がある場合は、それに応じてセクション数や深さを調整してください。
@@ -443,12 +457,16 @@ def create_section_writer_with_images_instructions(base_prompt: str) -> Callable
 ---
 
 --- 執筆ルール ---
-1.  **提供される会話履歴（直前のセクションの内容など）と、上記「詳細なリサーチ情報」を十分に考慮し、** 前のセクションから自然につながるように、かつ、このセクション（インデックス {target_index}、見出し「{target_heading}」）の主題に沿った文章を作成してください。
-2.  **リサーチ情報で示された事実やデータに基づいて執筆し、必要に応じて、信頼できる情報源（特に公式HPなど）へのHTMLリンク (`<a href="URL">リンクテキスト</a>`) を自然な形で含めてください。** リンクテキストは具体的に、例えば会社名やサービス名、情報の内容を示すものにしてください。ただし、過剰なリンクやSEOに不自然なリンクは避けてください。リサーチ情報に記載のない情報は含めないでください。
-3.  他のセクションの内容は絶対に生成しないでください。
-4.  必ず `<p>`, `<h2>`, `<h3>`, `<ul>`, `<li>`, `<strong>`, `<em>`, `<a>` などの基本的なHTMLタグを使用し、構造化されたコンテンツを生成してください。`<h2>` タグはこのセクションの見出し「{target_heading}」にのみ使用してください。
-5.  SEOを意識し、記事全体のキーワードやこのセクションに関連するキーワードを**自然に**含めてください。（ただし、自然さを損なうような無理なキーワードの詰め込みは避けてください）
-6.  上記の【執筆スタイルとトーンについて】の指示に従い、創造性を発揮し、読者にとって価値のあるオリジナルな文章を作成してください。
+1.  **記事の一貫性と構造:** 上記の3段階構造（結論→詳細→ポイント再確認）に従って執筆し、前のセクションから自然につながるよう配慮する
+2.  **厳格な情報源・リンク管理:**
+    - リサーチ情報に含まれる事実やデータのみを使用し、憶測や一般論の域を出ない情報は含めない
+    - **権威あるサイト（政府機関、自治体、学術機関、Wikipedia）のURLのみリンク可能**
+    - 個別企業名やサービス名を情報源として明記することは禁止（例：「○○がスーモに書いていました」等）
+    - 情報は一般的な事実として記述し、特定のメディアや企業への直接的言及は避ける
+3.  **セクションスコープの厳守:** このセクション（インデックス {target_index}、見出し「{target_heading}」）の内容のみを生成し、他のセクションの内容は絶対に含めない
+4.  **HTML構造:** `<p>`, `<h2>`, `<h3>`, `<ul>`, `<li>`, `<strong>`, `<em>`, `<a>` などの基本HTMLタグを適切に使用し、`<h2>` タグは見出し「{target_heading}」にのみ使用
+5.  **SEO最適化:** 記事のキーワードやセクション関連キーワードを自然に含める（過度な詰め込みは避ける）
+6.  **読者価値の提供:** 上記の執筆スタイル指針に従い、読者にとって実用的で価値のあるオリジナルコンテンツを作成
 7.  **【📌 推奨事項】適切であれば画像プレースホルダーを配置してください。** 文章の流れを考慮し、読者の理解を助ける位置に配置することが重要です。記事全体で最低1つの画像プレースホルダーがあれば十分です。
 ---
 
@@ -534,21 +552,36 @@ def create_section_writer_instructions(base_prompt: str) -> Callable[[RunContext
 ---
 
 --- **【最重要】執筆スタイルとトーンについて** ---
-あなたの役割は、単に情報をHTMLにするだけでなく、**まるで経験豊富な友人が以下のペルソナ「{persona_description}」に語りかけるように**、親しみやすく、分かりやすい文章でセクションを執筆することです。
-- **日本の一般的なブログ記事やコラムのような、自然で人間味あふれる、温かいトーン**を心がけてください。堅苦しい表現や機械的な言い回しは避けてください。
-- 読者に直接語りかけるような表現（例：「〜だと思いませんか？」「まずは〜から始めてみましょう！」「〜なんてこともありますよね」）や、共感を誘うような言葉遣いを積極的に使用してください。
-- 専門用語は避け、どうしても必要な場合は簡単な言葉で補足説明を加えてください。箇条書きなども活用し、情報を整理して伝えると良いでしょう。
-- 可能であれば、具体的な体験談（想像でも構いません）や、読者が抱きそうな疑問に答えるような形で内容を構成すると、より読者の心に響きます。
-- 企業情報に記載された文体・トンマナ要件も必ず遵守してください。
+あなたは専門知識を持つプロのライターとして、以下のターゲット読者「{persona_description}」に向けて執筆します。
+
+**執筆の基本姿勢:**
+- あなたは「情報を提供する執筆者」、ペルソナは「その情報を求める読者」という関係性を明確に保つ
+- 読者の知識レベルや関心に合わせて、分かりやすく実用的な情報を提供する
+- 企業のスタイルガイドが設定されている場合は、そのトンマナに従う
+
+**文章構成の原則（必須）:**
+各セクションは以下の3段階構造で執筆してください：
+1. **結論・主張**: このセクションで伝えたい核心的な内容を最初に明確に述べる
+2. **詳細・根拠**: 具体例、手順、データなどで詳しく説明・補強する  
+3. **ポイント再確認**: 読者が押さえるべき要点を簡潔にまとめ直す
+
+**文体・表現の指針:**
+- 断言調は避け、「〜と考えられます」「〜が効果的です」等の丁寧で説得力のある表現を使用
+- 過度な感嘆符や語りかけ（「〜ですよね！」「〜しましょう！」）は控えめに
+- 専門用語は必要に応じて使用し、読者に分かりやすく説明を加える
 ---
 
 --- 執筆ルール ---
-1.  **提供される会話履歴（直前のセクションの内容など）と、上記「詳細なリサーチ情報」を十分に考慮し、** 前のセクションから自然につながるように、かつ、このセクション（インデックス {target_index}、見出し「{target_heading}」）の主題に沿った文章を作成してください。
-2.  **リサーチ情報で示された事実やデータに基づいて執筆し、必要に応じて、信頼できる情報源（特に公式HPなど）へのHTMLリンク (`<a href="URL">リンクテキスト</a>`) を自然な形で含めてください。** リンクテキストは具体的に、例えば会社名やサービス名、情報の内容を示すものにしてください。ただし、過剰なリンクやSEOに不自然なリンクは避けてください。リサーチ情報に記載のない情報は含めないでください。
-3.  他のセクションの内容は絶対に生成しないでください。
-4.  必ず `<p>`, `<h2>`, `<h3>`, `<ul>`, `<li>`, `<strong>`, `<em>`, `<a>` などの基本的なHTMLタグを使用し、構造化されたコンテンツを生成してください。`<h2>` タグはこのセクションの見出し「{target_heading}」にのみ使用してください。
-5.  SEOを意識し、記事全体のキーワードやこのセクションに関連するキーワードを**自然に**含めてください。（ただし、自然さを損なうような無理なキーワードの詰め込みは避けてください）
-6.  上記の【執筆スタイルとトーンについて】の指示に従い、創造性を発揮し、読者にとって価値のあるオリジナルな文章を作成してください。
+1.  **記事の一貫性と構造:** 上記の3段階構造（結論→詳細→ポイント再確認）に従って執筆し、前のセクションから自然につながるよう配慮する
+2.  **厳格な情報源・リンク管理:**
+    - リサーチ情報に含まれる事実やデータのみを使用し、憶測や一般論の域を出ない情報は含めない
+    - **権威あるサイト（政府機関、自治体、学術機関、Wikipedia）のURLのみリンク可能**
+    - 個別企業名やサービス名を情報源として明記することは禁止（例：「○○がスーモに書いていました」等）
+    - 情報は一般的な事実として記述し、特定のメディアや企業への直接的言及は避ける
+3.  **セクションスコープの厳守:** このセクション（インデックス {target_index}、見出し「{target_heading}」）の内容のみを生成し、他のセクションの内容は絶対に含めない
+4.  **HTML構造:** `<p>`, `<h2>`, `<h3>`, `<ul>`, `<li>`, `<strong>`, `<em>`, `<a>` などの基本HTMLタグを適切に使用し、`<h2>` タグは見出し「{target_heading}」にのみ使用
+5.  **SEO最適化:** 記事のキーワードやセクション関連キーワードを自然に含める（過度な詰め込みは避ける）
+6.  **読者価値の提供:** 上記の執筆スタイル指針に従い、読者にとって実用的で価値のあるオリジナルコンテンツを作成
 ---
 
 --- **【最重要】出力形式について** ---
@@ -705,6 +738,22 @@ SerpAPIで取得されたGoogle検索結果と、上位記事のスクレイピ�
 """
 
 def create_serp_keyword_analysis_instructions(base_prompt: str) -> Callable[[RunContextWrapper[ArticleContext], Agent[ArticleContext]], Awaitable[str]]:
+    def _flatten_headings(headings_list, prefix: str = ""):
+        """見出し階層構造をフラット化して見出しテキストのリストを返す"""
+        flat_headings = []
+        for heading in headings_list:
+            if isinstance(heading, dict) and "text" in heading:
+                level = heading.get("level", 1)
+                indent = "  " * (level - 1)  # レベルに応じてインデント
+                flat_headings.append(f"{indent}H{level}: {heading['text']}")
+                
+                # 子見出しも再帰的に処理
+                if "children" in heading and heading["children"]:
+                    flat_headings.extend(_flatten_headings(heading["children"], prefix + "  "))
+            elif isinstance(heading, str):  # 文字列の場合はそのまま追加
+                flat_headings.append(f"  * {heading}")
+        return flat_headings
+
     async def dynamic_instructions_func(ctx: RunContextWrapper[ArticleContext], agent: Agent[ArticleContext]) -> str:
         # キーワードからSerpAPI分析を実行（この時点で実行）
         keywords = ctx.context.initial_keywords
@@ -714,9 +763,18 @@ def create_serp_keyword_analysis_instructions(base_prompt: str) -> Callable[[Run
         serpapi_service = get_serpapi_service()
         analysis_result = await serpapi_service.analyze_keywords(keywords, num_articles_to_scrape=5)
         
+        # 全記事の見出し一覧を収集
+        all_headings_flat = []
+        for article in analysis_result.scraped_articles:
+            article_headings = _flatten_headings(article.headings)
+            all_headings_flat.extend(article_headings)
+        
         # 分析データを文字列に整理
         articles_summary = ""
         for i, article in enumerate(analysis_result.scraped_articles):
+            article_headings = _flatten_headings(article.headings)
+            headings_text = "\n".join(article_headings) if article_headings else "見出しが取得できませんでした"
+            
             articles_summary += f"""
 記事 {i+1}:
 - タイトル: {article.title}
@@ -727,7 +785,7 @@ def create_serp_keyword_analysis_instructions(base_prompt: str) -> Callable[[Run
 {f"- 検索順位: {article.position}" if article.position else ""}
 {f"- 関連質問: {article.question}" if article.question else ""}
 - 見出し構成:
-{chr(10).join(f"  * {heading}" for heading in article.headings)}
+{headings_text}
 - 本文プレビュー: {article.content[:200]}...
 
 """
@@ -738,6 +796,16 @@ def create_serp_keyword_analysis_instructions(base_prompt: str) -> Callable[[Run
             for i, q in enumerate(analysis_result.related_questions):
                 related_questions_str += f"  {i+1}. {q.get('question', 'N/A')}\n"
         
+        # 上位記事の見出し一覧をまとめる
+        all_headings_summary = "=== 上位記事で使用されている全見出し一覧 ===\n"
+        if all_headings_flat:
+            all_headings_summary += "\n".join(all_headings_flat[:50])  # 上位50個の見出しに限定
+            if len(all_headings_flat) > 50:
+                all_headings_summary += f"\n... その他 {len(all_headings_flat) - 50} 個の見出し"
+        else:
+            all_headings_summary += "見出しが取得できませんでした"
+        all_headings_summary += "\n\n"
+
         full_prompt = f"""{base_prompt}
 
 --- SerpAPI分析データ ---
@@ -748,6 +816,8 @@ def create_serp_keyword_analysis_instructions(base_prompt: str) -> Callable[[Run
 推奨目標文字数: {analysis_result.suggested_target_length}
 
 {related_questions_str}
+
+{all_headings_summary}
 
 --- 上位記事詳細分析データ ---
 {articles_summary}
@@ -767,12 +837,12 @@ def create_serp_keyword_analysis_instructions(base_prompt: str) -> Callable[[Run
 - total_results: {analysis_result.total_results}
 - average_article_length: {analysis_result.average_char_count}
 - recommended_target_length: {analysis_result.suggested_target_length}
-- analyzed_articles: 分析した記事のリスト（以下の形式で各記事を記述）
+- analyzed_articles: 分析した記事のリスト（見出し情報を含む、以下の形式で各記事を記述）
   [
     {{
       "url": "記事URL",
       "title": "記事タイトル", 
-      "headings": ["見出し1", "見出し2", ...],
+      "headings": ["H1: メイン見出し", "H2: サブ見出し1", "H3: 詳細見出し1", ...],
       "content_preview": "記事内容のプレビュー",
       "char_count": 文字数,
       "image_count": 画像数,
@@ -781,6 +851,9 @@ def create_serp_keyword_analysis_instructions(base_prompt: str) -> Callable[[Run
       "question": "関連質問"（該当する場合）
     }}, ...
   ]
+  
+**重要**: headingsフィールドには各記事の見出し階層情報を含めてください。
+この情報は後続のアウトライン作成で重要な参考資料として活用されます。
 
 特に、分析した記事の見出し構成、文字数、扱っているトピックの傾向を詳しく分析し、競合に勝るコンテンツを作成するための戦略を提案してください。
 """
@@ -801,14 +874,14 @@ serp_keyword_analysis_agent = Agent[ArticleContext](
 THEME_AGENT_BASE_PROMPT = """
 あなたはSEO記事のテーマを考案する専門家です。
 与えられたキーワード、ターゲットペルソナ、企業情報を分析し、読者の検索意図とSEO効果を考慮した上で、創造的で魅力的な記事テーマ案を複数生成します。
-必要であれば `get_company_data` ツールで企業情報を補強し、`web_search` ツールで関連トレンドや競合を調査できます。
+`web_search` ツールで関連トレンドや競合を調査できます。
 情報が不足している場合は、ClarificationNeededを返してください。
 """
 theme_agent = Agent[ArticleContext](
     name="ThemeAgent",
     instructions=create_theme_instructions(THEME_AGENT_BASE_PROMPT),
     model=settings.default_model,
-    tools=[get_company_data, web_search_tool],
+    tools=[web_search_tool],
     output_type=Union[ThemeProposal, ClarificationNeeded],
 )
 
@@ -856,28 +929,47 @@ research_synthesizer_agent = Agent[ArticleContext](
 
 # 5. アウトライン作成エージェント
 OUTLINE_AGENT_BASE_PROMPT = """
-あなたはSEO記事のアウトライン（構成案）を作成する専門家です。
-選択されたテーマ、目標文字数、企業のスタイルガイド、ターゲットペルソナ、そして詳細なリサーチレポート（キーポイントと出典情報を含む）に基づいて、論理的で網羅的、かつ読者の興味を引く記事のアウトラインを生成します。
-`analyze_competitors` ツールで競合記事の構成を調査し、差別化できる構成を考案します。
-`get_company_data` ツールでスタイルガイドを確認します。
-文字数指定に応じて、見出しの数や階層構造を適切に調整します。
-ターゲットペルソナが読みやすいように、親しみやすく分かりやすいトーンで記事全体のトーンも提案してください。
+あなたは高品質なSEO記事のアウトライン（構成案）を作成する専門家です。
+
+**アウトライン設計方針:**
+1. **SEO上位表示を意識した構成**: 検索意図を満たし、競合サイトを上回る価値を提供する構造
+2. **読者の知識段階に応じた論理的な流れ**: 基礎→応用→実践の自然な流れ
+3. **各見出しの明確な目的**: 読者が各セクションで何を得られるかが明確
+4. **結論ファースト構造の準備**: 各セクションが「結論→詳細→ポイント再確認」で書けるよう設計
+
+**見出し構成の品質基準:**
+- 見出しだけで記事の全体像が把握できる
+- 重複や矛盾のない論理的な構成
+- ターゲットキーワードが自然に組み込まれた見出し
+- 読者の疑問や関心に直接的に答える見出し設定
+
+**記事全体のトーン設定:**
+企業のスタイルガイドが設定されている場合はそれに従い、未設定の場合は読者ペルソナに最適なトーンを提案します。
 """
 outline_agent = Agent[ArticleContext](
     name="OutlineAgent",
     instructions=create_outline_instructions(OUTLINE_AGENT_BASE_PROMPT),
     model=settings.writing_model,
-    tools=[analyze_competitors, get_company_data],
+    tools=[web_search_tool],
     output_type=Union[Outline, ClarificationNeeded],
 )
 
 # 6. セクション執筆エージェント
 SECTION_WRITER_AGENT_BASE_PROMPT = """
-あなたは指定された記事のセクション（見出し）に関する内容を執筆するプロのライターです。
-あなたの役割は、日本の一般的なブログやコラムのように、自然で人間味あふれる、親しみやすい文章で、割り当てられた特定のセクションの内容をHTML形式で執筆することです。
-記事全体のテーマ、アウトライン、キーワード、トーン、会話履歴（前のセクションを含む完全な文脈）、そして詳細なリサーチレポート（出典情報付き）に基づき、創造的かつSEOを意識して執筆してください。
-リサーチ情報に基づき、必要に応じて信頼できる情報源へのHTMLリンクを自然に含めてください。
-あなたのタスクは、指示された1つのセクションのHTMLコンテンツを生成することだけです。読者を引きつけ、価値を提供するオリジナルな文章を作成してください。
+あなたは高品質なSEO記事を執筆するプロのライターです。
+指定されたセクション（見出し）について、ターゲット読者にとって価値のある、読みやすく実用的な内容をHTML形式で執筆します。
+
+**重要な執筆方針:**
+- ターゲットペルソナは「記事を読む読者」であり、あなたは「専門知識を持つ執筆者」として読者に向けて書きます
+- 記事全体の一貫性を保ち、断片的にならないよう前後のセクションとの繋がりを意識します
+- 各セクションは「結論ファースト→詳細説明→ポイント再確認」の構造で書きます
+- 過度な語りかけや冗長な表現は避け、簡潔で要点が明確な文章を心がけます
+
+**参考情報・リンクに関する厳格なルール:**
+- 権威のあるサイト（政府機関、自治体、学術機関、Wikipedia等）のみリンク可能
+- 個別企業名やサービス名の直接的な言及は避ける（例：「○○がスーモに書いていました」等は禁止）
+- 一般的な事実として記述し、特定のメディアや企業を情報源として明示しない
+- リンクを含める場合は、リサーチ情報で提供された権威あるURLに限定する
 """
 section_writer_agent = Agent[ArticleContext](
     name="SectionWriterAgent",
@@ -889,13 +981,24 @@ section_writer_agent = Agent[ArticleContext](
 
 # 6-2. 画像プレースホルダー対応セクション執筆エージェント
 SECTION_WRITER_WITH_IMAGES_AGENT_BASE_PROMPT = """
-あなたは指定された記事のセクション（見出し）に関する内容を執筆するプロのライターです。
-あなたの役割は、日本の一般的なブログやコラムのように、自然で人間味あふれる、親しみやすい文章で、割り当てられた特定のセクションの内容をHTML形式で執筆することです。
-**この記事は画像プレースホルダー機能を使用しており、記事全体で最低1つの画像プレースホルダーが必要です。このセクションでは内容に応じて適切に配置してください。**
-記事全体のテーマ、アウトライン、キーワード、トーン、会話履歴（前のセクションを含む完全な文脈）、そして詳細なリサーチレポート（出典情報付き）に基づき、創造的かつSEOを意識して執筆してください。
-リサーチ情報に基づき、必要に応じて信頼できる情報源へのHTMLリンクを自然に含めてください。
-画像プレースホルダーは読者の理解を助け、視覚的に魅力的な記事にするために重要な要素です。
-あなたのタスクは、指示された1つのセクションのHTMLコンテンツと画像プレースホルダー情報を生成することです。読者を引きつけ、価値を提供するオリジナルな文章を作成してください。
+あなたは高品質なSEO記事を執筆するプロのライターです。
+指定されたセクション（見出し）について、画像プレースホルダーを含む視覚的に魅力的なコンテンツをHTML形式で執筆します。
+
+**重要な執筆方針:**
+- ターゲットペルソナは「記事を読む読者」であり、あなたは「専門知識を持つ執筆者」として読者に向けて書きます
+- 記事全体の一貫性を保ち、断片的にならないよう前後のセクションとの繋がりを意識します
+- 各セクションは「結論ファースト→詳細説明→ポイント再確認」の構造で書きます
+- 過度な語りかけや冗長な表現は避け、簡潔で要点が明確な文章を心がけます
+
+**画像プレースホルダー要件:**
+- このセクションでは内容に応じて適切に画像プレースホルダーを配置する
+- 画像は読者の理解を助け、視覚的に魅力的な記事にするための重要要素
+
+**参考情報・リンクに関する厳格なルール:**
+- 権威のあるサイト（政府機関、自治体、学術機関、Wikipedia等）のみリンク可能
+- 個別企業名やサービス名の直接的な言及は避ける（例：「○○がスーモに書いていました」等は禁止）
+- 一般的な事実として記述し、特定のメディアや企業を情報源として明示しない
+- リンクを含める場合は、リサーチ情報で提供された権威あるURLに限定する
 """
 section_writer_with_images_agent = Agent[ArticleContext](
     name="SectionWriterWithImagesAgent",

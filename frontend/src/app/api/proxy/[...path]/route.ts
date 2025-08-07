@@ -17,8 +17,11 @@ export async function GET(
   };
   
   const authHeader = request.headers.get('Authorization');
+  console.log('🔐 [PROXY-GET] Authorization header from request:', authHeader ? `Bearer ${authHeader.substring(7, 27)}...` : 'none');
+  console.log('🔐 [PROXY-GET] Request URL:', url);
   if (authHeader) {
     headers.Authorization = authHeader;
+    console.log('🔐 [PROXY-GET] Forwarding Authorization header to backend');
   }
 
   try {
