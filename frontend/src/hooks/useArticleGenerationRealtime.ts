@@ -339,6 +339,18 @@ export const useArticleGenerationRealtime = ({
             newState.isWaitingForInput = true;
             // Prioritize process_metadata.input_type, then fall back to root input_type
             newState.inputType = processData.process_metadata?.input_type || processData.input_type;
+            
+            // If no inputType is provided, infer from current_step_name
+            if (!newState.inputType && processData.current_step_name) {
+              const stepInputTypeMap: Record<string, string> = {
+                'persona_generated': 'select_persona',
+                'theme_proposed': 'select_theme', 
+                'research_plan_generated': 'approve_plan',
+                'outline_generated': 'approve_outline'
+              };
+              newState.inputType = stepInputTypeMap[processData.current_step_name];
+              console.log('🔍 Inferred inputType from current_step_name:', processData.current_step_name, '->', newState.inputType);
+            }
           }
           
           // Extract data from article_context if available
@@ -370,9 +382,19 @@ export const useArticleGenerationRealtime = ({
             
             // Set outline if available (check both outline and generated_outline keys)
             const outlineData = context.outline || context.generated_outline;
+            console.log('🔍 [DEBUG] Outline data check:', {
+              hasOutline: !!context.outline,
+              hasGeneratedOutline: !!context.generated_outline,
+              outlineValue: context.outline,
+              generatedOutlineValue: context.generated_outline,
+              finalOutlineData: outlineData
+            });
+            
             if (outlineData) {
               console.log('📝 Setting outline from context:', outlineData);
               newState.outline = outlineData;
+            } else {
+              console.warn('⚠️ No outline data found in context despite outline_generated state');
             }
             
             // Set generated content from context

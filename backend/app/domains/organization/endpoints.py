@@ -26,14 +26,10 @@ from .service import (
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
-# TODO: Add authentication dependency
-# For now, we'll use a placeholder for user_id
-# In production, this should come from JWT token validation
-async def get_current_user_id() -> str:
-    """Get current user ID from authentication token"""
-    # This is a placeholder - implement proper JWT validation
-    return "placeholder-user-id"
+# Import proper authentication
+from app.common.auth import get_current_user_id_from_token
 
+# Use proper Clerk JWT authentication
 async def get_current_user_email() -> str:
     """Get current user email from authentication token"""
     # This is a placeholder - implement proper JWT validation
@@ -43,7 +39,7 @@ async def get_current_user_email() -> str:
 @router.post("/", response_model=OrganizationRead, status_code=status.HTTP_201_CREATED)
 async def create_organization(
     organization_data: OrganizationCreate,
-    current_user_id: str = Depends(get_current_user_id)
+    current_user_id: str = Depends(get_current_user_id_from_token)
 ):
     """Create a new organization with the current user as owner"""
     try:
@@ -58,7 +54,7 @@ async def create_organization(
 
 @router.get("/", response_model=List[OrganizationRead])
 async def get_user_organizations(
-    current_user_id: str = Depends(get_current_user_id)
+    current_user_id: str = Depends(get_current_user_id_from_token)
 ):
     """Get all organizations where the current user is a member"""
     try:
@@ -74,7 +70,7 @@ async def get_user_organizations(
 @router.get("/{organization_id}", response_model=OrganizationRead)
 async def get_organization(
     organization_id: str,
-    current_user_id: str = Depends(get_current_user_id)
+    current_user_id: str = Depends(get_current_user_id_from_token)
 ):
     """Get organization by ID"""
     try:
@@ -98,7 +94,7 @@ async def get_organization(
 async def update_organization(
     organization_id: str,
     update_data: OrganizationUpdate,
-    current_user_id: str = Depends(get_current_user_id)
+    current_user_id: str = Depends(get_current_user_id_from_token)
 ):
     """Update organization (only owner or admin can update)"""
     try:
@@ -121,7 +117,7 @@ async def update_organization(
 @router.delete("/{organization_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_organization(
     organization_id: str,
-    current_user_id: str = Depends(get_current_user_id)
+    current_user_id: str = Depends(get_current_user_id_from_token)
 ):
     """Delete organization (only owner can delete)"""
     try:
@@ -144,7 +140,7 @@ async def delete_organization(
 @router.get("/{organization_id}/members", response_model=List[OrganizationMemberRead])
 async def get_organization_members(
     organization_id: str,
-    current_user_id: str = Depends(get_current_user_id)
+    current_user_id: str = Depends(get_current_user_id_from_token)
 ):
     """Get all members of an organization"""
     try:
@@ -162,7 +158,7 @@ async def update_member_role(
     organization_id: str,
     member_user_id: str,
     new_role: str,
-    current_user_id: str = Depends(get_current_user_id)
+    current_user_id: str = Depends(get_current_user_id_from_token)
 ):
     """Update a member's role (only owner or admin can update)"""
     try:
@@ -195,7 +191,7 @@ async def update_member_role(
 async def remove_member(
     organization_id: str,
     member_user_id: str,
-    current_user_id: str = Depends(get_current_user_id)
+    current_user_id: str = Depends(get_current_user_id_from_token)
 ):
     """Remove a member from organization"""
     try:
@@ -219,7 +215,7 @@ async def remove_member(
 async def create_invitation(
     organization_id: str,
     invitation_data: InvitationCreate,
-    current_user_id: str = Depends(get_current_user_id)
+    current_user_id: str = Depends(get_current_user_id_from_token)
 ):
     """Create an invitation to join organization"""
     try:
@@ -257,7 +253,7 @@ async def get_user_invitations(
 @router.post("/invitations/respond")
 async def respond_to_invitation(
     response: InvitationResponse,
-    current_user_id: str = Depends(get_current_user_id)
+    current_user_id: str = Depends(get_current_user_id_from_token)
 ):
     """Accept or decline an invitation"""
     try:
@@ -283,7 +279,7 @@ async def respond_to_invitation(
 @router.get("/{organization_id}/subscription")
 async def get_organization_subscription(
     organization_id: str,
-    current_user_id: str = Depends(get_current_user_id)
+    current_user_id: str = Depends(get_current_user_id_from_token)
 ):
     """Get organization's subscription information"""
     try:

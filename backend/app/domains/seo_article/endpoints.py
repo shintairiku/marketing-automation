@@ -886,14 +886,9 @@ async def get_realtime_subscription_info(
 
 # --- Article Flow Management Endpoints ---
 
-# Flow CRUD操作用の認証ヘルパー（フロー管理専用）
-# TODO: Add authentication dependency
-# For now, we'll use a placeholder for user_id
-# In production, this should come from JWT token validation
-async def get_current_user_id_for_flows() -> str:
-    """Get current user ID from authentication token (for flow management)"""
-    # This is a placeholder - implement proper JWT validation
-    return "placeholder-user-id"
+# Flow CRUD操作用の認証（フロー管理専用）
+# Use proper Clerk JWT authentication for flows
+from app.common.auth import get_current_user_id_from_token as get_current_user_id_for_flows
 
 @router.post("/flows/", response_model=ArticleFlowRead, status_code=status.HTTP_201_CREATED)
 async def create_flow(
