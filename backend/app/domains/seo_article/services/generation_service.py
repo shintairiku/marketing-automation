@@ -78,9 +78,9 @@ class ArticleGenerationService:
         await websocket.close(code=1000, reason="WebSocket endpoint deprecated. Use HTTP API with Supabase Realtime.")
         return None
 
-    async def get_generation_process_state(self, process_id: str, user_id: str) -> Optional[Dict[str, Any]]:
+    async def get_generation_process_state(self, process_id: str, user_id: str, user_jwt: Optional[str] = None) -> Optional[Dict[str, Any]]:
         """Get generation process state from database"""
-        return await self.persistence_service.get_generation_process_state(process_id, user_id)
+        return await self.persistence_service.get_generation_process_state(process_id, user_id, user_jwt)
 
     async def get_user_articles(
         self, 

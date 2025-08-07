@@ -9,7 +9,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { useArticleGenerationRealtime } from '@/hooks/useArticleGenerationRealtime';
-import { useUser } from '@clerk/nextjs';
+import { useUser, useAuth } from '@clerk/nextjs';
 
 import CompactGenerationFlow from "../component/CompactGenerationFlow";
 import CompactUserInteraction from "../component/CompactUserInteraction";
@@ -23,6 +23,7 @@ interface GenerationProcessPageProps {
 
 export default function GenerationProcessPage({ jobId }: GenerationProcessPageProps) {
     const { user, isLoaded } = useUser();
+    const { getToken } = useAuth();
     const router = useRouter();
     const [thinkingMessages, setThinkingMessages] = useState<string[]>([]);
     const [isLoading, setIsLoading] = useState(true);
@@ -75,10 +76,16 @@ export default function GenerationProcessPage({ jobId }: GenerationProcessPagePr
             
             setIsLoading(true);
             try {
+                // Get JWT token from Clerk
+                const token = await getToken();
+                console.log('🔐 [DEBUG] JWT token length:', token ? token.length : 0);
+                console.log('🔐 [DEBUG] JWT token prefix:', token ? token.substring(0, 20) + '...' : 'none');
+                
                 // プロセス情報を直接取得（新しいAPIエンドポイントを使用）
                 const response = await fetch(`/api/proxy/articles/generation/${jobId}`, {
                     headers: {
                         'Content-Type': 'application/json',
+                        ...(token && { 'Authorization': `Bearer ${token}` }),
                     },
                     credentials: 'include',
                 });

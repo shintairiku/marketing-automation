@@ -330,17 +330,25 @@ class ProcessPersistenceService:
             from app.domains.seo_article.schemas import SerpKeywordAnalysisReport
             context.serp_analysis_report = SerpKeywordAnalysisReport(**context_dict["serp_analysis_report"])
 
-    async def get_generation_process_state(self, process_id: str, user_id: str) -> Optional[Dict[str, Any]]:
+    async def get_generation_process_state(self, process_id: str, user_id: str, user_jwt: Optional[str] = None) -> Optional[Dict[str, Any]]:
         """Get generation process state from database"""
         try:
             from app.domains.seo_article.services.flow_service import get_supabase_client
             supabase = get_supabase_client()
             
             # Get the process state with user access control
+            logger.info(f"🔍 [DB_ACCESS] Looking for process {process_id} with user_id: {user_id}")
             result = supabase.table("generated_articles_state").select("*").eq("id", process_id).eq("user_id", user_id).execute()
             
             if not result.data:
-                logger.warning(f"Process {process_id} not found for user {user_id}")
+                logger.warning(f"🚫 [DB_ACCESS] Process {process_id} not found for user {user_id}")
+                # Additional debug: check if process exists with any user
+                all_result = supabase.table("generated_articles_state").select("id, user_id").eq("id", process_id).execute()
+                if all_result.data:
+                    existing_user = all_result.data[0].get("user_id")
+                    logger.warning(f"🔍 [DB_ACCESS] Process {process_id} EXISTS but with different user_id: {existing_user} (expected: {user_id})")
+                else:
+                    logger.warning(f"🔍 [DB_ACCESS] Process {process_id} does NOT exist in database at all")
                 return None
             
             state = result.data[0]

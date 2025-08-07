@@ -9,7 +9,7 @@ This module provides:
 - AI editing capabilities
 """
 
-from fastapi import APIRouter, status, Depends, HTTPException, Query, BackgroundTasks
+from fastapi import APIRouter, status, Depends, HTTPException, Query, BackgroundTasks, Request
 from typing import List, Optional, Dict, Any
 import logging
 from pydantic import BaseModel, Field
@@ -25,6 +25,9 @@ from .schemas import GenerateArticleRequest
 #     FlowExecutionRequest
 # )
 from app.common.auth import get_current_user_id_from_token
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+
+security = HTTPBearer(auto_error=False)
 
 # TODO: サービス実装完了後に有効化
 # from app.infrastructure.external_apis.article_service import ArticleGenerationService
@@ -224,8 +227,10 @@ async def get_recoverable_processes(
 
 @router.get("/generation/{process_id}", response_model=dict, status_code=status.HTTP_200_OK)
 async def get_generation_process(
+    request: Request,
     process_id: str,
-    user_id: str = Depends(get_current_user_id_from_token)
+    user_id: str = Depends(get_current_user_id_from_token),
+    authorization: Optional[HTTPAuthorizationCredentials] = Depends(security)
 ):
     """
     Get generation process state by ID.
@@ -238,7 +243,16 @@ async def get_generation_process(
     - Generation process state including image_mode and other context data
     """
     try:
-        process_state = await article_service.get_generation_process_state(process_id, user_id)
+        # Debug raw request headers
+        auth_header_raw = request.headers.get("Authorization")
+        logger.info(f"🔐 [ENDPOINT] Raw Authorization header: {auth_header_raw[:30] if auth_header_raw else 'None'}...")
+        logger.info(f"🔐 [ENDPOINT] All headers: {dict(request.headers)}")
+        
+        # Extract JWT token for RLS enforcement
+        user_jwt = authorization.credentials if authorization else None
+        logger.info(f"🔐 [ENDPOINT] Getting process {process_id} for user {user_id} with JWT: {user_jwt is not None}")
+        
+        process_state = await article_service.get_generation_process_state(process_id, user_id, user_jwt)
         if not process_state:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,

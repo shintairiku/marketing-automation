@@ -173,6 +173,8 @@ export const useSupabaseRealtime = ({
       
       // Use API proxy instead of direct Supabase access to avoid RLS issues
       const token = await getToken();
+      console.log(`🔒 [FETCH] Using token for API call, length: ${token?.length || 0}, first 20 chars: ${token?.substring(0, 20) || 'none'}...`);
+      
       const response = await fetch(`/api/proxy/articles/generation/${currentProcessId}`, {
         headers: {
           'Content-Type': 'application/json',
@@ -180,6 +182,8 @@ export const useSupabaseRealtime = ({
         },
         credentials: 'include',
       });
+      
+      console.log(`📡 [FETCH] API response status: ${response.status} ${response.statusText}`);
 
       if (!response.ok) {
         throw new Error(`API call failed: ${response.status} ${response.statusText}`);

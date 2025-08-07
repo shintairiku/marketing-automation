@@ -26,7 +26,11 @@ from app.domains.seo_article.agents.definitions import (
 logger = logging.getLogger(__name__)
 
 def get_supabase_client() -> Client:
-    """Get Supabase client instance"""
+    """Get Supabase client instance with service role key
+    
+    Note: Using service role key bypasses RLS, so we implement 
+    user access control manually in the query logic
+    """
     return create_client(settings.supabase_url, settings.supabase_service_role_key)
 
 # Pydantic models for flow operations
