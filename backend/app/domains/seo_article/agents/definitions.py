@@ -13,7 +13,7 @@ from app.domains.seo_article.schemas import (
     ArticleSectionWithImages, ThemeProposal, ClarificationNeeded,
     ResearchPlan, Outline
 )
-from app.domains.seo_article.agents.tools import web_search_tool, analyze_competitors, get_company_data
+from app.domains.seo_article.agents.tools import web_search_tool
 from app.domains.seo_article.context import ArticleContext
 from app.core.config import settings # 設定をインポート
 from app.domains.seo_article.schemas import PersonaType
@@ -301,8 +301,10 @@ def create_outline_instructions(base_prompt: str) -> Callable[[RunContextWrapper
 
         research_summary = ctx.context.research_report.overall_summary
         company_info_str = ""
-        if ctx.context.company_name or ctx.context.company_description:
+        if ctx.context.company_name or ctx.context.company_description or ctx.context.company_style_guide:
             company_info_str = f"\nクライアント情報:\n  企業名: {ctx.context.company_name or '未設定'}\n  企業概要: {ctx.context.company_description or '未設定'}\n"
+            if ctx.context.company_style_guide:
+                company_info_str += f"  スタイルガイド（トンマナ）: {ctx.context.company_style_guide}\n"
 
         # SerpAPI分析結果を含める
         seo_structure_guidance = ""
@@ -336,9 +338,9 @@ def create_outline_instructions(base_prompt: str) -> Callable[[RunContextWrapper
 ---
 
 **重要:**
-- 上記のテーマと**詳細なリサーチ結果**、そして競合分析の結果（ツール使用）に基づいて、記事のアウトラインを作成してください。
+- 上記のテーマと**詳細なリサーチ結果**、SerpAPI分析結果に基づいて、記事のアウトラインを作成してください。
 - リサーチ結果の**キーポイント（出典情報も考慮）**や面白い切り口をアウトラインに反映させてください。
-- **ターゲットペルソナ「{persona_description}」** が読みやすいように、日本の一般的なブログやコラムのような、**親しみやすく分かりやすいトーン**でアウトラインを作成してください。記事全体のトーンも提案してください。
+- **ターゲットペルソナ「{persona_description}」** が読みやすいように、記事全体のトーンを提案してください。{f'**クライアントのスタイルガイド（{ctx.context.company_style_guide}）に従って**' if ctx.context.company_style_guide else '日本の一般的なブログやコラムのような、**親しみやすく分かりやすいトーン**で'}トーンを決定してください。
 - SerpAPI分析で判明した競合の弱点を補強し、差別化要素を強調した構成にしてください。
 - あなたの応答は必ず `Outline` または `ClarificationNeeded` 型のJSON形式で出力してください。 (APIコンテキストではClarificationNeededはエラーとして処理)
 - 文字数指定がある場合は、それに応じてセクション数や深さを調整してください。
@@ -801,14 +803,14 @@ serp_keyword_analysis_agent = Agent[ArticleContext](
 THEME_AGENT_BASE_PROMPT = """
 あなたはSEO記事のテーマを考案する専門家です。
 与えられたキーワード、ターゲットペルソナ、企業情報を分析し、読者の検索意図とSEO効果を考慮した上で、創造的で魅力的な記事テーマ案を複数生成します。
-必要であれば `get_company_data` ツールで企業情報を補強し、`web_search` ツールで関連トレンドや競合を調査できます。
+`web_search` ツールで関連トレンドや競合を調査できます。
 情報が不足している場合は、ClarificationNeededを返してください。
 """
 theme_agent = Agent[ArticleContext](
     name="ThemeAgent",
     instructions=create_theme_instructions(THEME_AGENT_BASE_PROMPT),
     model=settings.default_model,
-    tools=[get_company_data, web_search_tool],
+    tools=[web_search_tool],
     output_type=Union[ThemeProposal, ClarificationNeeded],
 )
 
@@ -858,8 +860,7 @@ research_synthesizer_agent = Agent[ArticleContext](
 OUTLINE_AGENT_BASE_PROMPT = """
 あなたはSEO記事のアウトライン（構成案）を作成する専門家です。
 選択されたテーマ、目標文字数、企業のスタイルガイド、ターゲットペルソナ、そして詳細なリサーチレポート（キーポイントと出典情報を含む）に基づいて、論理的で網羅的、かつ読者の興味を引く記事のアウトラインを生成します。
-`analyze_competitors` ツールで競合記事の構成を調査し、差別化できる構成を考案します。
-`get_company_data` ツールでスタイルガイドを確認します。
+`web_search` ツールで競合記事の構成を調査し、差別化できる構成を考案します。
 文字数指定に応じて、見出しの数や階層構造を適切に調整します。
 ターゲットペルソナが読みやすいように、親しみやすく分かりやすいトーンで記事全体のトーンも提案してください。
 """
@@ -867,7 +868,7 @@ outline_agent = Agent[ArticleContext](
     name="OutlineAgent",
     instructions=create_outline_instructions(OUTLINE_AGENT_BASE_PROMPT),
     model=settings.writing_model,
-    tools=[analyze_competitors, get_company_data],
+    tools=[web_search_tool],
     output_type=Union[Outline, ClarificationNeeded],
 )
 
