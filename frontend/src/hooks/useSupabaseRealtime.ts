@@ -318,12 +318,19 @@ export const useSupabaseRealtime = ({
           (payload: any) => {
             const event = payload.new as ProcessEvent;
             console.log('📥 Realtime event received:', event);
-            
-            // Use current value from ref instead of state dependency
+
+            // Be tolerant to missing/zero sequence values from DB
             const currentSequence = lastEventSequence;
-            if (event.event_sequence > currentSequence) {
-              setLastEventSequence(event.event_sequence);
-              onEvent?.(event);
+            const incomingSeq = typeof event.event_sequence === 'number' && event.event_sequence > 0
+              ? event.event_sequence
+              : currentSequence + 1;
+
+            // Always forward the event; higher-level hook has robust de-duplication
+            onEvent?.(event);
+
+            // Track progress conservatively
+            if (incomingSeq > currentSequence) {
+              setLastEventSequence(incomingSeq);
             } else {
               console.warn('Out-of-order or duplicate event received:', event.event_sequence, 'last:', currentSequence);
             }

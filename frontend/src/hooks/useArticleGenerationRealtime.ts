@@ -256,7 +256,10 @@ export const useArticleGenerationRealtime = ({
           // We should prioritize this over any intermediate step events
           const isLatestDatabaseState = event.event_type === 'process_state_updated';
           // Handle both current_step and current_step_name fields from backend
-          const backendStep = processData.current_step || processData.current_step_name;
+          // CRITICAL: also fallback to article_context.current_step when root fields are missing
+          const backendStep = processData.current_step 
+            || processData.current_step_name 
+            || processData.article_context?.current_step;
           if (backendStep) {
             const uiStep = mapBackendStepToUIStep(backendStep, processData.status);
             
@@ -331,7 +334,15 @@ export const useArticleGenerationRealtime = ({
               }
             }
           }
-          newState.isWaitingForInput = processData.is_waiting_for_input || false;
+          // Infer waiting state if field not present
+          const waitingFromDb = processData.is_waiting_for_input;
+          if (typeof waitingFromDb === 'boolean') {
+            newState.isWaitingForInput = waitingFromDb;
+          } else {
+            const stepForWaiting = backendStep || processData.article_context?.current_step;
+            const inputSteps = ['persona_generated', 'theme_proposed', 'research_plan_generated', 'outline_generated'];
+            newState.isWaitingForInput = !!stepForWaiting && inputSteps.includes(stepForWaiting);
+          }
           newState.inputType = processData.input_type;
           
           // Handle user input requirements from process metadata

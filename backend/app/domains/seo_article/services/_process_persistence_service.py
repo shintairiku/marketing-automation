@@ -87,6 +87,7 @@ class ProcessPersistenceService:
                 update_data = {
                     "article_context": context_dict,
                     "status": map_step_to_status(context.current_step),
+                    "current_step_name": context.current_step,
                     "updated_at": datetime.now(timezone.utc).isoformat()
                 }
                 
