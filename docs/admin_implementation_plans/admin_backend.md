@@ -5,7 +5,7 @@
 前提・方針
 - 認証・認可: 初期は「全管理者同権限」。危険操作は確認ダイアログ/二重確認で担保（RBAC実装は見送り）。
 - API設計: `backend/app/api/router.py`配下に`/admin`名前空間を追加し、機能別にサブルーター分割。
-- DBアクセス: 基本はSupabase経由（Service Role Key）でPostgREST/SQL実行、または直接Postgres接続。既存RLSはユーザー用/組織用に定義済みだが、バックエンドはService Roleでバイパス。
+- DBアクセス: 現行コーディング標準を厳守。`backend/app/common/database.py` の `create_supabase_client()` で生成されたグローバル `supabase` クライアント（Service Role Key）を唯一のDBアクセスレイヤーとして使用する（psycopg/ORMの直接続は採用しない）。既存RLSはユーザー/組織向けに定義済みだが、管理APIはService Roleで実行。
 - 監査・ログ: 重要操作の監査ログをDBに保存（後述）。
 - Realtime: サポート・進捗監視はSupabase Realtimeのパブリケーションへ登録済/追加。
 
