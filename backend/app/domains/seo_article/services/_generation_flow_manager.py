@@ -274,6 +274,28 @@ class GenerationFlowManager:
     async def handle_persona_user_interaction(self, context: ArticleContext, process_id: Optional[str] = None, user_id: Optional[str] = None):
         """ペルソナ選択のユーザーインタラクション処理"""
         personas_data_for_client = [GeneratedPersonaData(id=i, description=desc) for i, desc in enumerate(context.generated_detailed_personas)]
+        
+        # CRITICAL FIX: Update process state to user_input_required BEFORE requesting user input
+        if process_id and user_id:
+            try:
+                from datetime import datetime, timezone
+                await self.service.persistence_service.update_process_status(
+                    process_id=process_id,
+                    status="user_input_required",
+                    current_step=context.current_step,
+                    metadata={
+                        "input_type": "select_persona",
+                        "waiting_since": datetime.now(timezone.utc).isoformat(),
+                    }
+                )
+                # Save context with generated personas to DB
+                await self.service.persistence_service.save_context_to_db(
+                    context, process_id=process_id, user_id=user_id
+                )
+                logger.info("Process state and context saved successfully before requesting persona selection")
+            except Exception as save_err:
+                logger.error(f"Failed to update process state before persona selection: {save_err}")
+        
         user_response_message = await self.service.utils.request_user_input(
             context,
             UserInputType.SELECT_PERSONA,
@@ -449,6 +471,27 @@ class GenerationFlowManager:
             ThemeProposalData(title=idea.title, description=idea.description, keywords=idea.keywords)
             for idea in context.generated_themes
         ]
+        
+        # CRITICAL FIX: Update process state to user_input_required BEFORE requesting user input
+        if process_id and user_id:
+            try:
+                from datetime import datetime, timezone
+                await self.service.persistence_service.update_process_status(
+                    process_id=process_id,
+                    status="user_input_required",
+                    current_step=context.current_step,
+                    metadata={
+                        "input_type": "select_theme",
+                        "waiting_since": datetime.now(timezone.utc).isoformat(),
+                    }
+                )
+                # Save context with generated themes to DB
+                await self.service.persistence_service.save_context_to_db(
+                    context, process_id=process_id, user_id=user_id
+                )
+                logger.info("Process state and context saved successfully before requesting theme selection")
+            except Exception as save_err:
+                logger.error(f"Failed to update process state before theme selection: {save_err}")
         
         user_response_message = await self.service.utils.request_user_input(
             context,
@@ -1592,6 +1635,22 @@ class GenerationFlowManager:
             context.current_step = "outline_generated"
             console.print(f"[cyan]アウトライン（{len(agent_output.sections)}セクション）を生成しました。[/cyan]")
             
+            # CRITICAL FIX: Save context to database IMMEDIATELY after outline generation
+            # This ensures the generated outline is persisted and survives page reloads
+            process_id = getattr(context, 'process_id', None)
+            user_id = getattr(context, 'user_id', None)
+            
+            if process_id and user_id and hasattr(self.service, 'persistence_service'):
+                try:
+                    await self.service.persistence_service.save_context_to_db(
+                        context, process_id=process_id, user_id=user_id
+                    )
+                    logger.info(f"✅ Context with generated outline saved to DB for process {process_id}")
+                except Exception as save_err:
+                    logger.error(f"❌ Failed to save context after outline generation: {save_err}")
+            else:
+                logger.warning(f"⚠️ Cannot save context - missing process_id: {process_id}, user_id: {user_id}, or persistence_service")
+            
             # Publish outline generation completion event for Supabase Realtime
             try:
                 from .flow_service import get_supabase_client
@@ -1976,6 +2035,28 @@ class GenerationFlowManager:
         """アウトライン生成完了ステップの処理"""
         if context.generated_outline:
             outline_data_for_client = context.generated_outline
+            
+            # CRITICAL FIX: Update process state to user_input_required BEFORE requesting user input
+            # This ensures DB state is persistent and survives page reloads
+            if process_id and user_id:
+                try:
+                    from datetime import datetime, timezone
+                    await self.service.persistence_service.update_process_status(
+                        process_id=process_id,
+                        status="user_input_required",
+                        current_step=context.current_step,
+                        metadata={
+                            "input_type": "approve_outline",
+                            "waiting_since": datetime.now(timezone.utc).isoformat(),
+                        }
+                    )
+                    # Save context with generated outline to DB
+                    await self.service.persistence_service.save_context_to_db(
+                        context, process_id=process_id, user_id=user_id
+                    )
+                    logger.info("Process state and context saved successfully before requesting outline approval")
+                except Exception as save_err:
+                    logger.error(f"Failed to update process state before outline approval: {save_err}")
             
             user_response_message = await self.service.utils.request_user_input(
                 context,
@@ -2774,6 +2855,27 @@ class GenerationFlowManager:
                     topic=context.research_plan.topic,
                     queries=[ResearchPlanQueryData(query=q.query, focus=q.focus) for q in context.research_plan.queries]
                 )
+                
+                # CRITICAL FIX: Update process state to user_input_required BEFORE requesting user input
+                if process_id and user_id:
+                    try:
+                        from datetime import datetime, timezone
+                        await self.service.persistence_service.update_process_status(
+                            process_id=process_id,
+                            status="user_input_required",
+                            current_step=context.current_step,
+                            metadata={
+                                "input_type": "approve_plan",
+                                "waiting_since": datetime.now(timezone.utc).isoformat(),
+                            }
+                        )
+                        # Save context with research plan to DB
+                        await self.service.persistence_service.save_context_to_db(
+                            context, process_id=process_id, user_id=user_id
+                        )
+                        logger.info("Process state and context saved successfully before requesting research plan approval")
+                    except Exception as save_err:
+                        logger.error(f"Failed to update process state before research plan approval: {save_err}")
                 
                 user_response_message = await self.service.utils.request_user_input(
                     context,

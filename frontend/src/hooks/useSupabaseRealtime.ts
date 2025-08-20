@@ -78,9 +78,13 @@ export const useSupabaseRealtime = ({
   onDataSync,
   onConnectionStateChange,
   autoConnect = true,
-  enableDataSync = true,
-  syncInterval = 30,
+  enableDataSync = false, // FORCE DISABLE: No polling allowed
+  syncInterval = 0, // FORCE DISABLE: No periodic sync
 }: UseSupabaseRealtimeOptions) => {
+  // FORCE DISABLE POLLING - Database is single source of truth via Realtime
+  console.log('🚫 Polling forced disabled - database is single source of truth');
+  const actualEnableDataSync = false; // Force disabled - never poll
+  const actualSyncInterval = 0; // Force disabled - no periodic sync
   const { getToken } = useAuth();
   const [isConnected, setIsConnected] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
@@ -144,38 +148,35 @@ export const useSupabaseRealtime = ({
   const fetchProcessDataRef = useRef<(() => Promise<GeneratedArticleState | null>) | null>(null);
   
   const fetchProcessData = useCallback(async (): Promise<GeneratedArticleState | null> => {
-    const currentProcessId = processId;
-    const currentUserId = userId;
-    const currentCurrentData = currentData;
-    
-    console.log('🔍 [DEBUG] fetchProcessData called with:', {
-      processId: currentProcessId,
-      userId: currentUserId,
-      hasUserId: !!currentUserId,
-      userIdLength: currentUserId?.length || 0
-    });
-    
-    if (!currentProcessId) {
+    // Use current prop values instead of stale closure values
+    if (!processId) {
       console.log('❌ [DEBUG] No processId provided');
       return null;
     }
     
-    if (!currentUserId) {
+    if (!userId) {
       console.log('❌ [DEBUG] No userId provided - authentication may not be ready');
       return null;
     }
+    
+    console.log('🔍 [DEBUG] fetchProcessData called with:', {
+      processId: processId,
+      userId: userId,
+      hasUserId: !!userId,
+      userIdLength: userId?.length || 0
+    });
 
     try {
       setIsSyncing(true);
       connectionMetrics.current.dataConsistencyChecks++;
 
-      console.log(`🔄 Fetching process data via API proxy for: ${currentProcessId}`);
+      console.log(`🔄 [INITIAL LOAD ONLY] Fetching process data via API proxy for: ${processId}`);
       
       // Use API proxy instead of direct Supabase access to avoid RLS issues
       const token = await getToken();
       console.log(`🔒 [FETCH] Using token for API call, length: ${token?.length || 0}, first 20 chars: ${token?.substring(0, 20) || 'none'}...`);
       
-      const response = await fetch(`/api/proxy/articles/generation/${currentProcessId}`, {
+      const response = await fetch(`/api/proxy/articles/generation/${processId}`, {
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`,
@@ -192,7 +193,7 @@ export const useSupabaseRealtime = ({
       const data = await response.json();
 
       if (!data) {
-        console.warn(`No process data found for ID: ${currentProcessId}`);
+        console.warn(`No process data found for ID: ${processId}`);
         return null;
       }
 
@@ -208,9 +209,9 @@ export const useSupabaseRealtime = ({
       }
 
       // Conflict resolution: compare with current data
-      if (currentCurrentData && data.updated_at) {
+      if (currentData && data.updated_at) {
         const fetchedTime = new Date(data.updated_at);
-        const currentTime = currentCurrentData.updated_at ? new Date(currentCurrentData.updated_at) : new Date(0);
+        const currentTime = currentData.updated_at ? new Date(currentData.updated_at) : new Date(0);
         
         if (fetchedTime < currentTime) {
           console.warn('Fetched data is older than current data - potential conflict');
@@ -244,7 +245,7 @@ export const useSupabaseRealtime = ({
     } finally {
       setIsSyncing(false);
     }
-  }, []); // NO DEPENDENCIES - use current values directly
+  }, [processId, userId, getToken, validateData, onDataSync, currentData]); // Add dependencies for correct updates
   
   // Update the ref whenever dependencies would change
   useEffect(() => {
@@ -363,21 +364,10 @@ export const useSupabaseRealtime = ({
           },
           (payload: any) => {
             const processState = payload.new;
-            console.log('📥 Process state updated:', processState);
+            console.log('📥 Process state row updated via postgres_changes:', processState);
             
-            // Use current value from ref instead of state dependency
-            const currentSequence = lastEventSequence;
-            const syntheticEvent: ProcessEvent = {
-              id: `state_${Date.now()}`,
-              process_id: processId,
-              event_type: 'process_state_updated',
-              event_data: processState,
-              event_sequence: currentSequence + 1,
-              created_at: new Date().toISOString(),
-            };
-            
-            setLastEventSequence(syntheticEvent.event_sequence);
-            onEvent?.(syntheticEvent);
+            // Use unified ingestion instead of synthetic events
+            onDataSync?.(processState);
           }
         )
         .subscribe(async (status: any, error?: any) => {
@@ -394,47 +384,13 @@ export const useSupabaseRealtime = ({
             reconnectAttempts.current = 0;
             connectionInProgressRef.current = false; // Clear connection guard
             
-            // Comprehensive data sync on connection - use current function
-            console.log('🔄 Starting comprehensive data sync...');
+            // SINGLE INITIAL DATA SYNC ONLY - No polling, database is single source of truth
+            console.log('🔄 Starting initial data sync (one-time only)...');
             if (fetchProcessDataRef.current) {
               await fetchProcessDataRef.current();
             }
             
-            // Fetch missed events inline to avoid dependency issues
-            if (processId) {
-              try {
-                const currentSequence = lastEventSequence;
-                console.log(`📥 Fetching missed events since sequence ${currentSequence}`);
-                
-                const token = await getToken();
-                const response = await fetch(
-                  `/api/proxy/articles/generation/${processId}/events?since_sequence=${currentSequence}&limit=50`,
-                  {
-                    headers: {
-                      'Content-Type': 'application/json',
-                      'Authorization': `Bearer ${token}`,
-                    },
-                    credentials: 'include',
-                  }
-                );
-
-                if (response.ok) {
-                  const events: ProcessEvent[] = await response.json();
-                  console.log(`📥 Fetched ${events.length} missed events`);
-                  
-                  events.forEach(event => {
-                    if (event.event_sequence > currentSequence) {
-                      setLastEventSequence(event.event_sequence);
-                      onEvent?.(event);
-                    }
-                  });
-                } else {
-                  console.warn('Failed to fetch missed events:', response.statusText);
-                }
-              } catch (err) {
-                console.warn('Failed to fetch missed events:', err);
-              }
-            }
+            // NO MISSED EVENTS FETCHING - Realtime will provide all updates
             
             // Process any queued actions - use current function
             if (processQueuedActionsRef.current) {
@@ -561,43 +517,12 @@ export const useSupabaseRealtime = ({
     onConnectionStateChange?.(false, connectionMetrics.current);
   }, [onConnectionStateChange]);
 
-  // Fetch missed events from API
+  // DISABLED: No missed events fetching - Realtime provides all events
   const fetchMissedEvents = useCallback(async () => {
-    if (!processId) return;
-    
-    try {
-      const currentSequence = lastEventSequence;
-      console.log(`📥 Fetching missed events since sequence ${currentSequence}`);
-      
-      const token = await getToken();
-      const response = await fetch(
-        `/api/proxy/articles/generation/${processId}/events?since_sequence=${currentSequence}&limit=50`,
-        {
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`,
-          },
-          credentials: 'include',
-        }
-      );
-
-      if (response.ok) {
-        const events: ProcessEvent[] = await response.json();
-        console.log(`📥 Fetched ${events.length} missed events`);
-        
-        events.forEach(event => {
-          if (event.event_sequence > currentSequence) {
-            setLastEventSequence(event.event_sequence);
-            onEvent?.(event);
-          }
-        });
-      } else {
-        console.warn('Failed to fetch missed events:', response.statusText);
-      }
-    } catch (err) {
-      console.warn('Failed to fetch missed events:', err);
-    }
-  }, [processId, onEvent, getToken, lastEventSequence]);
+    console.log('🚫 fetchMissedEvents disabled - relying on Supabase Realtime only');
+    // NO API POLLING - database is single source of truth via Realtime
+    return;
+  }, []);
 
   // Queue action for later execution if disconnected - STABLE VERSION
   const queueAction = useCallback(async (action: () => Promise<void>) => {
@@ -624,23 +549,18 @@ export const useSupabaseRealtime = ({
     }
   }, []); // NO DEPENDENCIES - use current values directly
 
+  // DISABLED: No periodic polling - database is single source of truth via Realtime
   // Setup periodic data sync if enabled
   useEffect(() => {
-    if (enableDataSync && isConnected && syncInterval > 0) {
-      console.log(`🔄 Setting up periodic data sync every ${syncInterval} seconds`);
-      
-      syncIntervalRef.current = setInterval(() => {
-        fetchProcessData();
-      }, syncInterval * 1000);
-      
-      return () => {
-        if (syncIntervalRef.current) {
-          clearInterval(syncIntervalRef.current);
-          syncIntervalRef.current = null;
-        }
-      };
-    }
-  }, [enableDataSync, isConnected, syncInterval, fetchProcessData]);
+    // FORCING DISABLED: No periodic sync to ensure database is single source of truth
+    console.log('🚫 Periodic data sync disabled - relying on Supabase Realtime only');
+    return () => {
+      if (syncIntervalRef.current) {
+        clearInterval(syncIntervalRef.current);
+        syncIntervalRef.current = null;
+      }
+    };
+  }, []);
 
   // SINGLE useEffect for connection management - prevents double cleanup
   useEffect(() => {
@@ -697,8 +617,8 @@ export const useSupabaseRealtime = ({
     queueAction,
     validateData,
     
-    // Computed state
-    isDataStale: lastSyncTime ? (Date.now() - lastSyncTime.getTime()) > (syncInterval * 1000 * 2) : true,
+    // Computed state  
+    isDataStale: lastSyncTime ? (Date.now() - lastSyncTime.getTime()) > (actualSyncInterval * 1000 * 2) : true,
     canPerformActions: isConnected && !isSyncing && !error,
     reconnectAttempts: reconnectAttempts.current,
   };

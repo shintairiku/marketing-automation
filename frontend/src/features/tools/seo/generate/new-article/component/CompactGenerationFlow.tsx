@@ -38,6 +38,8 @@ interface CompactGenerationFlowProps {
   isConnected: boolean;
   isGenerating: boolean;
   progressPercentage: number;
+  isWaitingForInput?: boolean;
+  status?: string;
   finalArticle?: {
     title: string;
     content: string;
@@ -104,6 +106,8 @@ export default memo(function CompactGenerationFlow({
   isConnected,
   isGenerating,
   progressPercentage,
+  isWaitingForInput,
+  status,
   finalArticle,
   currentMessage,
   generatedContent,
@@ -326,7 +330,8 @@ export default memo(function CompactGenerationFlow({
           <div className="grid grid-cols-4 gap-2">
             {steps.map((step, index) => {
               const Icon = stepIcons[step.id as keyof typeof stepIcons] || FileText;
-              const isActive = step.status === 'in_progress';
+              // Don't show spinner if waiting for user input or status is user_input_required
+              const isActive = step.status === 'in_progress' && !isWaitingForInput && status !== 'user_input_required';
               
               return (
                 <motion.div
@@ -357,13 +362,16 @@ export default memo(function CompactGenerationFlow({
                         >
                           <Check className="w-4 h-4" />
                         </motion.div>
-                      ) : step.status === 'in_progress' ? (
+                      ) : step.status === 'in_progress' && !isWaitingForInput && status !== 'user_input_required' ? (
                         <motion.div
                           animate={{ rotate: 360 }}
                           transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
                         >
                           <Icon className="w-4 h-4" />
                         </motion.div>
+                      ) : step.status === 'in_progress' ? (
+                        // Show static icon when waiting for input (approval state)
+                        <Icon className="w-4 h-4" />
                       ) : step.status === 'error' ? (
                         <motion.div
                           animate={{ x: [0, -1, 1, -1, 1, 0] }}
@@ -382,7 +390,7 @@ export default memo(function CompactGenerationFlow({
                       {step.name || step.title}
                     </h3>
                     
-                    {step.status === 'in_progress' && (
+                    {step.status === 'in_progress' && !isWaitingForInput && status !== 'user_input_required' && (
                       <motion.div
                         animate={{ 
                           scale: [1, 1.2, 1],
