@@ -1042,6 +1042,30 @@ export const useArticleGenerationRealtime = ({
       // UI state will be updated by 'persona_selection_completed' realtime event
       return { success: true };
     } catch (error) {
+      // Handle timing race condition where process has already moved to next step
+      if (error instanceof Error && error.message.includes('Bad Request')) {
+        console.warn('Persona selection failed - likely due to timing race condition, checking current process state');
+        
+        try {
+          // Refresh process state to check if it has moved to the next step
+          const freshData = await fetchProcessData();
+          
+          // If process is now in theme selection or later, treat as success
+          const currentStep = freshData?.currentStep;
+          if (currentStep === 'theme_selection' || 
+              currentStep === 'research_planning' || 
+              currentStep === 'outline_generation' || 
+              currentStep === 'section_writing' || 
+              currentStep === 'editing' || 
+              currentStep === 'completed') {
+            console.log('Process has already progressed beyond persona selection - treating selection as successful');
+            return { success: true };
+          }
+        } catch (refreshError) {
+          console.error('Failed to refresh process state:', refreshError);
+        }
+      }
+      
       // Rollback on error
       setState((prev: GenerationState) => ({
         ...prev,
@@ -1051,7 +1075,7 @@ export const useArticleGenerationRealtime = ({
       }));
       return { success: false, error: error instanceof Error ? error.message : 'ペルソナ選択に失敗しました' };
     }
-  }, [submitUserInput, isConnected]);
+  }, [submitUserInput, isConnected, fetchProcessData]);
 
   const selectTheme = useCallback(async (themeIndex: number): Promise<ActionResult> => {
     // Only proceed if connected to Supabase Realtime
@@ -1074,6 +1098,29 @@ export const useArticleGenerationRealtime = ({
       // UI state will be updated by 'theme_selection_completed' realtime event
       return { success: true };
     } catch (error) {
+      // Handle timing race condition where process has already moved to next step
+      if (error instanceof Error && error.message.includes('Bad Request')) {
+        console.warn('Theme selection failed - likely due to timing race condition, checking current process state');
+        
+        try {
+          // Refresh process state to check if it has moved to the next step
+          const freshData = await fetchProcessData();
+          
+          // If process is now in research planning or later, treat as success
+          const currentStep = freshData?.currentStep;
+          if (currentStep === 'research_planning' || 
+              currentStep === 'outline_generation' || 
+              currentStep === 'section_writing' || 
+              currentStep === 'editing' || 
+              currentStep === 'completed') {
+            console.log('Process has already progressed beyond theme selection - treating selection as successful');
+            return { success: true };
+          }
+        } catch (refreshError) {
+          console.error('Failed to refresh process state:', refreshError);
+        }
+      }
+      
       // Rollback on error
       setState((prev: GenerationState) => ({
         ...prev,
@@ -1083,7 +1130,7 @@ export const useArticleGenerationRealtime = ({
       }));
       return { success: false, error: error instanceof Error ? error.message : 'テーマ選択に失敗しました' };
     }
-  }, [submitUserInput, isConnected]);
+  }, [submitUserInput, isConnected, fetchProcessData]);
 
   const approvePlan = useCallback(async (approved: boolean): Promise<ActionResult> => {
     // Only proceed if connected to Supabase Realtime
@@ -1106,6 +1153,28 @@ export const useArticleGenerationRealtime = ({
       // UI state will be updated by 'research_plan_approval_completed' realtime event
       return { success: true };
     } catch (error) {
+      // Handle timing race condition where process has already moved to next step
+      if (error instanceof Error && error.message.includes('Bad Request')) {
+        console.warn('Plan approval failed - likely due to timing race condition, checking current process state');
+        
+        try {
+          // Refresh process state to check if it has moved to the next step
+          const freshData = await fetchProcessData();
+          
+          // If process is now in outline generation or later, treat as success
+          const currentStep = freshData?.currentStep;
+          if (currentStep === 'outline_generation' || 
+              currentStep === 'section_writing' || 
+              currentStep === 'editing' || 
+              currentStep === 'completed') {
+            console.log('Process has already progressed beyond plan approval - treating approval as successful');
+            return { success: true };
+          }
+        } catch (refreshError) {
+          console.error('Failed to refresh process state:', refreshError);
+        }
+      }
+      
       // Rollback on error
       setState((prev: GenerationState) => ({
         ...prev,
@@ -1115,7 +1184,7 @@ export const useArticleGenerationRealtime = ({
       }));
       return { success: false, error: error instanceof Error ? error.message : 'リサーチ計画承認に失敗しました' };
     }
-  }, [submitUserInput, isConnected]);
+  }, [submitUserInput, isConnected, fetchProcessData]);
 
   const approveOutline = useCallback(async (approved: boolean): Promise<ActionResult> => {
     // Only proceed if connected to Supabase Realtime
@@ -1138,6 +1207,27 @@ export const useArticleGenerationRealtime = ({
       // UI state will be updated by 'outline_approval_completed' realtime event
       return { success: true };
     } catch (error) {
+      // Handle timing race condition where process has already moved to next step
+      if (error instanceof Error && error.message.includes('Bad Request')) {
+        console.warn('Outline approval failed - likely due to timing race condition, checking current process state');
+        
+        try {
+          // Refresh process state to check if it has moved to the next step
+          const freshData = await fetchProcessData();
+          
+          // If process is now in section writing or later, treat as success
+          const currentStep = freshData?.currentStep;
+          if (currentStep === 'section_writing' || 
+              currentStep === 'editing' || 
+              currentStep === 'completed') {
+            console.log('Process has already progressed to section writing - treating approval as successful');
+            return { success: true };
+          }
+        } catch (refreshError) {
+          console.error('Failed to refresh process state:', refreshError);
+        }
+      }
+      
       // Rollback on error
       setState((prev: GenerationState) => ({
         ...prev,
@@ -1147,7 +1237,7 @@ export const useArticleGenerationRealtime = ({
       }));
       return { success: false, error: error instanceof Error ? error.message : 'アウトライン承認に失敗しました' };
     }
-  }, [submitUserInput, isConnected]);
+  }, [submitUserInput, isConnected, fetchProcessData]);
 
   const pauseGeneration = useCallback(async () => {
     if (!processId) return false;
