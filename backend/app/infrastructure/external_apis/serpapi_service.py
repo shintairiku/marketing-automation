@@ -7,10 +7,8 @@ from bs4 import BeautifulSoup, NavigableString
 from serpapi.google_search import GoogleSearch  # type: ignore[import-untyped]
 from app.core.config import settings
 import urllib.robotparser
-from app.infrastructure.gcp_auth import setup_genai_client
 from urllib.parse import urlparse
 import time # ★ 追加: 時間計測用
-import google.generativeai as genai # ★ 追加: Gemini API用
 import re # ★ 追加: 正規表現用（著者情報抽出など）
 
 # スクレイピング時のデフォルトユーザーエージェント
@@ -68,6 +66,9 @@ class SerpAPIService:
         # 設定から正しく読み込み
         self.api_key = settings.serpapi_key
         self.robot_parsers: Dict[str, Optional[urllib.robotparser.RobotFileParser]] = {} # robots.txtパーサーのキャッシュ
+        self.scraping_cache: Dict[str, Dict[str, Any]] = {} # スクレイピング結果のキャッシュ
+        self.cache_timestamp: Dict[str, float] = {} # キャッシュタイムスタンプ
+        self.cache_ttl = 3600  # 1時間のTTL
         
     def _ensure_api_key(self):
         """APIキーが設定されているかチェックし、なければ例外を発生させる"""
@@ -222,104 +223,115 @@ class SerpAPIService:
 
     async def _scrape_articles(self, search_results: Dict[str, Any], num_articles: int) -> List[ScrapedArticle]:
         """
-        検索結果からURLを抽出してスクレイピング (robots.txt対応)
+        検索結果からURLを抽出して並列スクレイピング (robots.txt対応)
         """
-        scraped_articles: List[ScrapedArticle] = [] 
+        print(f"開始: {num_articles}記事の並列スクレイピング")
+        start_time = time.time()
         
-        # related_questionsからURLを取得してスクレイピング
+        # URLとメタデータを収集
+        scraping_tasks = []
+        
+        # related_questionsからURL収集
         related_questions = search_results.get("related_questions", [])
         for i, question_data in enumerate(related_questions[:2]):  # 最大2件
-            if len(scraped_articles) >= num_articles:
+            if len(scraping_tasks) >= num_articles:
                 break
-            
             url = question_data.get("link")
             if url:
-                # ★ robots.txt チェック追加
-                if not await self._can_fetch(url, self.USER_AGENT):
-                    print(f"Skipping (robots.txt): {url}")
-                    continue
-                try:
-                    print(f"Scraping related question URL: {url}")
-                    article_data = await self._scrape_url_real(url)
-                    if article_data:
-                        scraped_articles.append(ScrapedArticle(
-                            url=url,
-                            title=article_data.get("title", question_data.get("title", f"関連質問記事 {i+1}")),
-                            headings=article_data.get("headings", []),
-                            content=article_data.get("content", ""),
-                            char_count=article_data.get("char_count", 0),
-                            image_count=article_data.get("image_count", 0),
-                            source_type="related_question",
-                            question=question_data.get("question"),
-                            video_count=article_data.get("video_count", 0),
-                            table_count=article_data.get("table_count", 0),
-                            list_item_count=article_data.get("list_item_count", 0),
-                            external_link_count=article_data.get("external_link_count", 0),
-                            internal_link_count=article_data.get("internal_link_count", 0),
-                            author_info=article_data.get("author_info"),
-                            publish_date=article_data.get("publish_date"),
-                            modified_date=article_data.get("modified_date"),
-                            schema_types=article_data.get("schema_types", [])
-                        ))
-                    await asyncio.sleep(settings.scraping_delay) # ★ 追加: スクレイピング後に遅延
-                except Exception as e:
-                    print(f"関連質問記事のスクレイピングエラー {url}: {e}")
-                    await asyncio.sleep(settings.scraping_delay) # ★ 追加: エラー時も遅延（次のリクエストのため）
-                    continue # 次のURLへ
+                scraping_tasks.append({
+                    "url": url,
+                    "source_type": "related_question",
+                    "question": question_data.get("question"),
+                    "title_fallback": question_data.get("title", f"関連質問記事 {i+1}"),
+                    "position": None
+                })
         
-        # organic_resultsからURLを取得してスクレイピング
+        # organic_resultsからURL収集
         organic_results = search_results.get("organic_results", [])
-        processed_organic_urls = set() # 同じURLを複数回処理しないように
-
-        for result in organic_results: # まずはnum_articlesの制限なしにループ
-            if len(scraped_articles) >= num_articles:
-                 break # 必要な記事数が集まったら終了
-                
-            url = result.get("link")
-            if url and url not in processed_organic_urls:
-                processed_organic_urls.add(url) #処理済みとして記録
-                
-                if not await self._can_fetch(url, self.USER_AGENT): # ★ robots.txt チェック追加
-                    print(f"Skipping (robots.txt): {url}")
-                    continue
-                try:
-                    print(f"Scraping organic result URL: {url}")
-                    article_data = await self._scrape_url_real(url)
-                    if article_data:
-                        scraped_articles.append(ScrapedArticle(
-                            url=url, # オリジナルのURLを保存
-                            title=article_data.get("title", result.get("title", "取得した記事")),
-                            headings=article_data.get("headings", []),
-                            content=article_data.get("content", ""),
-                            char_count=article_data.get("char_count", 0),
-                            image_count=article_data.get("image_count", 0),
-                            source_type="organic_result",
-                            position=result.get("position"),
-                            video_count=article_data.get("video_count", 0),
-                            table_count=article_data.get("table_count", 0),
-                            list_item_count=article_data.get("list_item_count", 0),
-                            external_link_count=article_data.get("external_link_count", 0),
-                            internal_link_count=article_data.get("internal_link_count", 0),
-                            author_info=article_data.get("author_info"),
-                            publish_date=article_data.get("publish_date"),
-                            modified_date=article_data.get("modified_date"),
-                            schema_types=article_data.get("schema_types", [])
-                        ))
-                    await asyncio.sleep(settings.scraping_delay) # ★ 追加: スクレイピング後に遅延
-                except Exception as e:
-                    print(f"記事のスクレイピングエラー {url}: {e}")
-                    await asyncio.sleep(settings.scraping_delay) # ★ 追加: エラー時も遅延（次のリクエストのため）
-                    continue # 次のURLへ
+        processed_urls = {task["url"] for task in scraping_tasks}
         
-        # スクレイピングできた記事が少ない場合、モックデータで補完 (要件に応じて削除/変更)
-        if len(scraped_articles) < num_articles:
-            print(f"スクレイピング記事数が不足 ({len(scraped_articles)}/{num_articles})。モック補完は行いません。")
-            # mock_needed = num_articles - len(scraped_articles)
-            # mock_articles = self._get_mock_scraped_articles(search_results, mock_needed)
-            # scraped_articles.extend(mock_articles)
-            pass
-
-        return scraped_articles[:num_articles] # 最終的にnum_articlesに切り詰める
+        for result in organic_results:
+            if len(scraping_tasks) >= num_articles:
+                break
+            url = result.get("link")
+            if url and url not in processed_urls:
+                scraping_tasks.append({
+                    "url": url,
+                    "source_type": "organic_result",
+                    "position": result.get("position"),
+                    "title_fallback": result.get("title", "取得した記事"),
+                    "question": None
+                })
+                processed_urls.add(url)
+        
+        print(f"収集したURL数: {len(scraping_tasks)}")
+        
+        # 並列実行用のセマフォで同時実行数を制限
+        semaphore = asyncio.Semaphore(settings.max_concurrent_scraping)
+        
+        async def scrape_single_article(task_info: Dict[str, Any]) -> Optional[ScrapedArticle]:
+            async with semaphore:
+                url = task_info["url"]
+                try:
+                    # robots.txtチェック
+                    if not await self._can_fetch(url, self.USER_AGENT):
+                        print(f"Skipping (robots.txt): {url}")
+                        return None
+                    
+                    print(f"Scraping: {url}")
+                    article_data = await self._scrape_url_real(url)
+                    
+                    if not article_data:
+                        return None
+                    
+                    # ScrapedArticleオブジェクト作成
+                    scraped_article = ScrapedArticle(
+                        url=url,
+                        title=article_data.get("title", task_info["title_fallback"]),
+                        headings=article_data.get("headings", []),
+                        content=article_data.get("content", ""),
+                        char_count=article_data.get("char_count", 0),
+                        image_count=article_data.get("image_count", 0),
+                        source_type=task_info["source_type"],
+                        position=task_info["position"],
+                        question=task_info["question"],
+                        video_count=article_data.get("video_count", 0),
+                        table_count=article_data.get("table_count", 0),
+                        list_item_count=article_data.get("list_item_count", 0),
+                        external_link_count=article_data.get("external_link_count", 0),
+                        internal_link_count=article_data.get("internal_link_count", 0),
+                        author_info=article_data.get("author_info"),
+                        publish_date=article_data.get("publish_date"),
+                        modified_date=article_data.get("modified_date"),
+                        schema_types=article_data.get("schema_types", [])
+                    )
+                    
+                    # 成功時は短い遅延
+                    await asyncio.sleep(0.2)
+                    return scraped_article
+                    
+                except Exception as e:
+                    print(f"スクレイピングエラー {url}: {e}")
+                    # エラー時は少し長い遅延
+                    await asyncio.sleep(0.5)
+                    return None
+        
+        # すべてのタスクを並列実行
+        tasks = [scrape_single_article(task_info) for task_info in scraping_tasks]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        
+        # 成功した結果のみを収集
+        scraped_articles = []
+        for result in results:
+            if isinstance(result, ScrapedArticle):
+                scraped_articles.append(result)
+            elif isinstance(result, Exception):
+                print(f"Task exception: {result}")
+        
+        elapsed_time = time.time() - start_time
+        print(f"完了: {len(scraped_articles)}/{len(scraping_tasks)}記事スクレイピング ({elapsed_time:.2f}秒)")
+        
+        return scraped_articles[:num_articles]
     
     # 実際のSerpAPI呼び出し用の関数（後で実装）
     async def _call_serpapi_real(self, query: str) -> Dict[str, Any]:
@@ -393,145 +405,6 @@ class SerpAPIService:
             classified_headings.append(new_node)
         return classified_headings
     
-    async def _classify_headings_semantically_gemini(self, structured_headings: List[Dict[str, Any]], original_url: str = "N/A") -> List[Dict[str, Any]]:
-        """Gemini API を使用して見出しリストを意味的に分類する。"""
-        if not settings.gemini_api_key:
-            print("Gemini APIキーが設定されていません。ルールベースの分類フォールバックも現状ありません。")
-            for heading in structured_headings:
-                heading['semantic_type'] = 'body' 
-                if heading.get('children'):
-                    # 再帰呼び出しにも original_url を渡す
-                    await self._classify_headings_semantically_gemini(heading['children'], original_url)
-            return structured_headings
-
-        try:
-            setup_genai_client()
-        except Exception as e:
-            print(f"Gemini APIキーの設定に失敗しました: {e}")
-            for heading in structured_headings: # フォールバック
-                heading['semantic_type'] = 'body'
-                if heading.get('children'):
-                     # 再帰呼び出しにも original_url を渡す
-                     await self._classify_headings_semantically_gemini(heading['children'], original_url)
-            return structured_headings
-
-        model = genai.GenerativeModel('gemini-2.0-flash') # または 'gemini-pro'
-        
-        # APIに渡すために見出しテキストのリストを準備 (IDも振る)
-        def _flatten_headings(headings_list, prefix=""):
-            flat_list = []
-            for i, heading in enumerate(headings_list):
-                heading_id = f"{prefix}{i+1}"
-                flat_list.append({"id": heading_id, "text": heading["text"], "level": heading["level"]})
-                if heading.get("children"):
-                    flat_list.extend(_flatten_headings(heading["children"], f"{heading_id}."))
-            return flat_list
-
-        flat_headings_with_ids = _flatten_headings(structured_headings)
-        
-        if not flat_headings_with_ids:
-            return structured_headings
-
-        # プロンプトの準備
-        prompt_headings = [{"id": h["id"], "text": h["text"], "level": h["level"]} for h in flat_headings_with_ids]
-        
-        # Gemini用のプロンプト (OpenAI版のものをベースに調整)
-        full_prompt = (
-            "あなたは、与えられた記事の見出しリストを分析し、各見出しが記事全体の構造の中でどのような意味的役割を持つかを判断するAIアシスタントです。\\n"
-            "以下の指示に従って、各見出しを最も適切と思われるカテゴリに分類してください。\\n\\n"
-            "【分類カテゴリと判断ヒント】\\n"
-            "1. 'introduction': 記事全体の導入部、序論、概要、目的、背景などを説明する見出し。\\n"
-            "   - キーワード例: 「はじめに」「序論」「導入」「概要」「この記事について」「目的」「背景」「～とは？」\\n"
-            "   - 記事の最初の方（特に最初のH1またはH2）に出現しやすい。\\n"
-            "2. 'body': 記事の本論部分。主題に関する具体的な説明、議論、方法、手順、事例、メリット・デメリット、分析、考察など。\\n"
-            "   - 上記以外のカテゴリに明確に当てはまらない場合は、このカテゴリを選択してください。\\n"
-            "3. 'conclusion': 記事全体の結論部、まとめ、要約、今後の展望、提言など。\\n"
-            "   - キーワード例: 「まとめ」「結論」「総括」「おわりに」「最後に」「今後の課題」「提言」\\n"
-            "   - 記事の最後の方に出現しやすい。\\n"
-            "4. 'faq': よくある質問とその回答をまとめたセクションの見出し。\\n"
-            "   - キーワード例: 「FAQ」「よくある質問」「Q&A」\\n"
-            "5. 'references': 参考文献、参考資料、関連情報源などを示すセクションの見出し。\\n"
-            "   - キーワード例: 「参考文献」「参考資料」「関連リンク」「もっと読む」\\n"
-            "6. 'other': 上記のいずれにも明確に当てはまらない特殊な役割を持つ見出し（例: 用語集、事業内容など）。使用は最小限にしてください。\\n\\n"
-            "【指示】\\n"
-            "- 見出しのテキスト内容、レベル（h1-h6）、そしてリスト内での出現順を考慮して分類してください。\\n"
-            "- 特に、'introduction'と'conclusion'は記事構造における位置が重要です。\\n"
-            "- 明確なキーワード（例:「まとめ」）が存在する場合は、それを優先して分類してください。\\n"
-            "- 回答は、各見出しのIDと分類結果を含むJSONオブジェクトのリスト形式で、以下のように返してください:\\n"
-            "  例: [{'id': '1', 'classification': 'introduction'}, {'id': '1.1', 'classification': 'body'}, {'id': '2', 'classification': 'conclusion'}]\\n"
-            "- 他の形式ではなく、必ずこのJSONリスト形式で回答してください。\\n\\n"
-            "以下の見出しリストを分類してください:\\n"
-            f"{json.dumps(prompt_headings, ensure_ascii=False, indent=2)}"
-        )
-
-        print(f"Gemini APIを呼び出します (URL: {original_url}, 見出し数: {len(flat_headings_with_ids)})...")
-        start_time = time.monotonic()
-
-        try:
-            generation_config = genai.types.GenerationConfig(
-                # candidate_count=1, # デフォルトは1
-                response_mime_type="application/json", 
-                temperature=0.2
-            )
-            response = await model.generate_content_async(
-                contents=[full_prompt], 
-                generation_config=generation_config
-            )
-            
-            raw_response_content = response.text 
-            
-            classification_map: Dict[str, str] = {}
-
-            if raw_response_content:
-                try:
-                    json_data = json.loads(raw_response_content)
-                    if isinstance(json_data, list):
-                        for item in json_data:
-                            if isinstance(item, dict) and "id" in item and "classification" in item:
-                                classification_map[item["id"]] = item["classification"] 
-                    elif isinstance(json_data, dict):
-                        if "classifications" in json_data and isinstance(json_data["classifications"], list):
-                            for item in json_data["classifications"]:
-                                if isinstance(item, dict) and "id" in item and "classification" in item:
-                                    classification_map[item["id"]] = item["classification"] 
-                        else: # フラットな辞書またはその他の辞書形式
-                            for key, value in json_data.items():
-                                if isinstance(value, str): # { "id": "class" }
-                                    classification_map[key] = value
-                                elif isinstance(value, dict) and "classification" in value: # { "id": {"classification": "class"} }
-                                    classification_map[key] = value["classification"]
-                            if not classification_map: # 上記で見つからなかった場合
-                                print(f"Gemini APIからの辞書形式JSONのパースに失敗 (URL: {original_url}): {raw_response_content[:200]}...")
-                    else:
-                        print(f"Gemini APIからの予期しないJSONルート型 (URL: {original_url}): {type(json_data)} {raw_response_content[:200]}...")
-
-                except json.JSONDecodeError:
-                    print(f"Gemini APIからのJSONパースエラー (URL: {original_url}): {raw_response_content[:200]}...")
-            else:
-                print(f"Gemini APIからの応答が空でした (URL: {original_url})")
-            
-            end_time = time.monotonic()
-            print(f"Gemini API 処理時間: {end_time - start_time:.2f}秒 (URL: {original_url})")
-
-            def _apply_classification(headings_list, prefix=""):
-                for i, heading in enumerate(headings_list):
-                    heading_id = f"{prefix}{i+1}"
-                    heading["semantic_type"] = classification_map.get(heading_id, "body") 
-                    if heading.get("children"):
-                        _apply_classification(heading["children"], f"{heading_id}.")
-                return headings_list
-            
-            return _apply_classification(structured_headings)
-
-        except Exception as e:
-            print(f"Gemini API呼び出し中または応答処理中にエラーが発生しました (URL: {original_url}): {e}")
-
-        # エラー時やAPIキーがない場合のフォールバック
-        for heading_node in structured_headings:
-            heading_node['semantic_type'] = 'body' 
-            if 'children' in heading_node and heading_node['children']:
-                 await self._classify_headings_semantically_gemini(heading_node['children'], original_url) # 再帰呼び出し
-        return structured_headings
 
     def _add_char_counts_to_headings_recursive(
         self,
@@ -588,13 +461,25 @@ class SerpAPIService:
                 self._add_char_counts_to_headings_recursive(node['children'], all_heading_tags_in_document)
 
 
+    def _is_cache_valid(self, url: str) -> bool:
+        """キャッシュが有効かチェック"""
+        if url not in self.cache_timestamp:
+            return False
+        return (time.time() - self.cache_timestamp[url]) < self.cache_ttl
+
     async def _scrape_url_real(self, url: str) -> Optional[Dict[str, Any]]:
-        """ 実際のURLスクレイピング """
+        """ 実際のURLスクレイピング（キャッシュ対応） """
+        # キャッシュチェック
+        if url in self.scraping_cache and self._is_cache_valid(url):
+            print(f"Cache hit: {url}")
+            return self.scraping_cache[url]
+        
         current_url = url
         try:
             headers = {'User-Agent': self.USER_AGENT}
+            # タイムアウトを5秒に短縮
             response = await asyncio.to_thread(
-                lambda: requests.get(current_url, headers=headers, timeout=settings.scraping_timeout, allow_redirects=True)
+                lambda: requests.get(current_url, headers=headers, timeout=5, allow_redirects=True)
             )
             
             if response.history:
@@ -654,7 +539,7 @@ class SerpAPIService:
                 children_list: List[Dict[str, Any]] = current_heading_node["children"]
                 parent_stack.append((level, children_list))
             
-            # 意味的分類
+            # 意味的分類（ルールベースのみ）
             classified_final_headings = await self._classify_headings_semantically(structured_headings, original_url=current_url)
             
             # ★ セクション文字数カウントの追加
@@ -777,7 +662,7 @@ class SerpAPIService:
                 except (json.JSONDecodeError, AttributeError, TypeError):
                     continue
             
-            return {
+            result = {
                 "title": title,
                 "headings": classified_final_headings[:30],
                 "content": content_text.strip()[:10000],
@@ -794,6 +679,12 @@ class SerpAPIService:
                 "modified_date": modified_date,
                 "schema_types": schema_types
             }
+            
+            # キャッシュに保存
+            self.scraping_cache[url] = result
+            self.cache_timestamp[url] = time.time()
+            
+            return result
             
         except requests.exceptions.Timeout:
             print(f"タイムアウト: {url}")
