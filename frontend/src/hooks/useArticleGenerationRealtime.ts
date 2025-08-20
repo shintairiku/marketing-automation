@@ -160,7 +160,8 @@ export const useArticleGenerationRealtime = ({
     }
     
     // Clear input state if we're in a non-interactive step
-    const nonInteractiveSteps = ['keyword_analyzing', 'researching', 'outline_generating', 'writing_sections', 'editing', 'completed', 'error'];
+    // Note: outline_generating is removed as it requires user approval for the generated outline
+    const nonInteractiveSteps = ['keyword_analyzing', 'researching', 'writing_sections', 'editing', 'completed', 'error'];
     if (nonInteractiveSteps.includes(sanitizedState.currentStep) && sanitizedState.isWaitingForInput) {
       console.log('🔒 Clearing input state for non-interactive step:', sanitizedState.currentStep);
       sanitizedState.isWaitingForInput = false;
