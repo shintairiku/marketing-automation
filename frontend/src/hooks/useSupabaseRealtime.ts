@@ -593,6 +593,31 @@ export const useSupabaseRealtime = ({
     };
   }, [autoConnect, processId]); // MINIMAL dependencies
 
+  // Fallback recovery triggers - lightweight resync on visibility/online changes
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState === 'visible' && fetchProcessDataRef.current) {
+        console.log('👁️ Page became visible - triggering recovery sync');
+        fetchProcessDataRef.current();
+      }
+    };
+    
+    const onOnline = () => {
+      if (fetchProcessDataRef.current) {
+        console.log('🌐 Connection restored - triggering recovery sync');
+        fetchProcessDataRef.current();
+      }
+    };
+
+    document.addEventListener('visibilitychange', onVisible);
+    window.addEventListener('online', onOnline);
+    
+    return () => {
+      document.removeEventListener('visibilitychange', onVisible);
+      window.removeEventListener('online', onOnline);
+    };
+  }, []); // No dependencies - uses ref to avoid stale closures
+
   return {
     // Connection state
     isConnected,
@@ -617,8 +642,10 @@ export const useSupabaseRealtime = ({
     queueAction,
     validateData,
     
-    // Computed state  
-    isDataStale: lastSyncTime ? (Date.now() - lastSyncTime.getTime()) > (actualSyncInterval * 1000 * 2) : true,
+    // Computed state - Fix zero division bug for polling disabled mode
+    isDataStale: actualEnableDataSync 
+      ? lastSyncTime ? (Date.now() - lastSyncTime.getTime()) > (actualSyncInterval * 1000 * 2) : true
+      : false, // Always fresh when polling is disabled - Realtime provides updates
     canPerformActions: isConnected && !isSyncing && !error,
     reconnectAttempts: reconnectAttempts.current,
   };

@@ -275,26 +275,33 @@ class GenerationFlowManager:
         """ペルソナ選択のユーザーインタラクション処理"""
         personas_data_for_client = [GeneratedPersonaData(id=i, description=desc) for i, desc in enumerate(context.generated_detailed_personas)]
         
-        # CRITICAL FIX: Update process state to user_input_required BEFORE requesting user input
+        # CRITICAL FIX: Set step to completed state and mark waiting for input using RPC
         if process_id and user_id:
             try:
-                from datetime import datetime, timezone
-                await self.service.persistence_service.update_process_status(
+                from app.domains.seo_article.services.flow_service import get_supabase_client
+                
+                # 1) Ensure current_step_name is set to completion state
+                context.current_step = "persona_generated"
+                await self.service.persistence_service.update_process_state(
                     process_id=process_id,
-                    status="user_input_required",
-                    current_step=context.current_step,
-                    metadata={
-                        "input_type": "select_persona",
-                        "waiting_since": datetime.now(timezone.utc).isoformat(),
-                    }
+                    current_step_name="persona_generated"
                 )
-                # Save context with generated personas to DB
+                
+                # 2) Save context with generated personas to DB
                 await self.service.persistence_service.save_context_to_db(
                     context, process_id=process_id, user_id=user_id
                 )
-                logger.info("Process state and context saved successfully before requesting persona selection")
+                
+                # 3) Mark process waiting for input using RPC (triggers events and Realtime)
+                supabase = get_supabase_client()
+                await supabase.rpc(
+                    'mark_process_waiting_for_input',
+                    {'p_process_id': process_id, 'p_input_type': 'select_persona', 'p_timeout_minutes': 60}
+                ).execute()
+                
+                logger.info("Process state marked waiting for persona selection with RPC")
             except Exception as save_err:
-                logger.error(f"Failed to update process state before persona selection: {save_err}")
+                logger.error(f"Failed to mark process waiting for persona selection: {save_err}")
         
         user_response_message = await self.service.utils.request_user_input(
             context,
@@ -472,26 +479,33 @@ class GenerationFlowManager:
             for idea in context.generated_themes
         ]
         
-        # CRITICAL FIX: Update process state to user_input_required BEFORE requesting user input
+        # CRITICAL FIX: Set step to completed state and mark waiting for input using RPC
         if process_id and user_id:
             try:
-                from datetime import datetime, timezone
-                await self.service.persistence_service.update_process_status(
+                from app.domains.seo_article.services.flow_service import get_supabase_client
+                
+                # 1) Ensure current_step_name is set to completion state
+                context.current_step = "theme_proposed"
+                await self.service.persistence_service.update_process_state(
                     process_id=process_id,
-                    status="user_input_required",
-                    current_step=context.current_step,
-                    metadata={
-                        "input_type": "select_theme",
-                        "waiting_since": datetime.now(timezone.utc).isoformat(),
-                    }
+                    current_step_name="theme_proposed"
                 )
-                # Save context with generated themes to DB
+                
+                # 2) Save context with generated themes to DB
                 await self.service.persistence_service.save_context_to_db(
                     context, process_id=process_id, user_id=user_id
                 )
-                logger.info("Process state and context saved successfully before requesting theme selection")
+                
+                # 3) Mark process waiting for input using RPC (triggers events and Realtime)
+                supabase = get_supabase_client()
+                await supabase.rpc(
+                    'mark_process_waiting_for_input',
+                    {'p_process_id': process_id, 'p_input_type': 'select_theme', 'p_timeout_minutes': 60}
+                ).execute()
+                
+                logger.info("Process state marked waiting for theme selection with RPC")
             except Exception as save_err:
-                logger.error(f"Failed to update process state before theme selection: {save_err}")
+                logger.error(f"Failed to mark process waiting for theme selection: {save_err}")
         
         user_response_message = await self.service.utils.request_user_input(
             context,
@@ -2036,27 +2050,34 @@ class GenerationFlowManager:
         if context.generated_outline:
             outline_data_for_client = context.generated_outline
             
-            # CRITICAL FIX: Update process state to user_input_required BEFORE requesting user input
+            # CRITICAL FIX: Set step to completed state and mark waiting for input using RPC
             # This ensures DB state is persistent and survives page reloads
             if process_id and user_id:
                 try:
-                    from datetime import datetime, timezone
-                    await self.service.persistence_service.update_process_status(
+                    from app.domains.seo_article.services.flow_service import get_supabase_client
+                    
+                    # 1) Ensure current_step_name is set to completion state
+                    context.current_step = "outline_generated"
+                    await self.service.persistence_service.update_process_state(
                         process_id=process_id,
-                        status="user_input_required",
-                        current_step=context.current_step,
-                        metadata={
-                            "input_type": "approve_outline",
-                            "waiting_since": datetime.now(timezone.utc).isoformat(),
-                        }
+                        current_step_name="outline_generated"
                     )
-                    # Save context with generated outline to DB
+                    
+                    # 2) Save context with generated outline to DB
                     await self.service.persistence_service.save_context_to_db(
                         context, process_id=process_id, user_id=user_id
                     )
-                    logger.info("Process state and context saved successfully before requesting outline approval")
+                    
+                    # 3) Mark process waiting for input using RPC (triggers events and Realtime)
+                    supabase = get_supabase_client()
+                    await supabase.rpc(
+                        'mark_process_waiting_for_input',
+                        {'p_process_id': process_id, 'p_input_type': 'approve_outline', 'p_timeout_minutes': 60}
+                    ).execute()
+                    
+                    logger.info("Process state marked waiting for outline approval with RPC")
                 except Exception as save_err:
-                    logger.error(f"Failed to update process state before outline approval: {save_err}")
+                    logger.error(f"Failed to mark process waiting for outline approval: {save_err}")
             
             user_response_message = await self.service.utils.request_user_input(
                 context,
@@ -2856,26 +2877,33 @@ class GenerationFlowManager:
                     queries=[ResearchPlanQueryData(query=q.query, focus=q.focus) for q in context.research_plan.queries]
                 )
                 
-                # CRITICAL FIX: Update process state to user_input_required BEFORE requesting user input
+                # CRITICAL FIX: Set step to completed state and mark waiting for input using RPC
                 if process_id and user_id:
                     try:
-                        from datetime import datetime, timezone
-                        await self.service.persistence_service.update_process_status(
+                        from app.domains.seo_article.services.flow_service import get_supabase_client
+                        
+                        # 1) Ensure current_step_name is set to completion state
+                        context.current_step = "research_plan_generated"
+                        await self.service.persistence_service.update_process_state(
                             process_id=process_id,
-                            status="user_input_required",
-                            current_step=context.current_step,
-                            metadata={
-                                "input_type": "approve_plan",
-                                "waiting_since": datetime.now(timezone.utc).isoformat(),
-                            }
+                            current_step_name="research_plan_generated"
                         )
-                        # Save context with research plan to DB
+                        
+                        # 2) Save context with research plan to DB
                         await self.service.persistence_service.save_context_to_db(
                             context, process_id=process_id, user_id=user_id
                         )
-                        logger.info("Process state and context saved successfully before requesting research plan approval")
+                        
+                        # 3) Mark process waiting for input using RPC (triggers events and Realtime)
+                        supabase = get_supabase_client()
+                        await supabase.rpc(
+                            'mark_process_waiting_for_input',
+                            {'p_process_id': process_id, 'p_input_type': 'approve_plan', 'p_timeout_minutes': 60}
+                        ).execute()
+                        
+                        logger.info("Process state marked waiting for research plan approval with RPC")
                     except Exception as save_err:
-                        logger.error(f"Failed to update process state before research plan approval: {save_err}")
+                        logger.error(f"Failed to mark process waiting for research plan approval: {save_err}")
                 
                 user_response_message = await self.service.utils.request_user_input(
                     context,
