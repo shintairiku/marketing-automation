@@ -285,17 +285,36 @@ export const useArticleGenerationRealtime = ({
         next.currentStep = uiStep;
         console.log(`🔍 Step mapping: ${backendStep} -> ${uiStep} (waiting: ${next.isWaitingForInput})`);
 
-        // Spinner control: NEVER show in_progress when waiting for input
-        next.steps = next.steps.map(s => s.id === uiStep
-          ? { 
-              ...s, 
-              status: next.isWaitingForInput ? 'completed' : (
-                data.status === 'error' ? 'error' : 
-                data.status === 'completed' ? 'completed' : 'in_progress'
-              ) as StepStatus 
-            }
-          : s
-        );
+        // Progressive step completion: mark current step AND all previous steps as completed
+        const stepOrder = ['keyword_analyzing', 'persona_generating', 'theme_generating', 'research_planning', 'researching', 'outline_generating', 'writing_sections', 'editing'];
+        const currentStepIndex = stepOrder.indexOf(uiStep);
+        
+        console.log(`🎯 Progressive step completion: current="${uiStep}" (index=${currentStepIndex}), waiting=${next.isWaitingForInput}`);
+        
+        next.steps = next.steps.map((s, index) => {
+          const prevStatus = s.status;
+          let newStatus: StepStatus;
+          
+          if (index < currentStepIndex) {
+            // All previous steps should be completed
+            newStatus = 'completed';
+          } else if (s.id === uiStep) {
+            // Current step status based on process state
+            newStatus = next.isWaitingForInput ? 'completed' : (
+              data.status === 'error' ? 'error' : 
+              data.status === 'completed' ? 'completed' : 'in_progress'
+            );
+          } else {
+            // Future steps remain pending unless they have specific error states
+            newStatus = s.status === 'error' ? 'error' : 'pending';
+          }
+          
+          if (prevStatus !== newStatus) {
+            console.log(`  📝 Step ${s.id}: ${prevStatus} -> ${newStatus}`);
+          }
+          
+          return { ...s, status: newStatus };
+        });
       }
 
       // Context data (preserve existing, don't overwrite)
