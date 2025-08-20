@@ -1733,11 +1733,25 @@ class GenerationFlowManager:
                         'step': 'writing_sections',
                         'section_index': i,
                         'section_heading': section.heading,
+                        'section_content': (
+                            agent_output.content if hasattr(agent_output, 'content') else (
+                                agent_output if isinstance(agent_output, str) else ''
+                            )
+                        ),
                         'section_content_length': section_content_length,
                         'completed_sections': i + 1,
                         'total_sections': total_sections,
                         'image_mode': is_image_mode,
                         'placeholders_count': len(getattr(agent_output, 'image_placeholders', [])) if hasattr(agent_output, 'image_placeholders') else 0,
+                        'image_placeholders': [
+                            {
+                                'placeholder_id': p.placeholder_id,
+                                'description_jp': p.description_jp,
+                                'prompt_en': p.prompt_en,
+                                'alt_text': p.alt_text,
+                            }
+                            for p in getattr(agent_output, 'image_placeholders', [])
+                        ] if is_image_mode else [],
                         'message': f'Completed section {i + 1}: {section.heading}',
                         'progress_percentage': int(((i + 1) / total_sections) * 100),
                         'batch_completion': True,
@@ -2391,9 +2405,19 @@ class GenerationFlowManager:
                             'step': 'writing_sections',
                             'section_index': target_index,
                             'section_heading': target_heading,
+                            'section_content': generated_section.content,
                             'section_content_length': len(generated_section.content),
                             'completed_sections': context.current_section_index,
                             'total_sections': len(context.generated_outline.sections),
+                            'image_placeholders': [
+                                {
+                                    'placeholder_id': p.placeholder_id,
+                                    'description_jp': p.description_jp,
+                                    'prompt_en': p.prompt_en,
+                                    'alt_text': p.alt_text,
+                                }
+                                for p in getattr(context, 'image_placeholders', [])
+                            ] if getattr(context, 'image_mode', False) else [],
                             'message': f'Completed section {target_index + 1}: {target_heading}',
                             'progress_percentage': int((context.current_section_index / len(context.generated_outline.sections)) * 100),
                             'batch_completion': True,  # Flag to indicate this is batch completion

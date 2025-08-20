@@ -79,25 +79,27 @@ export default function TableOfContentsDialog({
     settings.includedLevels.has(heading.level)
   );
 
-  // 目次HTMLを生成
+  // 目次HTMLを生成（CSSなしの生HTML）
   const generateTocHtml = (): string => {
     if (filteredHeadings.length === 0) return '';
 
-    let tocHtml = `<div class="table-of-contents">
-  <h3 class="toc-title">${settings.title}</h3>
-  <nav class="toc-nav">`;
+    let tocHtml = `<div>
+  <h3>${settings.title}</h3>
+  <nav>`;
 
     if (settings.showNumbers) {
-      tocHtml += `<ol class="toc-list ${settings.showIndentation ? 'toc-indented' : ''}">`;
+      tocHtml += '<ol>';
     } else {
-      tocHtml += `<ul class="toc-list ${settings.showIndentation ? 'toc-indented' : ''}">`;
+      tocHtml += '<ul>';
     }
 
     filteredHeadings.forEach(heading => {
-      const indentClass = settings.showIndentation ? `toc-level-${heading.level}` : '';
+      const indentLevel = settings.showIndentation ? heading.level - 1 : 0;
+      const indentStyle = indentLevel > 0 ? ` style="margin-left: ${indentLevel * 20}px;"` : '';
+      
       tocHtml += `
-      <li class="toc-item ${indentClass}">
-        <a href="#${heading.anchor}" class="toc-link">
+      <li${indentStyle}>
+        <a href="#${heading.anchor}">
           ${heading.text}
         </a>
       </li>`;
@@ -106,67 +108,7 @@ export default function TableOfContentsDialog({
     tocHtml += settings.showNumbers ? '</ol>' : '</ul>';
     tocHtml += `
   </nav>
-</div>
-
-<style>
-.table-of-contents {
-  background: #f8f9fa;
-  border: 1px solid #e9ecef;
-  border-radius: 8px;
-  padding: 20px;
-  margin: 20px 0;
-}
-
-.toc-title {
-  margin: 0 0 16px 0;
-  font-size: 1.25rem;
-  font-weight: 600;
-  color: #1f2937;
-  border-bottom: 2px solid #e5e7eb;
-  padding-bottom: 8px;
-}
-
-.toc-nav {
-  font-size: 0.95rem;
-}
-
-.toc-list {
-  margin: 0;
-  padding-left: 0;
-  list-style: none;
-}
-
-.toc-list ol,
-.toc-list ul {
-  margin: 4px 0;
-  padding-left: 20px;
-}
-
-.toc-item {
-  margin: 6px 0;
-  line-height: 1.5;
-}
-
-.toc-indented .toc-level-1 { margin-left: 0; }
-.toc-indented .toc-level-2 { margin-left: 20px; }
-.toc-indented .toc-level-3 { margin-left: 40px; }
-.toc-indented .toc-level-4 { margin-left: 60px; }
-.toc-indented .toc-level-5 { margin-left: 80px; }
-.toc-indented .toc-level-6 { margin-left: 100px; }
-
-.toc-link {
-  color: #3b82f6;
-  text-decoration: none;
-  transition: color 0.2s;
-  display: block;
-  padding: 2px 0;
-}
-
-.toc-link:hover {
-  color: #1d4ed8;
-  text-decoration: underline;
-}
-</style>`;
+</div>`;
 
     return tocHtml;
   };

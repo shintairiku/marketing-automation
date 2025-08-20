@@ -165,7 +165,7 @@ export default function CompactUserInteraction({
   };
 
   // ペルソナ選択 - コンパクトなインライン表示
-  if (type === 'select_persona' && personas) {
+  if (type === 'select_persona' && personas && personas.length > 0) {
     return (
       <motion.div
         initial={{ opacity: 0, y: 20 }}
@@ -313,7 +313,7 @@ export default function CompactUserInteraction({
   }
 
   // テーマ選択 - コンパクトなインライン表示
-  if (type === 'select_theme' && themes) {
+  if (type === 'select_theme' && themes && themes.length > 0) {
     return (
       <motion.div
         initial={{ opacity: 0, y: 20 }}

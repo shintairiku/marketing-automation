@@ -303,6 +303,23 @@ export const useSupabaseRealtime = ({
 
     try {
       console.log(`📡 Connecting to realtime for process: ${processId}`);
+      // Set Realtime auth with Clerk JWT so RLS policies allow streaming
+      try {
+        const token = await getToken();
+        if (token) {
+          // Provide the JWT to Realtime so postgres_changes respects RLS
+          (supabase as any).realtime.setAuth(token);
+          // Explicitly (re)connect the realtime socket with auth
+          if ((supabase as any).realtime?.isConnected() === false) {
+            await (supabase as any).realtime.connect();
+          }
+          console.log('🔐 Realtime auth set with Clerk JWT');
+        } else {
+          console.warn('⚠️ No Clerk JWT available; realtime may be denied by RLS');
+        }
+      } catch (authErr) {
+        console.warn('Failed to set Realtime auth token:', authErr);
+      }
 
       // Subscribe to process events (Realtime uses existing auth)
       const channel = (supabase as any)
@@ -318,12 +335,19 @@ export const useSupabaseRealtime = ({
           (payload: any) => {
             const event = payload.new as ProcessEvent;
             console.log('📥 Realtime event received:', event);
-            
-            // Use current value from ref instead of state dependency
+
+            // Be tolerant to missing/zero sequence values from DB
             const currentSequence = lastEventSequence;
-            if (event.event_sequence > currentSequence) {
-              setLastEventSequence(event.event_sequence);
-              onEvent?.(event);
+            const incomingSeq = typeof event.event_sequence === 'number' && event.event_sequence > 0
+              ? event.event_sequence
+              : currentSequence + 1;
+
+            // Always forward the event; higher-level hook has robust de-duplication
+            onEvent?.(event);
+
+            // Track progress conservatively
+            if (incomingSeq > currentSequence) {
+              setLastEventSequence(incomingSeq);
             } else {
               console.warn('Out-of-order or duplicate event received:', event.event_sequence, 'last:', currentSequence);
             }

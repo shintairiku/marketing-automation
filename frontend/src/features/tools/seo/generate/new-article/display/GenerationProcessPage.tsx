@@ -356,24 +356,34 @@ export default function GenerationProcessPage({ jobId }: GenerationProcessPagePr
 
                         {/* ユーザーインタラクション */}
                         <AnimatePresence>
-                            {state.isWaitingForInput && (
+                            {(() => {
+                                // 厳格な状態検証: データと入力タイプが完全に一致する場合のみ表示
+                                const shouldShowInteraction = state.isWaitingForInput && state.inputType && (
+                                    (state.inputType === 'select_persona' && state.personas && state.personas.length > 0) ||
+                                    (state.inputType === 'select_theme' && state.themes && state.themes.length > 0) ||
+                                    (state.inputType === 'approve_plan' && state.researchPlan) ||
+                                    (state.inputType === 'approve_outline' && state.outline)
+                                );
+                                
+                                console.log('🎭 CompactUserInteraction validation:', {
+                                    isWaitingForInput: state.isWaitingForInput,
+                                    inputType: state.inputType,
+                                    hasPersonas: !!state.personas,
+                                    personaCount: state.personas?.length || 0,
+                                    hasThemes: !!state.themes,
+                                    themeCount: state.themes?.length || 0,
+                                    hasResearchPlan: !!state.researchPlan,
+                                    hasOutline: !!state.outline,
+                                    shouldShowInteraction
+                                });
+                                
+                                return shouldShowInteraction;
+                            })() && (
                                 <motion.div
                                     initial={{ opacity: 0, y: 20 }}
                                     animate={{ opacity: 1, y: 0 }}
                                     exit={{ opacity: 0, y: -20 }}
                                 >
-                                    {(() => {
-                                        console.log('🎭 CompactUserInteraction props:', {
-                                            type: state.inputType,
-                                            hasPersonas: !!state.personas,
-                                            hasThemes: !!state.themes,
-                                            hasResearchPlan: !!state.researchPlan,
-                                            hasOutline: !!state.outline,
-                                            outlineContent: state.outline,
-                                            isWaitingForInput: state.isWaitingForInput
-                                        });
-                                        return null;
-                                    })()}
                                     <CompactUserInteraction
                                         type={state.inputType as any}
                                         personas={state.personas}

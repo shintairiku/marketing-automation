@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 // Import types from the new types file
 import { 
@@ -53,7 +53,7 @@ export const useArticleGenerationRealtime = ({
 }: UseArticleGenerationRealtimeOptions) => {
   const { getToken } = useAuth();
   
-  // Generation state
+  // Generation state - with debouncing for stable UI
   const [state, setState] = useState<GenerationState>({
     currentStep: 'keyword_analyzing',
     steps: [
@@ -80,6 +80,118 @@ export const useArticleGenerationRealtime = ({
     completedSections: [],
     imagePlaceholders: [],
   });
+
+  // Atomic state validation to prevent inconsistent states
+  const validateAndSanitizeState = useCallback((newState: GenerationState): GenerationState => {
+    // Ensure UI input type consistency with current step and available data
+    const sanitizedState = { ...newState };
+    
+    // Step-based input type validation to prevent cross-step contamination
+    const validStepInputTypes: Record<string, string[]> = {
+      'persona_generating': ['select_persona'],
+      'theme_generating': ['select_theme'],
+      'research_planning': ['approve_plan'],
+      'outline_generating': ['approve_outline'],
+    };
+    
+    // Clear input state if it doesn't match the current step
+    if (sanitizedState.isWaitingForInput && sanitizedState.inputType && sanitizedState.currentStep) {
+      const validInputsForStep = validStepInputTypes[sanitizedState.currentStep];
+      if (validInputsForStep && !validInputsForStep.includes(sanitizedState.inputType)) {
+        console.log('🔒 Clearing mismatched input type for step:', {
+          currentStep: sanitizedState.currentStep,
+          inputType: sanitizedState.inputType,
+          validInputs: validInputsForStep
+        });
+        sanitizedState.isWaitingForInput = false;
+        sanitizedState.inputType = undefined;
+      }
+    }
+    
+    // Clear invalid input types based on available data and current step
+    if (sanitizedState.isWaitingForInput && sanitizedState.inputType) {
+      switch (sanitizedState.inputType) {
+        case 'select_persona':
+          if (!sanitizedState.personas || sanitizedState.personas.length === 0 || sanitizedState.currentStep !== 'persona_generating') {
+            console.log('🔒 Clearing invalid persona selection state:', {
+              hasPersonas: !!sanitizedState.personas,
+              personaCount: sanitizedState.personas?.length || 0,
+              currentStep: sanitizedState.currentStep
+            });
+            sanitizedState.isWaitingForInput = false;
+            sanitizedState.inputType = undefined;
+          }
+          break;
+          
+        case 'select_theme':
+          if (!sanitizedState.themes || sanitizedState.themes.length === 0 || sanitizedState.currentStep !== 'theme_generating') {
+            console.log('🔒 Clearing invalid theme selection state:', {
+              hasThemes: !!sanitizedState.themes,
+              themeCount: sanitizedState.themes?.length || 0,
+              currentStep: sanitizedState.currentStep
+            });
+            sanitizedState.isWaitingForInput = false;
+            sanitizedState.inputType = undefined;
+          }
+          break;
+          
+        case 'approve_plan':
+          if (!sanitizedState.researchPlan || sanitizedState.currentStep !== 'research_planning') {
+            console.log('🔒 Clearing invalid plan approval state:', {
+              hasResearchPlan: !!sanitizedState.researchPlan,
+              currentStep: sanitizedState.currentStep
+            });
+            sanitizedState.isWaitingForInput = false;
+            sanitizedState.inputType = undefined;
+          }
+          break;
+          
+        case 'approve_outline':
+          if (!sanitizedState.outline || sanitizedState.currentStep !== 'outline_generating') {
+            console.log('🔒 Clearing invalid outline approval state:', {
+              hasOutline: !!sanitizedState.outline,
+              currentStep: sanitizedState.currentStep
+            });
+            sanitizedState.isWaitingForInput = false;
+            sanitizedState.inputType = undefined;
+          }
+          break;
+      }
+    }
+    
+    // Clear input state if we're in a non-interactive step
+    // Note: outline_generating is removed as it requires user approval for the generated outline
+    const nonInteractiveSteps = ['keyword_analyzing', 'researching', 'writing_sections', 'editing', 'completed', 'error'];
+    if (nonInteractiveSteps.includes(sanitizedState.currentStep) && sanitizedState.isWaitingForInput) {
+      console.log('🔒 Clearing input state for non-interactive step:', sanitizedState.currentStep);
+      sanitizedState.isWaitingForInput = false;
+      sanitizedState.inputType = undefined;
+    }
+    
+    return sanitizedState;
+  }, []);
+
+  // Atomic state setter with validation
+  const setValidatedState = useCallback((stateUpdater: (prev: GenerationState) => GenerationState) => {
+    setState(prev => {
+      const newState = stateUpdater(prev);
+      const validatedState = validateAndSanitizeState(newState);
+      
+      // Log state transitions for debugging
+      if (newState.currentStep !== prev.currentStep || 
+          newState.inputType !== prev.inputType || 
+          newState.isWaitingForInput !== prev.isWaitingForInput) {
+        console.log('🔄 Atomic state transition:', {
+          step: `${prev.currentStep} → ${validatedState.currentStep}`,
+          input: `${prev.inputType || 'none'} → ${validatedState.inputType || 'none'}`,
+          waiting: `${prev.isWaitingForInput} → ${validatedState.isWaitingForInput}`,
+          sanitized: newState !== validatedState
+        });
+      }
+      
+      return validatedState;
+    });
+  }, [validateAndSanitizeState]);
 
   // Connection state
   const [connectionState, setConnectionState] = useState({
@@ -181,13 +293,30 @@ export const useArticleGenerationRealtime = ({
       const data = event.event_data;
       const now = Date.now();
       
-      // Create comprehensive state fingerprint
-      const stateFingerprint = `${data.current_step_name}-${data.status}-${data.is_waiting_for_input}-${data.input_type}`;
+      // Create comprehensive state fingerprint including UI-relevant data
+      const stateFingerprint = `${data.current_step_name}-${data.status}-${data.is_waiting_for_input}-${data.input_type}-${data.article_context?.generated_detailed_personas?.length || 0}-${data.article_context?.generated_themes?.length || 0}`;
       
-      // Time-based throttling (minimum 500ms between same state updates)
+      // Time-based throttling (minimum 1000ms between same state updates)
       const timeSinceLastProcess = now - lastProcessedTime;
-      if (stateFingerprint === lastProcessedState && timeSinceLastProcess < 500) {
+      if (stateFingerprint === lastProcessedState && timeSinceLastProcess < 1000) {
         console.log('⏭️  Skipping duplicate state update (throttled):', stateFingerprint, `${timeSinceLastProcess}ms ago`);
+        return;
+      }
+      
+      // Additional validation: Skip if this would cause UI state regression
+      const currentPersonaCount = state.personas?.length || 0;
+      const currentThemeCount = state.themes?.length || 0;
+      const newPersonaCount = data.article_context?.generated_detailed_personas?.length || 0;
+      const newThemeCount = data.article_context?.generated_themes?.length || 0;
+      
+      // Skip if we're seeing a regression in data (e.g., themes going from 3 to 0)
+      if (newPersonaCount < currentPersonaCount && currentPersonaCount > 0) {
+        console.log('⏭️  Skipping persona count regression:', { current: currentPersonaCount, new: newPersonaCount });
+        return;
+      }
+      
+      if (newThemeCount < currentThemeCount && currentThemeCount > 0) {
+        console.log('⏭️  Skipping theme count regression:', { current: currentThemeCount, new: newThemeCount });
         return;
       }
       
@@ -233,7 +362,7 @@ export const useArticleGenerationRealtime = ({
       });
     }
 
-    setState((prev: GenerationState) => {
+    setValidatedState((prev: GenerationState) => {
       const newState = { ...prev };
       
       switch (event.event_type) {
@@ -252,11 +381,13 @@ export const useArticleGenerationRealtime = ({
         case 'step_changed':
           const processData = event.event_data;
           
-          // PRIORITY: For process_state_updated events, this represents the LATEST database state
-          // We should prioritize this over any intermediate step events
-          const isLatestDatabaseState = event.event_type === 'process_state_updated';
+          // Do not prioritize DB "state" over client progression to avoid regressions
+          const isLatestDatabaseState = false;
           // Handle both current_step and current_step_name fields from backend
-          const backendStep = processData.current_step || processData.current_step_name;
+          // CRITICAL: also fallback to article_context.current_step when root fields are missing
+          const backendStep = processData.current_step 
+            || processData.current_step_name 
+            || processData.article_context?.current_step;
           if (backendStep) {
             const uiStep = mapBackendStepToUIStep(backendStep, processData.status);
             
@@ -265,15 +396,16 @@ export const useArticleGenerationRealtime = ({
             const currentIndex = currentStepOrder.indexOf(newState.currentStep);
             const newIndex = currentStepOrder.indexOf(uiStep);
             
-            // Special handling for delayed completion events
-            const isDelayedCompletionEvent = [
-              'research_plan_generated', 
+            // Treat certain completion-ish notifications as non-progressing and skip if behind
+            const completionish = new Set([
               'persona_generated',
-              'theme_proposed'
-            ].includes(backendStep) && newIndex < currentIndex;
-            
-            // Only update if the new step is forward progression OR it's the latest database state
-            // Skip delayed completion events that would cause regression
+              'theme_proposed',
+              'research_plan_generated',
+              'outline_generated'
+            ]);
+            const isDelayedCompletionEvent = completionish.has(backendStep) && newIndex < currentIndex;
+
+            // Only update if the new step is forward progression; never regress
             if (isDelayedCompletionEvent) {
               console.log('⏭️ Skipped delayed completion event (already progressed):', { 
                 current: newState.currentStep, 
@@ -282,9 +414,10 @@ export const useArticleGenerationRealtime = ({
                 newIndex,
                 reason: 'delayed_completion'
               });
-            } else if (isLatestDatabaseState || newIndex >= currentIndex || newState.currentStep === 'keyword_analyzing') {
+            } else if (newIndex >= currentIndex || newState.currentStep === 'keyword_analyzing') {
+              const from = newState.currentStep;
               newState.currentStep = uiStep;
-              console.log('✅ Step updated:', { from: newState.currentStep, to: uiStep, backendStep, isLatest: isLatestDatabaseState });
+              console.log('✅ Step updated (forward-only):', { from, to: uiStep, backendStep });
             } else {
               console.log('⏭️ Skipped backward step progression:', { 
                 current: newState.currentStep, 
@@ -331,7 +464,15 @@ export const useArticleGenerationRealtime = ({
               }
             }
           }
-          newState.isWaitingForInput = processData.is_waiting_for_input || false;
+          // Infer waiting state if field not present
+          const waitingFromDb = processData.is_waiting_for_input;
+          if (typeof waitingFromDb === 'boolean') {
+            newState.isWaitingForInput = waitingFromDb;
+          } else {
+            const stepForWaiting = backendStep || processData.article_context?.current_step;
+            const inputSteps = ['persona_generated', 'theme_proposed', 'research_plan_generated', 'outline_generated'];
+            newState.isWaitingForInput = !!stepForWaiting && inputSteps.includes(stepForWaiting);
+          }
           newState.inputType = processData.input_type;
           
           // Handle user input requirements from process metadata
@@ -397,18 +538,51 @@ export const useArticleGenerationRealtime = ({
               console.warn('⚠️ No outline data found in context despite outline_generated state');
             }
             
-            // Set generated content from context
+            // Merge generated content from context without losing already received sections
             if (context.generated_sections_html && Array.isArray(context.generated_sections_html)) {
-              console.log('📄 Setting generated sections from context:', context.generated_sections_html.length, 'sections');
-              newState.generatedContent = context.generated_sections_html.join('\n\n');
-              
-              // Update completed sections
-              newState.completedSections = context.generated_sections_html.map((content: string, index: number) => ({
-                index: index + 1,
-                heading: `Section ${index + 1}`,
-                content: content,
-                imagePlaceholders: []
-              }));
+              console.log('📄 Merging generated sections from context:', context.generated_sections_html.length, 'sections');
+
+              // Ensure completedSections exists
+              if (!newState.completedSections) newState.completedSections = [];
+
+              // Use Map to keep numeric index keys with normalized structure
+              const existing = new Map<number, CompletedSection>();
+              newState.completedSections.forEach((s: CompletedSection) => {
+                existing.set(s.index, {
+                  index: s.index,
+                  heading: s.heading,
+                  content: s.content,
+                  imagePlaceholders: s.imagePlaceholders ?? []
+                });
+              });
+
+              // Merge by index (1-based)
+              context.generated_sections_html.forEach((content: string, idx: number) => {
+                const index = idx + 1;
+                const trimmed = typeof content === 'string' ? content : '';
+                if (trimmed && trimmed.length > 0) {
+                  const prev = existing.get(index);
+                  if (!prev || (typeof prev.content === 'string' && prev.content.trim().length === 0)) {
+                    existing.set(index, {
+                      index,
+                      heading: prev?.heading || `Section ${index}`,
+                      content: trimmed,
+                      imagePlaceholders: prev?.imagePlaceholders ?? []
+                    });
+                  }
+                }
+              });
+
+              // Write back to array preserving order
+              newState.completedSections = Array.from(existing.values()).sort((a, b) => a.index - b.index);
+
+              // Recompute generatedContent from merged completedSections
+              if (newState.completedSections.length > 0) {
+                newState.generatedContent = newState.completedSections
+                  .map(s => (typeof s.content === 'string' ? s.content : ''))
+                  .filter(c => c && c.trim().length > 0)
+                  .join('\n\n');
+              }
             }
             
             // Set final article if available
@@ -470,7 +644,7 @@ export const useArticleGenerationRealtime = ({
           }
           
           // Loading state management based on process status
-          if (processData.status === 'running' && !processData.is_waiting_for_input) {
+          if ((processData.status === 'running' || processData.status === 'in_progress') && !processData.is_waiting_for_input) {
             // Show loading state for current step
             const currentStep = newState.steps.find(s => s.id === newState.currentStep);
             if (currentStep) {
@@ -683,7 +857,12 @@ export const useArticleGenerationRealtime = ({
           break;
 
         case 'outline_generation_started':
-          newState.currentStep = 'outline_generating';
+          // Forward-only: don't regress from later steps (writing/editing/completed)
+          if (!['writing_sections', 'editing', 'completed'].includes(newState.currentStep)) {
+            newState.currentStep = 'outline_generating';
+          } else {
+            console.log('⏭️ Skip outline_generation_started due to forward-only rule. Current:', newState.currentStep);
+          }
           newState.steps = newState.steps.map((step: GenerationStep) => 
             step.id === 'outline_generating' ? { ...step, status: 'in_progress' as StepStatus } : step
           );
@@ -698,7 +877,12 @@ export const useArticleGenerationRealtime = ({
           break;
 
         case 'section_writing_started':
-          newState.currentStep = 'writing_sections';
+          // Forward-only: don't regress from later steps
+          if (!['editing', 'completed'].includes(newState.currentStep)) {
+            const from = newState.currentStep;
+            newState.currentStep = 'writing_sections';
+            console.log('✍️ Section writing started; step set:', { from, to: 'writing_sections' });
+          }
           newState.steps = newState.steps.map((step: GenerationStep) => 
             step.id === 'writing_sections' ? { ...step, status: 'in_progress' as StepStatus } : step
           );
@@ -759,9 +943,17 @@ export const useArticleGenerationRealtime = ({
             newState.generatedContent = newState.completedSections
               .sort((a: CompletedSection, b: CompletedSection) => a.index - b.index)
               .map((section: CompletedSection) => section.content)
-              .filter(content => content.trim().length > 0) // Filter out empty sections
+              .filter(content => typeof content === 'string' && content.trim().length > 0)
               .join('\n\n');
           }
+
+          // Keep step as writing until all completed
+          if (!['editing', 'completed'].includes(newState.currentStep)) {
+            newState.currentStep = 'writing_sections';
+          }
+          newState.steps = newState.steps.map((step: GenerationStep) => 
+            step.id === 'writing_sections' ? { ...step, status: 'in_progress' as StepStatus } : step
+          );
           
           console.log('✅ Section completed (batch):', {
             sectionIndex: completedSection.index,
@@ -821,6 +1013,9 @@ export const useArticleGenerationRealtime = ({
             return step;
           });
           newState.currentStep = 'theme_generating';
+          // Clear user input waiting state
+          newState.isWaitingForInput = false;
+          newState.inputType = undefined;
           break;
           
         case 'theme_selection_completed':
@@ -831,6 +1026,9 @@ export const useArticleGenerationRealtime = ({
             return step;
           });
           newState.currentStep = 'research_planning';
+          // Clear user input waiting state
+          newState.isWaitingForInput = false;
+          newState.inputType = undefined;
           break;
           
         case 'research_plan_approval_completed':
@@ -841,6 +1039,9 @@ export const useArticleGenerationRealtime = ({
             return step;
           });
           newState.currentStep = 'researching';
+          // Clear user input waiting state
+          newState.isWaitingForInput = false;
+          newState.inputType = undefined;
           break;
           
         case 'outline_approval_completed':
@@ -851,6 +1052,9 @@ export const useArticleGenerationRealtime = ({
             return step;
           });
           newState.currentStep = 'writing_sections';
+          // Clear user input waiting state
+          newState.isWaitingForInput = false;
+          newState.inputType = undefined;
           break;
 
         default:
@@ -882,8 +1086,8 @@ export const useArticleGenerationRealtime = ({
 
   const handleRealtimeError = useCallback((error: Error) => {
     console.error('Realtime error:', error);
-    setState((prev: GenerationState) => ({ ...prev, error: error.message }));
-  }, []);
+    setValidatedState((prev: GenerationState) => ({ ...prev, error: error.message }));
+  }, [setValidatedState]);
 
   const { 
     isConnected, 
@@ -940,7 +1144,7 @@ export const useArticleGenerationRealtime = ({
       const result = await response.json();
       
       // Reset state for new generation
-      setState((prev: GenerationState) => ({
+      setValidatedState((prev: GenerationState) => ({
         ...prev,
         currentStep: 'keyword_analyzing',
         steps: prev.steps.map((step: GenerationStep) => ({ ...step, status: 'pending' as StepStatus, message: undefined })),
@@ -965,7 +1169,7 @@ export const useArticleGenerationRealtime = ({
     } catch (error) {
       console.error('Error starting generation:', error);
       setConnectionState({ isInitializing: false, hasStarted: false, isDataSynced: false });
-      setState((prev: GenerationState) => ({ 
+      setValidatedState((prev: GenerationState) => ({ 
         ...prev, 
         error: error instanceof Error ? error.message : 'Failed to start generation' 
       }));
@@ -992,17 +1196,14 @@ export const useArticleGenerationRealtime = ({
         throw new Error(`Failed to submit user input: ${response.statusText}`);
       }
 
-      // Clear waiting state immediately (will be confirmed by realtime event)
-      setState((prev: GenerationState) => ({
-        ...prev,
-        isWaitingForInput: false,
-        inputType: undefined,
-      }));
+      // Note: We don't immediately clear isWaitingForInput here to avoid 
+      // intermediate states that cause UI flashing. The state will be updated
+      // consistently when the realtime event arrives from the backend.
 
       return await response.json();
     } catch (error) {
       console.error('Error submitting user input:', error);
-      setState((prev: GenerationState) => ({ 
+      setValidatedState((prev: GenerationState) => ({ 
         ...prev, 
         error: error instanceof Error ? error.message : 'Failed to submit input' 
       }));
@@ -1014,7 +1215,7 @@ export const useArticleGenerationRealtime = ({
     // Only proceed if connected to Supabase Realtime
     if (!isConnected) {
       console.warn('Cannot select persona - not connected to realtime');
-      setState((prev: GenerationState) => ({ 
+      setValidatedState((prev: GenerationState) => ({ 
         ...prev, 
         error: 'リアルタイム接続が切断されています。再接続してから再試行してください。' 
       }));
@@ -1031,8 +1232,32 @@ export const useArticleGenerationRealtime = ({
       // UI state will be updated by 'persona_selection_completed' realtime event
       return { success: true };
     } catch (error) {
+      // Handle timing race condition where process has already moved to next step
+      if (error instanceof Error && error.message.includes('Bad Request')) {
+        console.warn('Persona selection failed - likely due to timing race condition, checking current process state');
+        
+        try {
+          // Refresh process state to check if it has moved to the next step
+          const freshData = await fetchProcessData();
+          
+          // If process is now in theme selection or later, treat as success
+          const currentStep = freshData?.current_step_name;
+          if (currentStep === 'theme_selection' || 
+              currentStep === 'research_planning' || 
+              currentStep === 'outline_generation' || 
+              currentStep === 'section_writing' || 
+              currentStep === 'editing' || 
+              currentStep === 'completed') {
+            console.log('Process has already progressed beyond persona selection - treating selection as successful');
+            return { success: true };
+          }
+        } catch (refreshError) {
+          console.error('Failed to refresh process state:', refreshError);
+        }
+      }
+      
       // Rollback on error
-      setState((prev: GenerationState) => ({
+      setValidatedState((prev: GenerationState) => ({
         ...prev,
         isWaitingForInput: true,
         inputType: 'select_persona',
@@ -1040,13 +1265,13 @@ export const useArticleGenerationRealtime = ({
       }));
       return { success: false, error: error instanceof Error ? error.message : 'ペルソナ選択に失敗しました' };
     }
-  }, [submitUserInput, isConnected]);
+  }, [submitUserInput, isConnected, fetchProcessData]);
 
   const selectTheme = useCallback(async (themeIndex: number): Promise<ActionResult> => {
     // Only proceed if connected to Supabase Realtime
     if (!isConnected) {
       console.warn('Cannot select theme - not connected to realtime');
-      setState((prev: GenerationState) => ({ 
+      setValidatedState((prev: GenerationState) => ({ 
         ...prev, 
         error: 'リアルタイム接続が切断されています。再接続してから再試行してください。' 
       }));
@@ -1063,8 +1288,31 @@ export const useArticleGenerationRealtime = ({
       // UI state will be updated by 'theme_selection_completed' realtime event
       return { success: true };
     } catch (error) {
+      // Handle timing race condition where process has already moved to next step
+      if (error instanceof Error && error.message.includes('Bad Request')) {
+        console.warn('Theme selection failed - likely due to timing race condition, checking current process state');
+        
+        try {
+          // Refresh process state to check if it has moved to the next step
+          const freshData = await fetchProcessData();
+          
+          // If process is now in research planning or later, treat as success
+          const currentStep = freshData?.current_step_name;
+          if (currentStep === 'research_planning' || 
+              currentStep === 'outline_generation' || 
+              currentStep === 'section_writing' || 
+              currentStep === 'editing' || 
+              currentStep === 'completed') {
+            console.log('Process has already progressed beyond theme selection - treating selection as successful');
+            return { success: true };
+          }
+        } catch (refreshError) {
+          console.error('Failed to refresh process state:', refreshError);
+        }
+      }
+      
       // Rollback on error
-      setState((prev: GenerationState) => ({
+      setValidatedState((prev: GenerationState) => ({
         ...prev,
         isWaitingForInput: true,
         inputType: 'select_theme',
@@ -1072,13 +1320,13 @@ export const useArticleGenerationRealtime = ({
       }));
       return { success: false, error: error instanceof Error ? error.message : 'テーマ選択に失敗しました' };
     }
-  }, [submitUserInput, isConnected]);
+  }, [submitUserInput, isConnected, fetchProcessData]);
 
   const approvePlan = useCallback(async (approved: boolean): Promise<ActionResult> => {
     // Only proceed if connected to Supabase Realtime
     if (!isConnected) {
       console.warn('Cannot approve plan - not connected to realtime');
-      setState((prev: GenerationState) => ({ 
+      setValidatedState((prev: GenerationState) => ({ 
         ...prev, 
         error: 'リアルタイム接続が切断されています。再接続してから再試行してください。' 
       }));
@@ -1095,8 +1343,30 @@ export const useArticleGenerationRealtime = ({
       // UI state will be updated by 'research_plan_approval_completed' realtime event
       return { success: true };
     } catch (error) {
+      // Handle timing race condition where process has already moved to next step
+      if (error instanceof Error && error.message.includes('Bad Request')) {
+        console.warn('Plan approval failed - likely due to timing race condition, checking current process state');
+        
+        try {
+          // Refresh process state to check if it has moved to the next step
+          const freshData = await fetchProcessData();
+          
+          // If process is now in outline generation or later, treat as success
+          const currentStep = freshData?.current_step_name;
+          if (currentStep === 'outline_generation' || 
+              currentStep === 'section_writing' || 
+              currentStep === 'editing' || 
+              currentStep === 'completed') {
+            console.log('Process has already progressed beyond plan approval - treating approval as successful');
+            return { success: true };
+          }
+        } catch (refreshError) {
+          console.error('Failed to refresh process state:', refreshError);
+        }
+      }
+      
       // Rollback on error
-      setState((prev: GenerationState) => ({
+      setValidatedState((prev: GenerationState) => ({
         ...prev,
         isWaitingForInput: true,
         inputType: 'approve_plan',
@@ -1104,13 +1374,13 @@ export const useArticleGenerationRealtime = ({
       }));
       return { success: false, error: error instanceof Error ? error.message : 'リサーチ計画承認に失敗しました' };
     }
-  }, [submitUserInput, isConnected]);
+  }, [submitUserInput, isConnected, fetchProcessData]);
 
   const approveOutline = useCallback(async (approved: boolean): Promise<ActionResult> => {
     // Only proceed if connected to Supabase Realtime
     if (!isConnected) {
       console.warn('Cannot approve outline - not connected to realtime');
-      setState((prev: GenerationState) => ({ 
+      setValidatedState((prev: GenerationState) => ({ 
         ...prev, 
         error: 'リアルタイム接続が切断されています。再接続してから再試行してください。' 
       }));
@@ -1127,8 +1397,29 @@ export const useArticleGenerationRealtime = ({
       // UI state will be updated by 'outline_approval_completed' realtime event
       return { success: true };
     } catch (error) {
+      // Handle timing race condition where process has already moved to next step
+      if (error instanceof Error && error.message.includes('Bad Request')) {
+        console.warn('Outline approval failed - likely due to timing race condition, checking current process state');
+        
+        try {
+          // Refresh process state to check if it has moved to the next step
+          const freshData = await fetchProcessData();
+          
+          // If process is now in section writing or later, treat as success
+          const currentStep = freshData?.current_step_name;
+          if (currentStep === 'section_writing' || 
+              currentStep === 'editing' || 
+              currentStep === 'completed') {
+            console.log('Process has already progressed to section writing - treating approval as successful');
+            return { success: true };
+          }
+        } catch (refreshError) {
+          console.error('Failed to refresh process state:', refreshError);
+        }
+      }
+      
       // Rollback on error
-      setState((prev: GenerationState) => ({
+      setValidatedState((prev: GenerationState) => ({
         ...prev,
         isWaitingForInput: true,
         inputType: 'approve_outline',
@@ -1136,7 +1427,7 @@ export const useArticleGenerationRealtime = ({
       }));
       return { success: false, error: error instanceof Error ? error.message : 'アウトライン承認に失敗しました' };
     }
-  }, [submitUserInput, isConnected]);
+  }, [submitUserInput, isConnected, fetchProcessData]);
 
   const pauseGeneration = useCallback(async () => {
     if (!processId) return false;
@@ -1232,7 +1523,7 @@ export const useArticleGenerationRealtime = ({
   }, [currentData]);
 
   return {
-    // State - ONLY from Supabase events
+    // State - Atomic validated state
     state,
     connectionState: {
       ...connectionState,
