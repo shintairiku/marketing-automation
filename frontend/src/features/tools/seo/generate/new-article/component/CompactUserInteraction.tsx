@@ -790,6 +790,7 @@ export default function CompactUserInteraction({
                       variant="ghost"
                       size="sm"
                       className="opacity-0 group-hover:opacity-100 transition-opacity"
+                      type="button"
                       onClick={() => handleEdit('outline')}
                     >
                       <Edit3 className="w-4 h-4" />
