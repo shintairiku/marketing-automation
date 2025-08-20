@@ -22,6 +22,11 @@
    - 環境変数`ADMIN_EMAILS`（カンマ区切り）または`ADMIN_USER_IDS`で許可リスト。
    - 既存認証ミドルウェア（`backend/app/common/auth.py`想定）に管理者チェック関数追加。
    - すべての`/admin/*`エンドポイントで管理者チェック。
+   - 【Google Workspace SSO限定】管理者サインアップ/アクセスは「会社発行のGoogle WorkspaceアカウントによるSSOのみ」を許可することを明示。メールアドレス入力のみでの昇格は禁止。
+     - 設定: `ADMIN_GOOGLE_WORKSPACE_DOMAINS` に許可ドメイン（`@shintairiku.jp`、あるいは別のマーケティング用のドメイン）を指定。
+     - OIDC検証: `iss/aud`検証、`email_verified=true`、Googleの`hd`（hosted domain）クレームまたはIDトークンの`email`ドメインが許可リストに一致することを必須化。
+     - Clerk 等を介する場合もバックエンドでドメイン再検証（トークン改ざん/なりすまし対策の二重チェック）。
+     - 個人Gmail（`@gmail.com`）や非許可ドメインは403。
 3. Supabase管理クライアント
    - Service Role Keyを利用する管理用クライアント実装（接続/SQL実行/ストレージは将来用）。
 4. 観測性
@@ -31,6 +36,7 @@
 
 受け入れ基準
 - `/admin/health`が認証済み管理者のみ200、非管理者は403。
+- Google Workspace以外のドメイン（例: `@gmail.com`）は403、許可ドメイン（`ADMIN_GOOGLE_WORKSPACE_DOMAINS`）のみ200。
 - 主要サブルーターが空でもルーティングOK。
 
 ---
@@ -122,12 +128,23 @@ API（/admin/announcements）
 API（/admin/messages）
 - テンプレCRUD、キャンペーン作成/テスト送信、本番送信キュー投入。
 - セグメント解決（ユーザー/組織/プラン/最終アクティブなどの条件→SQLに変換）。
-- 配信は外部メールサービスを抽象化（SendGrid/Resend等に差し替え可能なAdapter）。
+- 配信は外部メールサービスを抽象化（Resendを第一候補、将来SendGrid等に差し替え可能なAdapter）。
 - Webhook受信（バウンス/スパム/開封）で`message_delivery_logs`更新。
+
+ライブラリ選定（OSS中心）
+- 送信: Resend 公式 Python SDK（`resend`、MIT）を優先採用。SMTP代替として `aiosmtplib`（MIT）も選択肢。
+- テンプレ: `jinja2`（BSD）でテンプレ展開、`premailer`（Apache-2.0）でCSSインライン化。
+- 署名/検証: Resend Webhookの署名検証（HMAC）をFastAPIで実装。再試行は`tenacity`（Apache-2.0）。
+- バリデーション: `pydantic`で配信ジョブやテンプレ変数のスキーマ検証。
+
+メッセージキュー方針
+- フェーズ1（初期実装）: 既存の`background_tasks`テーブル＋関数`get_next_background_task(worker_id, task_types)`を「簡易ジョブキュー」として活用。ジョブ種別: `send_email_campaign`, `send_single_email`, `compute_segment` 等。ワーカーはバックグラウンドプロセスとしてFastAPIとは別プロセスで起動。
+- フェーズ2（スケール時の選択肢）: Celery（BSD）+ Redis もしくは RQ（BSD）+ Redis に移行可能なAdapter層を設計（タスク投入/取得のIFを抽象化）。当面はDBキューで十分なスループットを目標（優先度/再試行/依存関係は既存列でカバー）。
 
 受け入れ基準
 - 小規模テスト配信で成功/失敗が記録される。
 - 登録/解除通知の自動送出が可能（ユーザー/サブスク作成/解約イベントのフック）。
+- Resendのサンドボックス/テスト送信が成功し、Webhookで開封/バウンスが `message_delivery_logs` に反映される。
 
 ---
 
