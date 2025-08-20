@@ -381,9 +381,8 @@ export const useArticleGenerationRealtime = ({
         case 'step_changed':
           const processData = event.event_data;
           
-          // PRIORITY: For process_state_updated events, this represents the LATEST database state
-          // We should prioritize this over any intermediate step events
-          const isLatestDatabaseState = event.event_type === 'process_state_updated';
+          // Do not prioritize DB "state" over client progression to avoid regressions
+          const isLatestDatabaseState = false;
           // Handle both current_step and current_step_name fields from backend
           // CRITICAL: also fallback to article_context.current_step when root fields are missing
           const backendStep = processData.current_step 
@@ -397,15 +396,16 @@ export const useArticleGenerationRealtime = ({
             const currentIndex = currentStepOrder.indexOf(newState.currentStep);
             const newIndex = currentStepOrder.indexOf(uiStep);
             
-            // Special handling for delayed completion events
-            const isDelayedCompletionEvent = [
-              'research_plan_generated', 
+            // Treat certain completion-ish notifications as non-progressing and skip if behind
+            const completionish = new Set([
               'persona_generated',
-              'theme_proposed'
-            ].includes(backendStep) && newIndex < currentIndex;
-            
-            // Only update if the new step is forward progression OR it's the latest database state
-            // Skip delayed completion events that would cause regression
+              'theme_proposed',
+              'research_plan_generated',
+              'outline_generated'
+            ]);
+            const isDelayedCompletionEvent = completionish.has(backendStep) && newIndex < currentIndex;
+
+            // Only update if the new step is forward progression; never regress
             if (isDelayedCompletionEvent) {
               console.log('⏭️ Skipped delayed completion event (already progressed):', { 
                 current: newState.currentStep, 
@@ -414,9 +414,10 @@ export const useArticleGenerationRealtime = ({
                 newIndex,
                 reason: 'delayed_completion'
               });
-            } else if (isLatestDatabaseState || newIndex >= currentIndex || newState.currentStep === 'keyword_analyzing') {
+            } else if (newIndex >= currentIndex || newState.currentStep === 'keyword_analyzing') {
+              const from = newState.currentStep;
               newState.currentStep = uiStep;
-              console.log('✅ Step updated:', { from: newState.currentStep, to: uiStep, backendStep, isLatest: isLatestDatabaseState });
+              console.log('✅ Step updated (forward-only):', { from, to: uiStep, backendStep });
             } else {
               console.log('⏭️ Skipped backward step progression:', { 
                 current: newState.currentStep, 
@@ -537,18 +538,43 @@ export const useArticleGenerationRealtime = ({
               console.warn('⚠️ No outline data found in context despite outline_generated state');
             }
             
-            // Set generated content from context
+            // Merge generated content from context without losing already received sections
             if (context.generated_sections_html && Array.isArray(context.generated_sections_html)) {
-              console.log('📄 Setting generated sections from context:', context.generated_sections_html.length, 'sections');
-              newState.generatedContent = context.generated_sections_html.join('\n\n');
-              
-              // Update completed sections
-              newState.completedSections = context.generated_sections_html.map((content: string, index: number) => ({
-                index: index + 1,
-                heading: `Section ${index + 1}`,
-                content: content,
-                imagePlaceholders: []
-              }));
+              console.log('📄 Merging generated sections from context:', context.generated_sections_html.length, 'sections');
+
+              // Ensure completedSections exists
+              if (!newState.completedSections) newState.completedSections = [];
+              const existing: Record<number, { index: number; heading: string; content: string; imagePlaceholders: any[] }>
+                = Object.fromEntries(newState.completedSections.map(s => [s.index, s]));
+
+              // Merge by index (1-based)
+              context.generated_sections_html.forEach((content: string, idx: number) => {
+                const index = idx + 1;
+                const trimmed = typeof content === 'string' ? content : '';
+                if (trimmed && trimmed.length > 0) {
+                  const prev = existing[index];
+                  if (!prev || (typeof prev.content === 'string' && prev.content.trim().length === 0)) {
+                    existing[index] = {
+                      index,
+                      heading: prev?.heading || `Section ${index}`,
+                      content: trimmed,
+                      imagePlaceholders: prev?.imagePlaceholders || []
+                    };
+                  }
+                }
+              });
+
+              // Write back to array preserving order
+              newState.completedSections = Object.values(existing)
+                .sort((a, b) => a.index - b.index);
+
+              // Recompute generatedContent from merged completedSections
+              if (newState.completedSections.length > 0) {
+                newState.generatedContent = newState.completedSections
+                  .map(s => (typeof s.content === 'string' ? s.content : ''))
+                  .filter(c => c && c.trim().length > 0)
+                  .join('\n\n');
+              }
             }
             
             // Set final article if available
@@ -610,7 +636,7 @@ export const useArticleGenerationRealtime = ({
           }
           
           // Loading state management based on process status
-          if (processData.status === 'running' && !processData.is_waiting_for_input) {
+          if ((processData.status === 'running' || processData.status === 'in_progress') && !processData.is_waiting_for_input) {
             // Show loading state for current step
             const currentStep = newState.steps.find(s => s.id === newState.currentStep);
             if (currentStep) {
@@ -823,7 +849,12 @@ export const useArticleGenerationRealtime = ({
           break;
 
         case 'outline_generation_started':
-          newState.currentStep = 'outline_generating';
+          // Forward-only: don't regress from later steps (writing/editing/completed)
+          if (!['writing_sections', 'editing', 'completed'].includes(newState.currentStep)) {
+            newState.currentStep = 'outline_generating';
+          } else {
+            console.log('⏭️ Skip outline_generation_started due to forward-only rule. Current:', newState.currentStep);
+          }
           newState.steps = newState.steps.map((step: GenerationStep) => 
             step.id === 'outline_generating' ? { ...step, status: 'in_progress' as StepStatus } : step
           );
@@ -838,7 +869,12 @@ export const useArticleGenerationRealtime = ({
           break;
 
         case 'section_writing_started':
-          newState.currentStep = 'writing_sections';
+          // Forward-only: don't regress from later steps
+          if (!['editing', 'completed'].includes(newState.currentStep)) {
+            const from = newState.currentStep;
+            newState.currentStep = 'writing_sections';
+            console.log('✍️ Section writing started; step set:', { from, to: 'writing_sections' });
+          }
           newState.steps = newState.steps.map((step: GenerationStep) => 
             step.id === 'writing_sections' ? { ...step, status: 'in_progress' as StepStatus } : step
           );
@@ -899,9 +935,17 @@ export const useArticleGenerationRealtime = ({
             newState.generatedContent = newState.completedSections
               .sort((a: CompletedSection, b: CompletedSection) => a.index - b.index)
               .map((section: CompletedSection) => section.content)
-              .filter(content => content.trim().length > 0) // Filter out empty sections
+              .filter(content => typeof content === 'string' && content.trim().length > 0)
               .join('\n\n');
           }
+
+          // Keep step as writing until all completed
+          if (!['editing', 'completed'].includes(newState.currentStep)) {
+            newState.currentStep = 'writing_sections';
+          }
+          newState.steps = newState.steps.map((step: GenerationStep) => 
+            step.id === 'writing_sections' ? { ...step, status: 'in_progress' as StepStatus } : step
+          );
           
           console.log('✅ Section completed (batch):', {
             sectionIndex: completedSection.index,

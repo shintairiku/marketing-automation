@@ -303,6 +303,23 @@ export const useSupabaseRealtime = ({
 
     try {
       console.log(`📡 Connecting to realtime for process: ${processId}`);
+      // Set Realtime auth with Clerk JWT so RLS policies allow streaming
+      try {
+        const token = await getToken();
+        if (token) {
+          // Provide the JWT to Realtime so postgres_changes respects RLS
+          (supabase as any).realtime.setAuth(token);
+          // Explicitly (re)connect the realtime socket with auth
+          if ((supabase as any).realtime?.isConnected() === false) {
+            await (supabase as any).realtime.connect();
+          }
+          console.log('🔐 Realtime auth set with Clerk JWT');
+        } else {
+          console.warn('⚠️ No Clerk JWT available; realtime may be denied by RLS');
+        }
+      } catch (authErr) {
+        console.warn('Failed to set Realtime auth token:', authErr);
+      }
 
       // Subscribe to process events (Realtime uses existing auth)
       const channel = (supabase as any)
