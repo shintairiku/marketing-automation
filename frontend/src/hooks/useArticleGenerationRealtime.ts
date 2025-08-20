@@ -544,29 +544,37 @@ export const useArticleGenerationRealtime = ({
 
               // Ensure completedSections exists
               if (!newState.completedSections) newState.completedSections = [];
-              const existing: Record<number, { index: number; heading: string; content: string; imagePlaceholders: any[] }>
-                = Object.fromEntries(newState.completedSections.map(s => [s.index, s]));
+
+              // Use Map to keep numeric index keys with normalized structure
+              const existing = new Map<number, CompletedSection>();
+              newState.completedSections.forEach((s: CompletedSection) => {
+                existing.set(s.index, {
+                  index: s.index,
+                  heading: s.heading,
+                  content: s.content,
+                  imagePlaceholders: s.imagePlaceholders ?? []
+                });
+              });
 
               // Merge by index (1-based)
               context.generated_sections_html.forEach((content: string, idx: number) => {
                 const index = idx + 1;
                 const trimmed = typeof content === 'string' ? content : '';
                 if (trimmed && trimmed.length > 0) {
-                  const prev = existing[index];
+                  const prev = existing.get(index);
                   if (!prev || (typeof prev.content === 'string' && prev.content.trim().length === 0)) {
-                    existing[index] = {
+                    existing.set(index, {
                       index,
                       heading: prev?.heading || `Section ${index}`,
                       content: trimmed,
-                      imagePlaceholders: prev?.imagePlaceholders || []
-                    };
+                      imagePlaceholders: prev?.imagePlaceholders ?? []
+                    });
                   }
                 }
               });
 
               // Write back to array preserving order
-              newState.completedSections = Object.values(existing)
-                .sort((a, b) => a.index - b.index);
+              newState.completedSections = Array.from(existing.values()).sort((a, b) => a.index - b.index);
 
               // Recompute generatedContent from merged completedSections
               if (newState.completedSections.length > 0) {
