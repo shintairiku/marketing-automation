@@ -47,9 +47,9 @@ class Settings(BaseSettings):
     max_turns_for_agents: int = int(os.getenv("MAX_TURNS_FOR_AGENTS", "10"))
 
     # Scraping settings
-    scraping_timeout: int = int(os.getenv("SCRAPING_TIMEOUT", "10"))
-    scraping_delay: float = float(os.getenv("SCRAPING_DELAY", "1.0"))
-    max_concurrent_scraping: int = int(os.getenv("MAX_CONCURRENT_SCRAPING", "3"))
+    scraping_timeout: int = int(os.getenv("SCRAPING_TIMEOUT", "5"))
+    scraping_delay: float = float(os.getenv("SCRAPING_DELAY", "0.2"))
+    max_concurrent_scraping: int = int(os.getenv("MAX_CONCURRENT_SCRAPING", "5"))
     serpapi_rate_limit: int = int(os.getenv("SERPAPI_RATE_LIMIT", "50"))
 
     # デバッグフラグ
