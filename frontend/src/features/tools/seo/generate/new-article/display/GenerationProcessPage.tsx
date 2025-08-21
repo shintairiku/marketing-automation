@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { AnimatePresence, motion } from 'framer-motion';
-import { AlertCircle, ArrowLeft,CheckCircle } from 'lucide-react';
+import { AlertCircle, ArrowLeft, CheckCircle, RefreshCw } from 'lucide-react';
 
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
@@ -317,6 +317,14 @@ export default function GenerationProcessPage({ jobId }: GenerationProcessPagePr
                         <p className="text-sm text-gray-500">ID: {jobId}</p>
                     </div>
                 </div>
+                <Button
+                    variant="outline"
+                    onClick={() => window.location.reload()}
+                    aria-label="Reload page"
+                >
+                    <RefreshCw className="mr-2 h-4 w-4" />
+                    <span>再読込</span>
+                </Button>
             </motion.div>
 
 
