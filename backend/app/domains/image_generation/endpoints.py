@@ -175,6 +175,86 @@ async def generate_image(
             detail=f"画像生成に失敗しました: {str(e)}"
         )
 
+@router.post("/generate-and-link")
+async def generate_and_link_image(
+    request: ImageGenerationRequest,
+    current_user_id: str = Depends(get_current_user_id_from_token)
+):
+    """画像を生成してプレースホルダーと関連付け（generate のエイリアス、image_id付きレスポンス）"""
+    try:
+        logger.info(f"画像生成・関連付けリクエスト - placeholder_id: {request.placeholder_id}, user_id: {current_user_id}")
+        
+        # 既存の generate エンドポイントと同じ処理
+        image_service = ImageGenerationService()
+        
+        from app.domains.image_generation.service import ImageGenerationRequest as GenRequest
+        gen_request = GenRequest(
+            prompt=request.prompt_en,
+            aspect_ratio="4:3",
+            output_format="JPEG",
+            quality=85
+        )
+        
+        result = await image_service.generate_image_detailed(gen_request)
+        
+        if not result.success:
+            raise HTTPException(
+                status_code=500,
+                detail=f"画像生成に失敗しました: {result.error_message}"
+            )
+        
+        # データベースに画像情報を保存
+        image_id = str(uuid.uuid4())
+        image_data = {
+            "id": image_id,
+            "user_id": current_user_id,
+            "article_id": request.article_id,
+            "file_path": result.image_path,
+            "image_type": "generated",
+            "alt_text": request.alt_text or request.description_jp,
+            "generation_prompt": request.prompt_en,
+            "generation_params": result.metadata,
+            "metadata": {
+                **(result.metadata or {}),
+                "placeholder_id": request.placeholder_id,
+                "description_jp": request.description_jp,
+                "prompt_en": request.prompt_en,
+                "source": "placeholder_replacement"
+            }
+        }
+        
+        # GCS情報がある場合は追加
+        if result.metadata and result.metadata.get("gcs_url"):
+            image_data.update({
+                "gcs_url": result.metadata.get("gcs_url"),
+                "gcs_path": result.metadata.get("gcs_path"),
+                "storage_type": result.metadata.get("storage_type", "hybrid")
+            })
+        else:
+            image_data["storage_type"] = "local"
+        
+        # imagesテーブルに挿入
+        db_result = supabase.table("images").insert(image_data).execute()
+        
+        if db_result.data:
+            logger.info(f"画像生成・保存成功 - image_url: {result.image_url}, image_id: {image_id}")
+        else:
+            logger.warning(f"画像データベース保存に失敗: {db_result}")
+        
+        return {
+            "image_url": result.image_url,
+            "image_id": image_id,
+            "placeholder_id": request.placeholder_id,
+            "alt_text": request.alt_text or request.description_jp
+        }
+        
+    except Exception as e:
+        logger.error(f"画像生成・関連付けエラー - placeholder_id: {request.placeholder_id}, error: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"画像生成・関連付けに失敗しました: {str(e)}"
+        )
+
 @router.post("/generate-from-placeholder", response_model=ImageGenerationResponse)
 async def generate_image_from_placeholder(request: GenerateImageFromPlaceholderRequest):
     """画像プレースホルダーの情報から画像を生成する"""
@@ -445,5 +525,194 @@ async def serve_image(image_filename: str):
     except Exception as e:
         logger.error(f"Failed to serve image {image_filename}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+# --- Image Management Additional Endpoints ---
+
+@router.post("/restore-placeholder")
+async def restore_placeholder(
+    request: ImageRestoreRequest,
+    current_user_id: str = Depends(get_current_user_id_from_token)
+):
+    """画像をプレースホルダーに復元"""
+    try:
+        logger.info(f"画像復元開始 - article_id: {request.article_id}, placeholder_id: {request.placeholder_id}")
+        
+        # 記事の取得と権限確認
+        article_result = supabase.table("articles").select("*").eq("id", request.article_id).eq("user_id", current_user_id).execute()
+        
+        if not article_result.data:
+            raise HTTPException(status_code=404, detail="記事が見つからないか、アクセス権限がありません")
+        
+        article = article_result.data[0]
+        current_content = article["content"]
+        
+        # プレースホルダー情報を取得
+        placeholder_result = supabase.table("image_placeholders").select("*").eq("article_id", request.article_id).eq("placeholder_id", request.placeholder_id).execute()
+        
+        if placeholder_result.data:
+            placeholder_data = placeholder_result.data[0]
+            description_jp = placeholder_data["description_jp"]
+            prompt_en = placeholder_data["prompt_en"]
+        else:
+            # プレースホルダーデータが見つからない場合は、記事内容から抽出を試みる
+            import re
+            pattern = f'<img[^>]*data-placeholder-id="{re.escape(request.placeholder_id)}"[^>]*>'
+            match = re.search(pattern, current_content)
+            
+            if not match:
+                raise HTTPException(status_code=404, detail="プレースホルダーまたは画像が記事内に見つかりません")
+            
+            # デフォルト値を使用
+            description_jp = "画像プレースホルダー"
+            prompt_en = "image placeholder"
+        
+        # 画像タグをプレースホルダーコメントに置換
+        import re
+        img_pattern = f'<img[^>]*data-placeholder-id="{re.escape(request.placeholder_id)}"[^>]*/?>'
+        placeholder_comment = f'<!-- IMAGE_PLACEHOLDER: {request.placeholder_id}|{description_jp}|{prompt_en} -->'
+        
+        updated_content = re.sub(img_pattern, placeholder_comment, current_content)
+        
+        # 記事内容を更新
+        update_result = supabase.table("articles").update({"content": updated_content}).eq("id", request.article_id).execute()
+        
+        if not update_result.data:
+            raise HTTPException(status_code=500, detail="記事の更新に失敗しました")
+        
+        # プレースホルダーの状態を更新
+        supabase.table("image_placeholders").update({
+            "replaced_with_image_id": None,
+            "status": "pending"
+        }).eq("article_id", request.article_id).eq("placeholder_id", request.placeholder_id).execute()
+        
+        logger.info(f"画像復元成功 - article_id: {request.article_id}, placeholder_id: {request.placeholder_id}")
+        
+        return {
+            "success": True,
+            "message": "画像がプレースホルダーに復元されました",
+            "updated_content": updated_content
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"画像復元エラー - article_id: {request.article_id}, error: {e}")
+        raise HTTPException(status_code=500, detail=f"画像復元に失敗しました: {str(e)}")
+
+@router.get("/article-images/{article_id}")
+async def get_article_images(
+    article_id: str,
+    current_user_id: str = Depends(get_current_user_id_from_token)
+):
+    """記事に関連する画像とプレースホルダー情報を取得"""
+    try:
+        logger.info(f"記事画像取得 - article_id: {article_id}, user_id: {current_user_id}")
+        
+        # 記事の取得と権限確認
+        article_result = supabase.table("articles").select("*").eq("id", article_id).eq("user_id", current_user_id).execute()
+        
+        if not article_result.data:
+            raise HTTPException(status_code=404, detail="記事が見つからないか、アクセス権限がありません")
+        
+        article = article_result.data[0]
+        
+        # プレースホルダー情報を取得
+        placeholders_result = supabase.table("image_placeholders").select("*").eq("article_id", article_id).execute()
+        placeholders = placeholders_result.data or []
+        
+        # 記事に関連する全ての画像を取得
+        images_result = supabase.table("images").select("*").eq("article_id", article_id).eq("user_id", current_user_id).execute()
+        all_images = images_result.data or []
+        
+        # 画像URLを正規化（GCS優先、ローカルはserveエンドポイント経由）
+        for image in all_images:
+            if image.get("gcs_url"):
+                image["display_url"] = image["gcs_url"]
+            elif image.get("file_path"):
+                # ローカルファイルの場合は /images/serve/{filename} を使用
+                filename = image["file_path"].split("/")[-1] if "/" in image["file_path"] else image["file_path"]
+                image["display_url"] = f"/images/serve/{filename}"
+            else:
+                image["display_url"] = image.get("file_path", "")
+        
+        # 復元されたコンテンツの生成（画像を元のプレースホルダーに戻したバージョン）
+        restored_content = article["content"]
+        for placeholder in placeholders:
+            placeholder_id = placeholder["placeholder_id"]
+            description_jp = placeholder["description_jp"]
+            prompt_en = placeholder["prompt_en"]
+            
+            # 該当する画像タグをプレースホルダーコメントに置換
+            import re
+            img_pattern = f'<img[^>]*data-placeholder-id="{re.escape(placeholder_id)}"[^>]*/?>'
+            placeholder_comment = f'<!-- IMAGE_PLACEHOLDER: {placeholder_id}|{description_jp}|{prompt_en} -->'
+            restored_content = re.sub(img_pattern, placeholder_comment, restored_content)
+        
+        logger.info(f"記事画像取得成功 - placeholders: {len(placeholders)}, images: {len(all_images)}")
+        
+        return {
+            "placeholders": placeholders,
+            "all_images": all_images,
+            "restored_content": restored_content
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"記事画像取得エラー - article_id: {article_id}, error: {e}")
+        raise HTTPException(status_code=500, detail=f"記事画像取得に失敗しました: {str(e)}")
+
+@router.get("/placeholder-history/{article_id}/{placeholder_id}")
+async def get_placeholder_history(
+    article_id: str,
+    placeholder_id: str,
+    current_user_id: str = Depends(get_current_user_id_from_token)
+):
+    """プレースホルダーに関連する画像履歴を取得"""
+    try:
+        logger.info(f"画像履歴取得 - article_id: {article_id}, placeholder_id: {placeholder_id}, user_id: {current_user_id}")
+        
+        # 記事の権限確認
+        article_result = supabase.table("articles").select("id").eq("id", article_id).eq("user_id", current_user_id).execute()
+        
+        if not article_result.data:
+            raise HTTPException(status_code=404, detail="記事が見つからないか、アクセス権限がありません")
+        
+        # プレースホルダーに関連する画像履歴を取得
+        # metadata.placeholder_id または metadata->>'placeholder_id' でフィルタ
+        images_result = supabase.table("images").select("*").eq("article_id", article_id).eq("user_id", current_user_id).execute()
+        
+        all_images = images_result.data or []
+        
+        # プレースホルダーIDでフィルタリング
+        placeholder_images = []
+        for image in all_images:
+            metadata = image.get("metadata", {})
+            if isinstance(metadata, dict) and metadata.get("placeholder_id") == placeholder_id:
+                # 画像URLを正規化
+                if image.get("gcs_url"):
+                    image["display_url"] = image["gcs_url"]
+                elif image.get("file_path"):
+                    filename = image["file_path"].split("/")[-1] if "/" in image["file_path"] else image["file_path"]
+                    image["display_url"] = f"/images/serve/{filename}"
+                else:
+                    image["display_url"] = image.get("file_path", "")
+                
+                placeholder_images.append(image)
+        
+        # 作成日時順でソート（新しい順）
+        placeholder_images.sort(key=lambda x: x.get("created_at", ""), reverse=True)
+        
+        logger.info(f"画像履歴取得成功 - 画像数: {len(placeholder_images)}")
+        
+        return {
+            "images_history": placeholder_images
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"画像履歴取得エラー - article_id: {article_id}, placeholder_id: {placeholder_id}, error: {e}")
+        raise HTTPException(status_code=500, detail=f"画像履歴取得に失敗しました: {str(e)}")
 
 # --- Additional endpoints from routers/images.py can be added here as needed ---

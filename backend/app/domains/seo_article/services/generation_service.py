@@ -179,6 +179,12 @@ class ArticleGenerationService:
             )
             logger.info(f"✅ [CREATE_PROCESS] ArticleContext created, current_step: {context.current_step}")
             
+            # Hydrate style template settings if style_template_id is provided
+            if context.style_template_id:
+                logger.info(f"🎨 [CREATE_PROCESS] Hydrating style template settings for template ID: {context.style_template_id}")
+                await self._hydrate_style_template(context, user_id, organization_id)
+                logger.info("✅ [CREATE_PROCESS] Style template settings hydrated")
+            
             # Save context to database and get process_id
             logger.info("💾 [CREATE_PROCESS] Saving context to database")
             process_id = await self.persistence_service.save_context_to_db(
@@ -620,3 +626,64 @@ class ArticleGenerationService:
                 
         except Exception as e:
             logger.error(f"Error publishing process_created event for {process_id}: {e}")
+
+    async def _hydrate_style_template(self, context, user_id: str, organization_id: Optional[str]):
+        """Hydrate style template settings from database into context"""
+        try:
+            from .flow_service import get_supabase_client
+            supabase = get_supabase_client()
+
+            template = None
+
+            # 1. 明示指定があればそれを取得
+            if context.style_template_id:
+                logger.info(f"🔍 [HYDRATE_STYLE] Looking for style template ID: {context.style_template_id}")
+                res = supabase.table("style_guide_templates")\
+                    .select("id, settings")\
+                    .eq("id", context.style_template_id)\
+                    .eq("is_active", True)\
+                    .single()\
+                    .execute()
+                if res.data:
+                    template = res.data
+                    logger.info(f"✅ [HYDRATE_STYLE] Found specific template: {template['id']}")
+
+            # 2. なければデフォルト（組織→個人の順）
+            if not template and organization_id:
+                logger.info(f"🔍 [HYDRATE_STYLE] Looking for organization default template for org: {organization_id}")
+                res = supabase.table("style_guide_templates")\
+                    .select("id, settings")\
+                    .eq("organization_id", organization_id)\
+                    .eq("is_default", True)\
+                    .eq("is_active", True)\
+                    .limit(1)\
+                    .execute()
+                if res.data:
+                    template = res.data[0]
+                    logger.info(f"✅ [HYDRATE_STYLE] Found organization default template: {template['id']}")
+
+            if not template:
+                logger.info(f"🔍 [HYDRATE_STYLE] Looking for user default template for user: {user_id}")
+                res = supabase.table("style_guide_templates")\
+                    .select("id, settings")\
+                    .eq("user_id", user_id)\
+                    .eq("is_default", True)\
+                    .eq("is_active", True)\
+                    .limit(1)\
+                    .execute()
+                if res.data:
+                    template = res.data[0]
+                    logger.info(f"✅ [HYDRATE_STYLE] Found user default template: {template['id']}")
+
+            # 3. 見つかったら context に注入
+            if template:
+                context.style_template_id = template["id"]
+                context.style_template_settings = template["settings"] or {}
+                logger.info(f"🎨 [HYDRATE_STYLE] Successfully hydrated style template {template['id']} with settings: {list(context.style_template_settings.keys())}")
+            else:
+                logger.warning(f"⚠️ [HYDRATE_STYLE] No style template found for user {user_id}, organization {organization_id}")
+                
+        except Exception as e:
+            logger.error(f"💥 [HYDRATE_STYLE] Error hydrating style template: {e}")
+            logger.exception("[HYDRATE_STYLE] Full exception details:")
+            # Don't raise - continue with empty style_template_settings

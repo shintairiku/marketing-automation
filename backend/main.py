@@ -34,12 +34,12 @@ app.add_middleware(
 # ★ APIルーターをまとめてインクルード（プレフィックスなしで互換性維持）
 app.include_router(api_router)
 
-# 生成された画像の静的ファイル配信
-# パスをプロジェクトルートからの相対パスとして解決
+# 画像の静的ファイル配信は /images/serve/{filename} エンドポイントで処理
+# StaticFilesによる /images マウントは画像APIと衝突するため削除
+# 画像ディレクトリは確保しておく
 images_directory = Path(__file__).parent / settings.image_storage_path.lstrip('/')
 images_directory.mkdir(parents=True, exist_ok=True)
 print(f"画像ディレクトリ: {images_directory.resolve()}")
-app.mount("/images", StaticFiles(directory=str(images_directory.resolve())), name="images")
 
 @app.get("/", tags=["Root"], summary="APIルートエンドポイント")
 async def read_root():
@@ -51,11 +51,8 @@ async def health_check():
     """APIのヘルスチェックエンドポイント。"""
     return {"status": "healthy", "message": "API is running", "version": "2.0.0"}
 
-# プリフライトリクエスト用のOPTIONSハンドラー
-@app.options("/{path:path}", tags=["CORS"], summary="CORS プリフライトハンドラー")
-async def options_handler(path: str):
-    """CORS プリフライトリクエストに対応するOPTIONSハンドラー。"""
-    return {"message": "OK"}
+# CORSプリフライトリクエストはCORSMiddlewareが自動的に処理するため、
+# 個別のOPTIONSハンドラーは不要です
 
 # テストクライアント用のエンドポイントは開発用のため、削除または `#if DEBUG:` などで囲むことを推奨
 # ...

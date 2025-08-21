@@ -95,6 +95,10 @@ class ProcessPersistenceService:
                 if context.current_step == "error" and hasattr(context, 'error_message'):
                     update_data["error_message"] = context.error_message
                     
+                # Add style template ID if available
+                if context.style_template_id:
+                    update_data["style_template_id"] = context.style_template_id
+                    
                 # Add final article if completed
                 if context.current_step == "completed":
                     # Use final_article_html if available, otherwise fallback to full_draft_html
@@ -192,7 +196,8 @@ class ProcessPersistenceService:
                     "organization_id": organization_id,
                     "status": map_step_to_status(context.current_step),
                     "article_context": context_dict,
-                    "generated_content": {}
+                    "generated_content": {},
+                    "style_template_id": context.style_template_id  # Add style template ID to dedicated column
                 }
                 
                 result = supabase.table("generated_articles_state").insert(state_data).execute()
@@ -298,6 +303,21 @@ class ProcessPersistenceService:
             context.section_writer_history = context_dict.get("section_writer_history", [])
             context.expected_user_input = context_dict.get("expected_user_input")
             
+            # Safety net: If style_template_id exists but style_template_settings is empty, hydrate from database
+            if context.style_template_id and not context.style_template_settings:
+                try:
+                    logger.info(f"🔄 [LOAD_CONTEXT] Auto-hydrating style template {context.style_template_id}")
+                    res = supabase.table("style_guide_templates")\
+                        .select("settings")\
+                        .eq("id", context.style_template_id)\
+                        .single()\
+                        .execute()
+                    if res.data and res.data.get("settings"):
+                        context.style_template_settings = res.data["settings"]
+                        logger.info(f"✅ [LOAD_CONTEXT] Auto-hydrated style template settings: {list(context.style_template_settings.keys())}")
+                except Exception as e:
+                    logger.warning(f"⚠️ [LOAD_CONTEXT] Failed to auto-hydrate style settings for {context.style_template_id}: {e}")
+
             logger.info(f"Successfully loaded context for process {process_id} from step {context.current_step}")
             return context
             
