@@ -50,6 +50,7 @@ export default function GenerationProcessPage({ jobId }: GenerationProcessPagePr
     } = useArticleGenerationRealtime({
         processId: jobId,
         userId: isLoaded && user?.id ? user.id : undefined,
+        autoConnect: true, // Let the hook handle connection and data loading automatically
     });
 
     // Debug: Check Clerk authentication state
@@ -102,6 +103,7 @@ export default function GenerationProcessPage({ jobId }: GenerationProcessPagePr
                 if (processData.article_context) {
                     console.log('🔍 Article context keys:', Object.keys(processData.article_context));
                     console.log('🔍 Article context outline:', processData.article_context.outline);
+                    console.log('🔍 Article context generated_outline:', processData.article_context.generated_outline);
                     console.log('🔍 Article context research_plan:', processData.article_context.research_plan);
                     console.log('🔍 Current step name:', processData.current_step_name);
                     console.log('🔍 Status:', processData.status);
@@ -111,6 +113,13 @@ export default function GenerationProcessPage({ jobId }: GenerationProcessPagePr
                 // 復帰可能かチェック
                 if (processData.can_resume && 
                     ['user_input_required', 'paused', 'error'].includes(processData.status)) {
+                    // State restoration is now handled automatically by the unified hook system
+                    console.log('🔄 Process recovery available - hook will handle state restoration:', {
+                        status: processData.status,
+                        current_step: processData.current_step_name,
+                        has_article_context: !!processData.article_context
+                    });
+
                     setRecoveryInfo({
                         can_resume: processData.can_resume,
                         resume_step: processData.current_step || processData.status,
@@ -221,6 +230,9 @@ export default function GenerationProcessPage({ jobId }: GenerationProcessPagePr
         setShowRecoveryDialog(false);
         
         try {
+            // State restoration is now handled automatically by the unified hook system
+            console.log('🔄 Process resume requested - relying on unified hook for state restoration');
+            
             // Supabase Realtimeが自動的に状態を同期するため、接続を確認するだけ
             if (!isConnected && !isConnecting) {
                 connect();
@@ -342,6 +354,8 @@ export default function GenerationProcessPage({ jobId }: GenerationProcessPagePr
                             isConnected={isConnected}
                             isGenerating={isGenerating}
                             progressPercentage={getProgressPercentage()}
+                            isWaitingForInput={state.isWaitingForInput}
+                            status={state.status}
                             finalArticle={state.finalArticle}
                             currentMessage={thinkingMessages[0]}
                             generatedContent={state.generatedContent}

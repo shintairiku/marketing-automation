@@ -230,6 +230,8 @@ export default function IndexPage() {
                             isConnected={isConnected}
                             isGenerating={isGenerating}
                             progressPercentage={getProgressPercentage()}
+                            isWaitingForInput={state.isWaitingForInput}
+                            status={state.status}
                             finalArticle={state.finalArticle}
                             currentMessage={thinkingMessages[0]}
                             generatedContent={state.generatedContent}

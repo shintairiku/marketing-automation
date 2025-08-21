@@ -274,6 +274,35 @@ class GenerationFlowManager:
     async def handle_persona_user_interaction(self, context: ArticleContext, process_id: Optional[str] = None, user_id: Optional[str] = None):
         """ペルソナ選択のユーザーインタラクション処理"""
         personas_data_for_client = [GeneratedPersonaData(id=i, description=desc) for i, desc in enumerate(context.generated_detailed_personas)]
+        
+        # CRITICAL FIX: Set step to completed state and mark waiting for input using RPC
+        if process_id and user_id:
+            try:
+                from app.domains.seo_article.services.flow_service import get_supabase_client
+                
+                # 1) Ensure current_step_name is set to completion state
+                context.current_step = "persona_generated"
+                await self.service.persistence_service.update_process_state(
+                    process_id=process_id,
+                    current_step_name="persona_generated"
+                )
+                
+                # 2) Save context with generated personas to DB
+                await self.service.persistence_service.save_context_to_db(
+                    context, process_id=process_id, user_id=user_id
+                )
+                
+                # 3) Mark process waiting for input using RPC (triggers events and Realtime)
+                supabase = get_supabase_client()
+                await supabase.rpc(
+                    'mark_process_waiting_for_input',
+                    {'p_process_id': process_id, 'p_input_type': 'select_persona', 'p_timeout_minutes': 60}
+                ).execute()
+                
+                logger.info("Process state marked waiting for persona selection with RPC")
+            except Exception as save_err:
+                logger.error(f"Failed to mark process waiting for persona selection: {save_err}")
+        
         user_response_message = await self.service.utils.request_user_input(
             context,
             UserInputType.SELECT_PERSONA,
@@ -449,6 +478,34 @@ class GenerationFlowManager:
             ThemeProposalData(title=idea.title, description=idea.description, keywords=idea.keywords)
             for idea in context.generated_themes
         ]
+        
+        # CRITICAL FIX: Set step to completed state and mark waiting for input using RPC
+        if process_id and user_id:
+            try:
+                from app.domains.seo_article.services.flow_service import get_supabase_client
+                
+                # 1) Ensure current_step_name is set to completion state
+                context.current_step = "theme_proposed"
+                await self.service.persistence_service.update_process_state(
+                    process_id=process_id,
+                    current_step_name="theme_proposed"
+                )
+                
+                # 2) Save context with generated themes to DB
+                await self.service.persistence_service.save_context_to_db(
+                    context, process_id=process_id, user_id=user_id
+                )
+                
+                # 3) Mark process waiting for input using RPC (triggers events and Realtime)
+                supabase = get_supabase_client()
+                await supabase.rpc(
+                    'mark_process_waiting_for_input',
+                    {'p_process_id': process_id, 'p_input_type': 'select_theme', 'p_timeout_minutes': 60}
+                ).execute()
+                
+                logger.info("Process state marked waiting for theme selection with RPC")
+            except Exception as save_err:
+                logger.error(f"Failed to mark process waiting for theme selection: {save_err}")
         
         user_response_message = await self.service.utils.request_user_input(
             context,
@@ -1592,6 +1649,22 @@ class GenerationFlowManager:
             context.current_step = "outline_generated"
             console.print(f"[cyan]アウトライン（{len(agent_output.sections)}セクション）を生成しました。[/cyan]")
             
+            # CRITICAL FIX: Save context to database IMMEDIATELY after outline generation
+            # This ensures the generated outline is persisted and survives page reloads
+            process_id = getattr(context, 'process_id', None)
+            user_id = getattr(context, 'user_id', None)
+            
+            if process_id and user_id and hasattr(self.service, 'persistence_service'):
+                try:
+                    await self.service.persistence_service.save_context_to_db(
+                        context, process_id=process_id, user_id=user_id
+                    )
+                    logger.info(f"✅ Context with generated outline saved to DB for process {process_id}")
+                except Exception as save_err:
+                    logger.error(f"❌ Failed to save context after outline generation: {save_err}")
+            else:
+                logger.warning(f"⚠️ Cannot save context - missing process_id: {process_id}, user_id: {user_id}, or persistence_service")
+            
             # Publish outline generation completion event for Supabase Realtime
             try:
                 from .flow_service import get_supabase_client
@@ -1976,6 +2049,35 @@ class GenerationFlowManager:
         """アウトライン生成完了ステップの処理"""
         if context.generated_outline:
             outline_data_for_client = context.generated_outline
+            
+            # CRITICAL FIX: Set step to completed state and mark waiting for input using RPC
+            # This ensures DB state is persistent and survives page reloads
+            if process_id and user_id:
+                try:
+                    from app.domains.seo_article.services.flow_service import get_supabase_client
+                    
+                    # 1) Ensure current_step_name is set to completion state
+                    context.current_step = "outline_generated"
+                    await self.service.persistence_service.update_process_state(
+                        process_id=process_id,
+                        current_step_name="outline_generated"
+                    )
+                    
+                    # 2) Save context with generated outline to DB
+                    await self.service.persistence_service.save_context_to_db(
+                        context, process_id=process_id, user_id=user_id
+                    )
+                    
+                    # 3) Mark process waiting for input using RPC (triggers events and Realtime)
+                    supabase = get_supabase_client()
+                    await supabase.rpc(
+                        'mark_process_waiting_for_input',
+                        {'p_process_id': process_id, 'p_input_type': 'approve_outline', 'p_timeout_minutes': 60}
+                    ).execute()
+                    
+                    logger.info("Process state marked waiting for outline approval with RPC")
+                except Exception as save_err:
+                    logger.error(f"Failed to mark process waiting for outline approval: {save_err}")
             
             user_response_message = await self.service.utils.request_user_input(
                 context,
@@ -2774,6 +2876,34 @@ class GenerationFlowManager:
                     topic=context.research_plan.topic,
                     queries=[ResearchPlanQueryData(query=q.query, focus=q.focus) for q in context.research_plan.queries]
                 )
+                
+                # CRITICAL FIX: Set step to completed state and mark waiting for input using RPC
+                if process_id and user_id:
+                    try:
+                        from app.domains.seo_article.services.flow_service import get_supabase_client
+                        
+                        # 1) Ensure current_step_name is set to completion state
+                        context.current_step = "research_plan_generated"
+                        await self.service.persistence_service.update_process_state(
+                            process_id=process_id,
+                            current_step_name="research_plan_generated"
+                        )
+                        
+                        # 2) Save context with research plan to DB
+                        await self.service.persistence_service.save_context_to_db(
+                            context, process_id=process_id, user_id=user_id
+                        )
+                        
+                        # 3) Mark process waiting for input using RPC (triggers events and Realtime)
+                        supabase = get_supabase_client()
+                        await supabase.rpc(
+                            'mark_process_waiting_for_input',
+                            {'p_process_id': process_id, 'p_input_type': 'approve_plan', 'p_timeout_minutes': 60}
+                        ).execute()
+                        
+                        logger.info("Process state marked waiting for research plan approval with RPC")
+                    except Exception as save_err:
+                        logger.error(f"Failed to mark process waiting for research plan approval: {save_err}")
                 
                 user_response_message = await self.service.utils.request_user_input(
                     context,

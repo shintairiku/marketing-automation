@@ -56,6 +56,7 @@ export const useArticleGenerationRealtime = ({
   // Generation state - with debouncing for stable UI
   const [state, setState] = useState<GenerationState>({
     currentStep: 'keyword_analyzing',
+    status: 'pending', // Initialize with pending status
     steps: [
       { id: 'keyword_analyzing', name: 'キーワード分析', status: 'pending' },
       { id: 'persona_generating', name: 'ペルソナ生成', status: 'pending' },
@@ -147,13 +148,21 @@ export const useArticleGenerationRealtime = ({
           break;
           
         case 'approve_outline':
-          if (!sanitizedState.outline || sanitizedState.currentStep !== 'outline_generating') {
-            console.log('🔒 Clearing invalid outline approval state:', {
+          // More lenient check: only clear if we're clearly not in outline phase
+          // Allow outline_generating step even if outline data hasn't loaded yet (it may come from Realtime)
+          if (sanitizedState.currentStep !== 'outline_generating') {
+            console.log('🔒 Clearing outline approval state due to wrong step:', {
               hasOutline: !!sanitizedState.outline,
               currentStep: sanitizedState.currentStep
             });
             sanitizedState.isWaitingForInput = false;
             sanitizedState.inputType = undefined;
+          } else if (!sanitizedState.outline) {
+            console.log('⚠️ Outline approval state without outline data - keeping state for data loading:', {
+              currentStep: sanitizedState.currentStep,
+              isWaitingForInput: sanitizedState.isWaitingForInput
+            });
+            // Keep the waiting state - outline data may be loading via Realtime
           }
           break;
       }
@@ -193,26 +202,8 @@ export const useArticleGenerationRealtime = ({
     });
   }, [validateAndSanitizeState]);
 
-  // Connection state
-  const [connectionState, setConnectionState] = useState({
-    isInitializing: false,
-    hasStarted: false,
-    isDataSynced: false,
-  });
-
-  // Action tracking state
-  const [queuedActions, setQueuedActions] = useState(0);
-  const [pendingActions, setPendingActions] = useState(new Set<string>());
-  const [dataVersion, setDataVersion] = useState(0);
-  
-  // Event deduplication with time-based throttling
-  const [lastProcessedEventId, setLastProcessedEventId] = useState<string>('');
-  const [lastProcessedState, setLastProcessedState] = useState<string>('');
-  const [lastProcessedTime, setLastProcessedTime] = useState<number>(0);
-  const [processedEventIds, setProcessedEventIds] = useState<Set<string>>(new Set());
-
   // Helper function to map backend steps to UI steps with proper loading state handling
-  const mapBackendStepToUIStep = (backendStep: string, status?: string): string => {
+  const mapBackendStepToUIStep = useCallback((backendStep: string, status?: string): string => {
     const stepMapping: Record<string, string> = {
       // Initial state
       'start': 'keyword_analyzing',
@@ -271,9 +262,118 @@ export const useArticleGenerationRealtime = ({
     }
     
     return stepMapping[backendStep] || 'keyword_analyzing';
-  };
+  }, []);
 
-  // STABLE event handler that doesn't depend on changing functions
+  // SINGLE INGESTION FUNCTION for all data sources (sync/event/row)
+  const ingestProcessData = useCallback((data: any, source: 'sync'|'event'|'row') => {
+    console.log(`📥 Ingesting process data from ${source}:`, data);
+    
+    setValidatedState(prev => {
+      const next = { ...prev };
+
+      // Status & waiting state - CRITICAL for UI display
+      next.status = data.status;
+      next.isWaitingForInput = data.status === 'user_input_required' || !!data.is_waiting_for_input;
+      next.inputType = data.input_type || data.process_metadata?.input_type;
+      
+      console.log(`🔍 Status ingestion: status=${data.status}, isWaiting=${next.isWaitingForInput}, inputType=${next.inputType}`);
+
+      // Backend step -> UI step mapping
+      const backendStep = data.current_step || data.current_step_name || data.article_context?.current_step;
+      if (backendStep) {
+        const uiStep = mapBackendStepToUIStep(backendStep, data.status);
+        next.currentStep = uiStep;
+        console.log(`🔍 Step mapping: ${backendStep} -> ${uiStep} (waiting: ${next.isWaitingForInput})`);
+
+        // Progressive step completion: mark current step AND all previous steps as completed
+        const stepOrder = ['keyword_analyzing', 'persona_generating', 'theme_generating', 'research_planning', 'researching', 'outline_generating', 'writing_sections', 'editing'];
+        const currentStepIndex = stepOrder.indexOf(uiStep);
+        
+        console.log(`🎯 Progressive step completion: current="${uiStep}" (index=${currentStepIndex}), waiting=${next.isWaitingForInput}`);
+        
+        next.steps = next.steps.map((s, index) => {
+          const prevStatus = s.status;
+          let newStatus: StepStatus;
+          
+          if (index < currentStepIndex) {
+            // All previous steps should be completed
+            newStatus = 'completed';
+          } else if (s.id === uiStep) {
+            // Current step status based on process state
+            newStatus = next.isWaitingForInput ? 'completed' : (
+              data.status === 'error' ? 'error' : 
+              data.status === 'completed' ? 'completed' : 'in_progress'
+            );
+          } else {
+            // Future steps remain pending unless they have specific error states
+            newStatus = s.status === 'error' ? 'error' : 'pending';
+          }
+          
+          if (prevStatus !== newStatus) {
+            console.log(`  📝 Step ${s.id}: ${prevStatus} -> ${newStatus}`);
+          }
+          
+          return { ...s, status: newStatus };
+        });
+      }
+
+      // Context data (preserve existing, don't overwrite)
+      const ctx = data.article_context || {};
+      
+      if (!next.personas && ctx.generated_detailed_personas) {
+        console.log('👥 Setting personas from context:', ctx.generated_detailed_personas);
+        next.personas = ctx.generated_detailed_personas.map((p: any, i: number) => ({
+          id: i,
+          description: p.description || p.persona_description || JSON.stringify(p)
+        }));
+      }
+      
+      if (!next.themes && ctx.generated_themes) {
+        console.log('🎯 Setting themes from context:', ctx.generated_themes);
+        next.themes = ctx.generated_themes;
+      }
+      
+      if (!next.researchPlan && ctx.research_plan) {
+        console.log('📋 Setting research plan from context:', ctx.research_plan);
+        next.researchPlan = ctx.research_plan;
+      }
+      
+      // CRITICAL: Outline data handling
+      const outline = ctx.outline || ctx.generated_outline;
+      if (!next.outline && outline) {
+        console.log('📝 Setting outline from context:', outline);
+        next.outline = outline;
+      }
+      
+      return next;
+    });
+  }, [setValidatedState, mapBackendStepToUIStep]);
+
+  // Connection state
+  const [connectionState, setConnectionState] = useState({
+    isInitializing: false,
+    hasStarted: false,
+    isDataSynced: false,
+  });
+
+  // Action tracking state
+  const [queuedActions, setQueuedActions] = useState(0);
+  const [pendingActions, setPendingActions] = useState(new Set<string>());
+  const [dataVersion, setDataVersion] = useState(0);
+  
+  // Event deduplication with time-based throttling
+  const [lastProcessedEventId, setLastProcessedEventId] = useState<string>('');
+  const [lastProcessedState, setLastProcessedState] = useState<string>('');
+  const [lastProcessedTime, setLastProcessedTime] = useState<number>(0);
+  const [processedEventIds, setProcessedEventIds] = useState<Set<string>>(new Set());
+
+  // Data sync callback using unified ingestion
+  const handleDataSync = useCallback((data: any) => {
+    console.log('🔄 Data sync received:', data);
+    ingestProcessData(data, 'sync');
+  }, [ingestProcessData]);
+
+  // SIMPLIFIED event handler that uses unified ingestion
   const handleRealtimeEvent = useCallback((event: ProcessEvent) => {
     // GLOBAL event deduplication by event ID
     const eventKey = `${event.event_type}-${event.id || event.event_sequence}-${JSON.stringify(event.event_data).substring(0, 100)}`;
@@ -289,79 +389,20 @@ export const useArticleGenerationRealtime = ({
     setProcessedEventIds(prev => new Set([...prev].slice(-100)).add(eventKey)); // Keep last 100 events
     
     // Enhanced event deduplication for process_state_updated
-    if (event.event_type === 'process_state_updated') {
-      const data = event.event_data;
-      const now = Date.now();
-      
-      // Create comprehensive state fingerprint including UI-relevant data
-      const stateFingerprint = `${data.current_step_name}-${data.status}-${data.is_waiting_for_input}-${data.input_type}-${data.article_context?.generated_detailed_personas?.length || 0}-${data.article_context?.generated_themes?.length || 0}`;
-      
-      // Time-based throttling (minimum 1000ms between same state updates)
-      const timeSinceLastProcess = now - lastProcessedTime;
-      if (stateFingerprint === lastProcessedState && timeSinceLastProcess < 1000) {
-        console.log('⏭️  Skipping duplicate state update (throttled):', stateFingerprint, `${timeSinceLastProcess}ms ago`);
-        return;
-      }
-      
-      // Additional validation: Skip if this would cause UI state regression
-      const currentPersonaCount = state.personas?.length || 0;
-      const currentThemeCount = state.themes?.length || 0;
-      const newPersonaCount = data.article_context?.generated_detailed_personas?.length || 0;
-      const newThemeCount = data.article_context?.generated_themes?.length || 0;
-      
-      // Skip if we're seeing a regression in data (e.g., themes going from 3 to 0)
-      if (newPersonaCount < currentPersonaCount && currentPersonaCount > 0) {
-        console.log('⏭️  Skipping persona count regression:', { current: currentPersonaCount, new: newPersonaCount });
-        return;
-      }
-      
-      if (newThemeCount < currentThemeCount && currentThemeCount > 0) {
-        console.log('⏭️  Skipping theme count regression:', { current: currentThemeCount, new: newThemeCount });
-        return;
-      }
-      
-      // CRITICAL: Skip older events during mass replay to prevent state regression
-      if (data.updated_at) {
-        const eventTime = new Date(data.updated_at).getTime();
-        const currentStateTime = lastProcessedTime;
-        
-        // Only allow events that are newer than our current state, with some tolerance for simultaneity
-        if (eventTime < currentStateTime - 10000) { // 10 second tolerance
-          console.log('⏭️  Skipping old event to prevent state regression:', {
-            eventTime: new Date(eventTime).toISOString(),
-            currentStateTime: new Date(currentStateTime).toISOString(),
-            step: data.current_step_name,
-            status: data.status
-          });
-          return;
-        }
-      }
-      
-      // Update deduplication state
-      setLastProcessedState(stateFingerprint);
-      setLastProcessedTime(now);
+    if (event.event_type === 'process_state_updated' || 
+        event.event_type === 'process_created' ||
+        event.event_type === 'process_updated' ||
+        event.event_type === 'status_changed' ||
+        event.event_type === 'step_changed') {
+      // Use unified ingestion for all process state events
+      ingestProcessData(event.event_data, 'event');
+      return;
     }
     
     // Update data version for tracking
     setDataVersion(prev => prev + 1);
-    
-    // Debug specific fields for UI updates
-    if (event.event_type === 'process_state_updated') {
-      const data = event.event_data;
-      console.log('🎯 Process state debug:', {
-        current_step_name: data.current_step_name,
-        status: data.status,
-        is_waiting_for_input: data.is_waiting_for_input,
-        input_type: data.input_type,
-        process_metadata: data.process_metadata,
-        article_context_personas: data.article_context?.generated_detailed_personas,
-        article_context_themes: data.article_context?.generated_themes,
-        article_context_outline: data.article_context?.outline,
-        article_context_research_plan: data.article_context?.research_plan,
-        article_context_keys: data.article_context ? Object.keys(data.article_context) : []
-      });
-    }
 
+    // Handle non-process-state events with direct state updates
     setValidatedState((prev: GenerationState) => {
       const newState = { ...prev };
       
@@ -374,286 +415,8 @@ export const useArticleGenerationRealtime = ({
           setConnectionState(s => ({ ...s, hasStarted: true }));
           break;
 
-        case 'process_created':
-        case 'process_state_updated':
-        case 'process_updated':
-        case 'status_changed':
-        case 'step_changed':
-          const processData = event.event_data;
-          
-          // Do not prioritize DB "state" over client progression to avoid regressions
-          const isLatestDatabaseState = false;
-          // Handle both current_step and current_step_name fields from backend
-          // CRITICAL: also fallback to article_context.current_step when root fields are missing
-          const backendStep = processData.current_step 
-            || processData.current_step_name 
-            || processData.article_context?.current_step;
-          if (backendStep) {
-            const uiStep = mapBackendStepToUIStep(backendStep, processData.status);
-            
-            // CRITICAL FIX: Ensure step progression never goes backwards
-            const currentStepOrder = ['keyword_analyzing', 'persona_generating', 'theme_generating', 'research_planning', 'researching', 'outline_generating', 'writing_sections', 'editing'];
-            const currentIndex = currentStepOrder.indexOf(newState.currentStep);
-            const newIndex = currentStepOrder.indexOf(uiStep);
-            
-            // Treat certain completion-ish notifications as non-progressing and skip if behind
-            const completionish = new Set([
-              'persona_generated',
-              'theme_proposed',
-              'research_plan_generated',
-              'outline_generated'
-            ]);
-            const isDelayedCompletionEvent = completionish.has(backendStep) && newIndex < currentIndex;
-
-            // Only update if the new step is forward progression; never regress
-            if (isDelayedCompletionEvent) {
-              console.log('⏭️ Skipped delayed completion event (already progressed):', { 
-                current: newState.currentStep, 
-                backendStep,
-                currentIndex, 
-                newIndex,
-                reason: 'delayed_completion'
-              });
-            } else if (newIndex >= currentIndex || newState.currentStep === 'keyword_analyzing') {
-              const from = newState.currentStep;
-              newState.currentStep = uiStep;
-              console.log('✅ Step updated (forward-only):', { from, to: uiStep, backendStep });
-            } else {
-              console.log('⏭️ Skipped backward step progression:', { 
-                current: newState.currentStep, 
-                attempted: uiStep, 
-                backendStep,
-                currentIndex, 
-                newIndex 
-              });
-            }
-            
-            // Auto-progression logic: move to next step if current step is completed and not waiting for input
-            if (!processData.is_waiting_for_input && processData.status !== 'user_input_required') {
-              // Inline auto-progression to avoid function dependency
-              const autoProgressSteps = [
-                'keyword_analyzed',
-                'persona_selected', 
-                'theme_selected',
-                'research_plan_approved',
-                'research_report_generated',
-                'outline_approved',
-                'all_sections_completed'
-              ];
-              
-              if (autoProgressSteps.includes(backendStep)) {
-                const nextStepMap: Record<string, string> = {
-                  'keyword_analyzed': 'persona_generating',
-                  'persona_selected': 'theme_generating',
-                  'theme_selected': 'research_planning', 
-                  'research_plan_approved': 'researching',
-                  'research_report_generated': 'outline_generating',
-                  'outline_approved': 'writing_sections',
-                  'all_sections_completed': 'editing'
-                };
-                
-                const nextUIStep = nextStepMap[backendStep];
-                if (nextUIStep) {
-                  console.log('🔄 Auto-progressing step:', { backendStep, nextUIStep, status: processData.status });
-                  newState.currentStep = nextUIStep;
-                  // Inline updateStepStatus to avoid function dependency
-                  newState.steps = newState.steps.map((step: GenerationStep) => 
-                    step.id === nextUIStep ? { ...step, status: 'in_progress' as StepStatus } : step
-                  );
-                }
-              }
-            }
-          }
-          // Infer waiting state if field not present
-          const waitingFromDb = processData.is_waiting_for_input;
-          if (typeof waitingFromDb === 'boolean') {
-            newState.isWaitingForInput = waitingFromDb;
-          } else {
-            const stepForWaiting = backendStep || processData.article_context?.current_step;
-            const inputSteps = ['persona_generated', 'theme_proposed', 'research_plan_generated', 'outline_generated'];
-            newState.isWaitingForInput = !!stepForWaiting && inputSteps.includes(stepForWaiting);
-          }
-          newState.inputType = processData.input_type;
-          
-          // Handle user input requirements from process metadata
-          if (processData.status === 'user_input_required') {
-            newState.isWaitingForInput = true;
-            // Prioritize process_metadata.input_type, then fall back to root input_type
-            newState.inputType = processData.process_metadata?.input_type || processData.input_type;
-            
-            // If no inputType is provided, infer from current_step_name
-            if (!newState.inputType && processData.current_step_name) {
-              const stepInputTypeMap: Record<string, string> = {
-                'persona_generated': 'select_persona',
-                'theme_proposed': 'select_theme', 
-                'research_plan_generated': 'approve_plan',
-                'outline_generated': 'approve_outline'
-              };
-              newState.inputType = stepInputTypeMap[processData.current_step_name];
-              console.log('🔍 Inferred inputType from current_step_name:', processData.current_step_name, '->', newState.inputType);
-            }
-          }
-          
-          // Extract data from article_context if available
-          if (processData.article_context) {
-            const context = processData.article_context;
-            
-            // Always set data based on current step and available data, not just input type
-            // Set personas if available
-            if (context.generated_detailed_personas) {
-              console.log('🧑 Setting personas from context:', context.generated_detailed_personas);
-              // Transform backend persona format to expected frontend format
-              newState.personas = context.generated_detailed_personas.map((persona: any, index: number) => ({
-                id: index,
-                description: persona.description || persona.persona_description || JSON.stringify(persona)
-              }));
-            }
-            
-            // Set themes if available
-            if (context.generated_themes) {
-              console.log('🎯 Setting themes from context:', context.generated_themes);
-              newState.themes = context.generated_themes;
-            }
-            
-            // Set research plan if available
-            if (context.research_plan) {
-              console.log('📋 Setting research plan from context:', context.research_plan);
-              newState.researchPlan = context.research_plan;
-            }
-            
-            // Set outline if available (check both outline and generated_outline keys)
-            const outlineData = context.outline || context.generated_outline;
-            console.log('🔍 [DEBUG] Outline data check:', {
-              hasOutline: !!context.outline,
-              hasGeneratedOutline: !!context.generated_outline,
-              outlineValue: context.outline,
-              generatedOutlineValue: context.generated_outline,
-              finalOutlineData: outlineData
-            });
-            
-            if (outlineData) {
-              console.log('📝 Setting outline from context:', outlineData);
-              newState.outline = outlineData;
-            } else {
-              console.warn('⚠️ No outline data found in context despite outline_generated state');
-            }
-            
-            // Merge generated content from context without losing already received sections
-            if (context.generated_sections_html && Array.isArray(context.generated_sections_html)) {
-              console.log('📄 Merging generated sections from context:', context.generated_sections_html.length, 'sections');
-
-              // Ensure completedSections exists
-              if (!newState.completedSections) newState.completedSections = [];
-
-              // Use Map to keep numeric index keys with normalized structure
-              const existing = new Map<number, CompletedSection>();
-              newState.completedSections.forEach((s: CompletedSection) => {
-                existing.set(s.index, {
-                  index: s.index,
-                  heading: s.heading,
-                  content: s.content,
-                  imagePlaceholders: s.imagePlaceholders ?? []
-                });
-              });
-
-              // Merge by index (1-based)
-              context.generated_sections_html.forEach((content: string, idx: number) => {
-                const index = idx + 1;
-                const trimmed = typeof content === 'string' ? content : '';
-                if (trimmed && trimmed.length > 0) {
-                  const prev = existing.get(index);
-                  if (!prev || (typeof prev.content === 'string' && prev.content.trim().length === 0)) {
-                    existing.set(index, {
-                      index,
-                      heading: prev?.heading || `Section ${index}`,
-                      content: trimmed,
-                      imagePlaceholders: prev?.imagePlaceholders ?? []
-                    });
-                  }
-                }
-              });
-
-              // Write back to array preserving order
-              newState.completedSections = Array.from(existing.values()).sort((a, b) => a.index - b.index);
-
-              // Recompute generatedContent from merged completedSections
-              if (newState.completedSections.length > 0) {
-                newState.generatedContent = newState.completedSections
-                  .map(s => (typeof s.content === 'string' ? s.content : ''))
-                  .filter(c => c && c.trim().length > 0)
-                  .join('\n\n');
-              }
-            }
-            
-            // Set final article if available
-            if (context.final_article_html) {
-              console.log('📰 Setting final article from context');
-              newState.finalArticle = {
-                title: 'Generated Article',
-                content: context.final_article_html
-              };
-              newState.generatedContent = context.final_article_html;
-            }
-            
-            // Set sections progress if available
-            if (context.current_section_index && context.generated_sections_html) {
-              newState.sectionsProgress = {
-                currentSection: context.current_section_index + 1,
-                totalSections: context.generated_sections_html.length,
-                sectionHeading: `Section ${context.current_section_index + 1}`
-              };
-            }
-          }
-          
-          // Inline updateStepStatuses to avoid function dependency - ENHANCED with preservation logic
-          const currentStepIndex = newState.steps.findIndex((s: GenerationStep) => s.id === newState.currentStep);
-          
-          if (currentStepIndex >= 0) {
-            newState.steps = newState.steps.map((step: GenerationStep, index: number) => {
-              if (step.id === newState.currentStep) {
-                // Determine current step status based on process state
-                let stepStatus: StepStatus = 'in_progress';
-                
-                if (processData.status === 'user_input_required') {
-                  // If waiting for user input, mark as completed (user needs to take action)
-                  stepStatus = 'completed';
-                } else if (processData.status === 'error') {
-                  stepStatus = 'error';
-                } else if (processData.status === 'completed') {
-                  stepStatus = 'completed';
-                }
-                
-                return { ...step, status: stepStatus };
-              } else if (index < currentStepIndex) {
-                // PRESERVE existing completed steps - don't overwrite with simple linear logic
-                // Only mark as completed if not already in a final state
-                const existingStatus = step.status;
-                if (existingStatus === 'completed' || existingStatus === 'error') {
-                  return step; // Preserve existing final states
-                }
-                return { ...step, status: 'completed' as StepStatus };
-              } else {
-                // Future steps should be pending unless they have a specific state
-                const existingStatus = step.status;
-                if (existingStatus === 'completed' || existingStatus === 'error') {
-                  return step; // Preserve existing final states
-                }
-                return { ...step, status: 'pending' as StepStatus };
-              }
-            });
-          }
-          
-          // Loading state management based on process status
-          if ((processData.status === 'running' || processData.status === 'in_progress') && !processData.is_waiting_for_input) {
-            // Show loading state for current step
-            const currentStep = newState.steps.find(s => s.id === newState.currentStep);
-            if (currentStep) {
-              newState.steps = newState.steps.map((step: GenerationStep) => 
-                step.id === newState.currentStep ? { ...step, status: 'in_progress' as StepStatus } : step
-              );
-            }
-          }
-          break;
+        // Process state events are handled by ingestProcessData above
+        // These cases are removed to prevent duplicate handling
 
         // All other cases with inline step status updates
         case 'step_started':
@@ -857,15 +620,7 @@ export const useArticleGenerationRealtime = ({
           break;
 
         case 'outline_generation_started':
-          // Forward-only: don't regress from later steps (writing/editing/completed)
-          if (!['writing_sections', 'editing', 'completed'].includes(newState.currentStep)) {
-            newState.currentStep = 'outline_generating';
-          } else {
-            console.log('⏭️ Skip outline_generation_started due to forward-only rule. Current:', newState.currentStep);
-          }
-          newState.steps = newState.steps.map((step: GenerationStep) => 
-            step.id === 'outline_generating' ? { ...step, status: 'in_progress' as StepStatus } : step
-          );
+          // Only log the event - state changes will come from process_state_updated
           console.log('📋 Outline generation started');
           break;
 
@@ -1104,8 +859,12 @@ export const useArticleGenerationRealtime = ({
     userId: userId || '',
     onEvent: handleRealtimeEvent,
     onError: handleRealtimeError,
+    onDataSync: handleDataSync, // Wire up the data sync callback
     // Only auto-connect when both processId and userId are available
     autoConnect: autoConnect && !!processId && !!userId,
+    // FORCE DISABLE POLLING - Database is single source of truth via Realtime
+    enableDataSync: false,
+    syncInterval: 0,
   });
 
   // Debug logging for connection conditions
@@ -1147,6 +906,7 @@ export const useArticleGenerationRealtime = ({
       setValidatedState((prev: GenerationState) => ({
         ...prev,
         currentStep: 'keyword_analyzing',
+        status: 'pending', // Reset status for new generation
         steps: prev.steps.map((step: GenerationStep) => ({ ...step, status: 'pending' as StepStatus, message: undefined })),
         personas: undefined,
         themes: undefined,

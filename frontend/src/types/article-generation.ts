@@ -55,6 +55,7 @@ export interface CompletedSection {
 export interface GenerationState {
   currentStep: string;
   steps: GenerationStep[];
+  status?: string; // Process status from backend (e.g., 'running', 'user_input_required', 'completed')
   personas?: PersonaOption[];
   themes?: ThemeOption[];
   researchPlan?: any;
