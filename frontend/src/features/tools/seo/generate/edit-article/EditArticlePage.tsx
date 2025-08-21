@@ -316,7 +316,7 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
       }
 
       // 記事に関連する画像とプレースホルダー情報を取得
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL}/api/images/article-images/${article.id}`, {
+      const response = await fetch(`/api/proxy/images/article-images/${article.id}`, {
         method: 'GET',
         headers,
       });
@@ -691,7 +691,7 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
         headers["Authorization"] = `Bearer ${token}`;
       }
 
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL}/api/images/upload`, {
+      const response = await fetch(`/api/proxy/images/upload`, {
         method: 'POST',
         headers,
         body: formData,
@@ -753,7 +753,7 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
       }
 
       // 新しいAPIを使用：画像生成してプレースホルダーと関連付け（記事更新はしない）
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL}/api/images/generate-and-link`, {
+      const response = await fetch(`/api/proxy/images/generate-and-link`, {
         method: 'POST',
         headers,
         body: JSON.stringify({
@@ -810,7 +810,7 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
         headers["Authorization"] = `Bearer ${token}`;
       }
 
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL}/api/images/restore-placeholder`, {
+      const response = await fetch(`/api/proxy/images/restore-placeholder`, {
         method: 'POST',
         headers,
         body: JSON.stringify({
@@ -856,7 +856,7 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
         headers["Authorization"] = `Bearer ${token}`;
       }
 
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL}/api/images/placeholder-history/${articleId}/${placeholderId}`, {
+      const response = await fetch(`/api/proxy/images/placeholder-history/${articleId}/${placeholderId}`, {
         method: 'GET',
         headers,
       });
@@ -893,7 +893,7 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
       }
 
       // 画像をプレースホルダーで置き換え
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL}/api/images/replace-placeholder`, {
+      const response = await fetch(`/api/proxy/images/replace-placeholder`, {
         method: 'POST',
         headers,
         body: JSON.stringify({
