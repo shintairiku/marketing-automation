@@ -1,0 +1,56 @@
+name: "🧩 機能追加・改善（タスク/ストーリー）"
+description: "新規機能・改善・リファクタ・ドキュメント整備など"
+title: "[TASK] 簡潔な概要を記入"
+labels: ["enhancement"]
+assignees: []
+body:
+  - type: textarea
+    id: overview
+    attributes:
+      label: 概要
+      description: 何を実現するのかを1〜3行で
+      placeholder: 会社情報設定にターゲットエリアなどの詳細項目を追加し、SEOエージェントの文脈に流し込む
+    validations:
+      required: true
+
+  - type: input
+    id: branch
+    attributes:
+      label: 想定ブランチ名（作業ブランチ）
+      description: "命名規則: feat/<issue-number>-<slug> or chore/<issue-number>-<slug>"
+      placeholder: feat/456-company-target-area
+    validations:
+      required: false
+
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: 期待される動作（受け入れ条件）
+      description: ユーザー視点の完了条件（テスト観点も歓迎）
+      placeholder: |
+        - 会社設定で「ターゲットエリア」を入力・保存できる
+        - 入力値がSEO記事生成のコンテキストに反映される
+        - 既存の会社設定UI/保存APIは後方互換を崩さない
+    validations:
+      required: true
+
+  - type: textarea
+    id: impl
+    attributes:
+      label: 実装メモ（任意）
+      description: 変更するディレクトリやテーブル、API、型の影響範囲メモ
+      placeholder: |
+        backend/app/domains/company/*
+        frontend/src/app/(tools)/company-settings/*
+        shared/supabase/migrations/*
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: 事前確認
+      options:
+        - label: 既存の仕様・RLS・型定義への影響を確認した
+        - label: マイグレーションや型生成の手順を洗い出した
+        - label: セキュリティ・個人情報を扱わない（または配慮済み）

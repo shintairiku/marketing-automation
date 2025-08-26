@@ -1,0 +1,84 @@
+name: "🐛 バグ報告"
+description: "不具合の報告はこちら"
+title: "[BUG] 簡潔な概要を記入"
+labels: ["bug"]
+assignees: []
+body:
+  - type: textarea
+    id: overview
+    attributes:
+      label: 概要
+      description: 何が問題かを1〜3行で要約してください
+      placeholder: 〇〇画面で△△ボタンを押すとアプリがクラッシュする など
+    validations:
+      required: true
+
+  - type: input
+    id: branch
+    attributes:
+      label: 想定ブランチ名（作業ブランチ）
+      description: "命名規則: fix/<issue-number>-<slug>（例: fix/123-crash-on-save）"
+      placeholder: fix/123-<slug>
+    validations:
+      required: false
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: 期待される動作
+      description: 正常時にどう動くべきか
+      placeholder: 保存ボタン押下時にトーストで「保存に成功しました」が表示され、画面遷移はしない
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: 実際の動作
+      description: 現状どうなっているか（メッセージ、画面挙動など）
+      placeholder: ボタン押下でスピナーが止まらず、ログに 500 Internal Server Error
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: 再現手順
+      description: 最低3ステップで具体的に
+      placeholder: |
+        1. /dashboard を開く
+        2. "保存" をクリック
+        3. エラー表示を確認
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: スクリーンショット・ログ
+      description: 可能ならスクショやエラーログを貼ってください（機密を含まない範囲で）
+      placeholder: |
+        - スクショ: 画像をドラッグ＆ドロップ
+        - ログ: エラーのスタックトレース
+      render: bash
+    validations:
+      required: false
+
+  - type: input
+    id: env
+    attributes:
+      label: 実行環境
+      description: OS / ブラウザ or Node / バージョンなど
+      placeholder: macOS 14.5, Chrome 127 / Node 20.15
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: 事前確認
+      options:
+        - label: 同様のIssueが未作成であることを確認しました
+          required: true
+        - label: 機密情報が含まれていないことを確認しました
+          required: true
