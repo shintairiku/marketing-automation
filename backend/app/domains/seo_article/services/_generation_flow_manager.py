@@ -2141,17 +2141,14 @@ class GenerationFlowManager:
                             message="Edited outline applied and approved with Union format support.", 
                             image_mode=getattr(context, 'image_mode', False)
                         ))
-                            
-                            # Save context after outline editing
-                            if process_id and user_id:
-                                try:
-                                    await self.service.persistence_service.save_context_to_db(context, process_id=process_id, user_id=user_id)
-                                    logger.info("Context saved successfully after outline editing")
-                                except Exception as save_err:
-                                    logger.error(f"Failed to save context after outline editing: {save_err}")
-                        else:
-                            await self.service.utils.send_error(context, "編集されたアウトラインの形式が無効です。")
-                            context.current_step = "error"
+                        
+                        # Save context after outline editing
+                        if process_id and user_id:
+                            try:
+                                await self.service.persistence_service.save_context_to_db(context, process_id=process_id, user_id=user_id)
+                                logger.info("Context saved successfully after outline editing")
+                            except Exception as save_err:
+                                logger.error(f"Failed to save context after outline editing: {save_err}")
                     except (ValidationError, TypeError, AttributeError) as e:
                         await self.service.utils.send_error(context, f"アウトライン編集エラー: {e}")
                         context.current_step = "error"
