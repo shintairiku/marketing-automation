@@ -2119,32 +2119,28 @@ class GenerationFlowManager:
 
                 elif response_type == UserInputType.EDIT_OUTLINE and payload and isinstance(payload, EditOutlinePayload):
                     try:
+                        from app.domains.seo_article.utils.outline_converter import OutlineConverter
+                        
                         edited_outline_data = payload.edited_outline
-                        console.print("[green]アウトラインが編集されました（EditOutlinePayload）。[/green]")
-                        # 編集されたアウトラインを適用
-                        if (isinstance(edited_outline_data.get("title"), str) and 
-                            isinstance(edited_outline_data.get("sections"), list)):
-                            edited_sections = []
-                            for section_data in edited_outline_data["sections"]:
-                                if isinstance(section_data.get("heading"), str):
-                                    edited_sections.append(OutlineSectionData(
-                                        heading=section_data["heading"],
-                                        estimated_chars=section_data.get("estimated_chars", 400)
-                                    ))
-                            
-                            context.generated_outline = Outline(
-                                status="outline",
-                                title=edited_outline_data["title"],
-                                suggested_tone=edited_outline_data.get("suggested_tone", "丁寧で読みやすい解説調"),
-                                sections=edited_sections
-                            )
-                            context.current_step = "outline_approved"
-                            console.print("[green]編集されたアウトラインが適用されました（EditOutlinePayload）。[/green]")
-                            await self.service.utils.send_server_event(context, StatusUpdatePayload(
-                                step=context.current_step, 
-                                message="Edited outline applied and approved.", 
-                                image_mode=getattr(context, 'image_mode', False)
-                            ))
+                        console.print("[green]アウトラインが編集されました（Union format support）。[/green]")
+                        
+                        # 新しいユーティリティを使用して変換・検証
+                        validated_outline = OutlineConverter.validate_and_convert(edited_outline_data)
+                        
+                        context.generated_outline = Outline(
+                            status="outline",
+                            title=validated_outline.title,
+                            suggested_tone=validated_outline.suggested_tone,
+                            sections=validated_outline.sections
+                        )
+                        context.current_step = "outline_approved"
+                        
+                        console.print(f"[green]編集されたアウトラインが適用されました（Sections: {len(validated_outline.sections)}）。[/green]")
+                        await self.service.utils.send_server_event(context, StatusUpdatePayload(
+                            step=context.current_step, 
+                            message="Edited outline applied and approved with Union format support.", 
+                            image_mode=getattr(context, 'image_mode', False)
+                        ))
                             
                             # Save context after outline editing
                             if process_id and user_id:

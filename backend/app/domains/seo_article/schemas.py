@@ -124,6 +124,21 @@ class OutlineData(BaseModel):
     suggested_tone: str
     sections: List[OutlineSectionData]
 
+# 新形式（ツリー構造）のアウトライン型定義
+class OutlineNodeData(BaseModel):
+    id: str
+    title: str
+    level: int = Field(ge=1, le=6)
+    children: List['OutlineNodeData'] = []
+
+OutlineNodeData.update_forward_refs()
+
+class OutlineTreeData(BaseModel):
+    title: Optional[str] = None
+    description: Optional[str] = None
+    suggested_tone: Optional[str] = None
+    nodes: List[OutlineNodeData] = []
+
 class OutlinePayload(BasePayload):
     """アウトラインペイロード (承認要求時に使用)"""
     outline: OutlineData = Field(description="生成されたアウトライン")

@@ -974,42 +974,25 @@ class BackgroundTaskManager:
                         logger.error(f"❌ [EDIT_RESEARCH_PLAN] Invalid research plan structure in edit_and_proceed: topic={topic}, queries={queries}")
                         
                 elif context.current_step == "outline_generated":
-                    # Edit outline
-                    logger.info(f"📋 [EDIT_OUTLINE] Processing outline edit: {edited_content}")
-                    title = edited_content.get("title")
-                    suggested_tone = edited_content.get("suggested_tone", "")
-                    sections = edited_content.get("sections", [])
+                    # Edit outline - 新旧形式対応
+                    logger.info(f"📋 [EDIT_OUTLINE] Processing outline edit with Union format support: {edited_content}")
                     
-                    logger.info(f"🔍 [EDIT_OUTLINE] Validation - title: {type(title)}, suggested_tone: {type(suggested_tone)}, sections: {type(sections)}")
-                    
-                    if title and isinstance(sections, list):
-                        try:
-                            # Import OutlineData and OutlineSectionData from schemas
-                            from app.domains.seo_article.schemas import OutlineData, OutlineSectionData
-                            
-                            # Convert sections to proper format
-                            processed_sections = []
-                            for section in sections:
-                                if isinstance(section, dict):
-                                    processed_sections.append(OutlineSectionData(
-                                        heading=section.get("heading", ""),
-                                        estimated_chars=section.get("estimated_chars", 300),
-                                        subsections=section.get("subsections", [])
-                                    ))
-                            
-                            context.generated_outline = OutlineData(
-                                title=title,
-                                suggested_tone=suggested_tone,
-                                sections=processed_sections
-                            )
-                            context.outline = context.generated_outline
-                            context.current_step = "writing_sections"
-                            logger.info("✅ [EDIT_OUTLINE] Applied outline edit and proceeding to section writing")
-                        except Exception as outline_error:
-                            logger.error(f"💥 [EDIT_OUTLINE] Error creating OutlineData: {outline_error}")
-                            raise
-                    else:
-                        logger.error(f"❌ [EDIT_OUTLINE] Invalid outline structure in edit_and_proceed: title={title}, sections={sections}")
+                    try:
+                        from app.domains.seo_article.utils.outline_converter import OutlineConverter
+                        
+                        # 新しいユーティリティを使用して変換・検証
+                        validated_outline = OutlineConverter.validate_and_convert(edited_content)
+                        
+                        context.generated_outline = validated_outline
+                        context.outline = context.generated_outline
+                        context.current_step = "writing_sections"
+                        
+                        logger.info("✅ [EDIT_OUTLINE] Successfully applied outline edit with Union format support")
+                        logger.info(f"📊 [EDIT_OUTLINE] Outline stats - Title: {validated_outline.title}, Sections: {len(validated_outline.sections)}")
+                        
+                    except Exception as outline_error:
+                        logger.error(f"💥 [EDIT_OUTLINE] Error processing outline with Union format support: {outline_error}")
+                        raise
                         
                 else:
                     logger.warning(f"Edit and proceed not supported for step: {context.current_step}")
