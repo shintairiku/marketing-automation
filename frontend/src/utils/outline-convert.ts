@@ -20,13 +20,30 @@ function generateId(): string {
  */
 export function legacyToTree(legacy: LegacyOutline): OutlineTree {
   const convertSectionToNode = (section: LegacySection, level: number = 2): OutlineNode => {
+    // subsections の処理（string/object両対応）
+    const children: OutlineNode[] = [];
+    if (section.subsections) {
+      for (const sub of section.subsections) {
+        if (typeof sub === 'string') {
+          // string配列の場合
+          children.push({
+            id: generateId(),
+            title: sub,
+            level: level + 1,
+            children: []
+          });
+        } else if (typeof sub === 'object') {
+          // オブジェクトの場合
+          children.push(convertSectionToNode(sub as LegacySection, level + 1));
+        }
+      }
+    }
+
     return {
       id: generateId(),
       title: section.title || section.heading || "",
       level: level,
-      children: (section.subsections || []).map(subsection => 
-        convertSectionToNode(subsection, level + 1)
-      )
+      children
     };
   };
 
@@ -52,8 +69,9 @@ export function treeToLegacy(tree: OutlineTree): LegacyOutline {
       heading: node.title,
       title: node.title, // 両フィールドをサポート
       estimated_chars: 0, // デフォルト値
+      // subsectionsはstring[]として返す（後方互換）
       subsections: node.children.length > 0 ? 
-        node.children.map(child => convertNodeToSection(child)) : 
+        node.children.map(child => child.title) as (string | LegacySection)[] : 
         undefined
     };
   };
@@ -161,6 +179,25 @@ export function removeNode(nodes: OutlineNode[], targetId: string): OutlineNode[
     ...node,
     children: removeNode(node.children, targetId)
   }));
+}
+
+/**
+ * ノードの親とインデックスを返すユーティリティ
+ */
+export function findNodeWithParent(
+  nodes: OutlineNode[], 
+  id: string, 
+  parent: OutlineNode | null = null
+): { parent: OutlineNode | null; index: number } | null {
+  const arr = parent ? parent.children : nodes;
+  const idx = arr.findIndex(n => n.id === id);
+  if (idx >= 0) return { parent, index: idx };
+  
+  for (const n of arr) {
+    const found = findNodeWithParent(nodes, id, n);
+    if (found) return found;
+  }
+  return null;
 }
 
 /**

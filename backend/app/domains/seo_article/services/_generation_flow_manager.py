@@ -2120,19 +2120,18 @@ class GenerationFlowManager:
                 elif response_type == UserInputType.EDIT_OUTLINE and payload and isinstance(payload, EditOutlinePayload):
                     try:
                         from app.domains.seo_article.utils.outline_converter import OutlineConverter
+                        from app.domains.seo_article.schemas import OutlineData
                         
                         edited_outline_data = payload.edited_outline
                         console.print("[green]アウトラインが編集されました（Union format support）。[/green]")
                         
-                        # 新しいユーティリティを使用して変換・検証
-                        validated_outline = OutlineConverter.validate_and_convert(edited_outline_data)
+                        # base_level を edited_outline_data から抽出（ある場合）
+                        preferred = edited_outline_data.get("base_level") if isinstance(edited_outline_data, dict) else None
                         
-                        context.generated_outline = Outline(
-                            status="outline",
-                            title=validated_outline.title,
-                            suggested_tone=validated_outline.suggested_tone,
-                            sections=validated_outline.sections
-                        )
+                        # 新しいユーティリティを使用して変換・検証
+                        validated_outline = OutlineConverter.validate_and_convert(edited_outline_data, prefer_base_level=preferred)
+                        
+                        context.generated_outline = validated_outline
                         context.current_step = "outline_approved"
                         
                         console.print(f"[green]編集されたアウトラインが適用されました（Sections: {len(validated_outline.sections)}）。[/green]")

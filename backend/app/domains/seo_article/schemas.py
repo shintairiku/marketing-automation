@@ -128,16 +128,22 @@ class OutlineData(BaseModel):
 class OutlineNodeData(BaseModel):
     id: str
     title: str
-    level: int = Field(ge=1, le=6)
-    children: List['OutlineNodeData'] = []
+    level: int = Field(2, ge=1, le=6)  # デフォルトH2
+    children: List['OutlineNodeData'] = Field(default_factory=list)  # mutable default修正
 
-OutlineNodeData.update_forward_refs()
+# Pydantic v1/v2 両対応
+try:
+    OutlineNodeData.model_rebuild()
+except AttributeError:
+    OutlineNodeData.update_forward_refs()
 
 class OutlineTreeData(BaseModel):
     title: Optional[str] = None
     description: Optional[str] = None
     suggested_tone: Optional[str] = None
-    nodes: List[OutlineNodeData] = []
+    # 執筆の基準見出し(Hx)を明示したい場合に利用（無指定ならサーバ側で自動判定 or H2）
+    base_level: Optional[int] = Field(default=None, ge=1, le=6)
+    nodes: List[OutlineNodeData] = Field(default_factory=list)
 
 class OutlinePayload(BasePayload):
     """アウトラインペイロード (承認要求時に使用)"""

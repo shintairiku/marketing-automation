@@ -10,6 +10,7 @@ export interface OutlineTree {
   title?: string;            // 記事全体のタイトル（任意）
   description?: string;      // 記事の説明（任意）
   suggested_tone?: string;   // 推奨トーン（既存互換）
+  base_level?: number;       // 執筆基準レベル（1-6、未指定ならサーバで自動判定）
   nodes: OutlineNode[];      // ルート直下のセクション群
 }
 
@@ -18,7 +19,7 @@ export interface LegacySection {
   title?: string;
   heading?: string;  // heading フィールドもサポート
   estimated_chars?: number;
-  subsections?: LegacySection[];
+  subsections?: (string | LegacySection)[]; // string配列とオブジェクト配列両対応
 }
 
 export interface LegacyOutline {

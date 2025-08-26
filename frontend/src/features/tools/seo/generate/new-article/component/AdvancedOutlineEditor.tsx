@@ -26,6 +26,7 @@ import {
 import {
   createEmptyNode,
   findNodeById,
+  findNodeWithParent,
   insertNodeAt,
   normalizeToTree,
   removeNode,
@@ -82,26 +83,39 @@ export default function AdvancedOutlineEditor({
     });
   }, []);
 
-  // ノードのインデント処理（レベル変更）
+  // ノードのインデント処理（実構造変更）
   const indentNode = useCallback((nodeId: string, direction: 'left' | 'right') => {
     setTree(prevTree => {
-      const modifyNodeLevel = (nodes: OutlineNode[]): OutlineNode[] => {
-        return nodes.map(node => {
-          if (node.id === nodeId) {
-            const levelChange = direction === 'right' ? 1 : -1;
-            return updateNodeLevels(node, node.level + levelChange);
-          }
-          return {
-            ...node,
-            children: modifyNodeLevel(node.children)
-          };
-        });
-      };
+      // 構造を変更可能にするため deep clone
+      const cloned = JSON.parse(JSON.stringify(prevTree)) as OutlineTree;
+      const loc = findNodeWithParent(cloned.nodes, nodeId);
+      if (!loc) return prevTree;
 
-      return {
-        ...prevTree,
-        nodes: modifyNodeLevel(prevTree.nodes)
-      };
+      const parentArr = loc.parent ? loc.parent.children : cloned.nodes;
+      const node = parentArr.splice(loc.index, 1)[0];
+
+      if (direction === 'right') {
+        // 右インデント：直前の兄弟の子にする
+        if (loc.index === 0) { 
+          // 最初のノードは右インデントできない
+          parentArr.splice(loc.index, 0, node); 
+          return prevTree; 
+        }
+        const prevSibling = parentArr[loc.index - 1];
+        prevSibling.children.push(updateNodeLevels(node, prevSibling.level + 1));
+      } else {
+        // 左インデント：親の兄弟にする
+        if (!loc.parent) { 
+          // ルートレベルは左インデントできない
+          parentArr.splice(loc.index, 0, node); 
+          return prevTree; 
+        }
+        const grandLoc = findNodeWithParent(cloned.nodes, loc.parent.id);
+        const grandArr = grandLoc?.parent ? grandLoc.parent.children : cloned.nodes;
+        const insertAt = (grandLoc ? grandLoc.index : cloned.nodes.indexOf(loc.parent)) + 1;
+        grandArr.splice(insertAt, 0, updateNodeLevels(node, (grandLoc?.parent ? grandLoc.parent.level : 0) + 1));
+      }
+      return cloned;
     });
   }, []);
 
@@ -371,9 +385,8 @@ export default function AdvancedOutlineEditor({
   }, [editState, moveNode, indentNode, addNode, deleteNode, startEditNode, finishEditNode, cancelEditNode]);
 
   const handleSave = () => {
-    // 既存コードとの互換性のため、旧形式に変換して送信
-    const legacyFormat = treeToLegacy(tree);
-    onSave(legacyFormat);
+    // 後方互換はサーバ側のconverterが担保するため、ツリー形式で送信
+    onSave(tree);
   };
 
   return (
@@ -404,6 +417,26 @@ export default function AdvancedOutlineEditor({
             onChange={(e) => setTree(prev => ({ ...prev, suggested_tone: e.target.value }))}
             placeholder="記事のトーンを入力（例：丁寧な解説調）..."
           />
+        </div>
+
+        {/* トップレベル（執筆基準） */}
+        <div className="mb-4">
+          <label className="text-sm font-medium block mb-1">トップレベル見出し（執筆の基準）</label>
+          <select
+            className="w-full border border-gray-300 rounded-md p-2 text-sm"
+            value={tree.base_level ?? 2}
+            onChange={(e) => setTree(prev => ({ ...prev, base_level: parseInt(e.target.value, 10) }))}
+          >
+            <option value={1}>H1</option>
+            <option value={2}>H2（推奨）</option>
+            <option value={3}>H3</option>
+            <option value={4}>H4</option>
+            <option value={5}>H5</option>
+            <option value={6}>H6</option>
+          </select>
+          <p className="text-xs text-gray-500 mt-1">
+            未指定でも可（既定=H2 / サーバで自動判定）。H1は記事タイトル用を推奨。
+          </p>
         </div>
 
         {/* アウトラインツリー */}

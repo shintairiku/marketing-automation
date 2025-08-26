@@ -980,8 +980,11 @@ class BackgroundTaskManager:
                     try:
                         from app.domains.seo_article.utils.outline_converter import OutlineConverter
                         
+                        # base_level を edited_content から抽出（ある場合）
+                        preferred = edited_content.get("base_level") if isinstance(edited_content, dict) else None
+                        
                         # 新しいユーティリティを使用して変換・検証
-                        validated_outline = OutlineConverter.validate_and_convert(edited_content)
+                        validated_outline = OutlineConverter.validate_and_convert(edited_content, prefer_base_level=preferred)
                         
                         context.generated_outline = validated_outline
                         context.outline = context.generated_outline
