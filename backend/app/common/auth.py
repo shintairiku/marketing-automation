@@ -3,10 +3,17 @@
 Authentication utilities for Clerk integration
 """
 import jwt
-from fastapi import Depends
+from fastapi import Depends, HTTPException
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from typing import Optional
 import logging
+
+from app.domains.admin.auth.clerk_validator import ClerkOrganizationValidator, AdminUser
+from app.domains.admin.auth.exceptions import (
+    AdminAuthenticationError,
+    InvalidJWTTokenError,
+    OrganizationMembershipRequiredError
+)
 
 logger = logging.getLogger(__name__)
 
@@ -112,4 +119,154 @@ def get_current_user_id_from_header(authorization: Optional[str] = None) -> str:
         
     except Exception as e:
         logger.error(f"🔒 [AUTH] Error extracting user ID from header: {e}")
-        raise ValueError(f"Authentication error: {e}") 
+        raise ValueError(f"Authentication error: {e}")
+
+
+# ===== ADMIN AUTHENTICATION FUNCTIONS =====
+
+# Initialize admin validator
+_admin_validator = None
+
+def get_admin_validator() -> ClerkOrganizationValidator:
+    """Get or create the admin validator singleton"""
+    global _admin_validator
+    if _admin_validator is None:
+        _admin_validator = ClerkOrganizationValidator()
+    return _admin_validator
+
+
+def get_current_admin_user(authorization: Optional[HTTPAuthorizationCredentials] = Depends(security)) -> AdminUser:
+    """
+    Extract and validate admin user from Clerk JWT token with organization membership verification.
+    
+    This function performs comprehensive admin authentication:
+    1. Validates JWT token structure and signature
+    2. Extracts organization membership data from token claims
+    3. Verifies membership in the admin organization
+    4. Validates admin permissions within the organization
+    
+    Args:
+        authorization: Authorization header with Bearer token
+        
+    Returns:
+        AdminUser object with validated admin access and organization membership
+        
+    Raises:
+        HTTPException: If token is invalid, user lacks admin organization membership, 
+                      or has insufficient permissions
+    """
+    if not authorization:
+        logger.error("🛡️  [ADMIN_AUTH] No authorization header found - admin authentication required")
+        raise HTTPException(
+            status_code=401, 
+            detail="Admin authorization header required"
+        )
+    
+    try:
+        token = authorization.credentials
+        logger.info(f"🛡️  [ADMIN_AUTH] Validating admin token for user authentication")
+        
+        validator = get_admin_validator()
+        admin_user = validator.validate_token_and_extract_admin_user(token)
+        
+        logger.info(f"✅ [ADMIN_AUTH] Admin authentication successful")
+        logger.info(f"   User ID: {admin_user.user_id}")
+        logger.info(f"   Email: {admin_user.email}")
+        logger.info(f"   Admin Org: {admin_user.admin_organization_membership.organization_id}")
+        logger.info(f"   Role: {admin_user.admin_organization_membership.role}")
+        
+        return admin_user
+        
+    except InvalidJWTTokenError as e:
+        logger.error(f"❌ [ADMIN_AUTH] Invalid JWT token: {e.message}")
+        raise HTTPException(
+            status_code=401, 
+            detail=f"Invalid admin token: {e.message}"
+        )
+        
+    except OrganizationMembershipRequiredError as e:
+        logger.error(f"❌ [ADMIN_AUTH] Organization membership required: {e.message}")
+        logger.error(f"   User organizations: {e.details.get('user_organizations', [])}")
+        logger.error(f"   Required organization: {e.details.get('required_organization_id')}")
+        raise HTTPException(
+            status_code=403, 
+            detail="Admin organization membership required"
+        )
+        
+    except AdminAuthenticationError as e:
+        logger.error(f"❌ [ADMIN_AUTH] Admin authentication error: {e.message}")
+        logger.error(f"   Error code: {e.error_code}")
+        logger.error(f"   Details: {e.details}")
+        
+        # Map admin errors to HTTP status codes
+        status_code = 403 if e.error_code == "INSUFFICIENT_PERMISSIONS" else 401
+        raise HTTPException(
+            status_code=status_code, 
+            detail=e.message
+        )
+        
+    except Exception as e:
+        logger.error(f"❌ [ADMIN_AUTH] Unexpected admin authentication error: {e}")
+        logger.exception("[ADMIN_AUTH] Full exception details:")
+        raise HTTPException(
+            status_code=500, 
+            detail="Admin authentication system error"
+        )
+
+
+def get_current_admin_user_id(authorization: Optional[HTTPAuthorizationCredentials] = Depends(security)) -> str:
+    """
+    Extract admin user ID from validated admin token.
+    
+    Args:
+        authorization: Authorization header with Bearer token
+        
+    Returns:
+        User ID of authenticated admin user
+        
+    Raises:
+        HTTPException: If admin authentication fails
+    """
+    admin_user = get_current_admin_user(authorization)
+    return admin_user.user_id
+
+
+def verify_admin_organization_membership(token: str) -> bool:
+    """
+    Verify if a JWT token belongs to a user with admin organization membership.
+    
+    Args:
+        token: JWT token string
+        
+    Returns:
+        True if user has valid admin organization membership, False otherwise
+    """
+    try:
+        validator = get_admin_validator()
+        validator.validate_token_and_extract_admin_user(token)
+        return True
+    except Exception as e:
+        logger.debug(f"🔍 [ADMIN_AUTH] Admin membership verification failed: {e}")
+        return False
+
+
+def get_user_admin_organizations(token: str) -> list:
+    """
+    Get list of organizations where the user has admin privileges.
+    
+    Args:
+        token: JWT token string
+        
+    Returns:
+        List of organization IDs where user has admin access
+    """
+    try:
+        validator = get_admin_validator()
+        organizations = validator.get_user_organizations(token)
+        
+        # For now, return all organizations since we're primarily checking admin org membership
+        # In the future, this could be enhanced to check admin roles in multiple organizations
+        return organizations
+    except Exception as e:
+        logger.error(f"❌ [ADMIN_AUTH] Error getting user admin organizations: {e}")
+        return []
