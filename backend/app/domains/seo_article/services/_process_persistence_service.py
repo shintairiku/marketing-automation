@@ -301,6 +301,12 @@ class ProcessPersistenceService:
             context.full_draft_html = context_dict.get("full_draft_html")
             context.final_article_html = context_dict.get("final_article_html")
             context.section_writer_history = context_dict.get("section_writer_history", [])
+            # Restore conversation continuity fields (optional)
+            try:
+                context.responses_conversation_id = context_dict.get("responses_conversation_id")
+                context.last_response_id = context_dict.get("last_response_id")
+            except Exception:
+                pass
             context.expected_user_input = context_dict.get("expected_user_input")
             
             # Safety net: If style_template_id exists but style_template_settings is empty, hydrate from database

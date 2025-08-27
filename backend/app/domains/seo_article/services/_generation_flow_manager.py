@@ -1750,8 +1750,18 @@ class GenerationFlowManager:
                 current_agent = section_writer_agent
                 console.print(f"[cyan]通常エージェント ({current_agent.name}) を使用します。[/cyan]")
             
-            # エージェント実行に必要な情報をコンテキストに設定
-            agent_input = "セクション執筆を開始します。"
+            # エージェント実行に必要な情報をコンテキストに設定（会話履歴を活用）
+            user_request = (
+                f"前のセクション（もしあれば）に続けて、アウトラインのセクション {i + 1}"
+                f"「{section.heading}」の内容をHTMLで執筆してください。提供された詳細リサーチ情報を参照し、"
+                f"必要に応じて出典へのリンクを含めてください。"
+            )
+            current_input_messages: List[Dict[str, Any]] = list(context.section_writer_history)
+            current_input_messages.append({
+                "role": "user",
+                "content": [{"type": "input_text", "text": user_request}]
+            })
+            agent_input = current_input_messages
             agent_output = await self.run_agent(current_agent, agent_input, context, run_config)
 
             # 出力処理
@@ -1794,6 +1804,25 @@ class GenerationFlowManager:
                 context.current_step = "error"
                 return
             
+            # 会話履歴の追記（user → assistant）
+            try:
+                # 直前に積んだユーザー指示を履歴に反映
+                context.add_to_section_writer_history("user", user_request)
+                # アシスタント出力をテキスト化
+                assistant_content = (
+                    agent_output.content if hasattr(agent_output, 'content') else (
+                        agent_output if isinstance(agent_output, str) else ''
+                    )
+                )
+                if assistant_content:
+                    context.add_to_section_writer_history("assistant", assistant_content)
+            except Exception as _:
+                # 履歴追記の失敗は致命的ではないため握りつぶす
+                pass
+
+            # セクションインデックスを完了に合わせて更新（統一）
+            context.current_section_index = i + 1
+
             # Publish section completion event for background processing
             try:
                 from .flow_service import get_supabase_client
@@ -3274,18 +3303,32 @@ class GenerationFlowManager:
             else:
                 current_agent = section_writer_agent
             
-            # Prepare section input
+            # Prepare section input using conversation history
             section_title = section.heading if hasattr(section, 'heading') else f"Section {section_index + 1}"
-            section_content = section.content if hasattr(section, 'content') else ""
-            
-            agent_input = f"""セクションタイトル: {section_title}
-セクション内容: {section_content}
-記事全体のテーマ: {context.selected_theme.title if hasattr(context, 'selected_theme') and context.selected_theme else 'N/A'}
-対象ペルソナ: {context.selected_detailed_persona if hasattr(context, 'selected_detailed_persona') else 'N/A'}
-リサーチ情報: {context.research_report.overall_summary if hasattr(context, 'research_report') and context.research_report else 'N/A'}"""
+            user_request = (
+                f"前のセクション（もしあれば）に続けて、アウトラインのセクション {section_index + 1}"
+                f"「{section_title}」の内容をHTMLで執筆してください。提供された詳細リサーチ情報を参照し、"
+                f"必要に応じて出典へのリンクを含めてください。"
+            )
+            current_input_messages: List[Dict[str, Any]] = list(context.section_writer_history)
+            current_input_messages.append({
+                "role": "user",
+                "content": [{"type": "input_text", "text": user_request}]
+            })
+            agent_input = current_input_messages
 
             agent_output = await self.run_agent(current_agent, agent_input, context, run_config)
             
+            # Append to conversation history for continuity
+            try:
+                context.add_to_section_writer_history("user", user_request)
+                if hasattr(agent_output, 'content') and agent_output.content:
+                    context.add_to_section_writer_history("assistant", agent_output.content)
+                elif isinstance(agent_output, str) and agent_output:
+                    context.add_to_section_writer_history("assistant", agent_output)
+            except Exception:
+                pass
+
             if hasattr(agent_output, 'content'):
                 return agent_output.content
             elif isinstance(agent_output, str):

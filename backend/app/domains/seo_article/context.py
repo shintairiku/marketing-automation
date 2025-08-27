@@ -109,6 +109,10 @@ class ArticleContext:
     last_agent_output: Optional[Union[AgentOutput, ArticleSection]] = None
     section_writer_history: List[Dict[str, Any]] = field(default_factory=list)
 
+    # --- Responses API conversation continuity (optional, for future use) ---
+    responses_conversation_id: Optional[str] = None
+    last_response_id: Optional[str] = None
+
     # --- 進捗追跡関連 ---
     research_progress: Optional[Dict[str, Any]] = None # リサーチ進捗状況
     executing_step: Optional[str] = None  # 現在実行中のステップ（重複実行防止用）
@@ -143,4 +147,3 @@ class ArticleContext:
         self.section_writer_history.append(message)
 
     # yield_sse_event は article_service 内のヘルパー関数 _send_server_event に置き換え
-
