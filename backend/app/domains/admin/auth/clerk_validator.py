@@ -125,9 +125,24 @@ class ClerkOrganizationValidator:
         try:
             memberships: List[OrganizationMembership] = []
 
-            # Active organization fields (most common single-org case)
+            # Check for Clerk's "o" field format (most common)
+            org_data = token_claims.get('o')
+            if org_data and isinstance(org_data, dict):
+                org_id = org_data.get('id')
+                if org_id:
+                    memberships.append(
+                        OrganizationMembership(
+                            organization_id=org_id,
+                            organization_slug=org_data.get('slg', org_id),
+                            role=org_data.get('rol', 'member'),
+                            permissions=org_data.get('permissions', []),
+                            metadata={}
+                        )
+                    )
+
+            # Active organization fields (legacy format)
             active_org_id = token_claims.get('org_id') or token_claims.get('organization_id')
-            if active_org_id:
+            if active_org_id and not any(m.organization_id == active_org_id for m in memberships):
                 memberships.append(
                     OrganizationMembership(
                         organization_id=active_org_id,
@@ -152,7 +167,7 @@ class ClerkOrganizationValidator:
                 for item in raw_list:
                     org_info = item.get('organization') or item.get('org') or {}
                     org_id = org_info.get('id') or org_info.get('organization_id') or org_info.get('org_id')
-                    if not org_id:
+                    if not org_id or any(m.organization_id == org_id for m in memberships):
                         continue
                     memberships.append(
                         OrganizationMembership(
