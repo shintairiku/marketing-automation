@@ -31,6 +31,11 @@ class Settings(BaseSettings):
     # Clerk設定 (optional)
     clerk_secret_key: str = Field(default_factory=lambda: os.getenv("CLERK_SECRET_KEY", ""))
     clerk_publishable_key: str = Field(default_factory=lambda: os.getenv("CLERK_PUBLISHABLE_KEY", ""))
+    
+    # Admin認証設定
+    admin_organization_id: str = Field(default_factory=lambda: os.getenv("ADMIN_ORGANIZATION_ID", ""))
+    admin_organization_slug: str = Field(default_factory=lambda: os.getenv("ADMIN_ORGANIZATION_SLUG", ""))
+    clerk_jwt_verification_enabled: bool = Field(default_factory=lambda: os.getenv("CLERK_JWT_VERIFICATION_ENABLED", "true").lower() == "true")
 
     # Stripe設定 (optional)
     stripe_secret_key: str = Field(default_factory=lambda: os.getenv("STRIPE_SECRET_KEY", ""))
