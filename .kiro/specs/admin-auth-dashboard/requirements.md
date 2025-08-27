@@ -8,17 +8,17 @@ The admin system is part of a larger administrative interface that will eventual
 
 ## Requirements
 
-### Requirement 1: Google Workspace SSO Authentication
+### Requirement 1: Clerk Organization-Based Admin Authentication
 
-**User Story:** As a platform administrator, I want to authenticate using only company-issued Google Workspace accounts, so that access is restricted to authorized personnel and personal Gmail accounts are blocked.
+**User Story:** As a platform administrator, I want to authenticate using Clerk organization membership with verified domain restrictions, so that access is restricted to authorized personnel from our Google Workspace domain.
 
 #### Acceptance Criteria
 
-1. WHEN an administrator attempts to sign in THEN the system SHALL only accept Google Workspace SSO authentication
-2. WHEN a user tries to authenticate with a personal Gmail account (@gmail.com) THEN the system SHALL reject the authentication attempt
-3. WHEN a user authenticates with a Google Workspace account THEN the system SHALL verify the hosted domain (hd) claim matches the allowed domain list
-4. WHEN JWT token verification is enabled THEN the system SHALL validate token signatures and claims
-5. WHEN an unauthorized domain is used THEN the system SHALL return a 403 Forbidden response with appropriate error message
+1. WHEN an administrator attempts to sign in THEN the system SHALL verify they are a member of the designated Clerk organization (org_31qpu3arGjKdiatiavEP9E7H3LV)
+2. WHEN a user tries to authenticate without organization membership THEN Clerk SHALL automatically reject the authentication attempt
+3. WHEN a user authenticates with a verified domain account THEN Clerk SHALL handle domain verification automatically using the verified "shintairiku.jp" domain
+4. WHEN JWT token verification is enabled THEN the system SHALL validate token signatures and organization membership claims
+5. WHEN an unauthorized user attempts access THEN the system SHALL return a 403 Forbidden response with appropriate error message
 6. WHEN authentication succeeds THEN the system SHALL set admin privilege flags and create an audit log entry
 
 ### Requirement 2: Admin Authorization Middleware
@@ -27,11 +27,11 @@ The admin system is part of a larger administrative interface that will eventual
 
 #### Acceptance Criteria
 
-1. WHEN an admin endpoint is accessed THEN the system SHALL verify admin privileges using the @require_admin decorator
-2. WHEN admin verification fails THEN the system SHALL return a 403 Forbidden response
+1. WHEN an admin endpoint is accessed THEN the system SHALL verify Clerk organization membership using the @require_admin decorator
+2. WHEN organization membership verification fails THEN the system SHALL return a 403 Forbidden response
 3. WHEN admin operations are performed THEN the system SHALL automatically log all actions to the audit system
 4. WHEN JWT tokens are invalid or expired THEN the system SHALL reject the request with appropriate error codes
-5. WHEN admin middleware is applied THEN the system SHALL extract user context and make it available to the endpoint
+5. WHEN admin middleware is applied THEN the system SHALL extract user context and organization membership and make it available to the endpoint
 
 ### Requirement 3: Admin Dashboard Overview
 

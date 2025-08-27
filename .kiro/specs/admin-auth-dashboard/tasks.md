@@ -1,16 +1,16 @@
 # Implementation Plan
 
 - [ ] 1. Set up admin authentication infrastructure
-  - Create Google Workspace SSO validation system with JWT token verification
-  - Implement domain checking logic to reject personal Gmail accounts
-  - Add environment variable configuration for allowed workspace domains
+  - Create Clerk organization membership validation system with JWT token verification
+  - Implement organization membership checking logic
+  - Add environment variable configuration for admin organization ID
   - _Requirements: 1.1, 1.2, 1.3, 1.4, 1.5, 1.6_
 
-- [ ] 1.1 Implement Google Workspace domain validator
-  - Write GoogleWorkspaceValidator class with JWT token parsing
-  - Create domain extraction and validation methods
-  - Implement personal Gmail detection and rejection logic
-  - Add comprehensive error handling for invalid tokens and domains
+- [ ] 1.1 Implement Clerk organization validator
+  - Write ClerkOrganizationValidator class with JWT token parsing
+  - Create organization membership extraction and validation methods
+  - Implement admin organization membership verification logic
+  - Add comprehensive error handling for invalid tokens and organization membership
   - _Requirements: 1.1, 1.2, 1.3, 1.5_
 
 - [ ] 1.2 Create admin authorization middleware
@@ -21,8 +21,8 @@
   - _Requirements: 2.1, 2.2, 2.3, 2.4, 2.5_
 
 - [ ] 1.3 Configure environment variables and settings
-  - Add ADMIN_GOOGLE_WORKSPACE_DOMAINS configuration
-  - Set up ADMIN_EMAILS and ADMIN_USER_IDS lists
+  - Add ADMIN_ORGANIZATION_ID configuration (org_31qpu3arGjKdiatiavEP9E7H3LV)
+  - Set up ADMIN_ORGANIZATION_SLUG configuration (shintairiku-admin)
   - Enable CLERK_JWT_VERIFICATION_ENABLED for production
   - Update core config with admin-specific settings
   - _Requirements: 1.1, 1.4, 1.6_
@@ -206,7 +206,7 @@
 
 - [ ] 9.1 Create admin exception hierarchy
   - Implement AdminAuthenticationError and subclasses
-  - Create InvalidWorkspaceDomainError and PersonalGmailNotAllowedError
+  - Create InvalidOrganizationError and OrganizationMembershipRequiredError
   - Add AdminOperationError for general admin operation failures
   - Create proper error message formatting
   - _Requirements: 7.2_
@@ -247,9 +247,9 @@
   - _Requirements: 9.1, 9.2, 9.3, 9.4, 9.5_
 
 - [ ] 11.1 Write unit tests for authentication components
-  - Test GoogleWorkspaceValidator with various domain scenarios
+  - Test ClerkOrganizationValidator with various organization membership scenarios
   - Create tests for admin authorization middleware
-  - Test JWT token validation and error handling
+  - Test JWT token validation and organization membership verification
   - Add tests for audit logging functionality
   - _Requirements: 1.1, 1.2, 1.3, 1.4, 1.5, 2.1, 2.2, 6.1_
 
