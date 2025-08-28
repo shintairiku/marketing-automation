@@ -1,14 +1,13 @@
 'use client';
 
-import React, { useCallback, useMemo } from 'react';
-import { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import NextImage from 'next/image';
-import { AlertCircle, Bot, Copy, Download, Edit, Image, Save, Sparkles, Trash2, Upload, Wand2, X } from 'lucide-react';
+import { AlertCircle, Bot, Copy, Download, Edit, Image, Loader2, Save, Sparkles, Trash2, Upload, Wand2, X } from 'lucide-react';
 
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
-import { Checkbox } from "@/components/ui/checkbox";
+import { Checkbox } from '@/components/ui/checkbox';
 import {
   Dialog,
   DialogClose,
@@ -17,12 +16,13 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "@/components/ui/dialog";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+} from '@/components/ui/dialog';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Textarea } from '@/components/ui/textarea';
+import { useToast } from '@/hooks/use-toast';
 import { useArticleDetail } from '@/hooks/useArticles';
 import { useAutoSave } from '@/hooks/useAutoSave';
-import { cn } from "@/utils/cn";
+import { cn } from '@/utils/cn';
 import { useAuth } from '@clerk/nextjs';
 
 import ArticlePreviewStyles from '../new-article/component/ArticlePreviewStyles';
@@ -71,7 +71,7 @@ const SafeImage = ({ src, alt, className, style, width, height, onClick }: {
   style?: React.CSSProperties;
   width?: number;
   height?: number;
-  onClick?: () => void;
+  onClick?: (e: React.MouseEvent) => void;
 }) => {
   const [imageError, setImageError] = useState(false);
 
@@ -119,6 +119,10 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
   // 画像関連の状態
   const [imageUploadLoading, setImageUploadLoading] = useState<{ [blockId: string]: boolean }>({});
   const [imageGenerationLoading, setImageGenerationLoading] = useState<{ [blockId: string]: boolean }>({});
+  const [imageApplyLoading, setImageApplyLoading] = useState<{ [blockId: string]: boolean }>({});
+  const [historyLoading, setHistoryLoading] = useState<{ [blockId: string]: boolean }>({});
+  
+  const { toast } = useToast();
   const [imageHistoryVisible, setImageHistoryVisible] = useState<{ [blockId: string]: boolean }>({});
   const [imageHistory, setImageHistory] = useState<{ [placeholderId: string]: any[] }>({});
   
@@ -771,15 +775,34 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
 
       const result = await response.json();
       
-      // ブロックを置き換えられた画像タイプに更新
+      // 画像生成成功後、記事HTMLに反映するためreplace-placeholderを呼び出し
+      const replaceResponse = await fetch(`/api/proxy/images/replace-placeholder`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          article_id: articleId,
+          placeholder_id: placeholderData.placeholder_id,
+          image_url: result.image_url,
+          alt_text: result.alt_text,
+        }),
+      });
+
+      if (!replaceResponse.ok) {
+        throw new Error(`Replace failed: ${replaceResponse.status}`);
+      }
+
+      const replaceResult = await replaceResponse.json();
+      
+      // ブロックを置き換えられた画像タイプに更新（replace-placeholderの結果を使用）
       setBlocks(prev => prev.map(b => 
         b.id === blockId 
           ? { 
               ...b, 
               type: 'replaced_image', 
-              content: `<img src="${result.image_url}" alt="${result.alt_text}" class="article-image" data-placeholder-id="${placeholderData.placeholder_id}" data-image-id="${result.image_id}" />`,
+              content: replaceResult.updated_content.match(new RegExp(`<img[^>]*data-placeholder-id="${placeholderData.placeholder_id}"[^>]*>`))?.[0] || 
+                       `<img src="${result.image_url}" alt="${result.alt_text}" class="article-image" data-placeholder-id="${placeholderData.placeholder_id}" data-image-id="${replaceResult.image_id || result.image_id}" />`,
               imageData: {
-                image_id: result.image_id,
+                image_id: replaceResult.image_id || result.image_id,
                 image_url: result.image_url,
                 alt_text: result.alt_text,
               }
@@ -787,10 +810,18 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
           : b
       ));
 
-      alert('画像が生成されました！保存ボタンを押すか、別の画像を生成することもできます。');
+      toast({
+        title: "画像生成完了",
+        description: "画像が生成され記事に適用されました。",
+        variant: "default",
+      });
     } catch (error) {
       console.error('画像生成エラー:', error);
-      alert('画像の生成に失敗しました。');
+      toast({
+        title: "画像生成に失敗",
+        description: "画像の生成に失敗しました。再試行してください。",
+        variant: "destructive",
+      });
     } finally {
       setImageGenerationLoading(prev => ({ ...prev, [blockId]: false }));
     }
@@ -825,28 +856,49 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
 
       const result = await response.json();
       
-      // ブロックをプレースホルダータイプに戻す（元のプレースホルダーデータを保持）
+      // ブロックをプレースホルダータイプに戻す（サーバ返却の placeholder で placeholderData を更新）
       setBlocks(prev => prev.map(b => 
         b.id === blockId 
           ? { 
               ...b, 
               type: 'image_placeholder', 
-              content: result.updated_content.match(/<!-- IMAGE_PLACEHOLDER: [^>]+ -->/)?.[0] || b.content,
-              // placeholderDataは保持する
+              content: result.placeholder_comment || 
+                       result.updated_content.match(new RegExp(`<!-- IMAGE_PLACEHOLDER: ${b.placeholderData?.placeholder_id}\\|[^>]+ -->`))?.[0] || 
+                       b.content,
+              placeholderData: b.placeholderData ? {
+                ...b.placeholderData,
+                // サーバ返却値で必ず上書き（空値のままにしない）
+                placeholder_id: result.placeholder?.placeholder_id ?? b.placeholderData.placeholder_id,
+                description_jp: result.placeholder?.description_jp ?? b.placeholderData.description_jp,
+                prompt_en:      result.placeholder?.prompt_en ?? b.placeholderData.prompt_en,
+                alt_text:       result.placeholder?.alt_text ?? b.placeholderData.alt_text,
+              } : b.placeholderData,
               imageData: undefined
             }
           : b
       ));
 
-      alert('画像がプレースホルダーに戻されました！');
+      toast({
+        title: "プレースホルダーに戻しました",
+        description: "画像がプレースホルダーに戻されました。",
+        variant: "default",
+      });
     } catch (error) {
       console.error('画像復元エラー:', error);
-      alert('画像の復元に失敗しました。');
+      toast({
+        title: "復元に失敗",
+        description: "画像の復元に失敗しました。再試行してください。",
+        variant: "destructive",
+      });
     }
   };
 
   // 画像履歴を取得
-  const fetchImageHistory = async (placeholderId: string) => {
+  const fetchImageHistory = async (placeholderId: string, blockId?: string) => {
+    if (blockId) {
+      setHistoryLoading(prev => ({ ...prev, [blockId]: true }));
+    }
+    
     try {
       const token = await getToken();
       const headers: Record<string, string> = {
@@ -869,12 +921,25 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
         }));
         return data.images_history || [];
       } else {
-        console.warn('画像履歴の取得に失敗しました');
+        toast({
+          title: "履歴取得に失敗",
+          description: "画像履歴の取得に失敗しました。再試行してください。",
+          variant: "destructive",
+        });
         return [];
       }
     } catch (error) {
       console.error('画像履歴取得エラー:', error);
+      toast({
+        title: "履歴取得エラー",
+        description: "ネットワークエラーが発生しました。",
+        variant: "destructive",
+      });
       return [];
+    } finally {
+      if (blockId) {
+        setHistoryLoading(prev => ({ ...prev, [blockId]: false }));
+      }
     }
   };
 
@@ -882,6 +947,8 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
   const applyHistoryImage = async (blockId: string, imageData: any) => {
     const block = blocks.find(b => b.id === blockId);
     if (!block || !block.placeholderData) return;
+
+    setImageApplyLoading(prev => ({ ...prev, [blockId]: true }));
 
     try {
       const token = await getToken();
@@ -911,28 +978,45 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
       const result = await response.json();
       
       // ブロックを置き換えられた画像タイプに更新
-      setBlocks(prev => prev.map(b => 
-        b.id === blockId 
-          ? { 
-              ...b, 
-              type: 'replaced_image', 
-              content: result.updated_content.match(new RegExp(`<img[^>]*data-placeholder-id="${block.placeholderData!.placeholder_id}"[^>]*>`))?.[0] || b.content,
-              imageData: {
-                image_id: result.image_id,
-                image_url: imageData.gcs_url || imageData.file_path,
-                alt_text: imageData.alt_text || block.placeholderData!.description_jp,
+      const extractedContent = result.updated_content.match(new RegExp(`<img[^>]*data-placeholder-id="${block.placeholderData!.placeholder_id}"[^>]*>`))?.[0];
+      
+      if (!extractedContent) {
+        // もしextractに失敗した場合は記事全体を再取得
+        await refetch();
+      } else {
+        setBlocks(prev => prev.map(b => 
+          b.id === blockId 
+            ? { 
+                ...b, 
+                type: 'replaced_image', 
+                content: extractedContent,
+                imageData: {
+                  image_id: result.image_id,
+                  image_url: imageData.gcs_url || imageData.file_path,
+                  alt_text: imageData.alt_text || block.placeholderData!.description_jp,
+                }
               }
-            }
-          : b
-      ));
+            : b
+        ));
+      }
 
       // 画像履歴を非表示にする
       setImageHistoryVisible(prev => ({ ...prev, [blockId]: false }));
       
-      alert('過去の画像が適用されました！');
+      toast({
+        title: "画像適用完了",
+        description: "過去の画像が適用されました。",
+        variant: "default",
+      });
     } catch (error) {
       console.error('画像適用エラー:', error);
-      alert('画像の適用に失敗しました。');
+      toast({
+        title: "画像適用に失敗",
+        description: "画像の適用に失敗しました。再試行してください。",
+        variant: "destructive",
+      });
+    } finally {
+      setImageApplyLoading(prev => ({ ...prev, [blockId]: false }));
     }
   };
 
@@ -942,7 +1026,7 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
     
     if (!isVisible) {
       // 履歴を表示する場合は、データを取得
-      await fetchImageHistory(placeholderId);
+      await fetchImageHistory(placeholderId, blockId);
     }
     
     setImageHistoryVisible(prev => ({
@@ -1125,7 +1209,9 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
     const hasAnyLoading = aiEditingLoading || 
                          isSaving || 
                          Object.values(imageUploadLoading).some(loading => loading) ||
-                         Object.values(imageGenerationLoading).some(loading => loading);
+                         Object.values(imageGenerationLoading).some(loading => loading) ||
+                         Object.values(imageApplyLoading).some(loading => loading) ||
+                         Object.values(historyLoading).some(loading => loading);
     
     if (hasAnyLoading) {
       setAutoSaveEnabled(false);
@@ -1137,7 +1223,7 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
       
       return () => clearTimeout(timer);
     }
-  }, [aiEditingLoading, isSaving, imageUploadLoading, imageGenerationLoading]);
+  }, [aiEditingLoading, isSaving, imageUploadLoading, imageGenerationLoading, historyLoading, imageApplyLoading]);
 
   // 初期化時は自動保存を無効化（画像復元完了まで）
   useEffect(() => {
@@ -1209,7 +1295,7 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
     return (
       <div className="border-2 border-dashed border-blue-300 bg-blue-50 rounded-lg p-6 mb-4 not-prose">
         <div className="flex items-center gap-3 mb-3">
-          <Image className="h-6 w-6 text-blue-600" />
+          <Image className="h-6 w-6 text-blue-600" aria-label="画像プレースホルダーアイコン" />
           <div className="flex-1">
             <h4 className="font-medium text-blue-900">画像プレースホルダー</h4>
             <p className="text-sm text-blue-700">ID: {block.placeholderData.placeholder_id}</p>
@@ -1220,8 +1306,14 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
               variant="outline" 
               className="text-purple-600 border-purple-300 hover:bg-purple-100"
               onClick={() => toggleImageHistory(block.id, placeholderId)}
+              disabled={historyLoading[block.id]}
             >
-              {isHistoryVisible ? '履歴を隠す' : `履歴 (${historyImages.length})`}
+              {historyLoading[block.id] ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  読込中
+                </>
+              ) : isHistoryVisible ? '履歴を隠す' : `履歴 (${historyImages.length})`}
             </Button>
             <Button 
               size="sm" 
@@ -1255,33 +1347,79 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
         
         {/* 画像履歴表示 */}
         {isHistoryVisible && (
-          <div className="mb-4 p-3 bg-purple-50 border border-purple-200 rounded-lg">
+          <div 
+            className="mb-4 p-3 bg-purple-50 border border-purple-200 rounded-lg"
+            data-history-panel
+            onClick={(e) => e.stopPropagation()}
+            onMouseDown={(e) => e.stopPropagation()}
+            onPointerDown={(e) => e.stopPropagation()}
+          >
             <h5 className="font-medium text-purple-900 mb-2">生成済み画像履歴</h5>
             {historyImages.length > 0 ? (
               <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
                 {historyImages.map((image, index) => (
-                  <div key={image.id} className="relative group">
+                  <button
+                    key={image.id}
+                    type="button"
+                    className="relative group block focus:outline-none rounded-lg"
+                    data-history-tile
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (!imageApplyLoading[block.id]) applyHistoryImage(block.id, image);
+                    }}
+                    onMouseDown={(e) => e.stopPropagation()}
+                    onPointerDown={(e) => e.stopPropagation()}
+                    disabled={!!imageApplyLoading[block.id]}
+                    aria-label="この履歴画像を適用"
+                  >
                     <SafeImage 
                       src={image.gcs_url || image.file_path} 
                       alt={image.alt_text || `生成画像 ${index + 1}`}
-                      className="w-full h-24 object-cover rounded-lg cursor-pointer hover:opacity-80 transition-opacity"
-                      onClick={() => applyHistoryImage(block.id, image)}
+                      className={`w-full h-24 object-cover rounded-lg ${
+                        imageApplyLoading[block.id] ? 'opacity-50' : 'cursor-pointer'
+                      }`}
                       width={100}
                       height={96}
                     />
                     <div className="absolute bottom-1 right-1 bg-black bg-opacity-60 text-white text-xs px-1 py-0.5 rounded">
                       {new Date(image.created_at).toLocaleDateString()}
                     </div>
-                    <div className="absolute inset-0 bg-blue-500 bg-opacity-0 hover:bg-opacity-20 transition-all duration-200 rounded-lg flex items-center justify-center">
-                      <span className="text-white font-medium opacity-0 group-hover:opacity-100 transition-opacity">
-                        選択
-                      </span>
+                    <div className={`absolute inset-0 bg-blue-500 transition-all duration-200 rounded-lg flex items-center justify-center pointer-events-none ${
+                      imageApplyLoading[block.id] 
+                        ? 'bg-opacity-70' 
+                        : 'bg-opacity-0 hover:bg-opacity-20'
+                    }`}>
+                      {imageApplyLoading[block.id] ? (
+                        <div className="text-white font-medium flex flex-col items-center">
+                          <Loader2 className="w-6 h-6 animate-spin mb-1" />
+                          <span className="text-xs">適用中</span>
+                        </div>
+                      ) : (
+                        <span className="text-white font-medium opacity-0 group-hover:opacity-100 transition-opacity">
+                          選択
+                        </span>
+                      )}
                     </div>
-                  </div>
+                  </button>
                 ))}
               </div>
+            ) : historyLoading[block.id] ? (
+              <div className="text-purple-600 text-sm text-center py-4">
+                <Loader2 className="w-6 h-6 animate-spin mx-auto mb-2" />
+                履歴を読み込み中...
+              </div>
             ) : (
-              <p className="text-purple-600 text-sm">まだ画像が生成されていません</p>
+              <div className="text-purple-600 text-sm text-center py-4">
+                <p className="mb-2">まだ画像が生成されていません</p>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => fetchImageHistory(placeholderId, block.id)}
+                  className="text-purple-600 border-purple-300 hover:bg-purple-100"
+                >
+                  再読み込み
+                </Button>
+              </div>
             )}
           </div>
         )}
@@ -1313,7 +1451,7 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
     return (
       <div className="border-2 border-green-300 bg-green-50 rounded-lg p-6 mb-4 not-prose">
         <div className="flex items-center gap-3 mb-3">
-          <Image className="h-6 w-6 text-green-600" />
+          <Image className="h-6 w-6 text-green-600" aria-label="画像アイコン" />
           <div className="flex-1">
             <h4 className="font-medium text-green-900">画像 (プレースホルダーから置換済み)</h4>
             <p className="text-sm text-green-700">ID: {block.placeholderData.placeholder_id}</p>
@@ -1324,8 +1462,14 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
               variant="outline" 
               className="text-purple-600 border-purple-300 hover:bg-purple-100"
               onClick={() => toggleImageHistory(block.id, placeholderId)}
+              disabled={historyLoading[block.id]}
             >
-              {isHistoryVisible ? '履歴を隠す' : `他の画像 (${historyImages.length})`}
+              {historyLoading[block.id] ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  読込中
+                </>
+              ) : isHistoryVisible ? '履歴を隠す' : `他の画像 (${historyImages.length})`}
             </Button>
             <Button 
               size="sm" 
@@ -1354,33 +1498,79 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
         
         {/* 画像履歴表示 */}
         {isHistoryVisible && (
-          <div className="mb-4 p-3 bg-purple-50 border border-purple-200 rounded-lg">
+          <div 
+            className="mb-4 p-3 bg-purple-50 border border-purple-200 rounded-lg"
+            data-history-panel
+            onClick={(e) => e.stopPropagation()}
+            onMouseDown={(e) => e.stopPropagation()}
+            onPointerDown={(e) => e.stopPropagation()}
+          >
             <h5 className="font-medium text-purple-900 mb-2">他の生成済み画像</h5>
             {historyImages.length > 0 ? (
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                 {historyImages.map((image, index) => (
-                  <div key={image.id} className="relative group">
+                  <button
+                    key={image.id}
+                    type="button"
+                    className="relative group block focus:outline-none rounded-lg"
+                    data-history-tile
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (!imageApplyLoading[block.id]) applyHistoryImage(block.id, image);
+                    }}
+                    onMouseDown={(e) => e.stopPropagation()}
+                    onPointerDown={(e) => e.stopPropagation()}
+                    disabled={!!imageApplyLoading[block.id]}
+                    aria-label="この履歴画像を適用"
+                  >
                     <SafeImage 
                       src={image.gcs_url || image.file_path} 
                       alt={image.alt_text || `生成画像 ${index + 1}`}
-                      className="w-full h-20 object-cover rounded-lg cursor-pointer hover:opacity-80 transition-opacity"
-                      onClick={() => applyHistoryImage(block.id, image)}
+                      className={`w-full h-20 object-cover rounded-lg ${
+                        imageApplyLoading[block.id] ? 'opacity-50' : 'cursor-pointer'
+                      }`}
                       width={80}
                       height={80}
                     />
                     <div className="absolute bottom-1 right-1 bg-black bg-opacity-60 text-white text-xs px-1 py-0.5 rounded">
                       {new Date(image.created_at).toLocaleDateString()}
                     </div>
-                    <div className="absolute inset-0 bg-blue-500 bg-opacity-0 hover:bg-opacity-20 transition-all duration-200 rounded-lg flex items-center justify-center">
-                      <span className="text-white font-medium opacity-0 group-hover:opacity-100 transition-opacity">
-                        変更
-                      </span>
+                    <div className={`absolute inset-0 bg-blue-500 transition-all duration-200 rounded-lg flex items-center justify-center pointer-events-none ${
+                      imageApplyLoading[block.id] 
+                        ? 'bg-opacity-70' 
+                        : 'bg-opacity-0 hover:bg-opacity-20'
+                    }`}>
+                      {imageApplyLoading[block.id] ? (
+                        <div className="text-white font-medium flex flex-col items-center">
+                          <Loader2 className="w-4 h-4 animate-spin mb-1" />
+                          <span className="text-xs">適用中</span>
+                        </div>
+                      ) : (
+                        <span className="text-white font-medium opacity-0 group-hover:opacity-100 transition-opacity">
+                          変更
+                        </span>
+                      )}
                     </div>
-                  </div>
+                  </button>
                 ))}
               </div>
+            ) : historyLoading[block.id] ? (
+              <div className="text-purple-600 text-sm text-center py-4">
+                <Loader2 className="w-6 h-6 animate-spin mx-auto mb-2" />
+                履歴を読み込み中...
+              </div>
             ) : (
-              <p className="text-purple-600 text-sm">他に生成された画像はありません</p>
+              <div className="text-purple-600 text-sm text-center py-4">
+                <p className="mb-2">他に生成された画像はありません</p>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => fetchImageHistory(placeholderId, block.id)}
+                  className="text-purple-600 border-purple-300 hover:bg-purple-100"
+                >
+                  再読み込み
+                </Button>
+              </div>
             )}
           </div>
         )}
