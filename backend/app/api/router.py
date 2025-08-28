@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
+from app.domains.admin.endpoints import router as admin_router
 
 # 各ドメインのエンドポイントをインポート
 from app.domains.seo_article.endpoints import router as seo_article_router
@@ -17,6 +18,7 @@ api_router.include_router(organization_router, prefix="/organizations", tags=["O
 api_router.include_router(company_router, prefix="/companies", tags=["Companies"])
 api_router.include_router(style_template_router, prefix="/style-templates", tags=["Style Templates"])
 api_router.include_router(image_generation_router, prefix="/images", tags=["Image Generation"])
+api_router.include_router(admin_router, prefix="/admin", tags=["Admin"])
 
 # 今後、Instagram機能などを追加する場合は、ここに一行追加するだけでよい
 # from app.domains.instagram.endpoints import router as instagram_router
