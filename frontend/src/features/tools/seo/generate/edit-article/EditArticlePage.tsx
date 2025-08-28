@@ -771,15 +771,34 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
 
       const result = await response.json();
       
-      // ブロックを置き換えられた画像タイプに更新
+      // 画像生成成功後、記事HTMLに反映するためreplace-placeholderを呼び出し
+      const replaceResponse = await fetch(`/api/proxy/images/replace-placeholder`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          article_id: articleId,
+          placeholder_id: placeholderData.placeholder_id,
+          image_url: result.image_url,
+          alt_text: result.alt_text,
+        }),
+      });
+
+      if (!replaceResponse.ok) {
+        throw new Error(`Replace failed: ${replaceResponse.status}`);
+      }
+
+      const replaceResult = await replaceResponse.json();
+      
+      // ブロックを置き換えられた画像タイプに更新（replace-placeholderの結果を使用）
       setBlocks(prev => prev.map(b => 
         b.id === blockId 
           ? { 
               ...b, 
               type: 'replaced_image', 
-              content: `<img src="${result.image_url}" alt="${result.alt_text}" class="article-image" data-placeholder-id="${placeholderData.placeholder_id}" data-image-id="${result.image_id}" />`,
+              content: replaceResult.updated_content.match(new RegExp(`<img[^>]*data-placeholder-id="${placeholderData.placeholder_id}"[^>]*>`))?.[0] || 
+                       `<img src="${result.image_url}" alt="${result.alt_text}" class="article-image" data-placeholder-id="${placeholderData.placeholder_id}" data-image-id="${replaceResult.image_id || result.image_id}" />`,
               imageData: {
-                image_id: result.image_id,
+                image_id: replaceResult.image_id || result.image_id,
                 image_url: result.image_url,
                 alt_text: result.alt_text,
               }
@@ -787,7 +806,7 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
           : b
       ));
 
-      alert('画像が生成されました！保存ボタンを押すか、別の画像を生成することもできます。');
+      alert('画像が生成され記事に適用されました！');
     } catch (error) {
       console.error('画像生成エラー:', error);
       alert('画像の生成に失敗しました。');
@@ -825,14 +844,23 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
 
       const result = await response.json();
       
-      // ブロックをプレースホルダータイプに戻す（元のプレースホルダーデータを保持）
+      // ブロックをプレースホルダータイプに戻す（サーバ返却の placeholder で placeholderData を更新）
       setBlocks(prev => prev.map(b => 
         b.id === blockId 
           ? { 
               ...b, 
               type: 'image_placeholder', 
-              content: result.updated_content.match(/<!-- IMAGE_PLACEHOLDER: [^>]+ -->/)?.[0] || b.content,
-              // placeholderDataは保持する
+              content: result.placeholder_comment || 
+                       result.updated_content.match(new RegExp(`<!-- IMAGE_PLACEHOLDER: ${b.placeholderData?.placeholder_id}\\|[^>]+ -->`))?.[0] || 
+                       b.content,
+              placeholderData: b.placeholderData ? {
+                ...b.placeholderData,
+                // サーバ返却値で必ず上書き（空値のままにしない）
+                placeholder_id: result.placeholder?.placeholder_id ?? b.placeholderData.placeholder_id,
+                description_jp: result.placeholder?.description_jp ?? b.placeholderData.description_jp,
+                prompt_en:      result.placeholder?.prompt_en ?? b.placeholderData.prompt_en,
+                alt_text:       result.placeholder?.alt_text ?? b.placeholderData.alt_text,
+              } : b.placeholderData,
               imageData: undefined
             }
           : b

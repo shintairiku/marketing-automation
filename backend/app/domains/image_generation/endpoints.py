@@ -562,7 +562,7 @@ async def restore_placeholder(
             description_jp = placeholder_data["description_jp"]
             prompt_en = placeholder_data["prompt_en"]
         else:
-            # プレースホルダーデータが見つからない場合は、記事内容から抽出を試みる
+            # プレースホルダーデータが見つからない場合は、画像のmetadataから抽出を試みる
             import re
             pattern = f'<img[^>]*data-placeholder-id="{re.escape(request.placeholder_id)}"[^>]*>'
             match = re.search(pattern, current_content)
@@ -570,9 +570,41 @@ async def restore_placeholder(
             if not match:
                 raise HTTPException(status_code=404, detail="プレースホルダーまたは画像が記事内に見つかりません")
             
-            # デフォルト値を使用
+            # 画像のmetadataから復元を試みる
             description_jp = "画像プレースホルダー"
             prompt_en = "image placeholder"
+            
+            # data-image-idからimagesテーブルのmetadataを探す
+            img_tag = match.group(0)
+            image_id_match = re.search(r'data-image-id="([^"]+)"', img_tag)
+            
+            if image_id_match:
+                image_id = image_id_match.group(1)
+                image_result = supabase.table("images").select("metadata").eq("id", image_id).execute()
+                
+                if image_result.data and image_result.data[0].get("metadata"):
+                    metadata = image_result.data[0]["metadata"]
+                    description_jp = metadata.get("description_jp", description_jp)
+                    prompt_en = metadata.get("prompt_en", prompt_en)
+                    
+            # 復元したデータをDBに保存しておく
+            placeholder_data = {
+                "article_id": request.article_id,
+                "placeholder_id": request.placeholder_id,
+                "description_jp": description_jp,
+                "prompt_en": prompt_en,
+                "position_index": 1,
+                "status": "pending"
+            }
+            
+            try:
+                supabase.table("image_placeholders").upsert(
+                    placeholder_data,
+                    on_conflict="article_id,placeholder_id"
+                ).execute()
+                logger.info(f"復元されたプレースホルダー情報をDBに保存 - placeholder_id: {request.placeholder_id}")
+            except Exception as save_error:
+                logger.warning(f"復元プレースホルダー情報の保存に失敗 - placeholder_id: {request.placeholder_id}, error: {save_error}")
         
         # 画像タグをプレースホルダーコメントに置換
         import re
@@ -598,7 +630,14 @@ async def restore_placeholder(
         return {
             "success": True,
             "message": "画像がプレースホルダーに復元されました",
-            "updated_content": updated_content
+            "updated_content": updated_content,
+            "placeholder_comment": placeholder_comment,
+            "placeholder": {
+                "placeholder_id": request.placeholder_id,
+                "description_jp": description_jp,
+                "prompt_en": prompt_en,
+                "alt_text": description_jp  # alt_textはdescription_jpをデフォルトとする
+            }
         }
         
     except HTTPException:

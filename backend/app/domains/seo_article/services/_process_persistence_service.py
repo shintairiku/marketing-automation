@@ -1122,7 +1122,7 @@ class ProcessPersistenceService:
                     # プレースホルダーをデータベースに保存（UPSERT）
                     result = supabase.table("image_placeholders").upsert(
                         placeholder_data,
-                        on_conflict="generation_process_id,placeholder_id"
+                        on_conflict="article_id,placeholder_id"
                     ).execute()
                     
                     if result.data:
