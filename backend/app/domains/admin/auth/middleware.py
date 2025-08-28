@@ -16,6 +16,7 @@ from app.domains.admin.auth.exceptions import (
     OrganizationMembershipRequiredError,
     InsufficientPermissionsError,
 )
+from app.infrastructure.admin_audit_logger import AdminAuditLogger
 
 
 logger = logging.getLogger(__name__)
@@ -43,6 +44,7 @@ class AdminAuthMiddleware(BaseHTTPMiddleware):
         self._protected_regexes = [re.compile(p) for p in (protected_regexes or [])]
         self.audit_log = audit_log
         self.validator = ClerkOrganizationValidator()
+        self.audit_logger = AdminAuditLogger() if audit_log else None
 
     async def dispatch(self, request: Request, call_next):
         path = request.url.path
@@ -61,9 +63,29 @@ class AdminAuthMiddleware(BaseHTTPMiddleware):
                 admin_user: AdminUser = self.validator.validate_token_and_extract_admin_user(token)
                 request.state.admin_user = admin_user
 
-                if self.audit_log:
-                    logger.info(
-                        f"[ADMIN_AUDIT] user={admin_user.user_id} method={request.method} path={path}"
+                if self.audit_log and self.audit_logger:
+                    # Get client IP address
+                    ip_address = None
+                    if hasattr(request, 'client') and request.client:
+                        ip_address = request.client.host
+                    elif 'x-forwarded-for' in request.headers:
+                        ip_address = request.headers['x-forwarded-for'].split(',')[0].strip()
+                    elif 'x-real-ip' in request.headers:
+                        ip_address = request.headers['x-real-ip']
+                    
+                    # Get user agent
+                    user_agent = request.headers.get('user-agent')
+                    
+                    # Log the admin action
+                    self.audit_logger.log_admin_action(
+                        admin_user_id=admin_user.user_id,
+                        admin_email=admin_user.email,
+                        action="admin_access",
+                        request_method=request.method,
+                        request_path=path,
+                        ip_address=ip_address,
+                        user_agent=user_agent,
+                        target_resource=path
                     )
 
             except InvalidJWTTokenError as e:
