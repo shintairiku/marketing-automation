@@ -13,6 +13,11 @@ from fastapi import APIRouter, status, Depends, HTTPException, Query, Background
 from typing import List, Optional, Dict, Any
 import logging
 from pydantic import BaseModel, Field
+from bs4 import BeautifulSoup
+import re
+import html
+import time
+import json
 
 # 新しいインポートパス（修正版）
 from .services.generation_service import ArticleGenerationService
@@ -26,6 +31,14 @@ from .schemas import GenerateArticleRequest
 # )
 from app.common.auth import get_current_user_id_from_token
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from app.domains.company.service import CompanyService
+from app.domains.seo_article.services.flow_service import get_supabase_client
+from app.infrastructure.logging.service import LoggingService
+
+# 静的: 1タグHTMLの出力検疫用設定
+SAFE_URL_SCHEMES = {"http", "https", "mailto", "tel"}
+_knowledge_cache: Dict[str, Dict[str, Any]] = {}
+_knowledge_cache_ttl_sec = 60
 
 security = HTTPBearer(auto_error=False)
 
@@ -110,6 +123,8 @@ class AIEditRequest(BaseModel):
     """AIによるブロック編集リクエスト"""
     content: str = Field(..., description="元のHTMLブロック内容")
     instruction: str = Field(..., description="編集指示（カジュアルに書き換え等）")
+    # 任意: 記事全体HTML（複数ブロック編集時の文脈保持に有効）
+    article_html: Optional[str] = Field(None, description="記事全体のHTML（任意、無い場合はDBから取得）")
 
 # --- New Realtime Process Management Models ---
 
@@ -126,6 +141,245 @@ class ProcessEventResponse(BaseModel):
     event_data: Dict[str, Any]
     event_sequence: int
     created_at: str
+
+# --- AI編集 ヘルパー関数群 ---
+
+async def assemble_edit_knowledge(article_id: str, user_id: str, article_record: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """記事に紐づくコンテキスト、会社情報、スタイルテンプレート等を収集して返す。
+
+    60秒キャッシュにより同一記事の連続呼び出しを最適化。
+    """
+    cache_key = f"{user_id}:{article_id}"
+    cached = _knowledge_cache.get(cache_key)
+    if cached and (time.time() - cached.get("cached_at", 0) < _knowledge_cache_ttl_sec):
+        return cached
+
+    supabase = get_supabase_client()
+    # 1) 記事レコード
+    article = article_record
+    if not article:
+        res = supabase.table("articles").select("*").eq("id", article_id).eq("user_id", user_id).limit(1).execute()
+        article = res.data[0] if res.data else None
+    process_id = article.get("generation_process_id") if article else None
+
+    # 2) ArticleContext 復元
+    context = None
+    if process_id:
+        try:
+            context = await article_service.persistence_service.load_context_from_db(process_id, user_id)
+        except Exception as e:
+            logger.warning(f"assemble_edit_knowledge: failed to load context for {process_id}: {e}")
+
+    # 3) 会社情報（default）
+    try:
+        company_obj = await CompanyService.get_default_company(user_id)
+        company = company_obj.model_dump() if hasattr(company_obj, "model_dump") else (company_obj.dict() if company_obj else None)
+    except Exception as e:
+        logger.warning(f"assemble_edit_knowledge: failed to get default company: {e}")
+        company = None
+
+    # 4) スタイルガイド（context指定 or ユーザー既定）
+    style_template = None
+    style_template_id = getattr(context, "style_template_id", None) if context else None
+    try:
+        if style_template_id:
+            r = supabase.table("style_guide_templates").select("*").eq("id", style_template_id).limit(1).execute()
+            style_template = r.data[0] if r.data else None
+        if not style_template:
+            r = supabase.table("style_guide_templates").select("*").eq("user_id", user_id).eq("is_default", True).limit(1).execute()
+            style_template = r.data[0] if r.data else None
+    except Exception as e:
+        logger.warning(f"assemble_edit_knowledge: failed to get style template: {e}")
+
+    # 5) SERP/テーマ/ペルソナ
+    serp = getattr(context, "serp_analysis_report", None) if context else None
+    persona = getattr(context, "selected_detailed_persona", None) if context else None
+    theme = getattr(context, "selected_theme", None) if context else None
+
+    knowledge = {
+        "context": context,
+        "company": company,
+        "style_template": style_template,
+        "serp": serp,
+        "persona": persona,
+        "theme": theme,
+        "context_keywords": getattr(context, "initial_keywords", []) if context else []
+    }
+
+    knowledge["cached_at"] = time.time()
+    _knowledge_cache[cache_key] = knowledge
+    return knowledge
+
+
+def _summarize_style_guide(style_template: Optional[Dict[str, Any]], context_obj: Optional[Any]) -> str:
+    if not style_template and not (getattr(context_obj, "style_template_settings", None) or {}):
+        return "(未設定)"
+    settings = {}
+    if style_template:
+        settings = style_template.get("settings", {}) or {}
+    # context側に設定があればマージ（context優先）
+    if context_obj and getattr(context_obj, "style_template_settings", None):
+        settings = {**settings, **(context_obj.style_template_settings or {})}
+    if not settings:
+        return "(未設定)"
+    # 日本語の短い要約
+    parts = []
+    tone = settings.get("tone")
+    if tone: parts.append(f"口調={tone}")
+    formality = settings.get("formality")
+    if formality: parts.append(f"文体={formality}")
+    sentence_len = settings.get("sentence_length")
+    if sentence_len: parts.append(f"文長={sentence_len}")
+    heading = settings.get("heading_style")
+    if heading: parts.append(f"見出し={heading}")
+    list_style = settings.get("list_style")
+    if list_style: parts.append(f"箇条書き={list_style}")
+    num_style = settings.get("number_style")
+    if num_style: parts.append(f"英数字表記={num_style}")
+    return ", ".join(parts) if parts else "(設定あり)"
+
+
+def _summarize_company(company: Optional[Dict[str, Any]]) -> Dict[str, str]:
+    if not company:
+        return {
+            "name": "(未設定)",
+            "usp": "",
+            "avoid_terms": "",
+            "target_area": "",
+        }
+    return {
+        "name": company.get("name") or "(未設定)",
+        "usp": company.get("usp") or "",
+        "avoid_terms": company.get("avoid_terms") or "",
+        "target_area": company.get("target_area") or "",
+    }
+
+
+def _summarize_serp(serp_obj: Optional[Any]) -> Dict[str, Any]:
+    if not serp_obj:
+        return {
+            "keyword": "",
+            "user_intent": "",
+            "common_headings": [],
+            "content_gaps": [],
+            "recommended_length": "",
+        }
+    try:
+        serp = serp_obj.model_dump() if hasattr(serp_obj, "model_dump") else dict(serp_obj)
+    except Exception:
+        serp = {}
+    keyword = serp.get("keyword") or serp.get("search_query") or ""
+    return {
+        "keyword": keyword,
+        "user_intent": serp.get("user_intent_analysis", ""),
+        "common_headings": serp.get("common_headings", []) or [],
+        "content_gaps": serp.get("content_gaps", []) or [],
+        "recommended_length": serp.get("recommended_target_length") or serp.get("average_article_length") or "",
+    }
+
+
+def build_edit_system_prompt(knowledge: Dict[str, Any], tag: str, attrs: Dict[str, Any], article_excerpt: str) -> str:
+    ctx = knowledge.get("context")
+    company_info = _summarize_company(knowledge.get("company"))
+    style_summary = _summarize_style_guide(knowledge.get("style_template"), ctx)
+    serp_summary = _summarize_serp(knowledge.get("serp"))
+
+    # テーマ要約
+    theme = knowledge.get("theme")
+    theme_summary = ""
+    try:
+        if theme:
+            data = theme.model_dump() if hasattr(theme, "model_dump") else dict(theme)
+            title = data.get("title")
+            desc = data.get("description")
+            kws = ", ".join(data.get("keywords", [])[:6]) if data.get("keywords") else ""
+            theme_summary = ", ".join(filter(None, [title, desc, f"KW:{kws}" if kws else None]))
+    except Exception:
+        theme_summary = ""
+
+    persona = knowledge.get("persona") or (ctx.custom_persona if ctx and getattr(ctx, "custom_persona", None) else "")
+
+    # 編集ガードレール（属性一覧の可視化）
+    preserved_attrs = " ".join([f"{k}='{html.escape(' '.join(v) if isinstance(v, list) else str(v))}'" for k, v in attrs.items()])
+
+    system_prompt = (
+        "あなたはSEO編集専門のシニアエディタ。以下の“知識パック”を厳守し、指定ブロックだけを修正する。\n\n"
+        "[知識パック]\n"
+        f"- テーマ: {theme_summary or '(未設定)'}\n"
+        f"- 対象ペルソナ: {persona or '(未設定)'}\n"
+        f"- 会社情報: {company_info['name']}, USP={company_info['usp']}, NGワード={company_info['avoid_terms']}, ターゲットエリア={company_info['target_area']}\n"
+        f"- スタイルガイド設定: {style_summary}\n"
+        f"- SERP要約: keyword={serp_summary['keyword']}, user_intent={serp_summary['user_intent']}, 共通見出し={', '.join(serp_summary['common_headings'][:8])}, content_gaps={', '.join(serp_summary['content_gaps'][:8])}, 推奨文量={serp_summary['recommended_length']}\n"
+        f"- 記事本文の抜粋（参照用。編集対象外）:\n{article_excerpt}\n\n"
+        "[編集ガードレール]\n"
+        f"- 編集対象: <{tag}{(' ' + preserved_attrs) if preserved_attrs else ''}>…</{tag}> の内側のみ。他ブロックには一切触れない。\n"
+        "- タグ名・既存 attributes(id/class/data-*) を維持。リンク/画像/src/alt も壊さない。\n"
+        "- 出力はそのタグ1つだけ（前後テキストや説明文、バッククォート禁止）。\n"
+        "- 事実は知識パックと元記事からのみ。推測や新規URLを捏造しない。\n"
+        "- 日本語。冗長回避。スタイルガイドを最優先。\n\n"
+        "[出力フォーマット]\n"
+        f"- 1タグのHTML断片のみ（例：<{tag} …>…</{tag}>）"
+    )
+    return system_prompt
+
+
+def build_edit_user_prompt(tag: str, attrs: Dict[str, Any], inner_html: str, instruction_text: str) -> str:
+    # attrs を HTML の文字列に
+    attr_str = " ".join([f"{k}='{html.escape(' '.join(v) if isinstance(v, list) else str(v))}'" for k, v in attrs.items()])
+    opening = f"<{tag}{(' ' + attr_str) if attr_str else ''}>"
+    closing = f"</{tag}>"
+    original_html = f"{opening}{inner_html}{closing}"
+
+    prompt = (
+        "[編集対象ブロック]\n"
+        f"original_html:\n{original_html}\n\n"
+        "[編集指示]\n"
+        f"{instruction_text}"
+    )
+    return prompt
+
+
+def strip_code_fences(text: str) -> str:
+    if not text:
+        return text
+    # ```lang ... ``` を除去
+    if text.startswith("```"):
+        text = re.sub(r"^```[a-zA-Z]*\n", "", text)
+        text = re.sub(r"\n```\s*$", "", text)
+    # 先頭末尾のバッククォートを粗く除去
+    text = text.strip("`")
+    return text
+
+
+def sanitize_dom(frag) -> None:
+    """script/style除去、on*属性除去、javascript:リンク除去などの簡易サニタイズ"""
+    try:
+        # 危険タグ除去
+        for bad in frag.find_all(["script", "style"]):
+            bad.decompose()
+        # 属性検疫
+        for el in frag.find_all(True):
+            # on* 属性除去
+            for attr in list(el.attrs.keys()):
+                if attr.lower().startswith("on"):
+                    del el.attrs[attr]
+            # URL属性の検査
+            for url_attr in ["href", "src"]:
+                if url_attr in el.attrs:
+                    val = " ".join(el.attrs.get(url_attr)) if isinstance(el.attrs.get(url_attr), list) else str(el.attrs.get(url_attr))
+                    if not val:
+                        continue
+                    low = val.strip().lower()
+                    if low.startswith("javascript:"):
+                        del el.attrs[url_attr]
+                        continue
+                    # スキーム付きのものはホワイトリストに限定（相対URLは許可）
+                    if "://" in low:
+                        scheme = low.split(":", 1)[0]
+                        if scheme not in SAFE_URL_SCHEMES:
+                            del el.attrs[url_attr]
+    except Exception as e:
+        logger.warning(f"sanitize_dom failed: {e}")
 
 # --- Article CRUD Endpoints ---
 
@@ -414,38 +668,105 @@ async def ai_edit_block(
     - user_id: Clerk認証ユーザーID
     """
     try:
-        # ユーザーが記事にアクセスできるかチェック
+        # 0) 記事アクセス権チェック & 本文取得
         article = await article_service.get_article(article_id, user_id)
         if not article:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Article not found or access denied")
 
+        # 1) ナレッジ収集（キャッシュ付き）
+        knowledge = await assemble_edit_knowledge(article_id, user_id, article)
+
+        # 2) 入力HTMLの解析（1タグ保証 & 属性保持）
+        soup = BeautifulSoup(req.content, "html.parser")
+        target = soup.find(True)
+        if not target:
+            raise HTTPException(status_code=400, detail="content は1つのタグでラップしてください")
+        tag_name = target.name
+        attrs = dict(target.attrs)
+        inner_html = "".join(str(c) for c in target.contents)
+
+        # 3) プロンプト構築（記事全体の抜粋は instructions 側へ、input は編集対象のみ）
+        article_excerpt = (req.article_html or article.get("content") or "")[:4000]
+        system_prompt = build_edit_system_prompt(knowledge, tag_name, attrs, article_excerpt)
+        user_prompt = build_edit_user_prompt(tag_name, attrs, inner_html, req.instruction)
+
+        # 4) OpenAI 呼び出し
         from app.core.config import settings
         from openai import AsyncOpenAI
         client = AsyncOpenAI(api_key=settings.openai_api_key)
 
-        system_prompt = (
-            "あなたは優秀なSEOライターです。ユーザーの指示に従ってHTMLブロックを編集し、" \
-            "結果を同じタグ構造で返してください。不要なタグや装飾は追加しないでください。"
-        )
-        user_prompt = (
-            f"### 編集指示\n{req.instruction}\n\n" \
-            f"### 元のHTMLブロック\n{req.content}\n\n" \
-            "### 出力形式:\n編集後のHTMLブロックのみを返す。余計な説明は不要。"
-        )
-
-        completion = await client.chat.completions.create(
+        start_time = time.time()
+        # Responses API で instructions/input を厳密に分離
+        response = await client.responses.create(
             model=settings.editing_model,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ],
-            temperature=0.7,
+            instructions=system_prompt,
+            input=user_prompt,
+            temperature=0.3,
         )
+        duration_ms = int((time.time() - start_time) * 1000)
 
-        content = completion.choices[0].message.content
-        new_content = content.strip() if content else ""
+        raw = (getattr(response, "output_text", None) or "")
+        clean = strip_code_fences(raw.strip())
 
-        return {"edited_content": new_content}
+        # 5) 出力検疫：1タグ抽出/属性復元/危険除去
+        out_soup = BeautifulSoup(clean, "html.parser")
+        frag = out_soup.find(tag_name)
+        if not frag:
+            # タグ欠落時は強制リラップ
+            new_frag = BeautifulSoup("", "html.parser").new_tag(tag_name, **attrs)
+            new_frag.append(BeautifulSoup(clean, "html.parser"))
+            frag = new_frag
+        # 属性は元を優先して復元
+        for k_attr, v in attrs.items():
+            frag[k_attr] = v
+        sanitize_dom(frag)
+        edited = str(frag)
+
+        # 6) ログ保存（system_prompt/user_prompt/usage等）
+        try:
+            logging_service = LoggingService()
+            session_id = logging_service.create_log_session(
+                article_uuid=str(article.get("id")),
+                user_id=user_id,
+                initial_input={"article_id": article_id, "edit_type": "block"},
+                seo_keywords=knowledge.get("context_keywords", []),
+                article_style_info=knowledge.get("style_template", {}) or {},
+                persona_settings={"persona": knowledge.get("persona")},
+                company_info=knowledge.get("company") or {},
+                session_metadata={"workflow_type": "seo_article_ai_edit"}
+            )
+            execution_id = logging_service.create_execution_log(
+                session_id=session_id,
+                agent_name="ai_edit_block",
+                agent_type="editor",
+                step_number=1,
+                input_data={"tag": tag_name, "attrs": attrs, "instruction": req.instruction},
+                llm_model=settings.editing_model,
+            )
+            usage = getattr(response, "usage", None)
+            prompt_tokens = getattr(usage, "prompt_tokens", 0) if usage else 0
+            completion_tokens = getattr(usage, "completion_tokens", 0) if usage else 0
+            total_tokens = getattr(usage, "total_tokens", 0) if usage else 0
+            logging_service.create_llm_call_log(
+                execution_id=execution_id,
+                call_sequence=1,
+                api_type="responses",
+                model_name=settings.editing_model,
+                provider="openai",
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                full_prompt_data={"instructions": system_prompt, "input": user_prompt},
+                response_content=raw,
+                response_data=json.loads(response.model_dump_json()),
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+                total_tokens=total_tokens,
+                response_time_ms=duration_ms,
+            )
+        except Exception as log_e:
+            logger.warning(f"Failed to log AI edit call: {log_e}")
+
+        return {"edited_content": edited}
 
     except HTTPException:
         raise
