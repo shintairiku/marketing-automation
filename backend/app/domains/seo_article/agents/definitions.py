@@ -383,11 +383,9 @@ def create_section_writer_with_images_instructions(base_prompt: str) -> Callable
         outline_context = "\n".join([f"{i+1}. {s.heading}" for i, s in enumerate(ctx.context.generated_outline.sections)])
 
         research_context_str = f"リサーチ要約: {ctx.context.research_report.overall_summary[:500]}...\n"
-        research_context_str += "主要なキーポイントと出典:\n"
+        research_context_str += "主要なキーポイント:\n"
         for kp in ctx.context.research_report.key_points:
-            sources_str = ", ".join([f"[{url.split('/')[-1] if url.split('/')[-1] else url}]({url})" for url in kp.supporting_sources])
-            research_context_str += f"- {kp.point} (出典: {sources_str})\n"
-        research_context_str += f"参照した全情報源URL数: {len(ctx.context.research_report.all_sources)}\n"
+            research_context_str += f"- {kp.point}\n"
 
         # スタイルガイドコンテキストを構築
         style_guide_context = build_style_context(ctx.context)
@@ -403,6 +401,7 @@ def create_section_writer_with_images_instructions(base_prompt: str) -> Callable
 {style_guide_context}
 記事のアウトライン（全体像）:
 {outline_context}
+
 --- 詳細なリサーチ情報 ---
 {research_context_str[:10000]}
 { "... (以下省略)" if len(research_context_str) > 10000 else "" }
@@ -509,11 +508,9 @@ def create_section_writer_instructions(base_prompt: str) -> Callable[[RunContext
         outline_context = "\n".join([f"{i+1}. {s.heading}" for i, s in enumerate(ctx.context.generated_outline.sections)])
 
         research_context_str = f"リサーチ要約: {ctx.context.research_report.overall_summary[:500]}...\n"
-        research_context_str += "主要なキーポイントと出典:\n"
+        research_context_str += "主要なキーポイント:\n"
         for kp in ctx.context.research_report.key_points:
-            sources_str = ", ".join([f"[{url.split('/')[-1] if url.split('/')[-1] else url}]({url})" for url in kp.supporting_sources])
-            research_context_str += f"- {kp.point} (出典: {sources_str})\n"
-        research_context_str += f"参照した全情報源URL数: {len(ctx.context.research_report.all_sources)}\n"
+            research_context_str += f"- {kp.point}\n"
 
         # 拡張された会社情報コンテキストを使用
         company_info_str = build_enhanced_company_context(ctx.context)
@@ -540,9 +537,11 @@ def create_section_writer_instructions(base_prompt: str) -> Callable[[RunContext
 {style_guide_context}
 記事のアウトライン（全体像）:
 {outline_context}
+
 --- 詳細なリサーチ情報 ---
 {research_context_str[:10000]}
 { "... (以下省略)" if len(research_context_str) > 10000 else "" }
+
 ---
 
 --- **あなたの現在のタスク** ---
@@ -604,11 +603,9 @@ def create_editor_instructions(base_prompt: str) -> Callable[[RunContextWrapper[
         persona_description = ctx.context.selected_detailed_persona
 
         research_context_str = f"リサーチ要約: {ctx.context.research_report.overall_summary[:500]}...\n"
-        research_context_str += "主要なキーポイントと出典:\n"
+        research_context_str += "主要なキーポイント:\n"
         for kp in ctx.context.research_report.key_points:
-            sources_str = ", ".join([f"[{url.split('/')[-1] if url.split('/')[-1] else url}]({url})" for url in kp.supporting_sources])
-            research_context_str += f"- {kp.point} (出典: {sources_str})\n"
-        research_context_str += f"参照した全情報源URL数: {len(ctx.context.research_report.all_sources)}\n"
+            research_context_str += f"- {kp.point}\n"
 
         # 拡張された会社情報コンテキストを使用
         company_info_str = build_enhanced_company_context(ctx.context)
@@ -915,8 +912,9 @@ researcher_agent = Agent[ArticleContext](
 # 4. リサーチシンセサイザーエージェント
 RESEARCH_SYNTHESIZER_AGENT_BASE_PROMPT = """
 あなたは情報を整理し、要点を抽出し、統合する専門家です。
-収集された詳細なリサーチ結果（抜粋と出典）を分析し、記事のテーマに沿って統合・要約します。
-各キーポイントについて、それを裏付ける情報源URLを明確に紐付け、記事作成者がすぐに活用できる実用的で詳細なリサーチレポートを作成します。
+収集された詳細なリサーチ結果を分析し、記事のテーマに沿って統合・要約します。
+各キーポイントについて、記事作成者がすぐに活用できる実用的で詳細なリサーチレポートを作成します。
+※ 出典情報は不要です。URLを含めないでください。
 """
 research_synthesizer_agent = Agent[ArticleContext](
     name="ResearchSynthesizerAgent",
@@ -1034,4 +1032,3 @@ editor_agent = Agent[ArticleContext](
 # LiteLLMエージェント生成関数 (APIでは直接使わないかもしれないが、念のため残す)
 # 必要に応じてAPIキーの取得方法などを修正する必要がある
 # def get_litellm_agent(...) -> Optional[Agent]: ... (実装は省略)
-

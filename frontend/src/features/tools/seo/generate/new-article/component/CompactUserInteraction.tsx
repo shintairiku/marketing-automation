@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { AnimatePresence,motion } from 'framer-motion';
+import { AnimatePresence, motion } from 'framer-motion';
 import { 
   BookOpen, 
   Check, 
@@ -25,6 +25,10 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { PersonaOption, ThemeOption } from '@/types/article-generation';
+
+import type { EditableOutline } from '../../types/outline';
+
+import MainSectionEditor from './MainSectionEditor';
 
 interface CompactUserInteractionProps {
   type: 'select_persona' | 'select_theme' | 'approve_plan' | 'approve_outline';
@@ -111,14 +115,19 @@ export default function CompactUserInteraction({
         })) || []
       });
     } else if (type === 'outline' && outline) {
-      setEditContent({
+      // Initialize editor state for main-section-only editing while preserving existing subsections
+      const editable: EditableOutline = {
         title: outline.title || '',
         suggested_tone: outline.suggested_tone || '',
-        sections: outline.sections?.map((s: any) => ({
+        sections: (outline.sections || []).map((s: any) => ({
           heading: s.heading || '',
-          estimated_chars: s.estimated_chars || 0
-        })) || []
-      });
+          estimated_chars: s.estimated_chars || 300,
+          __subsections: Array.isArray(s.subsections)
+            ? s.subsections.map((sub: any) => (typeof sub?.heading === 'string' ? sub.heading : '')).filter((h: string) => !!h)
+            : []
+        }))
+      };
+      setEditContent(editable);
     }
   };
 
@@ -713,73 +722,17 @@ export default function CompactUserInteraction({
 
             {editMode.type === 'outline' ? (
               <div className="space-y-4 mb-6">
-                <div className="bg-blue-50 p-4 rounded-lg border border-blue-200">
-                  <h4 className="font-medium mb-3 flex items-center gap-2">
-                    <Edit3 className="w-4 h-4" />
-                    アウトラインを編集
-                  </h4>
-                  <div className="space-y-3">
-                    <div>
-                      <label className="text-sm font-medium block mb-1">記事タイトル</label>
-                      <Input
-                        value={editContent.title || ''}
-                        onChange={(e) => updateEditContent('title', e.target.value)}
-                        placeholder="記事のタイトルを入力..."
-                      />
-                    </div>
-                    <div>
-                      <label className="text-sm font-medium block mb-1">推奨トーン</label>
-                      <Input
-                        value={editContent.suggested_tone || ''}
-                        onChange={(e) => updateEditContent('suggested_tone', e.target.value)}
-                        placeholder="記事のトーンを入力（例：丁寧な解説調）..."
-                      />
-                    </div>
-                    <div>
-                      <label className="text-sm font-medium block mb-2">セクション構成</label>
-                      <div className="space-y-2">
-                        {editContent.sections?.map((section: any, index: number) => (
-                          <div key={index} className="grid grid-cols-3 gap-2">
-                            <div className="col-span-2">
-                              <Input
-                                value={section.heading || ''}
-                                onChange={(e) => updateSectionContent(index, 'heading', e.target.value)}
-                                placeholder={`セクション ${index + 1} の見出し`}
-                              />
-                            </div>
-                            <Input
-                              type="number"
-                              value={section.estimated_chars || ''}
-                              onChange={(e) => updateSectionContent(index, 'estimated_chars', parseInt(e.target.value) || 0)}
-                              placeholder="文字数"
-                              min="0"
-                            />
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-                  <div className="flex justify-end gap-2 mt-3">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={handleCancelEdit}
-                      className="flex items-center gap-1"
-                    >
-                      <XCircle className="w-4 h-4" />
-                      キャンセル
-                    </Button>
-                    <Button
-                      size="sm"
-                      onClick={handleSaveEdit}
-                      className="flex items-center gap-1"
-                      disabled={!editContent.title?.trim()}
-                    >
-                      <Save className="w-4 h-4" />
-                      この内容で進行
-                    </Button>
-                  </div>
-                </div>
+                <MainSectionEditor
+                  value={editContent as EditableOutline}
+                  onChange={(v) => setEditContent(v)}
+                  onCancel={handleCancelEdit}
+                  onSaveAndStart={(edited) => {
+                    // Pass through to higher-level handler (wrapped with edit_and_proceed in caller)
+                    onEditAndProceed?.(edited);
+                    setEditMode({ type: null });
+                    setEditContent({});
+                  }}
+                />
               </div>
             ) : (
               outline.sections && (
