@@ -2,9 +2,9 @@
 
 ## Introduction
 
-This document outlines the requirements for implementing an admin authentication and dashboard system for the marketing automation platform. The system will provide secure access control for administrators using Google Workspace SSO restrictions, comprehensive user and organization management capabilities, and a monitoring dashboard for system oversight.
+This document outlines the requirements for implementing a master admin authentication and internal operations dashboard for the marketing automation platform. The system provides secure access control for service provider administrators to manage internal platform operations, system monitoring, infrastructure management, and service provider business operations.
 
-The admin system is part of a larger administrative interface that will eventually include user management, organization management, subscription management, support ticket management, announcements, messaging, and system settings.
+The master admin system focuses on internal service provider operations rather than customer management, including system health monitoring, infrastructure management, internal configuration, service deployment management, and business intelligence for service provider decision-making.
 
 ## Requirements
 
@@ -33,46 +33,46 @@ The admin system is part of a larger administrative interface that will eventual
 4. WHEN JWT tokens are invalid or expired THEN the system SHALL reject the request with appropriate error codes
 5. WHEN admin middleware is applied THEN the system SHALL extract user context and organization membership and make it available to the endpoint
 
-### Requirement 3: Admin Dashboard Overview
+### Requirement 3: Master Admin Internal Operations Dashboard
 
-**User Story:** As a platform administrator, I want to view key system metrics and status information on a dashboard, so that I can monitor platform health and user activity at a glance.
-
-#### Acceptance Criteria
-
-1. WHEN accessing the admin dashboard THEN the system SHALL display current active user count
-2. WHEN viewing dashboard metrics THEN the system SHALL show new user registrations (daily, weekly, monthly)
-3. WHEN monitoring subscriptions THEN the system SHALL display subscription status distribution and revenue metrics
-4. WHEN checking system health THEN the system SHALL show API usage statistics and error rates
-5. WHEN viewing organization metrics THEN the system SHALL display organization creation and membership trends
-6. WHEN accessing dashboard data THEN the system SHALL refresh metrics automatically every 5 minutes
-7. WHEN dashboard loads THEN the system SHALL display data within 2 seconds for optimal user experience
-
-### Requirement 4: Admin User Management Interface
-
-**User Story:** As a platform administrator, I want to manage user accounts through a comprehensive interface, so that I can handle customer support requests and account issues efficiently.
+**User Story:** As a service provider administrator, I want to view internal system operations and infrastructure metrics on a dashboard, so that I can monitor platform health, deployment status, and business operations.
 
 #### Acceptance Criteria
 
-1. WHEN viewing the user management page THEN the system SHALL display a searchable list of all users
-2. WHEN searching users THEN the system SHALL support filtering by email, status, plan, and registration date
-3. WHEN viewing user details THEN the system SHALL show profile information, subscription status, and organization memberships
-4. WHEN suspending a user account THEN the system SHALL disable access and sync with Clerk authentication
-5. WHEN reactivating a user account THEN the system SHALL restore access and update all related systems
-6. WHEN exporting user data THEN the system SHALL generate CSV files with selected user information
-7. WHEN performing user operations THEN the system SHALL log all changes to the audit system
+1. WHEN accessing the master admin dashboard THEN the system SHALL display infrastructure health metrics (CPU, memory, database performance)
+2. WHEN viewing system metrics THEN the system SHALL show API response times, error rates, and service availability
+3. WHEN monitoring deployments THEN the system SHALL display deployment status, version information, and rollback capabilities
+4. WHEN checking business metrics THEN the system SHALL show revenue trends, cost analysis, and profitability metrics
+5. WHEN viewing service health THEN the system SHALL display external service status (Clerk, Stripe, GCP, Supabase)
+6. WHEN accessing dashboard data THEN the system SHALL refresh metrics automatically every 2 minutes for real-time monitoring
+7. WHEN dashboard loads THEN the system SHALL display critical alerts and system status within 1 second
 
-### Requirement 5: Admin Organization Management
+### Requirement 4: System Configuration Management
 
-**User Story:** As a platform administrator, I want to manage organizations and their memberships, so that I can handle enterprise customer needs and resolve organizational issues.
+**User Story:** As a service provider administrator, I want to manage internal system configurations and feature flags, so that I can control platform behavior and deploy changes safely.
 
 #### Acceptance Criteria
 
-1. WHEN viewing organizations THEN the system SHALL display a list with member counts and subscription status
-2. WHEN managing organization members THEN the system SHALL allow adding, removing, and changing member roles
-3. WHEN viewing organization details THEN the system SHALL show subscription information, member list, and usage statistics
-4. WHEN transferring organization ownership THEN the system SHALL update ownership and maintain data integrity
-5. WHEN deleting organizations THEN the system SHALL handle member reassignment and data cleanup
-6. WHEN syncing with Clerk THEN the system SHALL maintain consistency between Clerk organizations and database records
+1. WHEN viewing system configuration THEN the system SHALL display environment variables, feature flags, and service settings
+2. WHEN updating configurations THEN the system SHALL support real-time updates without service restart where possible
+3. WHEN managing feature flags THEN the system SHALL allow enabling/disabling features with percentage rollouts
+4. WHEN configuring services THEN the system SHALL validate configuration changes before applying
+5. WHEN deploying configuration changes THEN the system SHALL provide rollback capabilities for failed changes
+6. WHEN exporting configurations THEN the system SHALL generate backup files for disaster recovery
+7. WHEN performing configuration operations THEN the system SHALL log all changes to the audit system
+
+### Requirement 5: Infrastructure and Service Management
+
+**User Story:** As a service provider administrator, I want to manage infrastructure services and deployments, so that I can ensure platform reliability and performance.
+
+#### Acceptance Criteria
+
+1. WHEN viewing infrastructure status THEN the system SHALL display service health for all critical components
+2. WHEN managing deployments THEN the system SHALL allow triggering deployments, rollbacks, and health checks
+3. WHEN monitoring services THEN the system SHALL show real-time metrics for databases, APIs, and external integrations
+4. WHEN scaling infrastructure THEN the system SHALL provide controls for auto-scaling and resource allocation
+5. WHEN handling incidents THEN the system SHALL provide incident management tools and communication channels
+6. WHEN maintaining services THEN the system SHALL schedule and track maintenance windows with user notifications
 
 ### Requirement 6: Audit Logging System
 
@@ -99,17 +99,17 @@ The admin system is part of a larger administrative interface that will eventual
 4. WHEN rate limiting is applied THEN the system SHALL protect admin endpoints from abuse while allowing normal operations
 5. WHEN API responses are returned THEN the system SHALL include appropriate CORS headers for admin frontend access
 
-### Requirement 8: System Configuration Management
+### Requirement 8: Business Intelligence and Analytics
 
-**User Story:** As a platform administrator, I want to manage system-wide settings through the admin interface, so that I can configure the platform without requiring code deployments.
+**User Story:** As a service provider administrator, I want to access business intelligence and analytics data, so that I can make informed decisions about platform growth and optimization.
 
 #### Acceptance Criteria
 
-1. WHEN accessing system settings THEN the system SHALL display configurable parameters organized by category
-2. WHEN updating settings THEN the system SHALL validate input values and provide immediate feedback
-3. WHEN settings are changed THEN the system SHALL apply changes without requiring system restart where possible
-4. WHEN configuration is updated THEN the system SHALL maintain version history and allow rollback capabilities
-5. WHEN settings affect user experience THEN the system SHALL provide preview functionality before applying changes
+1. WHEN accessing business analytics THEN the system SHALL display revenue trends, cost analysis, and profit margins
+2. WHEN viewing usage analytics THEN the system SHALL show API usage patterns, feature adoption, and performance metrics
+3. WHEN analyzing costs THEN the system SHALL break down infrastructure costs by service and usage patterns
+4. WHEN forecasting growth THEN the system SHALL provide predictive analytics for capacity planning
+5. WHEN generating reports THEN the system SHALL create exportable reports for stakeholder communication
 
 ### Requirement 9: Security and Performance
 
@@ -124,14 +124,14 @@ The admin system is part of a larger administrative interface that will eventual
 5. WHEN concurrent admin users access the system THEN the system SHALL handle up to 10 simultaneous admin sessions
 6. WHEN security vulnerabilities are detected THEN the system SHALL have zero high-severity vulnerabilities
 
-### Requirement 10: Integration and Data Consistency
+### Requirement 10: Service Provider Operations Management
 
-**User Story:** As a system administrator, I want the admin system to maintain data consistency across all integrated services, so that administrative actions are properly synchronized.
+**User Story:** As a service provider administrator, I want to manage internal operations and team workflows, so that I can coordinate service provider activities effectively.
 
 #### Acceptance Criteria
 
-1. WHEN user data is modified THEN the system SHALL sync changes with Clerk authentication service
-2. WHEN organization changes occur THEN the system SHALL maintain consistency between Clerk organizations and database records
-3. WHEN subscription data is accessed THEN the system SHALL display current information from Stripe integration
-4. WHEN data inconsistencies are detected THEN the system SHALL provide reconciliation tools and alerts
-5. WHEN external service failures occur THEN the system SHALL handle errors gracefully and provide retry mechanisms
+1. WHEN managing internal tasks THEN the system SHALL provide task assignment and tracking for service provider team
+2. WHEN coordinating releases THEN the system SHALL manage release schedules, feature flags, and deployment coordination
+3. WHEN handling escalations THEN the system SHALL provide escalation management and internal communication tools
+4. WHEN monitoring team performance THEN the system SHALL track internal metrics and productivity indicators
+5. WHEN managing service provider resources THEN the system SHALL handle internal resource allocation and scheduling

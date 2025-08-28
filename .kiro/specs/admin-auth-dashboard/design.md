@@ -2,9 +2,9 @@
 
 ## Overview
 
-The admin authentication and dashboard system provides secure, Clerk organization-based access to platform administrative functions. The system leverages Clerk's organization membership and verified domain features to restrict access to authorized personnel, implementing centralized authorization middleware and a monitoring dashboard that serves as the foundation for the broader administrative interface.
+The master admin authentication and internal operations system provides secure, Clerk organization-based access to service provider administrative functions. The system leverages Clerk's organization membership and verified domain features to restrict access to authorized service provider personnel, implementing centralized authorization middleware and an internal operations dashboard for infrastructure management, business intelligence, and service provider workflows.
 
-The design follows a domain-driven architecture pattern, separating authentication concerns, user management, organization management, and system monitoring into distinct but integrated components. The system leverages Clerk organization membership (org_31qpu3arGjKdiatiavEP9E7H3LV) with verified domain "shintairiku.jp" for authentication, Supabase for data persistence, and integrates with Stripe for subscription management.
+The design follows a domain-driven architecture pattern, separating authentication concerns, infrastructure monitoring, system configuration, business analytics, and service provider operations into distinct but integrated components. The system leverages Clerk organization membership (org_31qpu3arGjKdiatiavEP9E7H3LV) with verified domain "shintairiku.jp" for authentication, focuses on internal service provider operations rather than customer management, and integrates with infrastructure monitoring and business intelligence tools.
 
 ## Architecture
 
@@ -13,54 +13,56 @@ The design follows a domain-driven architecture pattern, separating authenticati
 ```mermaid
 graph TB
     subgraph "Frontend Layer"
-        AF[Admin Frontend]
-        AD[Admin Dashboard]
-        AU[Admin User Management]
-        AO[Admin Organization Management]
+        MAF[Master Admin Frontend]
+        IOD[Internal Operations Dashboard]
+        IM[Infrastructure Monitoring]
+        BA[Business Analytics]
     end
     
     subgraph "API Gateway Layer"
-        AR[Admin Router]
+        MAR[Master Admin Router]
         AM[Auth Middleware]
         RL[Rate Limiter]
     end
     
     subgraph "Domain Layer"
-        UD[User Domain]
-        OD[Organization Domain]
-        AD_SERVICE[Admin Service]
+        IS[Infrastructure Service]
+        CS[Configuration Service]
+        BAS[Business Analytics Service]
+        OS[Operations Service]
         AL[Audit Logger]
     end
     
     subgraph "Infrastructure Layer"
         CA[Clerk Auth]
-        SB[Supabase Admin Client]
-        ST[Stripe Integration]
-        GCP[GCP Cloud Logging]
+        GCP[GCP Monitoring & Logging]
+        INFRA[Infrastructure APIs]
+        BI[Business Intelligence]
     end
     
-    AF --> AR
-    AD --> AR
-    AU --> AR
-    AO --> AR
+    MAF --> MAR
+    IOD --> MAR
+    IM --> MAR
+    BA --> MAR
     
-    AR --> AM
+    MAR --> AM
     AM --> RL
-    RL --> UD
-    RL --> OD
-    RL --> AD_SERVICE
+    RL --> IS
+    RL --> CS
+    RL --> BAS
+    RL --> OS
     
-    UD --> SB
-    OD --> SB
-    AD_SERVICE --> SB
+    IS --> INFRA
+    CS --> GCP
+    BAS --> BI
+    OS --> GCP
     
     AM --> CA
     AL --> GCP
-    UD --> AL
-    OD --> AL
-    AD_SERVICE --> AL
-    
-    SB --> ST
+    IS --> AL
+    CS --> AL
+    BAS --> AL
+    OS --> AL
 ```
 
 ### Authentication Flow

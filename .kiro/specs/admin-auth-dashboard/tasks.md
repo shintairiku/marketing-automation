@@ -90,111 +90,112 @@
   - Create request validation middleware
   - _Requirements: 7.4, 7.5_
 
-- [ ] 5. Implement dashboard metrics service
-  - Create comprehensive system metrics calculation
-  - Implement real-time data aggregation
-  - Add caching layer for performance optimization
-  - Create dashboard API endpoints
+- [ ] 5. Implement master admin internal operations dashboard
+  - Create infrastructure health monitoring and metrics
+  - Implement real-time system status aggregation
+  - Add business intelligence and analytics capabilities
+  - Create internal operations API endpoints
   - _Requirements: 3.1, 3.2, 3.3, 3.4, 3.5, 3.6, 3.7_
 
-- [ ] 5.1 Create dashboard service and metrics calculator
-  - Implement DashboardService with metrics aggregation
-  - Create MetricsCalculator for user growth and revenue calculations
-  - Add system health monitoring and API usage statistics
-  - Implement organization metrics and membership trends
+- [ ] 5.1 Create infrastructure monitoring service
+  - Implement InfrastructureService with health monitoring
+  - Create SystemMetricsCalculator for infrastructure performance
+  - Add service health monitoring and deployment status tracking
+  - Implement business metrics and cost analysis
   - _Requirements: 3.1, 3.2, 3.3, 3.4, 3.5_
 
-- [ ] 5.2 Build dashboard API endpoints
-  - Create GET /admin/dashboard/metrics endpoint
-  - Implement real-time metrics updates with 5-minute refresh
-  - Add caching layer with Redis for performance
-  - Create dashboard data export functionality
+- [ ] 5.2 Build internal operations API endpoints
+  - Create GET /admin/infrastructure/status endpoint
+  - Implement real-time metrics updates with 2-minute refresh for critical systems
+  - Add caching layer with Redis for performance monitoring data
+  - Create business intelligence data export functionality
   - _Requirements: 3.6, 3.7_
 
-- [ ] 6. Implement user management domain service
-  - Create admin-privileged user management operations
-  - Implement user search, filtering, and pagination
-  - Add account suspension and activation functionality
-  - Create CSV export capabilities
+- [ ] 6. Implement system configuration management service
+  - Create internal system configuration management operations
+  - Implement feature flag and environment variable management
+  - Add configuration validation and rollback functionality
+  - Create configuration backup and restore capabilities
   - _Requirements: 4.1, 4.2, 4.3, 4.4, 4.5, 4.6, 4.7_
 
-- [ ] 6.1 Create user admin service
-  - Implement UserAdminService with CRUD operations
-  - Add user search and filtering with multiple criteria
-  - Create user details aggregation with subscription and organization data
-  - Implement bulk operations for user management
+- [ ] 6.1 Create system configuration service
+  - Implement SystemConfigService with configuration CRUD operations
+  - Add feature flag management with percentage rollouts
+  - Create environment variable management with validation
+  - Implement configuration change tracking and history
   - _Requirements: 4.1, 4.2, 4.3_
 
-- [ ] 6.2 Implement user account management
-  - Create user suspension functionality with Clerk synchronization
-  - Implement user activation with proper state management
-  - Add user information update capabilities
-  - Create user deletion with data cleanup procedures
+- [ ] 6.2 Implement configuration deployment management
+  - Create configuration deployment functionality with validation
+  - Implement rollback capabilities for failed configuration changes
+  - Add configuration backup and restore procedures
+  - Create configuration synchronization across environments
   - _Requirements: 4.4, 4.5, 4.7_
 
-- [ ] 6.3 Build user management API endpoints
-  - Create GET /admin/users endpoint with search and pagination
-  - Implement GET /admin/users/{user_id} for detailed user information
-  - Add PUT /admin/users/{user_id} for user information updates
-  - Create POST /admin/users/{user_id}/suspend and /activate endpoints
-  - Add GET /admin/users/export/csv for data export
+- [ ] 6.3 Build system configuration API endpoints
+  - Create GET /admin/config endpoint for configuration display
+  - Implement PUT /admin/config for configuration updates
+  - Add POST /admin/config/deploy for configuration deployment
+  - Create POST /admin/config/rollback for configuration rollback
+  - Add GET /admin/config/backup for configuration backup export
   - _Requirements: 4.1, 4.2, 4.3, 4.4, 4.5, 4.6_
 
-- [ ] 7. Implement organization management domain service
-  - Create admin-privileged organization operations
-  - Implement member management and role changes
-  - Add ownership transfer functionality
-  - Create Clerk organization synchronization
+- [ ] 7. Implement infrastructure and service management
+  - Create infrastructure monitoring and management operations
+  - Implement deployment and service health management
+  - Add incident management and maintenance scheduling
+  - Create service scaling and resource management
   - _Requirements: 5.1, 5.2, 5.3, 5.4, 5.5, 5.6_
 
-- [ ] 7.1 Create organization admin service
-  - Implement OrganizationAdminService with full CRUD operations
-  - Add organization search and filtering capabilities
-  - Create organization details aggregation with member and subscription data
-  - Implement organization deletion with proper cleanup
+- [ ] 7.1 Create infrastructure management service
+  - Implement InfrastructureManagementService with service monitoring
+  - Add deployment management and health check capabilities
+  - Create service scaling and resource allocation controls
+  - Implement infrastructure cost tracking and optimization
   - _Requirements: 5.1, 5.3_
 
-- [ ] 7.2 Implement organization member management
-  - Create member addition and removal functionality
-  - Implement role change operations (owner/admin/member)
-  - Add ownership transfer with data integrity checks
-  - Create bulk member operations
+- [ ] 7.2 Implement deployment and maintenance management
+  - Create deployment triggering and rollback functionality
+  - Implement maintenance window scheduling and notifications
+  - Add incident management and escalation procedures
+  - Create service dependency mapping and impact analysis
   - _Requirements: 5.2, 5.4_
 
-- [ ] 7.3 Build organization management API endpoints
-  - Create GET /admin/organizations endpoint with filtering
-  - Implement GET /admin/organizations/{org_id} for detailed information
-  - Add PUT /admin/organizations/{org_id} for organization updates
-  - Create member management endpoints for adding/removing/role changes
-  - Add DELETE /admin/organizations/{org_id} with proper cleanup
+- [ ] 7.3 Build infrastructure management API endpoints
+  - Create GET /admin/infrastructure/services endpoint for service status
+  - Implement POST /admin/infrastructure/deploy for deployment management
+  - Add PUT /admin/infrastructure/scale for resource scaling
+  - Create POST /admin/infrastructure/maintenance for maintenance scheduling
+  - Add GET /admin/infrastructure/incidents for incident management
   - _Requirements: 5.1, 5.2, 5.3, 5.4, 5.5_
 
-- [ ] 7.4 Implement Clerk organization synchronization
-  - Create Clerk organization ID synchronization
-  - Implement member synchronization between Clerk and database
-  - Add error handling for Clerk API failures
-  - Create reconciliation tools for data consistency
+- [ ] 7.4 Implement service monitoring and alerting
+  - Create real-time service health monitoring
+  - Implement automated alerting for service failures
+  - Add performance monitoring and capacity planning
+  - Create service dependency tracking and failure impact analysis
   - _Requirements: 5.6, 10.1, 10.2, 10.4_
 
-- [ ] 8. Create system configuration management
-  - Implement system-wide settings management
-  - Create configuration validation and preview
-  - Add version history and rollback capabilities
-  - Create system settings API endpoints
+- [ ] 8. Create business intelligence and analytics system
+  - Implement business analytics and reporting capabilities
+  - Create cost analysis and profitability tracking
+  - Add predictive analytics and forecasting
+  - Create business intelligence API endpoints
   - _Requirements: 8.1, 8.2, 8.3, 8.4, 8.5_
 
-- [ ] 8.1 Implement system settings service
-  - Create SystemSettingsService with configuration management
-  - Implement settings validation and type checking
-  - Add settings categorization and organization
-  - Create settings change history tracking
+- [ ] 8.1 Implement business analytics service
+  - Create BusinessAnalyticsService with revenue and cost tracking
+  - Implement usage analytics and feature adoption metrics
+  - Add cost breakdown analysis by service and infrastructure
+  - Create predictive analytics for capacity planning and growth forecasting
   - _Requirements: 8.1, 8.2, 8.4_
 
-- [ ] 8.2 Build system settings API endpoints
-  - Create GET /admin/settings endpoint for configuration display
-  - Implement PUT /admin/settings for configuration updates
-  - Add GET /admin/settings/history for version tracking
-  - Create POST /admin/settings/rollback for configuration rollback
+- [ ] 8.2 Build business intelligence API endpoints
+  - Create GET /admin/analytics/revenue endpoint for revenue analytics
+  - Implement GET /admin/analytics/costs for cost analysis
+  - Add GET /admin/analytics/usage for usage pattern analysis
+  - Create GET /admin/analytics/forecasting for predictive analytics
+  - Add POST /admin/analytics/reports for custom report generation
   - _Requirements: 8.1, 8.2, 8.3, 8.4_
 
 - [ ] 9. Implement comprehensive error handling
