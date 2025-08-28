@@ -1,15 +1,13 @@
 'use client';
 
-import React, { useCallback, useMemo } from 'react';
-import { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import NextImage from 'next/image';
 import { AlertCircle, Bot, Copy, Download, Edit, Image, Loader2, Save, Sparkles, Trash2, Upload, Wand2, X } from 'lucide-react';
 
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
-import { useToast } from "@/hooks/use-toast";
-import { Checkbox } from "@/components/ui/checkbox";
+import { Checkbox } from '@/components/ui/checkbox';
 import {
   Dialog,
   DialogClose,
@@ -18,12 +16,13 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "@/components/ui/dialog";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+} from '@/components/ui/dialog';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Textarea } from '@/components/ui/textarea';
+import { useToast } from '@/hooks/use-toast';
 import { useArticleDetail } from '@/hooks/useArticles';
 import { useAutoSave } from '@/hooks/useAutoSave';
-import { cn } from "@/utils/cn";
+import { cn } from '@/utils/cn';
 import { useAuth } from '@clerk/nextjs';
 
 import ArticlePreviewStyles from '../new-article/component/ArticlePreviewStyles';
@@ -1224,7 +1223,7 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
       
       return () => clearTimeout(timer);
     }
-  }, [aiEditingLoading, isSaving, imageUploadLoading, imageGenerationLoading]);
+  }, [aiEditingLoading, isSaving, imageUploadLoading, imageGenerationLoading, historyLoading, imageApplyLoading]);
 
   // 初期化時は自動保存を無効化（画像復元完了まで）
   useEffect(() => {
@@ -1296,7 +1295,7 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
     return (
       <div className="border-2 border-dashed border-blue-300 bg-blue-50 rounded-lg p-6 mb-4 not-prose">
         <div className="flex items-center gap-3 mb-3">
-          <Image className="h-6 w-6 text-blue-600" />
+          <Image className="h-6 w-6 text-blue-600" aria-label="画像プレースホルダーアイコン" />
           <div className="flex-1">
             <h4 className="font-medium text-blue-900">画像プレースホルダー</h4>
             <p className="text-sm text-blue-700">ID: {block.placeholderData.placeholder_id}</p>
@@ -1452,7 +1451,7 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
     return (
       <div className="border-2 border-green-300 bg-green-50 rounded-lg p-6 mb-4 not-prose">
         <div className="flex items-center gap-3 mb-3">
-          <Image className="h-6 w-6 text-green-600" />
+          <Image className="h-6 w-6 text-green-600" aria-label="画像アイコン" />
           <div className="flex-1">
             <h4 className="font-medium text-green-900">画像 (プレースホルダーから置換済み)</h4>
             <p className="text-sm text-green-700">ID: {block.placeholderData.placeholder_id}</p>

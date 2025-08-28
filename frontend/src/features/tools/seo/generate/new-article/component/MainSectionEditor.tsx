@@ -1,11 +1,13 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { ArrowDown, ArrowUp, Edit3, Plus, Save, Trash2, XCircle } from "lucide-react";
+
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { Save, Plus, Trash2, ArrowUp, ArrowDown, Edit3, XCircle } from "lucide-react";
+import { Input } from "@/components/ui/input";
+
 import type { EditableOutline, MainSection } from "../../types/outline";
 
 type Props = {
@@ -27,7 +29,7 @@ type Props = {
 export default function MainSectionEditor({ value, onChange, onCancel, onSaveAndStart, disabled }: Props) {
   const [touched, setTouched] = useState(false);
 
-  const sections = value.sections || [];
+  const sections = useMemo(() => value.sections || [], [value.sections]);
 
   const errors = useMemo(() => {
     const errs: string[] = [];

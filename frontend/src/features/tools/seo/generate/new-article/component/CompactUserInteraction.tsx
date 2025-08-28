@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { AnimatePresence,motion } from 'framer-motion';
+import { AnimatePresence, motion } from 'framer-motion';
 import { 
   BookOpen, 
   Check, 
@@ -25,8 +25,10 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { PersonaOption, ThemeOption } from '@/types/article-generation';
-import MainSectionEditor from './MainSectionEditor';
+
 import type { EditableOutline } from '../../types/outline';
+
+import MainSectionEditor from './MainSectionEditor';
 
 interface CompactUserInteractionProps {
   type: 'select_persona' | 'select_theme' | 'approve_plan' | 'approve_outline';
