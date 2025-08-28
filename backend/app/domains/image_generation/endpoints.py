@@ -478,10 +478,18 @@ async def replace_placeholder_with_image(
             raise HTTPException(status_code=500, detail="記事の更新に失敗しました")
         
         # プレースホルダーの状態を更新
-        supabase.table("image_placeholders").update({
+        placeholder_update_result = supabase.table("image_placeholders").update({
             "replaced_with_image_id": image_id,
             "status": "replaced"
         }).eq("article_id", request.article_id).eq("placeholder_id", request.placeholder_id).execute()
+        
+        # デバッグログ: プレースホルダー更新結果を確認
+        logger.info(f"プレースホルダー更新結果 - article_id: {request.article_id}, placeholder_id: {request.placeholder_id}")
+        logger.info(f"更新データ: replaced_with_image_id={image_id}, status=replaced")
+        logger.info(f"更新結果: {placeholder_update_result.data if placeholder_update_result.data else 'No data returned'}")
+        
+        if not placeholder_update_result.data:
+            logger.warning(f"プレースホルダー更新が空の結果を返しました - おそらく対象レコードが見つからなかった可能性があります")
         
         logger.info(f"画像置き換え成功 - article_id: {request.article_id}, placeholder_id: {request.placeholder_id}, image_id: {image_id}")
         
@@ -636,8 +644,15 @@ async def get_article_images(
                 image["display_url"] = image.get("file_path", "")
         
         # 復元されたコンテンツの生成（画像を元のプレースホルダーに戻したバージョン）
+        # ただし、置換済み（replaced）の画像は元の img タグのまま残す
         restored_content = article["content"]
         for placeholder in placeholders:
+            # pending状態のプレースホルダーのみプレースホルダーコメントに戻す
+            # replaced状態のものは画像のまま維持
+            status = placeholder.get("status", "pending")
+            if status != "pending":
+                continue
+                
             placeholder_id = placeholder["placeholder_id"]
             description_jp = placeholder["description_jp"]
             prompt_en = placeholder["prompt_en"]

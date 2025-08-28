@@ -1754,7 +1754,7 @@ class GenerationFlowManager:
             user_request = (
                 f"前のセクション（もしあれば）に続けて、アウトラインのセクション {i + 1}"
                 f"「{section.heading}」の内容をHTMLで執筆してください。提供された詳細リサーチ情報を参照し、"
-                f"必要に応じて出典へのリンクを含めてください。"
+                f""
             )
             current_input_messages: List[Dict[str, Any]] = list(context.section_writer_history)
             current_input_messages.append({
@@ -2350,7 +2350,7 @@ class GenerationFlowManager:
             "section_heading": target_heading,
             "total_sections": str(len(context.generated_outline.sections))
         }):
-            user_request = f"前のセクション（もしあれば）に続けて、アウトラインのセクション {target_index + 1}「{target_heading}」の内容をHTMLで執筆してください。提供された詳細リサーチ情報を参照し、必要に応じて出典へのリンクを含めてください。"
+            user_request = f"前のセクション（もしあれば）に続けて、アウトラインのセクション {target_index + 1}「{target_heading}」の内容をHTMLで執筆してください。"
             current_input_messages: List[Dict[str, Any]] = list(context.section_writer_history)
             current_input_messages.append({"role": "user", "content": [{"type": "input_text", "text": user_request}]})
             agent_input = current_input_messages
@@ -3308,7 +3308,7 @@ class GenerationFlowManager:
             user_request = (
                 f"前のセクション（もしあれば）に続けて、アウトラインのセクション {section_index + 1}"
                 f"「{section_title}」の内容をHTMLで執筆してください。提供された詳細リサーチ情報を参照し、"
-                f"必要に応じて出典へのリンクを含めてください。"
+                f""
             )
             current_input_messages: List[Dict[str, Any]] = list(context.section_writer_history)
             current_input_messages.append({
