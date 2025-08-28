@@ -9,6 +9,7 @@ from fastapi.staticfiles import StaticFiles
 from app.api.router import api_router
 from app.core.config import settings
 from app.core.exceptions import exception_handlers
+from app.domains.admin.auth.middleware import AdminAuthMiddleware
 
 # FastAPIアプリケーションの初期化
 app = FastAPI(
@@ -29,6 +30,17 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["*"],
+)
+
+# 管理者認証ミドルウェア（/admin プレフィックスを保護）
+# 管理者認証ミドルウェア
+# - デフォルトでは /admin を保護
+# - Clerk の組織ページパターン（例: /orgs/:slug/(.*)）にも対応するため、正規表現を追加可能
+app.add_middleware(
+    AdminAuthMiddleware,
+    protected_prefixes=["/admin"],
+    protected_regexes=[r"^/orgs/[^/]+(?:/.*)?$"],
+    audit_log=True,
 )
 
 # ★ APIルーターをまとめてインクルード（プレフィックスなしで互換性維持）
