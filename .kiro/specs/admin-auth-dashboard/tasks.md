@@ -1,83 +1,86 @@
 # Implementation Plan
 
-- [ ] 1. Set up admin authentication infrastructure
-  - Create Google Workspace SSO validation system with JWT token verification
-  - Implement domain checking logic to reject personal Gmail accounts
-  - Add environment variable configuration for allowed workspace domains
+- [x] 1. Set up admin authentication infrastructure
+  - Create Clerk organization membership validation system with JWT token verification
+  - Implement organization membership checking logic
+  - Add environment variable configuration for admin organization ID
   - _Requirements: 1.1, 1.2, 1.3, 1.4, 1.5, 1.6_
 
-- [ ] 1.1 Implement Google Workspace domain validator
-  - Write GoogleWorkspaceValidator class with JWT token parsing
-  - Create domain extraction and validation methods
-  - Implement personal Gmail detection and rejection logic
-  - Add comprehensive error handling for invalid tokens and domains
+- [x] 1.1 Implement Clerk organization validator
+  - Write ClerkOrganizationValidator class with JWT token parsing
+  - Create organization membership extraction and validation methods
+  - Implement admin organization membership verification logic
+  - Add comprehensive error handling for invalid tokens and organization membership
   - _Requirements: 1.1, 1.2, 1.3, 1.5_
 
-- [ ] 1.2 Create admin authorization middleware
-  - Implement @require_admin decorator for endpoint protection
+- [x] 1.2 Create admin authorization middleware
+  - ~~Implement @require_admin decorator for endpoint protection~~ → **Implemented AdminAuthMiddleware for automatic route protection (better security)**
   - Create AdminAuthMiddleware class with privilege verification
   - Add automatic audit logging for all admin operations
   - Implement proper error responses for unauthorized access
   - _Requirements: 2.1, 2.2, 2.3, 2.4, 2.5_
 
-- [ ] 1.3 Configure environment variables and settings
-  - Add ADMIN_GOOGLE_WORKSPACE_DOMAINS configuration
-  - Set up ADMIN_EMAILS and ADMIN_USER_IDS lists
+- [x] 1.3 Configure environment variables and settings
+  - Add ADMIN_ORGANIZATION_ID configuration (org_31qpu3arGjKdiatiavEP9E7H3LV)
+  - Set up ADMIN_ORGANIZATION_SLUG configuration (shintairiku-admin)
   - Enable CLERK_JWT_VERIFICATION_ENABLED for production
   - Update core config with admin-specific settings
   - _Requirements: 1.1, 1.4, 1.6_
 
-- [ ] 2. Implement Supabase admin client infrastructure
-  - Create Service Role Key authentication system
-  - Implement RLS bypass functionality for admin operations
-  - Add connection pooling and error handling
-  - Create admin-specific database access patterns
+- [x] 2. ~~Implement Supabase admin client infrastructure~~ → **SKIPPED: Existing service role client already provides RLS bypass and admin database access**
+  - ~~Create Service Role Key authentication system~~ → **Already exists in backend/app/common/database.py**
+  - ~~Implement RLS bypass functionality for admin operations~~ → **Service role inherently bypasses RLS**
+  - ~~Add connection pooling and error handling~~ → **Already implemented**
+  - ~~Create admin-specific database access patterns~~ → **Can use existing client**
   - _Requirements: 7.1, 7.2, 10.1, 10.2, 10.4_
 
-- [ ] 2.1 Create Supabase admin client
-  - Implement SupabaseAdminClient with Service Role Key
-  - Add context manager for proper connection handling
-  - Create admin query execution methods with RLS bypass
-  - Implement transaction support for complex operations
+- [x] 2.1 ~~Create Supabase admin client~~ → **SKIPPED: Use existing create_supabase_client()**
+  - ~~Implement SupabaseAdminClient with Service Role Key~~ → **Already exists**
+  - ~~Add context manager for proper connection handling~~ → **Not needed for admin operations**
+  - ~~Create admin query execution methods with RLS bypass~~ → **Service role already bypasses RLS**
+  - ~~Implement transaction support for complex operations~~ → **Available in existing client**
   - _Requirements: 7.1, 7.2, 10.4_
 
-- [ ] 2.2 Set up admin database views and functions
-  - Create admin_user_summary view for user management interface
-  - Implement admin_organization_summary view with member counts
-  - Add admin_subscription_metrics view for revenue analytics
-  - Create database functions for metrics calculations
+- [x] 2.2 ~~Set up admin database views and functions~~ → **SKIPPED: Master admin focuses on internal system operations, not customer data aggregation**
+  - ~~Create admin_user_summary view for user management interface~~ → **SKIPPED: Use Clerk API directly**
+  - ~~Implement admin_organization_summary view with member counts~~ → **SKIPPED: Not needed for master admin internal operations**
+  - ~~Add admin_subscription_metrics view for revenue analytics~~ → **SKIPPED: Not needed for master admin internal operations**
+  - ~~Create database functions for metrics calculations~~ → **SKIPPED: Not needed for master admin internal operations**
   - _Requirements: 3.3, 3.4, 4.3, 4.4_
 
-- [ ] 3. Build audit logging system
+- [x] 3. Build audit logging system
   - Create comprehensive admin action logging
   - Implement GCP Cloud Logging integration
   - Add tamper-proof logging with structured format
   - Create audit log query and filtering capabilities
   - _Requirements: 6.1, 6.2, 6.3, 6.4, 6.5, 6.6_
+  - **Implementation Summary**: Created AdminAuditLogger class, enhanced AdminAuthMiddleware with automatic audit logging, added admin_audit_logs database table with RLS security, implemented GET /admin/audit/logs API with filtering/pagination. GCP integration deferred for minimal approach.
 
-- [ ] 3.1 Implement admin audit logger
+- [x] 3.1 Implement admin audit logger
   - Create AdminAuditLogger class with structured logging
   - Implement log entry creation with all required fields
   - Add GCP Cloud Logging integration for remote storage
   - Create audit log querying and filtering methods
   - _Requirements: 6.1, 6.2, 6.3, 6.4_
+  - **Implementation Summary**: Created AdminAuditLogger class in `backend/app/infrastructure/admin_audit_logger.py` with single `log_admin_action()` method for structured JSON logging to admin_audit_logs database table. Added GET /admin/audit/logs API endpoint with filtering/pagination for log queries.
 
-- [ ] 3.2 Integrate audit logging with middleware
-  - Add automatic audit logging to admin authorization middleware
+- [x] 3.2 Integrate audit logging with middleware
+  - ~~Add automatic audit logging to admin authorization middleware~~ → **✅ COMPLETE: Enhanced AdminAuthMiddleware with comprehensive structured audit logging**
   - Implement action tracking for all admin operations
   - Create security event logging for failed authentication attempts
   - Add IP address and user agent tracking
   - _Requirements: 6.1, 6.2, 6.6_
+  - **Implementation Summary**: Enhanced AdminAuthMiddleware in `backend/app/domains/admin/auth/middleware.py` to automatically use AdminAuditLogger for all admin requests. Added IP address extraction (x-forwarded-for, x-real-ip, client), user agent capture, and comprehensive metadata logging. Zero manual logging code required for admin endpoints.
 
 - [ ] 4. Create admin API router infrastructure
-  - Set up main admin router with proper middleware chain
+  - ~~Set up main admin router with proper middleware chain~~ → **✅ PARTIALLY COMPLETE: Basic admin router created with middleware protection and ping endpoint**
   - Implement consistent error handling and response formats
   - Add rate limiting and CORS configuration
   - Create OpenAPI documentation generation
   - _Requirements: 7.1, 7.2, 7.3, 7.4, 7.5_
 
 - [ ] 4.1 Implement admin router foundation
-  - Create main admin router with @require_admin protection
+  - ~~Create main admin router with @require_admin protection~~ → **✅ COMPLETE: Admin router uses AdminAuthMiddleware for automatic protection**
   - Set up consistent error handling middleware
   - Implement standardized response format for all endpoints
   - Add proper HTTP status code handling
@@ -90,111 +93,112 @@
   - Create request validation middleware
   - _Requirements: 7.4, 7.5_
 
-- [ ] 5. Implement dashboard metrics service
-  - Create comprehensive system metrics calculation
-  - Implement real-time data aggregation
-  - Add caching layer for performance optimization
-  - Create dashboard API endpoints
+- [ ] 5. Implement master admin internal operations dashboard
+  - Create infrastructure health monitoring and metrics
+  - Implement real-time system status aggregation
+  - Add business intelligence and analytics capabilities
+  - Create internal operations API endpoints
   - _Requirements: 3.1, 3.2, 3.3, 3.4, 3.5, 3.6, 3.7_
 
-- [ ] 5.1 Create dashboard service and metrics calculator
-  - Implement DashboardService with metrics aggregation
-  - Create MetricsCalculator for user growth and revenue calculations
-  - Add system health monitoring and API usage statistics
-  - Implement organization metrics and membership trends
+- [ ] 5.1 Create infrastructure monitoring service
+  - Implement InfrastructureService with health monitoring
+  - Create SystemMetricsCalculator for infrastructure performance
+  - Add service health monitoring and deployment status tracking
+  - Implement business metrics and cost analysis
   - _Requirements: 3.1, 3.2, 3.3, 3.4, 3.5_
 
-- [ ] 5.2 Build dashboard API endpoints
-  - Create GET /admin/dashboard/metrics endpoint
-  - Implement real-time metrics updates with 5-minute refresh
-  - Add caching layer with Redis for performance
-  - Create dashboard data export functionality
+- [ ] 5.2 Build internal operations API endpoints
+  - Create GET /admin/infrastructure/status endpoint
+  - Implement real-time metrics updates with 2-minute refresh for critical systems
+  - Add caching layer with Redis for performance monitoring data
+  - Create business intelligence data export functionality
   - _Requirements: 3.6, 3.7_
 
-- [ ] 6. Implement user management domain service
-  - Create admin-privileged user management operations
-  - Implement user search, filtering, and pagination
-  - Add account suspension and activation functionality
-  - Create CSV export capabilities
+- [ ] 6. Implement system configuration management service
+  - Create internal system configuration management operations
+  - Implement feature flag and environment variable management
+  - Add configuration validation and rollback functionality
+  - Create configuration backup and restore capabilities
   - _Requirements: 4.1, 4.2, 4.3, 4.4, 4.5, 4.6, 4.7_
 
-- [ ] 6.1 Create user admin service
-  - Implement UserAdminService with CRUD operations
-  - Add user search and filtering with multiple criteria
-  - Create user details aggregation with subscription and organization data
-  - Implement bulk operations for user management
+- [ ] 6.1 Create system configuration service
+  - Implement SystemConfigService with configuration CRUD operations
+  - Add feature flag management with percentage rollouts
+  - Create environment variable management with validation
+  - Implement configuration change tracking and history
   - _Requirements: 4.1, 4.2, 4.3_
 
-- [ ] 6.2 Implement user account management
-  - Create user suspension functionality with Clerk synchronization
-  - Implement user activation with proper state management
-  - Add user information update capabilities
-  - Create user deletion with data cleanup procedures
+- [ ] 6.2 Implement configuration deployment management
+  - Create configuration deployment functionality with validation
+  - Implement rollback capabilities for failed configuration changes
+  - Add configuration backup and restore procedures
+  - Create configuration synchronization across environments
   - _Requirements: 4.4, 4.5, 4.7_
 
-- [ ] 6.3 Build user management API endpoints
-  - Create GET /admin/users endpoint with search and pagination
-  - Implement GET /admin/users/{user_id} for detailed user information
-  - Add PUT /admin/users/{user_id} for user information updates
-  - Create POST /admin/users/{user_id}/suspend and /activate endpoints
-  - Add GET /admin/users/export/csv for data export
+- [ ] 6.3 Build system configuration API endpoints
+  - Create GET /admin/config endpoint for configuration display
+  - Implement PUT /admin/config for configuration updates
+  - Add POST /admin/config/deploy for configuration deployment
+  - Create POST /admin/config/rollback for configuration rollback
+  - Add GET /admin/config/backup for configuration backup export
   - _Requirements: 4.1, 4.2, 4.3, 4.4, 4.5, 4.6_
 
-- [ ] 7. Implement organization management domain service
-  - Create admin-privileged organization operations
-  - Implement member management and role changes
-  - Add ownership transfer functionality
-  - Create Clerk organization synchronization
+- [ ] 7. Implement infrastructure and service management
+  - Create infrastructure monitoring and management operations
+  - Implement deployment and service health management
+  - Add incident management and maintenance scheduling
+  - Create service scaling and resource management
   - _Requirements: 5.1, 5.2, 5.3, 5.4, 5.5, 5.6_
 
-- [ ] 7.1 Create organization admin service
-  - Implement OrganizationAdminService with full CRUD operations
-  - Add organization search and filtering capabilities
-  - Create organization details aggregation with member and subscription data
-  - Implement organization deletion with proper cleanup
+- [ ] 7.1 Create infrastructure management service
+  - Implement InfrastructureManagementService with service monitoring
+  - Add deployment management and health check capabilities
+  - Create service scaling and resource allocation controls
+  - Implement infrastructure cost tracking and optimization
   - _Requirements: 5.1, 5.3_
 
-- [ ] 7.2 Implement organization member management
-  - Create member addition and removal functionality
-  - Implement role change operations (owner/admin/member)
-  - Add ownership transfer with data integrity checks
-  - Create bulk member operations
+- [ ] 7.2 Implement deployment and maintenance management
+  - Create deployment triggering and rollback functionality
+  - Implement maintenance window scheduling and notifications
+  - Add incident management and escalation procedures
+  - Create service dependency mapping and impact analysis
   - _Requirements: 5.2, 5.4_
 
-- [ ] 7.3 Build organization management API endpoints
-  - Create GET /admin/organizations endpoint with filtering
-  - Implement GET /admin/organizations/{org_id} for detailed information
-  - Add PUT /admin/organizations/{org_id} for organization updates
-  - Create member management endpoints for adding/removing/role changes
-  - Add DELETE /admin/organizations/{org_id} with proper cleanup
+- [ ] 7.3 Build infrastructure management API endpoints
+  - Create GET /admin/infrastructure/services endpoint for service status
+  - Implement POST /admin/infrastructure/deploy for deployment management
+  - Add PUT /admin/infrastructure/scale for resource scaling
+  - Create POST /admin/infrastructure/maintenance for maintenance scheduling
+  - Add GET /admin/infrastructure/incidents for incident management
   - _Requirements: 5.1, 5.2, 5.3, 5.4, 5.5_
 
-- [ ] 7.4 Implement Clerk organization synchronization
-  - Create Clerk organization ID synchronization
-  - Implement member synchronization between Clerk and database
-  - Add error handling for Clerk API failures
-  - Create reconciliation tools for data consistency
+- [ ] 7.4 Implement service monitoring and alerting
+  - Create real-time service health monitoring
+  - Implement automated alerting for service failures
+  - Add performance monitoring and capacity planning
+  - Create service dependency tracking and failure impact analysis
   - _Requirements: 5.6, 10.1, 10.2, 10.4_
 
-- [ ] 8. Create system configuration management
-  - Implement system-wide settings management
-  - Create configuration validation and preview
-  - Add version history and rollback capabilities
-  - Create system settings API endpoints
+- [ ] 8. Create business intelligence and analytics system
+  - Implement business analytics and reporting capabilities
+  - Create cost analysis and profitability tracking
+  - Add predictive analytics and forecasting
+  - Create business intelligence API endpoints
   - _Requirements: 8.1, 8.2, 8.3, 8.4, 8.5_
 
-- [ ] 8.1 Implement system settings service
-  - Create SystemSettingsService with configuration management
-  - Implement settings validation and type checking
-  - Add settings categorization and organization
-  - Create settings change history tracking
+- [ ] 8.1 Implement business analytics service
+  - Create BusinessAnalyticsService with revenue and cost tracking
+  - Implement usage analytics and feature adoption metrics
+  - Add cost breakdown analysis by service and infrastructure
+  - Create predictive analytics for capacity planning and growth forecasting
   - _Requirements: 8.1, 8.2, 8.4_
 
-- [ ] 8.2 Build system settings API endpoints
-  - Create GET /admin/settings endpoint for configuration display
-  - Implement PUT /admin/settings for configuration updates
-  - Add GET /admin/settings/history for version tracking
-  - Create POST /admin/settings/rollback for configuration rollback
+- [ ] 8.2 Build business intelligence API endpoints
+  - Create GET /admin/analytics/revenue endpoint for revenue analytics
+  - Implement GET /admin/analytics/costs for cost analysis
+  - Add GET /admin/analytics/usage for usage pattern analysis
+  - Create GET /admin/analytics/forecasting for predictive analytics
+  - Add POST /admin/analytics/reports for custom report generation
   - _Requirements: 8.1, 8.2, 8.3, 8.4_
 
 - [ ] 9. Implement comprehensive error handling
@@ -205,10 +209,10 @@
   - _Requirements: 7.2, 9.4_
 
 - [ ] 9.1 Create admin exception hierarchy
-  - Implement AdminAuthenticationError and subclasses
-  - Create InvalidWorkspaceDomainError and PersonalGmailNotAllowedError
+  - ~~Implement AdminAuthenticationError and subclasses~~ → **✅ COMPLETE: Comprehensive exception hierarchy already implemented**
+  - ~~Create InvalidOrganizationError and OrganizationMembershipRequiredError~~ → **✅ COMPLETE: All exception classes implemented**
   - Add AdminOperationError for general admin operation failures
-  - Create proper error message formatting
+  - ~~Create proper error message formatting~~ → **✅ COMPLETE: Error formatting implemented**
   - _Requirements: 7.2_
 
 - [ ] 9.2 Implement error handling middleware
@@ -247,9 +251,9 @@
   - _Requirements: 9.1, 9.2, 9.3, 9.4, 9.5_
 
 - [ ] 11.1 Write unit tests for authentication components
-  - Test GoogleWorkspaceValidator with various domain scenarios
+  - Test ClerkOrganizationValidator with various organization membership scenarios
   - Create tests for admin authorization middleware
-  - Test JWT token validation and error handling
+  - Test JWT token validation and organization membership verification
   - Add tests for audit logging functionality
   - _Requirements: 1.1, 1.2, 1.3, 1.4, 1.5, 2.1, 2.2, 6.1_
 
