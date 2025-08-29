@@ -79,4 +79,3 @@ async def get_audit_logs(
     except Exception as e:
         return {"error": f"Failed to query audit logs: {str(e)}", "logs": [], "pagination": {"total": 0}}
 
-

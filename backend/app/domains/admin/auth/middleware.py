@@ -62,7 +62,7 @@ class AdminAuthMiddleware(BaseHTTPMiddleware):
             try:
                 admin_user: AdminUser = self.validator.validate_token_and_extract_admin_user(token)
                 request.state.admin_user = admin_user
-
+                
                 if self.audit_log and self.audit_logger:
                     # Get client IP address
                     ip_address = None
@@ -86,7 +86,6 @@ class AdminAuthMiddleware(BaseHTTPMiddleware):
                         ip_address=ip_address,
                         user_agent=user_agent,
                         target_resource=path
-                    )
 
             except InvalidJWTTokenError as e:
                 return JSONResponse(status_code=401, content={"detail": f"Invalid admin token: {e.message}"})
