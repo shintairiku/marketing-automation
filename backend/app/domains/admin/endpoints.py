@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
-from fastapi import APIRouter, Depends, Query
-from typing import Optional, List, Dict, Any
-from datetime import datetime
+from fastapi import APIRouter, Depends, Query, HTTPException
+from typing import Optional, Dict, Any
 
 from app.common.auth import get_current_admin_user
 from app.domains.admin.auth.clerk_validator import AdminUser
@@ -11,10 +10,23 @@ from app.common.database import create_supabase_client
 router = APIRouter()
 
 
+def success_response(data: Any, message: str = "成功") -> Dict[str, Any]:
+    """Standardized success response format"""
+    return {"status": "success", "message": message, "data": data}
+
+
+def error_response(message: str, details: Any = None) -> Dict[str, Any]:
+    """Standardized error response format"""
+    return {"status": "error", "message": message, "details": details}
+
+
 @router.get("/ping", tags=["Admin"])
 async def admin_ping(admin_user: AdminUser = Depends(get_current_admin_user)):
     """Admin ping endpoint using FastAPI dependency injection"""
-    return {"message": "admin pong", "user_id": admin_user.user_id}
+    return success_response(
+        data={"user_id": admin_user.user_id},
+        message="管理者接続確認"
+    )
 
 
 @router.get("/audit/logs", tags=["Admin"])
@@ -66,16 +78,21 @@ async def get_audit_logs(
         count_result = count_query.execute()
         total_count = count_result.count if count_result.count else 0
         
-        return {
-            "logs": result.data,
-            "pagination": {
-                "limit": limit,
-                "offset": offset,
-                "total": total_count,
-                "has_more": offset + limit < total_count
-            }
-        }
+        return success_response(
+            data={
+                "logs": result.data,
+                "pagination": {
+                    "limit": limit,
+                    "offset": offset,
+                    "total": total_count,
+                    "has_more": offset + limit < total_count
+                }
+            },
+            message="監査ログの取得が完了しました"
+        )
         
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=error_response("クエリパラメータが無効です", str(e)))
     except Exception as e:
-        return {"error": f"Failed to query audit logs: {str(e)}", "logs": [], "pagination": {"total": 0}}
+        raise HTTPException(status_code=500, detail=error_response("監査ログの取得に失敗しました", "内部サーバーエラー"))
 
