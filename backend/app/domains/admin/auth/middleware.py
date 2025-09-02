@@ -86,6 +86,7 @@ class AdminAuthMiddleware(BaseHTTPMiddleware):
                         ip_address=ip_address,
                         user_agent=user_agent,
                         target_resource=path
+                    )
 
             except InvalidJWTTokenError as e:
                 return JSONResponse(status_code=401, content={"detail": f"Invalid admin token: {e.message}"})
