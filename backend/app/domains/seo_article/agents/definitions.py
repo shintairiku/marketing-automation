@@ -156,7 +156,7 @@ def create_theme_instructions(base_prompt: str) -> Callable[[RunContextWrapper[A
 
 --- 入力情報 ---
 キーワード: {', '.join(ctx.context.initial_keywords)}
-ターゲットペルソナ詳細:\n{persona_description}
+想定読者の詳細:\n{persona_description}
 提案するテーマ数: {ctx.context.num_theme_proposals}
 
 === 企業情報 ===
@@ -203,7 +203,7 @@ def create_research_planner_instructions(base_prompt: str) -> Callable[[RunConte
 タイトル: {ctx.context.selected_theme.title}
 説明: {ctx.context.selected_theme.description}
 キーワード: {', '.join(ctx.context.selected_theme.keywords)}
-ターゲットペルソナ詳細:\n{persona_description}
+想定読者の詳細:\n{persona_description}
 {seo_guidance_str}
 ---
 
@@ -341,7 +341,7 @@ def create_outline_instructions(base_prompt: str) -> Callable[[RunContextWrapper
   説明: {ctx.context.selected_theme.description}
   キーワード: {', '.join(ctx.context.selected_theme.keywords)}
 ターゲット文字数: {ctx.context.target_length or '指定なし（標準的な長さで）'}
-ターゲットペルソナ詳細:\n{persona_description}
+想定読者の詳細:\n{persona_description}
 {company_info_str}
 {seo_structure_guidance}
 --- 詳細なリサーチ結果 ---
@@ -352,7 +352,7 @@ def create_outline_instructions(base_prompt: str) -> Callable[[RunContextWrapper
 **重要:**
 - 上記のテーマと**詳細なリサーチ結果**、SerpAPI分析結果に基づいて、記事のアウトラインを作成してください。
 - リサーチ結果の**キーポイント（出典情報も考慮）**や面白い切り口をアウトラインに反映させてください。
-- **ターゲットペルソナ「{persona_description}」** が読みやすいように、記事全体のトーンを提案してください。{f'**クライアントのスタイルガイド（{ctx.context.company_style_guide}）に従って**' if ctx.context.company_style_guide else '日本の一般的なブログやコラムのような、**親しみやすく分かりやすいトーン**で'}トーンを決定してください。
+- **想定する読者「{persona_description}」** が読みやすいように、記事全体のトーンを提案してください。{f'**クライアントのスタイルガイド（{ctx.context.company_style_guide}）に従って**' if ctx.context.company_style_guide else '日本の一般的なブログやコラムのような、**親しみやすく分かりやすいトーン**で'}トーンを決定してください。
 - SerpAPI分析で判明した競合の弱点を補強し、差別化要素を強調した構成にしてください。
 - あなたの応答は必ず `Outline` または `ClarificationNeeded` 型のJSON形式で出力してください。 (APIコンテキストではClarificationNeededはエラーとして処理)
 - 文字数指定がある場合は、それに応じてセクション数や深さを調整してください。
@@ -396,7 +396,7 @@ def create_section_writer_with_images_instructions(base_prompt: str) -> Callable
 記事タイトル: {ctx.context.generated_outline.title}
 記事全体のキーワード: {', '.join(ctx.context.selected_theme.keywords) if ctx.context.selected_theme else 'N/A'}
 記事全体のトーン: {ctx.context.generated_outline.suggested_tone}
-ターゲットペルソナ詳細:\n{persona_description}
+想定読者の詳細:\n{persona_description}
 
 {style_guide_context}
 記事のアウトライン（全体像）:
@@ -415,12 +415,19 @@ def create_section_writer_with_images_instructions(base_prompt: str) -> Callable
 ---
 
 --- **【最重要】執筆スタイルとトーンについて** ---
-あなたの役割は、単に情報をHTMLにするだけでなく、**まるで経験豊富な友人が以下のペルソナ「{persona_description}」に語りかけるように**、親しみやすく、分かりやすい文章でセクションを執筆することです。
+あなたの役割は、単に情報をHTMLにするだけでなく、**まるで経験豊富な友人が以下の読者像の方に語りかけるように**、親しみやすく、分かりやすい文章でセクションを執筆することです：
+「{persona_description}」
+
 - **日本の一般的なブログ記事やコラムのような、自然で人間味あふれる、温かいトーン**を心がけてください。堅苦しい表現や機械的な言い回しは避けてください。
 - 読者に直接語りかけるような表現（例：「〜だと思いませんか？」「まずは〜から始めてみましょう！」「〜なんてこともありますよね」）や、共感を誘うような言葉遣いを積極的に使用してください。
 - 専門用語は避け、どうしても必要な場合は簡単な言葉で補足説明を加えてください。箇条書きなども活用し、情報を整理して伝えると良いでしょう。
 - 可能であれば、具体的な体験談（想像でも構いません）や、読者が抱きそうな疑問に答えるような形で内容を構成すると、より読者の心に響きます。
 - 企業情報に記載された文体・トンマナ要件も必ず遵守してください。
+
+**重要な注意事項:**
+- 記事内では「ペルソナ」という用語を一切使用しないでください
+- 読者を指す場合は「皆さん」「読者の方」「お客様」「ご家庭」「ご家族」など自然な表現を使用してください
+- システム用語（ペルソナ、ターゲット、SEO等）は記事本文に含めないでください
 ---
 
 --- **【画像プレースホルダーについて】** ---
@@ -529,7 +536,7 @@ def create_section_writer_instructions(base_prompt: str) -> Callable[[RunContext
 記事タイトル: {ctx.context.generated_outline.title}
 記事全体のキーワード: {', '.join(ctx.context.selected_theme.keywords) if ctx.context.selected_theme else 'N/A'}
 記事全体のトーン: {ctx.context.generated_outline.suggested_tone}
-ターゲットペルソナ詳細:\n{persona_description}
+想定読者の詳細:\n{persona_description}
 
 === 企業情報 ===
 {company_info_str}
@@ -550,12 +557,18 @@ def create_section_writer_instructions(base_prompt: str) -> Callable[[RunContext
 ---
 
 --- **【最重要】執筆スタイルとトーンについて** ---
-あなたは専門知識を持つプロのライターとして、以下のターゲット読者「{persona_description}」に向けて執筆します。
+あなたは専門知識を持つプロのライターとして、以下のターゲット読者に向けて執筆します：
+「{persona_description}」
 
 **執筆の基本姿勢:**
-- あなたは「情報を提供する執筆者」、ペルソナは「その情報を求める読者」という関係性を明確に保つ
+- あなたは「情報を提供する執筆者」、読者は「その情報を求める人」という関係性を明確に保つ
 - 読者の知識レベルや関心に合わせて、分かりやすく実用的な情報を提供する
 - 企業のスタイルガイドが設定されている場合は、そのトンマナに従う
+
+**重要な注意事項:**
+- 記事内では「ペルソナ」という用語を一切使用しないでください
+- 読者を指す場合は「皆さん」「読者の方」「お客様」「ご家庭」「ご家族」など自然な表現を使用してください
+- システム用語（ペルソナ、ターゲット、SEO等）は記事本文に含めないでください
 
 **文章構成の原則（必須）:**
 各セクションは以下の3段階構造で執筆してください：
@@ -630,7 +643,7 @@ def create_editor_instructions(base_prompt: str) -> Callable[[RunContextWrapper[
 --- 記事の要件 ---
 タイトル: {ctx.context.generated_outline.title if ctx.context.generated_outline else 'N/A'}
 キーワード: {', '.join(ctx.context.selected_theme.keywords) if ctx.context.selected_theme else 'N/A'}
-ターゲットペルソナ詳細:\n{persona_description}
+想定読者: {persona_description}
 目標文字数: {ctx.context.target_length or '指定なし'}
 トーン: {ctx.context.generated_outline.suggested_tone if ctx.context.generated_outline else 'N/A'}
 
@@ -645,13 +658,13 @@ def create_editor_instructions(base_prompt: str) -> Callable[[RunContextWrapper[
 
 **重要:**
 - 上記のドラフトHTMLをレビューし、記事の要件と**詳細なリサーチ情報**に基づいて推敲・編集してください。
-- **特に、文章全体がターゲットペルソナ「{persona_description}」にとって自然で、親しみやすく、分かりやすい言葉遣いになっているか** を重点的に確認してください。機械的な表現や硬い言い回しがあれば、より人間味のある表現に修正してください。
+- **特に、文章全体が想定読者「{persona_description}」にとって自然で、親しみやすく、分かりやすい言葉遣いになっているか** を重点的に確認してください。機械的な表現や硬い言い回しがあれば、より人間味のある表現に修正してください。
 - チェックポイント:
     - 全体の流れと一貫性
     - 各セクションの内容の質と正確性 (**リサーチ情報との整合性、事実確認**)
     - 文法、スペル、誤字脱字
     - 指示されたトーンとスタイルガイドの遵守 (**自然さ、親しみやすさ重視**)
-    - ターゲットペルソナへの適合性
+    - 想定読者への適合性
     - SEO最適化（キーワードの自然な使用、見出し構造）
     - **記事内にURLリンク (`<a>` タグ) が含まれていないことを確認し、もし含まれている場合は削除してください。**
     - 人間らしい自然な文章表現、独創性
