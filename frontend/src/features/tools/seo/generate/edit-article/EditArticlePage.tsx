@@ -423,19 +423,45 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
     }
   };
 
-  // 目次の挿入
-  const handleInsertToc = (tocHtml: string) => {
+  // 目次の挿入と見出しIDの更新
+  const handleInsertToc = (tocHtml: string, updatedHtmlContent: string) => {
+    console.log('handleInsertToc called with tocHtml:', tocHtml);
+    
+    // シンプルな連番IDを生成する関数（TableOfContentsDialogと同じロジック）
+    const generateSafeId = (text: string, index: number): string => {
+      return `heading-${index + 1}`;
+    };
+
+    // 目次ブロックを作成
     const newBlock: ArticleBlock = {
       id: `toc-${Date.now()}`,
-      type: 'div' as any, // 目次はdivとして扱う
+      type: 'div' as any,
       content: tocHtml,
       isEditing: false,
       isSelected: false
     };
 
-    const newBlocks = [...blocks];
-    newBlocks.splice(insertPosition, 0, newBlock);
-    setBlocks(newBlocks);
+    // テキスト全体にID割り当て済みのHTMLを基にブロックを再構築
+    // これにより、入れ子の見出しも含めて確実にIDが同期される
+    let rebuiltBlocks = parseHtmlToBlocks(updatedHtmlContent || blocksToHtml(blocks));
+
+    // 既存の目次（旧実装や他のTOC）らしきブロックを除去
+    // 目次は通常 <div> 内に <nav> を含むため、それをヒューリスティックに検出
+    rebuiltBlocks = rebuiltBlocks.filter(b => {
+      if (b.type !== 'div') return true;
+      const html = (b.content || '').toLowerCase();
+      // data-toc マーカー、または <nav> を含む div は TOC とみなして除外
+      if (html.includes('data-toc="true"')) return false;
+      if (html.includes('<nav')) return false;
+      return true;
+    });
+
+    // 目次を指定位置に挿入
+    const safeInsertPos = Math.min(insertPosition, rebuiltBlocks.length);
+    rebuiltBlocks.splice(safeInsertPos, 0, newBlock);
+    
+    console.log('Final blocks after TOC insertion (rebuilt):', rebuiltBlocks);
+    setBlocks(rebuiltBlocks);
     setTocDialogOpen(false);
   };
   
