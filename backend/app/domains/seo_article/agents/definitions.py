@@ -156,7 +156,7 @@ def create_theme_instructions(base_prompt: str) -> Callable[[RunContextWrapper[A
 
 --- 入力情報 ---
 キーワード: {', '.join(ctx.context.initial_keywords)}
-ターゲットペルソナ詳細:\n{persona_description}
+想定読者の詳細:\n{persona_description}
 提案するテーマ数: {ctx.context.num_theme_proposals}
 
 === 企業情報 ===
@@ -183,6 +183,9 @@ def create_research_planner_instructions(base_prompt: str) -> Callable[[RunConte
             raise ValueError("リサーチ計画のための詳細なペルソナが選択されていません。")
         persona_description = ctx.context.selected_detailed_persona
 
+        # 企業情報（拡張）
+        company_info_str = build_enhanced_company_context(ctx.context)
+
         # SerpAPI分析結果を含める
         seo_guidance_str = ""
         if ctx.context.serp_analysis_report:
@@ -203,7 +206,10 @@ def create_research_planner_instructions(base_prompt: str) -> Callable[[RunConte
 タイトル: {ctx.context.selected_theme.title}
 説明: {ctx.context.selected_theme.description}
 キーワード: {', '.join(ctx.context.selected_theme.keywords)}
-ターゲットペルソナ詳細:\n{persona_description}
+想定読者の詳細:\n{persona_description}
+
+=== 企業情報 ===
+{company_info_str}
 {seo_guidance_str}
 ---
 
@@ -222,12 +228,18 @@ def create_researcher_instructions(base_prompt: str) -> Callable[[RunContextWrap
 
         current_query = ctx.context.research_plan.queries[ctx.context.current_research_query_index]
 
+        # 企業情報（拡張）
+        company_info_str = build_enhanced_company_context(ctx.context)
+
         full_prompt = f"""{base_prompt}
 
 --- 現在のリサーチタスク ---
 記事テーマ: {ctx.context.research_plan.topic}
 今回の検索クエリ: "{current_query.query}"
 このクエリの焦点: {current_query.focus}
+\n
+=== 企業情報 ===
+{company_info_str}
 ---
 
 **重要なリサーチ指針:**
@@ -300,11 +312,12 @@ def create_outline_instructions(base_prompt: str) -> Callable[[RunContextWrapper
         persona_description = ctx.context.selected_detailed_persona
 
         research_summary = ctx.context.research_report.overall_summary
-        company_info_str = ""
-        if ctx.context.company_name or ctx.context.company_description or ctx.context.company_style_guide:
-            company_info_str = f"\nクライアント情報:\n  企業名: {ctx.context.company_name or '未設定'}\n  企業概要: {ctx.context.company_description or '未設定'}\n"
-            if ctx.context.company_style_guide:
-                company_info_str += f"  スタイルガイド（トンマナ）: {ctx.context.company_style_guide}\n"
+        # 企業情報（拡張）
+        company_info_block = f"""
+
+=== 企業情報 ===
+{build_enhanced_company_context(ctx.context)}
+"""
 
         # SerpAPI分析結果を含める
         seo_structure_guidance = ""
@@ -341,8 +354,8 @@ def create_outline_instructions(base_prompt: str) -> Callable[[RunContextWrapper
   説明: {ctx.context.selected_theme.description}
   キーワード: {', '.join(ctx.context.selected_theme.keywords)}
 ターゲット文字数: {ctx.context.target_length or '指定なし（標準的な長さで）'}
-ターゲットペルソナ詳細:\n{persona_description}
-{company_info_str}
+想定読者の詳細:\n{persona_description}
+{company_info_block}
 {seo_structure_guidance}
 --- 詳細なリサーチ結果 ---
 {research_summary}
@@ -352,7 +365,7 @@ def create_outline_instructions(base_prompt: str) -> Callable[[RunContextWrapper
 **重要:**
 - 上記のテーマと**詳細なリサーチ結果**、SerpAPI分析結果に基づいて、記事のアウトラインを作成してください。
 - リサーチ結果の**キーポイント（出典情報も考慮）**や面白い切り口をアウトラインに反映させてください。
-- **ターゲットペルソナ「{persona_description}」** が読みやすいように、記事全体のトーンを提案してください。{f'**クライアントのスタイルガイド（{ctx.context.company_style_guide}）に従って**' if ctx.context.company_style_guide else '日本の一般的なブログやコラムのような、**親しみやすく分かりやすいトーン**で'}トーンを決定してください。
+- **想定する読者「{persona_description}」** が読みやすいように、記事全体のトーンを提案してください。{f'**クライアントのスタイルガイド（{ctx.context.company_style_guide}）に従って**' if ctx.context.company_style_guide else '日本の一般的なブログやコラムのような、**親しみやすく分かりやすいトーン**で'}トーンを決定してください。
 - SerpAPI分析で判明した競合の弱点を補強し、差別化要素を強調した構成にしてください。
 - あなたの応答は必ず `Outline` または `ClarificationNeeded` 型のJSON形式で出力してください。 (APIコンテキストではClarificationNeededはエラーとして処理)
 - 文字数指定がある場合は、それに応じてセクション数や深さを調整してください。
@@ -387,6 +400,8 @@ def create_section_writer_with_images_instructions(base_prompt: str) -> Callable
         for kp in ctx.context.research_report.key_points:
             research_context_str += f"- {kp.point}\n"
 
+        # 企業情報（拡張）とスタイルガイドコンテキスト
+        company_info_str = build_enhanced_company_context(ctx.context)
         # スタイルガイドコンテキストを構築
         style_guide_context = build_style_context(ctx.context)
 
@@ -396,7 +411,10 @@ def create_section_writer_with_images_instructions(base_prompt: str) -> Callable
 記事タイトル: {ctx.context.generated_outline.title}
 記事全体のキーワード: {', '.join(ctx.context.selected_theme.keywords) if ctx.context.selected_theme else 'N/A'}
 記事全体のトーン: {ctx.context.generated_outline.suggested_tone}
-ターゲットペルソナ詳細:\n{persona_description}
+想定読者の詳細:\n{persona_description}
+
+=== 企業情報 ===
+{company_info_str}
 
 {style_guide_context}
 記事のアウトライン（全体像）:
@@ -415,12 +433,19 @@ def create_section_writer_with_images_instructions(base_prompt: str) -> Callable
 ---
 
 --- **【最重要】執筆スタイルとトーンについて** ---
-あなたの役割は、単に情報をHTMLにするだけでなく、**まるで経験豊富な友人が以下のペルソナ「{persona_description}」に語りかけるように**、親しみやすく、分かりやすい文章でセクションを執筆することです。
+あなたの役割は、単に情報をHTMLにするだけでなく、**まるで経験豊富な友人が以下の読者像の方に語りかけるように**、親しみやすく、分かりやすい文章でセクションを執筆することです：
+「{persona_description}」
+
 - **日本の一般的なブログ記事やコラムのような、自然で人間味あふれる、温かいトーン**を心がけてください。堅苦しい表現や機械的な言い回しは避けてください。
 - 読者に直接語りかけるような表現（例：「〜だと思いませんか？」「まずは〜から始めてみましょう！」「〜なんてこともありますよね」）や、共感を誘うような言葉遣いを積極的に使用してください。
 - 専門用語は避け、どうしても必要な場合は簡単な言葉で補足説明を加えてください。箇条書きなども活用し、情報を整理して伝えると良いでしょう。
 - 可能であれば、具体的な体験談（想像でも構いません）や、読者が抱きそうな疑問に答えるような形で内容を構成すると、より読者の心に響きます。
 - 企業情報に記載された文体・トンマナ要件も必ず遵守してください。
+
+**重要な注意事項:**
+- 記事内では「ペルソナ」という用語を一切使用しないでください
+- 読者を指す場合は「皆さん」「読者の方」「お客様」「ご家庭」「ご家族」など自然な表現を使用してください
+- システム用語（ペルソナ、ターゲット、SEO等）は記事本文に含めないでください
 ---
 
 --- **【画像プレースホルダーについて】** ---
@@ -458,11 +483,11 @@ def create_section_writer_with_images_instructions(base_prompt: str) -> Callable
 1.  **記事の一貫性と構造:** 上記の3段階構造（結論→詳細→ポイント再確認）に従って執筆し、前のセクションから自然につながるよう配慮する
 2.  **厳格な情報源・リンク管理:**
     - リサーチ情報に含まれる事実やデータのみを使用し、憶測や一般論の域を出ない情報は含めない
-    - **権威あるサイト（政府機関、自治体、学術機関、Wikipedia）のURLのみリンク可能**
+    - **記事内にはURLリンクを一切含めないでください**
     - 個別企業名やサービス名を情報源として明記することは禁止（例：「○○がスーモに書いていました」等）
     - 情報は一般的な事実として記述し、特定のメディアや企業への直接的言及は避ける
 3.  **セクションスコープの厳守:** このセクション（インデックス {target_index}、見出し「{target_heading}」）の内容のみを生成し、他のセクションの内容は絶対に含めない
-4.  **HTML構造:** `<p>`, `<h2>`, `<h3>`, `<ul>`, `<li>`, `<strong>`, `<em>`, `<a>` などの基本HTMLタグを適切に使用し、`<h2>` タグは見出し「{target_heading}」にのみ使用
+4.  **HTML構造:** `<p>`, `<h2>`, `<h3>`, `<ul>`, `<li>`, `<strong>`, `<a>` などの基本HTMLタグを適切に使用し、`<h2>` タグは見出し「{target_heading}」にのみ使用。**重要：`<em>`タグ（斜体）は一切使用しないでください**
 5.  **SEO最適化:** 記事のキーワードやセクション関連キーワードを自然に含める（過度な詰め込みは避ける）
 6.  **読者価値の提供:** 上記の執筆スタイル指針に従い、読者にとって実用的で価値のあるオリジナルコンテンツを作成
 7.  **【📌 推奨事項】適切であれば画像プレースホルダーを配置してください。** 文章の流れを考慮し、読者の理解を助ける位置に配置することが重要です。記事全体で最低1つの画像プレースホルダーがあれば十分です。
@@ -529,7 +554,7 @@ def create_section_writer_instructions(base_prompt: str) -> Callable[[RunContext
 記事タイトル: {ctx.context.generated_outline.title}
 記事全体のキーワード: {', '.join(ctx.context.selected_theme.keywords) if ctx.context.selected_theme else 'N/A'}
 記事全体のトーン: {ctx.context.generated_outline.suggested_tone}
-ターゲットペルソナ詳細:\n{persona_description}
+想定読者の詳細:\n{persona_description}
 
 === 企業情報 ===
 {company_info_str}
@@ -550,12 +575,18 @@ def create_section_writer_instructions(base_prompt: str) -> Callable[[RunContext
 ---
 
 --- **【最重要】執筆スタイルとトーンについて** ---
-あなたは専門知識を持つプロのライターとして、以下のターゲット読者「{persona_description}」に向けて執筆します。
+あなたは専門知識を持つプロのライターとして、以下のターゲット読者に向けて執筆します：
+「{persona_description}」
 
 **執筆の基本姿勢:**
-- あなたは「情報を提供する執筆者」、ペルソナは「その情報を求める読者」という関係性を明確に保つ
+- あなたは「情報を提供する執筆者」、読者は「その情報を求める人」という関係性を明確に保つ
 - 読者の知識レベルや関心に合わせて、分かりやすく実用的な情報を提供する
 - 企業のスタイルガイドが設定されている場合は、そのトンマナに従う
+
+**重要な注意事項:**
+- 記事内では「ペルソナ」という用語を一切使用しないでください
+- 読者を指す場合は「皆さん」「読者の方」「お客様」「ご家庭」「ご家族」など自然な表現を使用してください
+- システム用語（ペルソナ、ターゲット、SEO等）は記事本文に含めないでください
 
 **文章構成の原則（必須）:**
 各セクションは以下の3段階構造で執筆してください：
@@ -573,11 +604,11 @@ def create_section_writer_instructions(base_prompt: str) -> Callable[[RunContext
 1.  **記事の一貫性と構造:** 上記の3段階構造（結論→詳細→ポイント再確認）に従って執筆し、前のセクションから自然につながるよう配慮する
 2.  **厳格な情報源・リンク管理:**
     - リサーチ情報に含まれる事実やデータのみを使用し、憶測や一般論の域を出ない情報は含めない
-    - **権威あるサイト（政府機関、自治体、学術機関、Wikipedia）のURLのみリンク可能**
+    - **記事内にはURLリンクを一切含めないでください**
     - 個別企業名やサービス名を情報源として明記することは禁止（例：「○○がスーモに書いていました」等）
     - 情報は一般的な事実として記述し、特定のメディアや企業への直接的言及は避ける
 3.  **セクションスコープの厳守:** このセクション（インデックス {target_index}、見出し「{target_heading}」）の内容のみを生成し、他のセクションの内容は絶対に含めない
-4.  **HTML構造:** `<p>`, `<h2>`, `<h3>`, `<ul>`, `<li>`, `<strong>`, `<em>`, `<a>` などの基本HTMLタグを適切に使用し、`<h2>` タグは見出し「{target_heading}」にのみ使用
+4.  **HTML構造:** `<p>`, `<h2>`, `<h3>`, `<ul>`, `<li>`, `<strong>`, `<a>` などの基本HTMLタグを適切に使用し、`<h2>` タグは見出し「{target_heading}」にのみ使用。**重要：`<em>`タグ（斜体）は一切使用しないでください**
 5.  **SEO最適化:** 記事のキーワードやセクション関連キーワードを自然に含める（過度な詰め込みは避ける）
 6.  **読者価値の提供:** 上記の執筆スタイル指針に従い、読者にとって実用的で価値のあるオリジナルコンテンツを作成
 ---
@@ -630,7 +661,7 @@ def create_editor_instructions(base_prompt: str) -> Callable[[RunContextWrapper[
 --- 記事の要件 ---
 タイトル: {ctx.context.generated_outline.title if ctx.context.generated_outline else 'N/A'}
 キーワード: {', '.join(ctx.context.selected_theme.keywords) if ctx.context.selected_theme else 'N/A'}
-ターゲットペルソナ詳細:\n{persona_description}
+想定読者: {persona_description}
 目標文字数: {ctx.context.target_length or '指定なし'}
 トーン: {ctx.context.generated_outline.suggested_tone if ctx.context.generated_outline else 'N/A'}
 
@@ -645,15 +676,16 @@ def create_editor_instructions(base_prompt: str) -> Callable[[RunContextWrapper[
 
 **重要:**
 - 上記のドラフトHTMLをレビューし、記事の要件と**詳細なリサーチ情報**に基づいて推敲・編集してください。
-- **特に、文章全体がターゲットペルソナ「{persona_description}」にとって自然で、親しみやすく、分かりやすい言葉遣いになっているか** を重点的に確認してください。機械的な表現や硬い言い回しがあれば、より人間味のある表現に修正してください。
+- **特に、文章全体が想定読者「{persona_description}」にとって自然で、親しみやすく、分かりやすい言葉遣いになっているか** を重点的に確認してください。機械的な表現や硬い言い回しがあれば、より人間味のある表現に修正してください。
 - チェックポイント:
     - 全体の流れと一貫性
     - 各セクションの内容の質と正確性 (**リサーチ情報との整合性、事実確認**)
     - 文法、スペル、誤字脱字
     - 指示されたトーンとスタイルガイドの遵守 (**自然さ、親しみやすさ重視**)
-    - ターゲットペルソナへの適合性
+    - 想定読者への適合性
     - SEO最適化（キーワードの自然な使用、見出し構造）
-    - **含まれているHTMLリンク (`<a>` タグ) がリサーチ情報に基づいており、適切かつ自然に使用されているか。リンク切れや不適切なリンクがないか。**
+    - **記事内にURLリンク (`<a>` タグ) が含まれていないことを確認し、もし含まれている場合は削除してください。**
+    - **記事内に斜体 (`<em>` タグ) が含まれていないことを確認し、もし含まれている場合は削除して通常のテキストに変更してください。**
     - 人間らしい自然な文章表現、独創性
     - HTML構造の妥当性
 - 必要な修正を直接HTMLに加えてください。
@@ -685,10 +717,13 @@ def create_persona_generator_instructions(base_prompt: str) -> Callable[[RunCont
             pass
         elif ctx.context.custom_persona: # 移行措置
             pass
-        
-        company_info_str = ""
-        if ctx.context.company_name or ctx.context.company_description:
-            company_info_str = f"\nクライアント企業名: {ctx.context.company_name or '未設定'}\nクライアント企業概要: {ctx.context.company_description or '未設定'}"
+
+        # 企業情報（拡張）
+        company_info_block = f"""
+
+=== 企業情報 ===
+{build_enhanced_company_context(ctx.context)}
+"""
 
         full_prompt = f"""{base_prompt}
 
@@ -698,7 +733,7 @@ SEOキーワード: {', '.join(ctx.context.initial_keywords)}
 ペルソナ属性（大分類）: {ctx.context.persona_type.value if ctx.context.persona_type else '指定なし'}
 （上記属性が「その他」の場合のユーザー指定ペルソナ: {ctx.context.custom_persona if ctx.context.persona_type == PersonaType.OTHER else '該当なし'}）
 生成する具体的なペルソナの数: {ctx.context.num_persona_examples}
-{company_info_str}
+{company_info_block}
 ---
 
 あなたのタスクは、上記入力情報に基づいて、より具体的で詳細なペルソナ像を **{ctx.context.num_persona_examples}個** 生成することです。
@@ -963,10 +998,10 @@ SECTION_WRITER_AGENT_BASE_PROMPT = """
 - 過度な語りかけや冗長な表現は避け、簡潔で要点が明確な文章を心がけます
 
 **参考情報・リンクに関する厳格なルール:**
-- 権威のあるサイト（政府機関、自治体、学術機関、Wikipedia等）のみリンク可能
+- 記事内にはURLリンクを一切含めないでください
 - 個別企業名やサービス名の直接的な言及は避ける（例：「○○がスーモに書いていました」等は禁止）
 - 一般的な事実として記述し、特定のメディアや企業を情報源として明示しない
-- リンクを含める場合は、リサーチ情報で提供された権威あるURLに限定する
+- 外部サイトへのリンクや参考URLは記載しないでください
 """
 section_writer_agent = Agent[ArticleContext](
     name="SectionWriterAgent",
@@ -992,10 +1027,10 @@ SECTION_WRITER_WITH_IMAGES_AGENT_BASE_PROMPT = """
 - 画像は読者の理解を助け、視覚的に魅力的な記事にするための重要要素
 
 **参考情報・リンクに関する厳格なルール:**
-- 権威のあるサイト（政府機関、自治体、学術機関、Wikipedia等）のみリンク可能
+- 記事内にはURLリンクを一切含めないでください
 - 個別企業名やサービス名の直接的な言及は避ける（例：「○○がスーモに書いていました」等は禁止）
 - 一般的な事実として記述し、特定のメディアや企業を情報源として明示しない
-- リンクを含める場合は、リサーチ情報で提供された権威あるURLに限定する
+- 外部サイトへのリンクや参考URLは記載しないでください
 """
 section_writer_with_images_agent = Agent[ArticleContext](
     name="SectionWriterWithImagesAgent",

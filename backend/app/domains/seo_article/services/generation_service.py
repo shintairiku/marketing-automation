@@ -170,6 +170,16 @@ class ArticleGenerationService:
                 company_name=request_dict.get("company_name"),
                 company_description=request_dict.get("company_description"),
                 company_style_guide=request_dict.get("company_style_guide"),
+                # Pre-hydrate extended company info if available in request
+                company_website_url=request_dict.get("company_website_url"),
+                company_usp=request_dict.get("company_usp"),
+                company_target_persona=request_dict.get("company_target_persona"),
+                company_brand_slogan=request_dict.get("company_brand_slogan"),
+                company_target_keywords=request_dict.get("company_target_keywords"),
+                company_industry_terms=request_dict.get("company_industry_terms"),
+                company_avoid_terms=request_dict.get("company_avoid_terms"),
+                company_popular_articles=request_dict.get("company_popular_articles"),
+                company_target_area=request_dict.get("company_target_area"),
                 image_mode=request_dict.get("image_mode", False),
                 image_settings=request_dict.get("image_settings", {}),
                 style_template_id=request_dict.get("style_template_id"),
@@ -178,6 +188,36 @@ class ArticleGenerationService:
                 user_id=user_id
             )
             logger.info(f"✅ [CREATE_PROCESS] ArticleContext created, current_step: {context.current_step}")
+
+            # Hydrate missing company info from default company_info if available
+            try:
+                from .flow_service import get_supabase_client
+                supabase = get_supabase_client()
+                missing_company_core = not (getattr(context, 'company_name', None) and getattr(context, 'company_description', None))
+                missing_extended = not any([
+                    getattr(context, 'company_website_url', None), getattr(context, 'company_usp', None), getattr(context, 'company_target_persona', None),
+                    getattr(context, 'company_brand_slogan', None), getattr(context, 'company_target_keywords', None), getattr(context, 'company_industry_terms', None),
+                    getattr(context, 'company_avoid_terms', None), getattr(context, 'company_popular_articles', None), getattr(context, 'company_target_area', None)
+                ])
+                if missing_company_core or missing_extended:
+                    logger.info("🏢 [CREATE_PROCESS] Hydrating default company_info into initial context")
+                    c_res = supabase.table("company_info").select("*").eq("user_id", user_id).eq("is_default", True).single().execute()
+                    if c_res.data:
+                        ci = c_res.data
+                        context.company_name = context.company_name or ci.get("name")
+                        context.company_description = context.company_description or ci.get("description")
+                        context.company_website_url = context.company_website_url or ci.get("website_url")
+                        context.company_usp = context.company_usp or ci.get("usp")
+                        context.company_target_persona = context.company_target_persona or ci.get("target_persona")
+                        context.company_brand_slogan = context.company_brand_slogan or ci.get("brand_slogan")
+                        context.company_target_keywords = context.company_target_keywords or ci.get("target_keywords")
+                        context.company_industry_terms = context.company_industry_terms or ci.get("industry_terms")
+                        context.company_avoid_terms = context.company_avoid_terms or ci.get("avoid_terms")
+                        context.company_popular_articles = context.company_popular_articles or ci.get("popular_articles")
+                        context.company_target_area = context.company_target_area or ci.get("target_area")
+                        logger.info("✅ [CREATE_PROCESS] Injected company_info (including target_area) into initial context")
+            except Exception as e:
+                logger.warning(f"⚠️ [CREATE_PROCESS] Default company_info hydration skipped due to error: {e}")
             
             # Hydrate style template settings if style_template_id is provided
             if context.style_template_id:

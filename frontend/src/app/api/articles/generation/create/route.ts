@@ -34,16 +34,40 @@ export async function POST(request: NextRequest) {
       image_settings,
     } = body;
 
-    // 初期コンテキストの作成
+    // デフォルト会社情報の取得（任意項目含む）
+    let defaultCompany: any = null;
+    try {
+      const { data: companyData } = await supabase
+        .from('company_info')
+        .select('*')
+        .eq('user_id', userId)
+        .eq('is_default', true)
+        .single();
+      defaultCompany = companyData || null;
+    } catch (e) {
+      console.warn('[CREATE] Failed to fetch default company_info:', e);
+    }
+
+    // 初期コンテキストの作成（拡張会社情報も注入）
     const initialContext = {
       initial_keywords: initial_keywords || [],
       target_age_group,
       persona_type,
       custom_persona,
       target_length,
-      company_name,
-      company_description,
+      // 会社情報（基本 + 拡張）: ボディ優先、なければdefaultCompanyから自動注入
+      company_name: company_name ?? defaultCompany?.name ?? null,
+      company_description: company_description ?? defaultCompany?.description ?? null,
       company_style_guide,
+      company_website_url: defaultCompany?.website_url ?? null,
+      company_usp: defaultCompany?.usp ?? null,
+      company_target_persona: defaultCompany?.target_persona ?? null,
+      company_brand_slogan: defaultCompany?.brand_slogan ?? null,
+      company_target_keywords: defaultCompany?.target_keywords ?? null,
+      company_industry_terms: defaultCompany?.industry_terms ?? null,
+      company_avoid_terms: defaultCompany?.avoid_terms ?? null,
+      company_popular_articles: defaultCompany?.popular_articles ?? null,
+      company_target_area: defaultCompany?.target_area ?? null,
       image_mode,
       image_settings,
       current_step: 'start',

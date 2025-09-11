@@ -303,7 +303,7 @@ def build_edit_system_prompt(knowledge: Dict[str, Any], tag: str, attrs: Dict[st
     preserved_attrs = " ".join([f"{k}='{html.escape(' '.join(v) if isinstance(v, list) else str(v))}'" for k, v in attrs.items()])
 
     system_prompt = (
-        "あなたはSEO編集専門のシニアエディタ。以下の“知識パック”を厳守し、指定ブロックだけを修正する。\n\n"
+        "あなたはSEO編集専門のシニアエディタ。以下の「知識パック」を厳守し、指定ブロックだけを修正する。\n\n"
         "[知識パック]\n"
         f"- テーマ: {theme_summary or '(未設定)'}\n"
         f"- 対象ペルソナ: {persona or '(未設定)'}\n"
@@ -311,6 +311,13 @@ def build_edit_system_prompt(knowledge: Dict[str, Any], tag: str, attrs: Dict[st
         f"- スタイルガイド設定: {style_summary}\n"
         f"- SERP要約: keyword={serp_summary['keyword']}, user_intent={serp_summary['user_intent']}, 共通見出し={', '.join(serp_summary['common_headings'][:8])}, content_gaps={', '.join(serp_summary['content_gaps'][:8])}, 推奨文量={serp_summary['recommended_length']}\n"
         f"- 記事本文の抜粋（参照用。編集対象外）:\n{article_excerpt}\n\n"
+        "[HTML構造ガードレール - 絶対遵守]\n"
+        "- 全てのHTMLタグは適切に開始・終了する（例: <strong>テキスト</strong>）\n"
+        "- 入れ子構造は正しい階層を維持する（ul > li, strong内にulは不可）\n"
+        "- p要素内にp要素を入れ子にしない（<p><p>...</p></p>は禁止）\n"
+        "- ul要素の直下にはli要素のみを配置する\n"
+        "- 出力HTMLはW3C標準に準拠する\n"
+        "- 構造的に無効なHTMLは絶対に出力しない\n\n"
         "[編集ガードレール]\n"
         f"- 編集対象: <{tag}{(' ' + preserved_attrs) if preserved_attrs else ''}>…</{tag}> の内側のみ。他ブロックには一切触れない。\n"
         "- タグ名・既存 attributes(id/class/data-*) を維持。リンク/画像/src/alt も壊さない。\n"
@@ -351,6 +358,67 @@ def strip_code_fences(text: str) -> str:
     return text
 
 
+def validate_and_fix_html_structure(html_content: str) -> str:
+    """HTMLの構造的整合性を検証・修正"""
+    try:
+        soup = BeautifulSoup(html_content, "html.parser")
+        
+        # 1. 不適切に閉じられていないタグの検出と修正
+        _fix_unclosed_tags(soup)
+        
+        # 2. 不適切な入れ子構造の修正
+        _fix_invalid_nesting(soup)
+        
+        # 3. 空の要素の除去
+        _remove_empty_elements(soup)
+        
+        return str(soup)
+    except Exception as e:
+        logger.error(f"HTML validation failed: {e}")
+        return html_content
+
+
+def _fix_unclosed_tags(soup):
+    """未閉じタグの修正"""
+    # BeautifulSoupが自動的にタグを閉じるが、明示的にチェック
+    for tag in soup.find_all(True):
+        # 自己完結タグ以外でテキストが空の場合は削除候補
+        if tag.name not in ['br', 'img', 'hr', 'input', 'area', 'base', 'col', 'embed', 'link', 'meta', 'source', 'track', 'wbr']:
+            if not tag.get_text(strip=True) and not tag.find_all():
+                tag.decompose()
+
+
+def _fix_invalid_nesting(soup):
+    """不適切な入れ子構造の修正"""
+    # p要素内のp要素を修正
+    for p in soup.find_all('p'):
+        nested_ps = p.find_all('p')
+        for nested_p in nested_ps:
+            # 内側のpの内容を外側のpに移動
+            contents = list(nested_p.contents)
+            for content in contents:
+                p.insert_before(content)
+            nested_p.decompose()
+    
+    # ul要素の直下にstrong等のブロック要素が来る場合の修正
+    for ul in soup.find_all('ul'):
+        direct_children = [child for child in ul.children if hasattr(child, 'name')]
+        for child in direct_children:
+            if child.name and child.name not in ['li']:
+                # li要素でない直接の子要素をli要素で囲む
+                li_wrapper = soup.new_tag('li')
+                child.wrap(li_wrapper)
+
+
+def _remove_empty_elements(soup):
+    """空要素の除去"""
+    # 空のp, div, span要素を削除
+    for tag_name in ['p', 'div', 'span', 'strong', 'em']:
+        for tag in soup.find_all(tag_name):
+            if not tag.get_text(strip=True) and not tag.find_all(['img', 'br', 'hr']):
+                tag.decompose()
+
+
 def sanitize_dom(frag) -> None:
     """script/style除去、on*属性除去、javascript:リンク除去などの簡易サニタイズ"""
     try:
@@ -380,6 +448,26 @@ def sanitize_dom(frag) -> None:
                             del el.attrs[url_attr]
     except Exception as e:
         logger.warning(f"sanitize_dom failed: {e}")
+
+
+def enhanced_sanitize_dom(frag) -> None:
+    """強化されたHTMLサニタイズ（構造整合性を含む）"""
+    try:
+        # 既存のセキュリティ処理
+        sanitize_dom(frag)
+        
+        # 構造整合性チェック
+        # 1. 不適切な入れ子構造の修正
+        _fix_invalid_nesting(frag)
+        
+        # 2. 未閉じタグの検出・修正
+        _fix_unclosed_tags(frag)
+        
+        # 3. 空要素の除去
+        _remove_empty_elements(frag)
+        
+    except Exception as e:
+        logger.warning(f"Enhanced sanitization failed: {e}")
 
 # --- Article CRUD Endpoints ---
 
@@ -719,8 +807,11 @@ async def ai_edit_block(
         # 属性は元を優先して復元
         for k_attr, v in attrs.items():
             frag[k_attr] = v
-        sanitize_dom(frag)
-        edited = str(frag)
+        enhanced_sanitize_dom(frag)
+        
+        # HTMLバリデーション処理を追加
+        validated_html = validate_and_fix_html_structure(str(frag))
+        edited = validated_html
 
         # 6) ログ保存（system_prompt/user_prompt/usage等）
         try:
