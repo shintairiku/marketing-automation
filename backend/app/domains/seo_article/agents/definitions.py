@@ -183,6 +183,9 @@ def create_research_planner_instructions(base_prompt: str) -> Callable[[RunConte
             raise ValueError("リサーチ計画のための詳細なペルソナが選択されていません。")
         persona_description = ctx.context.selected_detailed_persona
 
+        # 企業情報（拡張）
+        company_info_str = build_enhanced_company_context(ctx.context)
+
         # SerpAPI分析結果を含める
         seo_guidance_str = ""
         if ctx.context.serp_analysis_report:
@@ -204,6 +207,9 @@ def create_research_planner_instructions(base_prompt: str) -> Callable[[RunConte
 説明: {ctx.context.selected_theme.description}
 キーワード: {', '.join(ctx.context.selected_theme.keywords)}
 想定読者の詳細:\n{persona_description}
+
+=== 企業情報 ===
+{company_info_str}
 {seo_guidance_str}
 ---
 
@@ -222,12 +228,18 @@ def create_researcher_instructions(base_prompt: str) -> Callable[[RunContextWrap
 
         current_query = ctx.context.research_plan.queries[ctx.context.current_research_query_index]
 
+        # 企業情報（拡張）
+        company_info_str = build_enhanced_company_context(ctx.context)
+
         full_prompt = f"""{base_prompt}
 
 --- 現在のリサーチタスク ---
 記事テーマ: {ctx.context.research_plan.topic}
 今回の検索クエリ: "{current_query.query}"
 このクエリの焦点: {current_query.focus}
+\n
+=== 企業情報 ===
+{company_info_str}
 ---
 
 **重要なリサーチ指針:**
@@ -300,11 +312,12 @@ def create_outline_instructions(base_prompt: str) -> Callable[[RunContextWrapper
         persona_description = ctx.context.selected_detailed_persona
 
         research_summary = ctx.context.research_report.overall_summary
-        company_info_str = ""
-        if ctx.context.company_name or ctx.context.company_description or ctx.context.company_style_guide:
-            company_info_str = f"\nクライアント情報:\n  企業名: {ctx.context.company_name or '未設定'}\n  企業概要: {ctx.context.company_description or '未設定'}\n"
-            if ctx.context.company_style_guide:
-                company_info_str += f"  スタイルガイド（トンマナ）: {ctx.context.company_style_guide}\n"
+        # 企業情報（拡張）
+        company_info_block = f"""
+
+=== 企業情報 ===
+{build_enhanced_company_context(ctx.context)}
+"""
 
         # SerpAPI分析結果を含める
         seo_structure_guidance = ""
@@ -342,7 +355,7 @@ def create_outline_instructions(base_prompt: str) -> Callable[[RunContextWrapper
   キーワード: {', '.join(ctx.context.selected_theme.keywords)}
 ターゲット文字数: {ctx.context.target_length or '指定なし（標準的な長さで）'}
 想定読者の詳細:\n{persona_description}
-{company_info_str}
+{company_info_block}
 {seo_structure_guidance}
 --- 詳細なリサーチ結果 ---
 {research_summary}
@@ -387,6 +400,8 @@ def create_section_writer_with_images_instructions(base_prompt: str) -> Callable
         for kp in ctx.context.research_report.key_points:
             research_context_str += f"- {kp.point}\n"
 
+        # 企業情報（拡張）とスタイルガイドコンテキスト
+        company_info_str = build_enhanced_company_context(ctx.context)
         # スタイルガイドコンテキストを構築
         style_guide_context = build_style_context(ctx.context)
 
@@ -397,6 +412,9 @@ def create_section_writer_with_images_instructions(base_prompt: str) -> Callable
 記事全体のキーワード: {', '.join(ctx.context.selected_theme.keywords) if ctx.context.selected_theme else 'N/A'}
 記事全体のトーン: {ctx.context.generated_outline.suggested_tone}
 想定読者の詳細:\n{persona_description}
+
+=== 企業情報 ===
+{company_info_str}
 
 {style_guide_context}
 記事のアウトライン（全体像）:
@@ -698,10 +716,13 @@ def create_persona_generator_instructions(base_prompt: str) -> Callable[[RunCont
             pass
         elif ctx.context.custom_persona: # 移行措置
             pass
-        
-        company_info_str = ""
-        if ctx.context.company_name or ctx.context.company_description:
-            company_info_str = f"\nクライアント企業名: {ctx.context.company_name or '未設定'}\nクライアント企業概要: {ctx.context.company_description or '未設定'}"
+
+        # 企業情報（拡張）
+        company_info_block = f"""
+
+=== 企業情報 ===
+{build_enhanced_company_context(ctx.context)}
+"""
 
         full_prompt = f"""{base_prompt}
 
@@ -711,7 +732,7 @@ SEOキーワード: {', '.join(ctx.context.initial_keywords)}
 ペルソナ属性（大分類）: {ctx.context.persona_type.value if ctx.context.persona_type else '指定なし'}
 （上記属性が「その他」の場合のユーザー指定ペルソナ: {ctx.context.custom_persona if ctx.context.persona_type == PersonaType.OTHER else '該当なし'}）
 生成する具体的なペルソナの数: {ctx.context.num_persona_examples}
-{company_info_str}
+{company_info_block}
 ---
 
 あなたのタスクは、上記入力情報に基づいて、より具体的で詳細なペルソナ像を **{ctx.context.num_persona_examples}個** 生成することです。
