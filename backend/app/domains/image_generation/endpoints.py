@@ -512,7 +512,10 @@ async def replace_placeholder_with_image(
 async def serve_image(image_filename: str):
     """保存された画像を提供する"""
     try:
-        storage_path = Path(settings.image_storage_path if hasattr(settings, 'image_storage_path') else "./generated_images")
+        # backendルート基準で安全にパスを解決
+        backend_root = Path(__file__).parent.parent.parent
+        configured_path = Path(settings.image_storage_path if hasattr(settings, 'image_storage_path') else "./generated_images")
+        storage_path = configured_path if configured_path.is_absolute() else backend_root / configured_path
         image_path = storage_path / image_filename
         
         if not image_path.exists():
