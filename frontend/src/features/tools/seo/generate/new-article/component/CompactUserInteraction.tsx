@@ -26,7 +26,7 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { PersonaOption, ThemeOption } from '@/types/article-generation';
 
-import type { EditableOutline } from '../../types/outline';
+import type { EditableOutline, EditableOutlineSection } from '../../types/outline';
 
 import MainSectionEditor from './MainSectionEditor';
 
@@ -115,17 +115,54 @@ export default function CompactUserInteraction({
         })) || []
       });
     } else if (type === 'outline' && outline) {
-      // Initialize editor state for main-section-only editing while preserving existing subsections
+      const determineTopLevel = () => {
+        if (typeof outline.top_level_heading === 'number') {
+          return outline.top_level_heading >= 2 && outline.top_level_heading <= 6
+            ? outline.top_level_heading
+            : 2;
+        }
+        const levelsFromSections = Array.isArray(outline.sections)
+          ? outline.sections
+              .map((section: any) => (typeof section?.level === 'number' ? section.level : null))
+              .filter((lvl: number | null): lvl is number => lvl !== null)
+          : [];
+        if (levelsFromSections.length === 0) return 2;
+        const minimum = Math.min(...levelsFromSections);
+        return minimum >= 2 && minimum <= 6 ? minimum : 2;
+      };
+
+      const topLevel = determineTopLevel();
+
+      const convertSection = (section: any, fallbackLevel: number): EditableOutlineSection => {
+        const level = typeof section?.level === 'number' ? section.level : fallbackLevel;
+        const normalizedLevel = level >= fallbackLevel ? Math.min(level, 6) : fallbackLevel;
+        const description = typeof section?.description === 'string' ? section.description : '';
+        const estimated = typeof section?.estimated_chars === 'number'
+          ? section.estimated_chars
+          : normalizedLevel > topLevel
+            ? 200
+            : 300;
+        const subsections = Array.isArray(section?.subsections)
+          ? section.subsections.map((child: any) =>
+              convertSection(child, Math.min(normalizedLevel + 1, 6)),
+            )
+          : [];
+        return {
+          heading: typeof section?.heading === 'string' ? section.heading : '',
+          level: normalizedLevel,
+          description,
+          estimated_chars: estimated,
+          subsections,
+        };
+      };
+
       const editable: EditableOutline = {
         title: outline.title || '',
         suggested_tone: outline.suggested_tone || '',
-        sections: (outline.sections || []).map((s: any) => ({
-          heading: s.heading || '',
-          estimated_chars: s.estimated_chars || 300,
-          __subsections: Array.isArray(s.subsections)
-            ? s.subsections.map((sub: any) => (typeof sub?.heading === 'string' ? sub.heading : '')).filter((h: string) => !!h)
-            : []
-        }))
+        topLevel,
+        sections: Array.isArray(outline.sections)
+          ? outline.sections.map((section: any) => convertSection(section, topLevel))
+          : [],
       };
       setEditContent(editable);
     }
@@ -171,6 +208,36 @@ export default function CompactUserInteraction({
         i === index ? { ...s, [field]: value } : s
       ) || []
     }));
+  };
+
+  const renderOutlineTree = (items: any[], depth = 0): JSX.Element[] | null => {
+    if (!Array.isArray(items) || items.length === 0) return null;
+    return items.map((item, index) => {
+      const key = `outline-preview-${depth}-${index}`;
+      const children = renderOutlineTree(item?.subsections || [], depth + 1);
+      return (
+        <div
+          key={key}
+          className={`space-y-1 ${depth > 0 ? 'border-l border-dashed border-gray-200 pl-3' : ''}`}
+        >
+          <div className="flex items-center gap-2">
+            {typeof item?.level === 'number' && (
+              <Badge variant="outline" className="bg-white text-blue-700">
+                H{item.level}
+              </Badge>
+            )}
+            <span className="text-sm font-medium">{item?.heading || ''}</span>
+          </div>
+          {item?.description && (
+            <p className="ml-6 text-xs text-muted-foreground">{item.description}</p>
+          )}
+          {item?.estimated_chars && (
+            <p className="ml-6 text-xs text-gray-400">約 {item.estimated_chars} 文字</p>
+          )}
+          {children && <div className="space-y-1">{children}</div>}
+        </div>
+      );
+    });
   };
 
   // ペルソナ選択 - コンパクトなインライン表示
@@ -750,15 +817,7 @@ export default function CompactUserInteraction({
                       編集
                     </Button>
                   </div>
-                  {outline.sections.map((section: any, index: number) => (
-                    <div key={index} className="flex items-start gap-3 p-4 bg-white border border-gray-200 rounded-lg">
-                      <Badge variant="outline" className="mt-1">{index + 1}</Badge>
-                      <div className="flex-1">
-                        <h5 className="font-medium mb-1">{section.heading}</h5>
-                        <p className="text-sm text-muted-foreground">{section.description}</p>
-                      </div>
-                    </div>
-                  ))}
+                  {renderOutlineTree(outline.sections)}
                 </div>
               )
             )}

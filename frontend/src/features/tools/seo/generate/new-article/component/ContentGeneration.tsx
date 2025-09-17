@@ -57,6 +57,36 @@ export default function ContentGeneration({
     }
   };
 
+  const renderOutlineTree = (items: any[], depth = 0): JSX.Element[] | null => {
+    if (!Array.isArray(items) || items.length === 0) return null;
+    return items.map((item, index) => {
+      const key = `outline-${depth}-${index}`;
+      const children = renderOutlineTree(item?.subsections || [], depth + 1);
+      return (
+        <div
+          key={key}
+          className={`space-y-1 ${depth > 0 ? 'border-l border-dashed border-gray-200 pl-3' : ''}`}
+        >
+          <div className="flex items-center gap-2">
+            {typeof item?.level === 'number' && (
+              <Badge variant="outline" className="bg-white text-blue-700">
+                H{item.level}
+              </Badge>
+            )}
+            <h5 className="text-sm font-medium">{item?.heading || ''}</h5>
+          </div>
+          {item?.description && (
+            <p className="ml-6 text-xs text-gray-500">{item.description}</p>
+          )}
+          {item?.estimated_chars && (
+            <p className="ml-6 text-xs text-gray-400">約 {item.estimated_chars} 文字</p>
+          )}
+          {children && <div className="space-y-1">{children}</div>}
+        </div>
+      );
+    });
+  };
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 20 }}
@@ -103,16 +133,7 @@ export default function ContentGeneration({
                 <Separator />
                 <ScrollArea className="h-64">
                   <div className="space-y-2">
-                    {outline.sections?.map((section: any, index: number) => (
-                      <div key={index} className="pl-2 border-l-2 border-gray-200">
-                        <h4 className="font-medium text-sm">{section.heading}</h4>
-                        {section.estimated_chars && (
-                          <p className="text-xs text-gray-500">
-                            約 {section.estimated_chars} 文字
-                          </p>
-                        )}
-                      </div>
-                    ))}
+                    {renderOutlineTree(outline.sections)}
                   </div>
                 </ScrollArea>
               </div>

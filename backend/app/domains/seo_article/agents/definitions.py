@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 # 既存のスクリプトからエージェント定義とプロンプト生成関数をここに移動・整理
-from typing import Callable, Awaitable, Union
+from typing import Callable, Awaitable, Union, Any, List, Dict
 from agents import Agent, RunContextWrapper, ModelSettings
 from datetime import datetime, timezone
 # 循環参照を避けるため、モデル、ツール、コンテキストは直接インポートしない
@@ -122,6 +122,11 @@ def create_theme_instructions(base_prompt: str) -> Callable[[RunContextWrapper[A
         if not ctx.context.selected_detailed_persona:
             raise ValueError("テーマ提案のための詳細なペルソナが選択されていません。")
         persona_description = ctx.context.selected_detailed_persona
+        outline_top_level = getattr(ctx.context, 'outline_top_level_heading', 2) or 2
+        if outline_top_level not in (2, 3):
+            outline_top_level = 2
+        child_heading_level = min(outline_top_level + 1, 6)
+        advanced_outline_mode = getattr(ctx.context, 'advanced_outline_mode', False)
         
         # 拡張された会社情報コンテキストを使用
         company_info_str = build_enhanced_company_context(ctx.context)
@@ -310,6 +315,11 @@ def create_outline_instructions(base_prompt: str) -> Callable[[RunContextWrapper
         if not ctx.context.selected_detailed_persona:
             raise ValueError("アウトライン作成のための詳細なペルソナが選択されていません。")
         persona_description = ctx.context.selected_detailed_persona
+        outline_top_level = getattr(ctx.context, 'outline_top_level_heading', 2) or 2
+        if outline_top_level not in (2, 3):
+            outline_top_level = 2
+        child_heading_level = min(outline_top_level + 1, 6)
+        advanced_outline_mode = getattr(ctx.context, 'advanced_outline_mode', False)
 
         research_summary = ctx.context.research_report.overall_summary
         # 企業情報（拡張）
@@ -346,6 +356,15 @@ def create_outline_instructions(base_prompt: str) -> Callable[[RunContextWrapper
 競合見出しの模倣ではなく、差別化要素を強く反映したアウトラインを作成してください。
 """
 
+        if advanced_outline_mode:
+            subheading_requirement = (
+                f"- 各トップレベル見出し（`level` = {outline_top_level}）には、H{child_heading_level} に相当する `subsections` を1つ以上追加し、論点を段階的に展開してください。"
+            )
+        else:
+            subheading_requirement = (
+                f"- 必要に応じて `subsections` フィールドで小見出し（`level` >= {child_heading_level}）を追加できます。"
+            )
+
         full_prompt = f"""{base_prompt}
 
 --- 入力情報 ---
@@ -355,12 +374,43 @@ def create_outline_instructions(base_prompt: str) -> Callable[[RunContextWrapper
   キーワード: {', '.join(ctx.context.selected_theme.keywords)}
 ターゲット文字数: {ctx.context.target_length or '指定なし（標準的な長さで）'}
 想定読者の詳細:\n{persona_description}
+アウトラインのトップレベル見出し指定: H{outline_top_level}
 {company_info_block}
 {seo_structure_guidance}
 --- 詳細なリサーチ結果 ---
 {research_summary}
 参照した全情報源URL数: {len(ctx.context.research_report.all_sources)}
 ---
+
+--- アウトライン構造の要件 ---
+- トップレベル見出しは `level`: {outline_top_level}（HTMLでは <h{outline_top_level}>）として出力し、`heading` に見出しテキストを設定してください。
+{subheading_requirement}
+- 各見出しには `estimated_chars`（推定文字数）を必ず設定し、必要に応じて `description` で補足を加えてください。
+- ルートのJSONには `top_level_heading` フィールドを含め、値を {outline_top_level} としてください。
+- 返却形式の例:
+```json
+{{
+  "title": "サンプル記事タイトル",
+  "suggested_tone": "丁寧で読みやすい解説調",
+  "top_level_heading": {outline_top_level},
+  "sections": [
+    {{
+      "heading": "メイン見出し例",
+      "level": {outline_top_level},
+      "description": "このセクションで伝える核となるメッセージ",
+      "estimated_chars": 400,
+      "subsections": [
+        {{
+          "heading": "小見出し例",
+          "level": {child_heading_level},
+          "description": "詳細トピックや補足説明",
+          "estimated_chars": 200
+        }}
+      ]
+    }}
+  ]
+}}
+```
 
 **重要:**
 - 上記のテーマと**詳細なリサーチ結果**、SerpAPI分析結果に基づいて、記事のアウトラインを作成してください。
@@ -385,7 +435,18 @@ def create_section_writer_with_images_instructions(base_prompt: str) -> Callable
 
         target_section = ctx.context.generated_outline.sections[ctx.context.current_section_index]
         target_index = ctx.context.current_section_index
-        target_heading = target_section.heading
+
+        def get_value(item: Any, key: str, default: Any = None) -> Any:
+            if isinstance(item, dict):
+                return item.get(key, default)
+            return getattr(item, key, default)
+
+        target_heading = get_value(target_section, 'heading', '')
+        outline_top_level = getattr(ctx.context.generated_outline, 'top_level_heading', 2) or 2
+        target_level = get_value(target_section, 'level', outline_top_level)
+        if not isinstance(target_level, int):
+            target_level = outline_top_level
+        target_level = max(2, min(target_level, 6))
         
         section_target_chars = None
         if ctx.context.target_length and len(ctx.context.generated_outline.sections) > 0:
@@ -393,7 +454,65 @@ def create_section_writer_with_images_instructions(base_prompt: str) -> Callable
             estimated_total_body_chars = ctx.context.target_length * 0.8
             section_target_chars = int(estimated_total_body_chars / total_sections)
 
-        outline_context = "\n".join([f"{i+1}. {s.heading}" for i, s in enumerate(ctx.context.generated_outline.sections)])
+        default_child_level = min(target_level + 1, 6)
+
+        raw_subsections = get_value(target_section, 'subsections', []) or []
+        target_subsections: List[Dict[str, Any]] = []
+        for sub in raw_subsections:
+            sub_heading = get_value(sub, 'heading', '').strip()
+            if not sub_heading:
+                continue
+            sub_level = get_value(sub, 'level', default_child_level)
+            if not isinstance(sub_level, int):
+                sub_level = default_child_level
+            sub_level = max(target_level + 1, min(sub_level, 6))
+            sub_description = get_value(sub, 'description', '') or ''
+            target_subsections.append({
+                'heading': sub_heading,
+                'level': sub_level,
+                'description': sub_description
+            })
+
+        subsection_heading_tags = {f"h{sub['level']}" for sub in target_subsections}
+        subheading_plan_lines = [
+            f"- H{sub['level']} {sub['heading']}" + (f"：{sub['description']}" if sub['description'] else '')
+            for sub in target_subsections
+        ]
+        if subheading_plan_lines:
+            subheading_prompt_block = (
+                "\n--- このセクションで必ず使用する小見出し ---\n"
+                "下記の順序で小見出しを組み込み、それぞれの見出しに対応する内容を十分に書いてください。\n"
+                + "\n".join(subheading_plan_lines)
+                + "\n---\n\n"
+            )
+        else:
+            subheading_prompt_block = "\n"
+
+        def format_outline_sections(sections: Any, prefix: str = "") -> List[str]:
+            lines: List[str] = []
+            for idx, section in enumerate(sections or []):
+                heading = get_value(section, 'heading', '').strip()
+                if not heading:
+                    continue
+                level = get_value(section, 'level', outline_top_level)
+                if not isinstance(level, int):
+                    level = outline_top_level
+                level = max(2, min(level, 6))
+                label = f"{prefix}{idx + 1}"
+                lines.append(f"{label}. H{level} {heading}")
+                children = get_value(section, 'subsections', []) or []
+                for child_idx, child in enumerate(children):
+                    child_heading = get_value(child, 'heading', '').strip()
+                    if not child_heading:
+                        continue
+                    child_level = get_value(child, 'level', min(level + 1, 6))
+                    if not isinstance(child_level, int):
+                        child_level = min(level + 1, 6)
+                    child_level = max(level + 1, min(child_level, 6))
+                    lines.append(f"{label}.{child_idx + 1}. H{child_level} {child_heading}")
+            return lines
+
+        outline_context = "\n".join(format_outline_sections(ctx.context.generated_outline.sections))
 
         research_context_str = f"リサーチ要約: {ctx.context.research_report.overall_summary[:500]}...\n"
         research_context_str += "主要なキーポイント:\n"
@@ -404,6 +523,19 @@ def create_section_writer_with_images_instructions(base_prompt: str) -> Callable
         company_info_str = build_enhanced_company_context(ctx.context)
         # スタイルガイドコンテキストを構築
         style_guide_context = build_style_context(ctx.context)
+
+        main_heading_tag = f"h{target_level}"
+        sorted_subheading_tags = sorted(subsection_heading_tags)
+        if sorted_subheading_tags:
+            child_heading_instruction_text = (
+                "指定された小見出しには "
+                + ", ".join(f"`<{tag}>`" for tag in sorted_subheading_tags)
+                + " を使用し、提示された順序で配置し、追加の見出しレベルは作成しないでください。"
+            )
+        else:
+            child_heading_instruction_text = (
+                f"必要に応じて `<h{default_child_level}>` で論点を整理できますが、不要な見出しは追加しないでください。"
+            )
 
         full_prompt = f"""{base_prompt}
 
@@ -427,7 +559,9 @@ def create_section_writer_with_images_instructions(base_prompt: str) -> Callable
 
 --- **あなたの現在のタスク** ---
 あなたは **セクションインデックス {target_index}**、見出し「**{target_heading}**」の内容をHTML形式で執筆するタスク**のみ**を担当します。
+使用するメイン見出しタグ: <{main_heading_tag}>
 このセクションの目標文字数: {section_target_chars or '指定なし（流れに合わせて適切に）'}
+{subheading_prompt_block}
 
 **📌 重要: この記事は画像モードで生成されています。可能であれば画像プレースホルダーを含めてください。**
 ---
@@ -487,7 +621,7 @@ def create_section_writer_with_images_instructions(base_prompt: str) -> Callable
     - 個別企業名やサービス名を情報源として明記することは禁止（例：「○○がスーモに書いていました」等）
     - 情報は一般的な事実として記述し、特定のメディアや企業への直接的言及は避ける
 3.  **セクションスコープの厳守:** このセクション（インデックス {target_index}、見出し「{target_heading}」）の内容のみを生成し、他のセクションの内容は絶対に含めない
-4.  **HTML構造:** `<p>`, `<h2>`, `<h3>`, `<ul>`, `<li>`, `<strong>`, `<a>` などの基本HTMLタグを適切に使用し、`<h2>` タグは見出し「{target_heading}」にのみ使用。**重要：`<em>`タグ（斜体）は一切使用しないでください**
+4.  **HTML構造:** `<p>`, `<ul>`, `<li>`, `<strong>` などの基本HTMLタグを適切に使用し、メイン見出しには必ず `<{main_heading_tag}>` を使用してください。{child_heading_instruction_text} **重要：`<em>`タグ（斜体）は一切使用しないでください**
 5.  **SEO最適化:** 記事のキーワードやセクション関連キーワードを自然に含める（過度な詰め込みは避ける）
 6.  **読者価値の提供:** 上記の執筆スタイル指針に従い、読者にとって実用的で価値のあるオリジナルコンテンツを作成
 7.  **【📌 推奨事項】適切であれば画像プレースホルダーを配置してください。** 文章の流れを考慮し、読者の理解を助ける位置に配置することが重要です。記事全体で最低1つの画像プレースホルダーがあれば十分です。
@@ -522,7 +656,18 @@ def create_section_writer_instructions(base_prompt: str) -> Callable[[RunContext
 
         target_section = ctx.context.generated_outline.sections[ctx.context.current_section_index]
         target_index = ctx.context.current_section_index
-        target_heading = target_section.heading
+
+        def get_value(item: Any, key: str, default: Any = None) -> Any:
+            if isinstance(item, dict):
+                return item.get(key, default)
+            return getattr(item, key, default)
+
+        target_heading = get_value(target_section, 'heading', '')
+        outline_top_level = getattr(ctx.context.generated_outline, 'top_level_heading', 2) or 2
+        target_level = get_value(target_section, 'level', outline_top_level)
+        if not isinstance(target_level, int):
+            target_level = outline_top_level
+        target_level = max(2, min(target_level, 6))
         
         section_target_chars = None
         if ctx.context.target_length and len(ctx.context.generated_outline.sections) > 0:
@@ -530,7 +675,65 @@ def create_section_writer_instructions(base_prompt: str) -> Callable[[RunContext
             estimated_total_body_chars = ctx.context.target_length * 0.8
             section_target_chars = int(estimated_total_body_chars / total_sections)
 
-        outline_context = "\n".join([f"{i+1}. {s.heading}" for i, s in enumerate(ctx.context.generated_outline.sections)])
+        default_child_level = min(target_level + 1, 6)
+
+        raw_subsections = get_value(target_section, 'subsections', []) or []
+        target_subsections: List[Dict[str, Any]] = []
+        for sub in raw_subsections:
+            sub_heading = get_value(sub, 'heading', '').strip()
+            if not sub_heading:
+                continue
+            sub_level = get_value(sub, 'level', default_child_level)
+            if not isinstance(sub_level, int):
+                sub_level = default_child_level
+            sub_level = max(target_level + 1, min(sub_level, 6))
+            sub_description = get_value(sub, 'description', '') or ''
+            target_subsections.append({
+                'heading': sub_heading,
+                'level': sub_level,
+                'description': sub_description
+            })
+
+        subsection_heading_tags = {f"h{sub['level']}" for sub in target_subsections}
+        subheading_plan_lines = [
+            f"- H{sub['level']} {sub['heading']}" + (f"：{sub['description']}" if sub['description'] else '')
+            for sub in target_subsections
+        ]
+        if subheading_plan_lines:
+            subheading_prompt_block = (
+                "\n--- このセクションで必ず使用する小見出し ---\n"
+                "下記の順序で小見出しを組み込み、それぞれの見出しに対応する内容を十分に書いてください。\n"
+                + "\n".join(subheading_plan_lines)
+                + "\n---\n\n"
+            )
+        else:
+            subheading_prompt_block = "\n"
+
+        def format_outline_sections(sections: Any, prefix: str = "") -> List[str]:
+            lines: List[str] = []
+            for idx, section in enumerate(sections or []):
+                heading = get_value(section, 'heading', '').strip()
+                if not heading:
+                    continue
+                level = get_value(section, 'level', outline_top_level)
+                if not isinstance(level, int):
+                    level = outline_top_level
+                level = max(2, min(level, 6))
+                label = f"{prefix}{idx + 1}"
+                lines.append(f"{label}. H{level} {heading}")
+                children = get_value(section, 'subsections', []) or []
+                for child_idx, child in enumerate(children):
+                    child_heading = get_value(child, 'heading', '').strip()
+                    if not child_heading:
+                        continue
+                    child_level = get_value(child, 'level', min(level + 1, 6))
+                    if not isinstance(child_level, int):
+                        child_level = min(level + 1, 6)
+                    child_level = max(level + 1, min(child_level, 6))
+                    lines.append(f"{label}.{child_idx + 1}. H{child_level} {child_heading}")
+            return lines
+
+        outline_context = "\n".join(format_outline_sections(ctx.context.generated_outline.sections))
 
         research_context_str = f"リサーチ要約: {ctx.context.research_report.overall_summary[:500]}...\n"
         research_context_str += "主要なキーポイント:\n"
@@ -545,6 +748,19 @@ def create_section_writer_instructions(base_prompt: str) -> Callable[[RunContext
         
         # 日付コンテキストを追加
         date_context = get_current_date_context()
+
+        main_heading_tag = f"h{target_level}"
+        sorted_subheading_tags = sorted(subsection_heading_tags)
+        if sorted_subheading_tags:
+            child_heading_instruction_text = (
+                "指定された小見出しには "
+                + ", ".join(f"`<{tag}>`" for tag in sorted_subheading_tags)
+                + " を使用し、提示された順序で配置し、追加の見出しレベルは作成しないでください。"
+            )
+        else:
+            child_heading_instruction_text = (
+                f"必要に応じて `<h{default_child_level}>` で論点を整理できますが、不要な見出しは追加しないでください。"
+            )
 
         full_prompt = f"""{base_prompt}
 
@@ -571,10 +787,9 @@ def create_section_writer_instructions(base_prompt: str) -> Callable[[RunContext
 
 --- **あなたの現在のタスク** ---
 あなたは **セクションインデックス {target_index}**、見出し「**{target_heading}**」の内容をHTML形式で執筆するタスク**のみ**を担当します。
+使用するメイン見出しタグ: <{main_heading_tag}>
 このセクションの目標文字数: {section_target_chars or '指定なし（流れに合わせて適切に）'}
----
-
---- **【最重要】執筆スタイルとトーンについて** ---
+{subheading_prompt_block}--- **【最重要】執筆スタイルとトーンについて** ---
 あなたは専門知識を持つプロのライターとして、以下のターゲット読者に向けて執筆します：
 「{persona_description}」
 
@@ -608,7 +823,7 @@ def create_section_writer_instructions(base_prompt: str) -> Callable[[RunContext
     - 個別企業名やサービス名を情報源として明記することは禁止（例：「○○がスーモに書いていました」等）
     - 情報は一般的な事実として記述し、特定のメディアや企業への直接的言及は避ける
 3.  **セクションスコープの厳守:** このセクション（インデックス {target_index}、見出し「{target_heading}」）の内容のみを生成し、他のセクションの内容は絶対に含めない
-4.  **HTML構造:** `<p>`, `<h2>`, `<h3>`, `<ul>`, `<li>`, `<strong>`, `<a>` などの基本HTMLタグを適切に使用し、`<h2>` タグは見出し「{target_heading}」にのみ使用。**重要：`<em>`タグ（斜体）は一切使用しないでください**
+4.  **HTML構造:** `<p>`, `<ul>`, `<li>`, `<strong>` などの基本HTMLタグを適切に使用し、メイン見出しには必ず `<{main_heading_tag}>` を使用してください。{child_heading_instruction_text} **重要：`<em>`タグ（斜体）は一切使用しないでください**
 5.  **SEO最適化:** 記事のキーワードやセクション関連キーワードを自然に含める（過度な詰め込みは避ける）
 6.  **読者価値の提供:** 上記の執筆スタイル指針に従い、読者にとって実用的で価値のあるオリジナルコンテンツを作成
 ---

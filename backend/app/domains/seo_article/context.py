@@ -57,6 +57,10 @@ class ArticleContext:
     style_template_id: Optional[str] = None # 使用するスタイルテンプレートのID
     style_template_settings: Dict[str, Any] = field(default_factory=dict) # スタイルテンプレートの設定内容
 
+    # --- アウトライン高度化設定 ---
+    advanced_outline_mode: bool = False
+    outline_top_level_heading: int = 2
+
     # --- SerpAPI分析関連 (新規追加) ---
     serp_analysis_report: Optional[SerpKeywordAnalysisReport] = None # SerpAPIキーワード分析結果
     has_serp_api_key: bool = False # SerpAPIキーが利用可能かどうか

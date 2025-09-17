@@ -1,14 +1,14 @@
-// UI-safe types for editing only main sections of an outline
-export type MainSection = {
+export type EditableOutlineSection = {
   heading: string;
+  level: number;
+  description?: string;
   estimated_chars?: number;
-  // Keep existing subsections hidden in UI but preserved in payload
-  __subsections?: string[];
+  subsections: EditableOutlineSection[];
 };
 
 export type EditableOutline = {
   title: string;
   suggested_tone?: string;
-  sections: MainSection[];
+  topLevel: number;
+  sections: EditableOutlineSection[];
 };
-
