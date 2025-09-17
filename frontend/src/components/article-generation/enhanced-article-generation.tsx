@@ -287,7 +287,7 @@ export default function EnhancedArticleGeneration({
   const renderOutlineApproval = () => {
     if (!state.outline) return null;
 
-    const renderOutlineTree = (items: any[], depth = 0): JSX.Element[] | null => {
+    const renderOutlineTree = (items: any[], depth = 0): React.ReactElement[] | null => {
       if (!Array.isArray(items) || items.length === 0) return null;
       return items.map((item, index) => {
         const key = `outline-approval-${depth}-${index}`;
