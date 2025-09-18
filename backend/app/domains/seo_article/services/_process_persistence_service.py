@@ -257,6 +257,14 @@ class ProcessPersistenceService:
             persona_type = safe_convert_enum(context_dict.get("persona_type"), PersonaType)
             
             # Reconstruct ArticleContext from stored data
+            raw_outline_level = context_dict.get("outline_top_level_heading", 2)
+            try:
+                outline_top_level = int(raw_outline_level)
+            except (TypeError, ValueError):
+                outline_top_level = 2
+            if outline_top_level not in (2, 3):
+                outline_top_level = 2
+
             context = ArticleContext(
                 initial_keywords=context_dict.get("initial_keywords", []),
                 target_age_group=target_age_group,
@@ -288,6 +296,9 @@ class ProcessPersistenceService:
                 style_template_settings=context_dict.get("style_template_settings", {}),
                 # SerpAPI設定の復元
                 has_serp_api_key=context_dict.get("has_serp_api_key", bool(settings.serpapi_key)),
+                # アウトラインモード設定
+                advanced_outline_mode=context_dict.get("advanced_outline_mode", False),
+                outline_top_level_heading=outline_top_level,
                 websocket=None,  # Will be set when WebSocket connects
                 user_response_event=None,  # Will be set when WebSocket connects
                 user_id=user_id  # Set user_id from method parameter

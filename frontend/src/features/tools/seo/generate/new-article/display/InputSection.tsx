@@ -1,7 +1,7 @@
 "use client";
 import { useEffect,useState } from 'react';
 import Link from 'next/link';
-import { ChevronDown, ChevronUp, Image, Palette,Plus, Settings, X } from "lucide-react";
+import { ChevronDown, ChevronUp, Image, ListTree, Palette,Plus, Settings, X } from "lucide-react";
 import { IoRefresh, IoSparkles } from "react-icons/io5";
 
 import { Badge } from "@/components/ui/badge";
@@ -39,6 +39,10 @@ export default function InputSection({ onStartGeneration, isConnected, isGenerat
     // 画像モード関連の状態
     const [imageMode, setImageMode] = useState(false);
     const [imageSettings, setImageSettings] = useState({});
+
+    // 高度アウトラインモード関連の状態
+    const [advancedOutlineMode, setAdvancedOutlineMode] = useState(false);
+    const [topLevelHeading, setTopLevelHeading] = useState<'h2' | 'h3'>('h2');
     
     // スタイルテンプレート関連の状態
     const [styleTemplates, setStyleTemplates] = useState([]);
@@ -156,6 +160,9 @@ export default function InputSection({ onStartGeneration, isConnected, isGenerat
             image_settings: imageSettings,
             // スタイルテンプレート設定を追加
             style_template_id: (selectedStyleTemplate && selectedStyleTemplate !== 'default') ? selectedStyleTemplate : null,
+            // 高度アウトライン設定を追加
+            advanced_outline_mode: advancedOutlineMode,
+            outline_top_level_heading: advancedOutlineMode ? (topLevelHeading === 'h3' ? 3 : 2) : 2,
         };
 
         console.log('📦 Request data being sent:', requestData);
@@ -234,7 +241,8 @@ export default function InputSection({ onStartGeneration, isConnected, isGenerat
           <Card>
             <CardHeader>
               <CardTitle className="text-lg flex items-center gap-2">
-                <Image className="h-5 w-5" />
+                {/* eslint-disable-next-line jsx-a11y/alt-text */}
+                <Image className="h-5 w-5" aria-hidden="true" />
                 画像生成・挿入機能
               </CardTitle>
             </CardHeader>
@@ -280,7 +288,67 @@ export default function InputSection({ onStartGeneration, isConnected, isGenerat
             </CardContent>
           </Card>
 
-          {/* Card3: スタイルテンプレート */}
+          {/* Card3: 高度アウトラインモード */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-lg flex items-center gap-2">
+                <ListTree className="h-5 w-5" />
+                高度アウトラインモード
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <div className="space-y-1">
+                    <Label className="text-sm font-medium">有効にする</Label>
+                    <p className="text-sm text-muted-foreground">
+                      大見出しと小見出しを同時に生成し、階層構造を維持したままセクションライティングを行います
+                    </p>
+                  </div>
+                  <Switch
+                    checked={advancedOutlineMode}
+                    onCheckedChange={(value) => setAdvancedOutlineMode(value)}
+                  />
+                </div>
+
+                {advancedOutlineMode && (
+                  <div className="space-y-4 rounded-lg border border-blue-200 bg-blue-50 p-4">
+                    <div className="space-y-2">
+                      <Label className="text-sm font-medium">大見出しのレベルを選択</Label>
+                      <Select
+                        value={topLevelHeading}
+                        onValueChange={(value) => setTopLevelHeading(value as 'h2' | 'h3')}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="トップレベル見出しを選択" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="h2">H2（標準的な構成）</SelectItem>
+                          <SelectItem value="h3">H3（細かく分類された構成）</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-1 text-xs text-blue-800">
+                      <p>
+                        H2 を大見出しにすると小見出しは H3 で生成されます。H3 を選ぶと小見出しは H4 となり、より細かな単位でライティングを行います。
+                      </p>
+                      <p>
+                        生成後のアウトライン編集でも、この階層構造に沿って各見出しを調整できます。
+                      </p>
+                    </div>
+                  </div>
+                )}
+
+                {!advancedOutlineMode && (
+                  <p className="text-xs text-muted-foreground">
+                    標準モードでは H2 を大見出しとした構成案が生成されます。必要に応じてアウトライン編集で小見出しを追加できます。
+                  </p>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Card4: スタイルテンプレート */}
           <Card>
             <CardHeader>
               <CardTitle className="text-lg flex items-center gap-2">

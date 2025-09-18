@@ -220,7 +220,8 @@ export default memo(function CompactGenerationFlow({
                       transition={{ type: "spring", stiffness: 400, damping: 17 }}
                     >
                       <Badge className="bg-purple-100 text-purple-800 border-purple-200 shadow-sm">
-                        <Image className="w-3 h-3 mr-1" />
+                        {/* eslint-disable-next-line jsx-a11y/alt-text */}
+                        <Image className="w-3 h-3 mr-1" aria-hidden="true" />
                         画像モード
                       </Badge>
                     </motion.div>
@@ -516,7 +517,8 @@ export default memo(function CompactGenerationFlow({
                                 transition={{ type: "spring", stiffness: 400, damping: 17 }}
                               >
                                 <Badge className="bg-purple-100 text-purple-800 border-purple-200 shadow-sm">
-                                  <Image className="w-3 h-3 mr-1" />
+                                  {/* eslint-disable-next-line jsx-a11y/alt-text */}
+                                  <Image className="w-3 h-3 mr-1" aria-hidden="true" />
                                   {completedSections.length} セクション完了
                                 </Badge>
                               </motion.div>
@@ -544,7 +546,8 @@ export default memo(function CompactGenerationFlow({
                                 {/* 画像プレースホルダー情報 */}
                                 {section.imagePlaceholders && section.imagePlaceholders.length > 0 && (
                                   <div className="mb-3 text-xs text-purple-600 bg-purple-50 rounded px-2 py-1 border border-purple-200">
-                                    <Image className="w-3 h-3 inline mr-1" />
+                                    {/* eslint-disable-next-line jsx-a11y/alt-text */}
+                                    <Image className="w-3 h-3 inline mr-1" aria-hidden="true" />
                                     画像プレースホルダー {section.imagePlaceholders.length}個含む
                                   </div>
                                 )}
@@ -616,7 +619,8 @@ export default memo(function CompactGenerationFlow({
                             transition={{ type: "spring", stiffness: 400, damping: 17 }}
                           >
                             <Badge className="bg-purple-100 text-purple-800 border-purple-200 shadow-sm">
-                              <Image className="w-3 h-3 mr-1" />
+                              {/* eslint-disable-next-line jsx-a11y/alt-text */}
+                              <Image className="w-3 h-3 mr-1" aria-hidden="true" />
                               画像モード
                             </Badge>
                           </motion.div>

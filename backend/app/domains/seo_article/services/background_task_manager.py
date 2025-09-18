@@ -982,26 +982,25 @@ class BackgroundTaskManager:
                     
                     logger.info(f"🔍 [EDIT_OUTLINE] Validation - title: {type(title)}, suggested_tone: {type(suggested_tone)}, sections: {type(sections)}")
                     
+                    top_level_heading = edited_content.get("top_level_heading")
+                    if isinstance(top_level_heading, int) and top_level_heading in (2, 3):
+                        new_top_level = top_level_heading
+                    else:
+                        new_top_level = getattr(context, 'outline_top_level_heading', 2)
+
                     if title and isinstance(sections, list):
                         try:
-                            # Import OutlineData and OutlineSectionData from schemas
-                            from app.domains.seo_article.schemas import OutlineData, OutlineSectionData
-                            
-                            # Convert sections to proper format
-                            processed_sections = []
-                            for section in sections:
-                                if isinstance(section, dict):
-                                    processed_sections.append(OutlineSectionData(
-                                        heading=section.get("heading", ""),
-                                        estimated_chars=section.get("estimated_chars", 300),
-                                        subsections=section.get("subsections", [])
-                                    ))
-                            
-                            context.generated_outline = OutlineData(
-                                title=title,
-                                suggested_tone=suggested_tone,
-                                sections=processed_sections
+                            normalized_outline = self.service.utils.normalize_outline_structure(
+                                {
+                                    "title": title,
+                                    "suggested_tone": suggested_tone,
+                                    "top_level_heading": new_top_level,
+                                    "sections": sections,
+                                },
+                                top_level_hint=new_top_level,
                             )
+                            context.generated_outline = normalized_outline
+                            context.outline_top_level_heading = normalized_outline.top_level_heading
                             context.outline = context.generated_outline
                             context.current_step = "writing_sections"
                             logger.info("✅ [EDIT_OUTLINE] Applied outline edit and proceeding to section writing")

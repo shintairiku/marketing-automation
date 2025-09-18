@@ -144,7 +144,7 @@ export default function GenerationProcessPage({ jobId }: GenerationProcessPagePr
         };
 
         loadProcess();
-    }, [user?.id, jobId, router]);
+    }, [user?.id, jobId, router, getToken]);
 
     // 思考メッセージの更新
     useEffect(() => {
