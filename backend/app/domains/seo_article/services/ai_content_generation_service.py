@@ -8,7 +8,8 @@ OpenAI Responses APIを使用して、ユーザー入力（画像、URL、テキ
 
 import logging
 import base64
-from typing import Dict, Any, List, Optional, Union
+import re
+from typing import Dict, Any, List, Optional
 from openai import OpenAI
 from app.core.config import settings
 # assemble_edit_knowledge will be imported dynamically to avoid circular imports
@@ -194,16 +195,22 @@ class AIContentGenerationService:
         """記事文脈を考慮した生成指示を構築"""
         include_heading = input_data.get("include_heading", False)
         insert_position = input_data.get("insert_position")
+        try:
+            insert_position = int(insert_position) if insert_position is not None else None
+        except (ValueError, TypeError):
+            insert_position = None
         article_html = input_data.get("article_html", "")
 
         # 基本プロンプト
-        base_prompt = """あなたは高品質なSEO記事を執筆するプロのライターです。
-既存記事の特定位置に追加するコンテンツを、記事全体の流れと整合性を保ちながら生成します。
+        base_prompt = """あなたは高品質なSEOライティングと構造設計に長けたシニアライターです。既存記事の一部に新しいセクションを挿入し、全体構成を崩さず価値ある情報を追加します。
 
-**重要な執筆方針:**
-- 既存記事の文脈、トーン、スタイルに合わせる
-- 読者にとって価値のある、読みやすく実用的な内容をHTML形式で執筆
-- 記事全体の構造と論理的な流れを維持する
+**重要な執筆原則（セクションライティングエージェントの標準に準拠）**
+- 記事全体とスタイルガイドを厳密に踏襲する（語り口、フォーマット、禁止事項）
+- 想定読者の課題に寄り添い、「結論ファースト → 補足説明 → 重要ポイント再確認」の流れで構成する
+- 段落ごとに明確なメッセージと根拠を提示し、冗長な表現を避けて具体例や数値で支える
+- SEO上重要なキーワード・関連語を自然に織り込む（不自然な詰め込みは禁止）
+- 画像や引用が必要になる場合は文章内でその役割を説明し、既存方針に従う
+- 生成物は人間編集者がそのまま貼り付けて利用できる、完成度の高いHTMLフラグメントとする
 """
 
         # 記事文脈情報の構築
@@ -214,18 +221,15 @@ class AIContentGenerationService:
         # 既存記事情報
         article_info = ""
         if article_html:
-            article_info = f"""
---- 既存記事の内容 ---
-{article_html[:3000]}{'...(省略)' if len(article_html) > 3000 else ''}
+            if insert_position is not None:
+                article_info = f"""
+--- 既存記事の内容（挿入位置マーキング済み） ---
+{self._insert_marker(article_html, insert_position)}
 """
-
-        # 挿入位置情報
-        position_info = ""
-        if insert_position is not None:
-            position_info = f"""
---- 挿入位置情報 ---
-あなたは記事の**ブロック位置 {insert_position}** に新しいコンテンツを挿入するタスクを担当します。
-この位置は既存記事の文脈上、適切で自然な内容である必要があります。
+            else:
+                article_info = f"""
+--- 既存記事の内容 ---
+{article_html}
 """
 
         # 出力形式指定
@@ -237,8 +241,6 @@ class AIContentGenerationService:
 
 {article_info}
 
-{position_info}
-
 --- ユーザーリクエスト ---
 以下のユーザー入力に基づいて、既存記事に適合するコンテンツを生成してください。
 URLが含まれている場合は、Web検索を活用して最新情報を取得してください。
@@ -246,70 +248,158 @@ URLが含まれている場合は、Web検索を活用して最新情報を取�
 {output_format}
 
 **【最重要】HTML出力について**
-- 出力は必ずHTML形式で、`<h2>`, `<h3>`, `<p>` などの適切なHTMLタグを使用
-- `<em>` タグ（斜体）は使用禁止 - 代わりに `<strong>` や通常テキストを使用
-- JSONやマークダウン形式は絶対に使用しない
-- 既存記事のHTMLスタイルに合わせる
+- 出力は挿入するHTMLフラグメントそのもののみ（説明文・JSON・コードフェンス・コメントは禁止）
+- `<p>` や `<h2>`〜`<h4>` を中心に、既存記事で使用されているタグだけを用いる
+- `<em>`（斜体）は使用禁止。強調は `<strong>` を使う
+- 句読点・助詞・語尾まで既存記事と同じトーン・文体を徹底する
 """
 
     def _build_article_context_info(self, article_context: Dict[str, Any]) -> str:
         """記事文脈情報を構築"""
-        context_parts = []
+        context_parts: List[str] = []
 
         try:
+            def add_section(title: str, lines: List[str]) -> None:
+                filtered = [line for line in lines if line]
+                if not filtered:
+                    return
+                if context_parts:
+                    context_parts.append("")
+                context_parts.append(f"=== {title} ===")
+                context_parts.extend(filtered)
+
             # 企業情報
+            company_lines: List[str] = []
             company = article_context.get("company")
             if company:
-                context_parts.append("=== 企業情報 ===")
-                context_parts.append(f"企業名: {company.get('name', '')}")
+                company_lines.append(f"企業名: {company.get('name', '')}")
+                if company.get('description'):
+                    company_lines.append(f"企業概要: {company.get('description', '')}")
                 if company.get('usp'):
-                    context_parts.append(f"専門分野: {company.get('usp', '')[:100]}...")
+                    company_lines.append(f"専門分野・USP: {company.get('usp', '')}")
+                if company.get('brand_slogan'):
+                    company_lines.append(f"ブランドスローガン: {company.get('brand_slogan', '')}")
+                if company.get('target_area'):
+                    company_lines.append(f"ターゲット地域: {company.get('target_area', '')}")
                 if company.get('avoid_terms'):
-                    context_parts.append(f"避けるべき表現: {company.get('avoid_terms', '')}")
+                    company_lines.append(f"避けるべき表現: {company.get('avoid_terms', '')}")
+                if company.get('website_url'):
+                    company_lines.append(f"公式サイトURL: {company.get('website_url', '')}")
+
+            for attr_key, label in [
+                ("company_description", "会社概要"),
+                ("company_usp", "会社USP"),
+                ("company_avoid_terms", "会社 避けるべき表現"),
+                ("company_style_guide", "会社 スタイルガイド"),
+                ("company_target_area", "会社 ターゲット地域"),
+                ("company_website_url", "会社 公式サイト"),
+                ("company_brand_slogan", "会社 ブランドスローガン"),
+                ("company_target_keywords", "会社 推奨キーワード"),
+            ]:
+                value = article_context.get(attr_key)
+                if not value:
+                    continue
+                if isinstance(value, (list, tuple)):
+                    formatted = ", ".join(str(v) for v in value if v)
+                else:
+                    formatted = str(value)
+                company_lines.append(f"{label}: {formatted}")
+            add_section("企業情報", company_lines)
 
             # スタイルガイド
+            style_lines: List[str] = []
             style_template = article_context.get("style_template")
             if style_template and style_template.get("settings"):
                 settings = style_template["settings"]
-                context_parts.append("\n=== スタイルガイド ===")
-                if settings.get("tone"):
-                    context_parts.append(f"トーン・調子: {settings['tone']}")
-                if settings.get("writing_style"):
-                    context_parts.append(f"文体: {settings['writing_style']}")
+                for key, label in [
+                    ("tone", "トーン・調子"),
+                    ("writing_style", "文体"),
+                    ("approach", "アプローチ"),
+                    ("structure", "構成指針"),
+                    ("vocabulary", "語彙・表現"),
+                    ("special_instructions", "特別な指示"),
+                ]:
+                    if settings.get(key):
+                        style_lines.append(f"{label}: {settings[key]}")
 
-            # SERP分析とキーワード情報
+            style_template_settings = article_context.get("style_template_settings")
+            if isinstance(style_template_settings, dict):
+                for key, value in style_template_settings.items():
+                    if value:
+                        style_lines.append(f"{key}: {value}")
+
+            if article_context.get("company_style_guide"):
+                style_lines.append(f"会社スタイルガイド: {article_context['company_style_guide']}")
+            add_section("スタイルガイド", style_lines)
+
+            # キーワード情報
+            keyword_strings: List[str] = []
             context_keywords = article_context.get("context_keywords", [])
             if context_keywords and isinstance(context_keywords, list):
-                context_parts.append(f"\n=== キーワード情報 ===")
-                # Ensure all items are strings
-                keyword_strings = [str(kw) for kw in context_keywords[:5] if kw]
-                if keyword_strings:
-                    context_parts.append(f"対象キーワード: {', '.join(keyword_strings)}")
+                keyword_strings.extend(str(kw) for kw in context_keywords if kw)
+            company_keywords = article_context.get("company_target_keywords")
+            if isinstance(company_keywords, list):
+                keyword_strings.extend(str(kw) for kw in company_keywords if kw)
+            elif company_keywords:
+                keyword_strings.append(str(company_keywords))
+            add_section("キーワード情報", [f"対象キーワード: {', '.join(keyword_strings)}"] if keyword_strings else [])
 
-            # テーマ・ペルソナ情報
+            # テーマ情報
+            theme_lines: List[str] = []
             theme = article_context.get("theme")
-            persona = article_context.get("persona")
             if theme:
-                context_parts.append(f"\n=== テーマ情報 ===")
-                # Handle both dict and object types
-                theme_title = ""
                 if hasattr(theme, 'title'):
-                    theme_title = theme.title
+                    theme_lines.append(f"テーマ: {theme.title}")
                 elif isinstance(theme, dict):
-                    theme_title = theme.get('title', '')
-                context_parts.append(f"テーマ: {theme_title}")
-            if persona:
-                context_parts.append(f"\n=== 想定読者 ===")
-                # Handle both dict and object types
-                persona_name = ""
-                persona_desc = ""
-                if hasattr(persona, 'name') and hasattr(persona, 'description'):
-                    persona_name = persona.name or ""
-                    persona_desc = persona.description or ""
-                elif isinstance(persona, dict):
-                    persona_name = persona.get('name', '')
-                    persona_desc = persona.get('description', '')
-                context_parts.append(f"ペルソナ: {persona_name} - {persona_desc[:100]}...")
+                    if theme.get('title'):
+                        theme_lines.append(f"テーマ: {theme['title']}")
+                    if theme.get('description'):
+                        theme_lines.append(f"テーマ概要: {theme['description']}")
+                    if theme.get('keywords'):
+                        theme_lines.append(f"テーマキーワード: {', '.join(theme['keywords'])}")
+            add_section("テーマ情報", theme_lines)
+
+            # 想定読者
+            persona_lines: List[str] = []
+            for persona_candidate in [
+                article_context.get("persona"),
+                article_context.get("selected_detailed_persona"),
+                article_context.get("custom_persona"),
+            ]:
+                if not persona_candidate:
+                    continue
+                if hasattr(persona_candidate, 'name') and hasattr(persona_candidate, 'description'):
+                    if persona_candidate.name:
+                        persona_lines.append(f"ペルソナ名: {persona_candidate.name}")
+                    if persona_candidate.description:
+                        persona_lines.append(f"読者像の詳細: {persona_candidate.description}")
+                elif isinstance(persona_candidate, dict):
+                    if persona_candidate.get('name'):
+                        persona_lines.append(f"ペルソナ名: {persona_candidate['name']}")
+                    if persona_candidate.get('description'):
+                        persona_lines.append(f"読者像の詳細: {persona_candidate['description']}")
+                    if persona_candidate.get('pain_points'):
+                        persona_lines.append(f"読者の悩み: {persona_candidate['pain_points']}")
+                    if persona_candidate.get('goals'):
+                        persona_lines.append(f"読者の目的: {persona_candidate['goals']}")
+            if article_context.get("persona_type"):
+                persona_lines.append(f"ペルソナタイプ: {article_context['persona_type']}")
+            add_section("想定読者", persona_lines)
+
+            # 参考記事
+            reference_lines: List[str] = []
+            if article_context.get("company_popular_articles"):
+                for item in article_context["company_popular_articles"]:
+                    if isinstance(item, dict):
+                        title = item.get('title') or item.get('name') or ""
+                        url = item.get('url') or item.get('link') or ""
+                        summary = item.get('summary') or item.get('description') or ""
+                        reference_lines.append(
+                            f"・{title} {f'({url})' if url else ''}\n  要約: {summary}".strip()
+                        )
+                    else:
+                        reference_lines.append(f"・{str(item)}")
+            add_section("参考となる既存記事", reference_lines)
 
         except Exception as e:
             logger.error(f"Error building article context info: {str(e)}")
@@ -320,31 +410,18 @@ URLが含まれている場合は、Web検索を活用して最新情報を取�
 
     def _build_output_format_instructions(self, include_heading: bool) -> str:
         """出力形式の指示を構築"""
-        if include_heading:
-            return """
---- 出力形式 ---
-見出し付きコンテンツを生成する場合:
+        heading_guidance = "- 必要に応じて冒頭に適切なレベルの<h2>〜<h4>見出しを1つ配置し、直後に導入となる段落を置いてください。" if include_heading else "- 新たな見出しは作成せず、既存セクションの一部として自然につながる段落のみを生成してください。"
 
-HEADING_LEVEL: [2-6] (H1は記事タイトル用なので避ける)
-HEADING_TEXT: [見出しテキスト]
-PARAGRAPH_TEXT: [HTMLタグを含む段落コンテンツ]
-
-要件:
-- 見出しは既存記事の構造に適した階層レベルを選択
-- 段落は詳細で情報豊富な内容
-- HTMLタグを適切に使用（<p>, <strong>, <ul>, <li> など）
-"""
-        else:
-            return """
---- 出力形式 ---
-段落コンテンツのみを生成する場合:
-
-PARAGRAPH_TEXT: [HTMLタグを含む段落コンテンツ]
-
-要件:
-- 情報豊富で読みやすい段落テキスト
-- HTMLタグを適切に使用（<p>, <strong>, <ul>, <li> など）
-- 既存記事の文脈に自然に溶け込む内容
+        return f"""
+--- 出力要件 ---
+- 生成するのは挿入用HTMLフラグメントのみで、コメントや余計な説明は一切出力しない
+- 各段落は必ず `<p>...</p>` でラップし、文章の中で必要な装飾は `<strong>` や `<a>` など既存記事と揃えたタグを使用する
+- 一文目は結論または要点から始め、以降に根拠・詳細・再確認を順序立てて展開する
+- 例示・数値・手順など具体的な情報を盛り込み、読者の課題解決に直結させる
+- 接続詞や指示語で前後セクションに滑らかにつなぐ
+- 箇条書きが必要な場合でも `<ul>` `<ol>` は使用せず、文章で端的に整理する
+- 日本語はですます調で統一し、専門用語には補足を添える
+- {heading_guidance}
 """
 
     def _parse_response(self, response) -> List[Dict[str, Any]]:
@@ -352,56 +429,70 @@ PARAGRAPH_TEXT: [HTMLタグを含む段落コンテンツ]
         blocks = []
 
         try:
-            # output_textから内容を取得
-            text_content = response.output_text
+            html_fragment = (getattr(response, 'output_text', '') or '').strip()
+            if not html_fragment:
+                return []
 
-            # 出力形式に従って解析
-            lines = text_content.strip().split('\n')
+            block_pattern = re.compile(r'(<(h[1-6]|p|div|blockquote)[^>]*>.*?</\2>)', re.IGNORECASE | re.DOTALL)
 
-            current_block = {}
+            for match in block_pattern.finditer(html_fragment):
+                full_block = match.group(1)
+                tag = match.group(2).lower()
+                inner = re.sub(rf'^<\s*{tag}[^>]*>|</{tag}\s*>$', '', full_block, flags=re.IGNORECASE | re.DOTALL).strip()
 
-            for line in lines:
-                line = line.strip()
-                if not line:
-                    continue
-
-                if line.startswith('HEADING_LEVEL:'):
-                    current_block['type'] = 'heading'
-                    level_str = line.replace('HEADING_LEVEL:', '').strip()
-                    try:
-                        current_block['level'] = int(level_str)
-                    except ValueError:
-                        current_block['level'] = 2  # デフォルトH2
-
-                elif line.startswith('HEADING_TEXT:'):
-                    heading_text = line.replace('HEADING_TEXT:', '').strip()
-                    current_block['content'] = heading_text
-                    blocks.append(current_block.copy())
-                    current_block = {}
-
-                elif line.startswith('PARAGRAPH_TEXT:'):
-                    paragraph_text = line.replace('PARAGRAPH_TEXT:', '').strip()
+                if tag.startswith('h') and tag[1].isdigit():
+                    blocks.append({
+                        'type': 'heading',
+                        'level': int(tag[1]),
+                        'content': inner
+                    })
+                else:
                     blocks.append({
                         'type': 'paragraph',
-                        'content': paragraph_text
+                        'content': inner
                     })
 
-            # フォールバック: 構造化された出力が見つからない場合
-            if not blocks and text_content:
+            if not blocks:
                 blocks.append({
                     'type': 'paragraph',
-                    'content': text_content
+                    'content': html_fragment
                 })
 
         except Exception as e:
             logger.error(f"Response parsing failed: {str(e)}")
-            # フォールバック
             blocks.append({
                 'type': 'paragraph',
-                'content': response.output_text if hasattr(response, 'output_text') else "コンテンツ生成に失敗しました"
+                'content': getattr(response, 'output_text', "コンテンツ生成に失敗しました")
             })
 
         return blocks
+
+    def _insert_marker(self, article_html: str, insert_position: Optional[int]) -> str:
+        """挿入位置にマーカーを挿入した記事HTMLを返す"""
+        if not article_html or insert_position is None:
+            return article_html
+
+        block_pattern = re.compile(r'(<(?:h[1-6]|p|div|section|article|ul|ol|blockquote|pre|figure)[^>]*>.*?</(?:h[1-6]|p|div|section|article|ul|ol|blockquote|pre|figure)>|<img[^>]*?>)', re.IGNORECASE | re.DOTALL)
+        matches = list(block_pattern.finditer(article_html))
+
+        marker_html = "<div style=\"background:#f5f5f5; border:1px dashed #999; padding:12px; text-align:center; margin:12px 0;\"><strong>▼▼▼ ここに新しいコンテンツを挿入してください ▼▼▼</strong></div>"
+
+        try:
+            insert_index = max(0, int(insert_position))
+        except (ValueError, TypeError):
+            insert_index = len(matches)
+
+        if not matches:
+            return f"{article_html}{marker_html}"
+
+        insert_index = min(insert_index, len(matches))
+
+        if insert_index >= len(matches):
+            insert_pos = matches[-1].end()
+            return f"{article_html[:insert_pos]}{marker_html}{article_html[insert_pos:]}"
+
+        insert_pos = matches[insert_index].start()
+        return f"{article_html[:insert_pos]}{marker_html}{article_html[insert_pos:]}"
 
     async def generate_content_from_file(
         self,
