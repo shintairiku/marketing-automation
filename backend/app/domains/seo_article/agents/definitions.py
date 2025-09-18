@@ -67,51 +67,29 @@ def build_style_context(ctx: ArticleContext) -> str:
         return "=== デフォルトスタイルガイド ===\n親しみやすく分かりやすい文章で、読者に寄り添うトーン。専門用語を避け、日本の一般的なブログやコラムのような自然で人間味あふれる表現を使用。"
 
 def build_enhanced_company_context(ctx: ArticleContext) -> str:
-    """拡張された会社情報コンテキストを構築"""
+    """会社情報コンテキストを構築（テーマ関連性を重視した簡潔版）"""
     if not hasattr(ctx, 'company_name') or not ctx.company_name:
         return "企業情報: 未設定（一般的な記事として作成）"
-    
+
     company_parts = []
-    
-    # 基本情報
+
+    # 基本情報（簡潔に）
     company_parts.append(f"企業名: {ctx.company_name}")
+    company_parts.append("\n※ 以下の企業情報は、テーマに直接関連し企業の専門分野に該当する場合のみ参考としてください※")
     
+    # 最重要な情報のみ簡潔に表示
     if hasattr(ctx, 'company_description') and ctx.company_description:
-        company_parts.append(f"概要: {ctx.company_description}")
-    
+        company_parts.append(f"概要: {ctx.company_description[:100]}...")  # 文字数制限
+
     if hasattr(ctx, 'company_usp') and ctx.company_usp:
-        company_parts.append(f"USP・強み: {ctx.company_usp}")
-    
-    if hasattr(ctx, 'company_website_url') and ctx.company_website_url:
-        company_parts.append(f"ウェブサイト: {ctx.company_website_url}")
-    
-    if hasattr(ctx, 'company_target_persona') and ctx.company_target_persona:
-        company_parts.append(f"主要ターゲット: {ctx.company_target_persona}")
-    
-    # ブランディング情報
-    if hasattr(ctx, 'company_brand_slogan') and ctx.company_brand_slogan:
-        company_parts.append(f"ブランドスローガン: {ctx.company_brand_slogan}")
-    
-    # SEO・コンテンツ戦略
-    if hasattr(ctx, 'company_target_keywords') and ctx.company_target_keywords:
-        company_parts.append(f"重要キーワード: {ctx.company_target_keywords}")
-    
-    if hasattr(ctx, 'company_industry_terms') and ctx.company_industry_terms:
-        company_parts.append(f"業界専門用語: {ctx.company_industry_terms}")
-    
+        company_parts.append(f"専門分野: {ctx.company_usp[:80]}...")  # USPではなく専門分野として表現
+
+    # 避けるべき表現のみ表示（重要）
     if hasattr(ctx, 'company_avoid_terms') and ctx.company_avoid_terms:
         company_parts.append(f"避けるべき表現: {ctx.company_avoid_terms}")
     
-    # コンテンツ参考情報
-    if hasattr(ctx, 'company_popular_articles') and ctx.company_popular_articles:
-        company_parts.append(f"人気記事参考: {ctx.company_popular_articles}")
-    
-    if hasattr(ctx, 'company_target_area') and ctx.company_target_area:
-        company_parts.append(f"対象エリア: {ctx.company_target_area}")
-    
-    if hasattr(ctx, 'past_articles_summary') and ctx.past_articles_summary:
-        company_parts.append(f"過去記事傾向: {ctx.past_articles_summary}")
-    
+    company_parts.append("\n※重要: 上記企業情報はテーマに直接関連する場合のみ参考とし、テーマと無関係な内容は一切反映しないでください※")
+
     return "\n".join(company_parts)
 
 # --- 動的プロンプト生成関数 ---
@@ -164,16 +142,23 @@ def create_theme_instructions(base_prompt: str) -> Callable[[RunContextWrapper[A
 想定読者の詳細:\n{persona_description}
 提案するテーマ数: {ctx.context.num_theme_proposals}
 
-=== 企業情報 ===
-{company_info_str}
-
 {seo_analysis_str}
+
+=== 企業情報（参考用） ===
+{company_info_str}
 ---
 
-**重要な注意事項:**
-- 企業情報を活用して、その企業らしさが出るテーマを提案してください
+**重要なバランス指針:**
+- **検索意図を最優先（重要度85%）**: キーワードと読者ニーズに厳密に合致した実用的なテーマを提案
+- **企業情報は最小限の参考（重要度15%）**: テーマに直接関連し自然に組み込める場合のみ軽く反映
 - 日付情報を考慮し、季節やタイミングに適したコンテンツを提案してください
-- 企業のターゲット顧客や強みを反映した独自性のあるアプローチを心がけてください
+- **厳格な制限事項**: 提供されたキーワードとSerpAPI分析結果に含まれない概念・用語は一切追加しない
+
+**テーマ提案の優先順位:**
+1. 検索ユーザーが求める実用的な情報価値（最重要）
+2. キーワードとSerpAPI分析結果との厳密な関連性
+3. ターゲット読者の具体的な悩み・関心事
+4. 企業の専門分野に該当する場合のみ、軽微な関連性の反映
 
 あなたの応答は必ず `ThemeProposal` または `ClarificationNeeded` 型のJSON形式で出力してください。
 """
@@ -213,10 +198,24 @@ def create_research_planner_instructions(base_prompt: str) -> Callable[[RunConte
 キーワード: {', '.join(ctx.context.selected_theme.keywords)}
 想定読者の詳細:\n{persona_description}
 
-=== 企業情報 ===
-{company_info_str}
 {seo_guidance_str}
+
+=== 企業情報（参考用・制限的使用） ===
+{company_info_str}
 ---
+
+**リサーチ計画の厳格な指針:**
+- **テーマ完全一致原則（最優先）**: 選択されたテーマのタイトル、説明、キーワードに厳密に一致する情報のみをリサーチ対象とする
+- **検索意図専念（90%）**: 読者がそのキーワードで求める情報のみを収集
+- **企業情報は最小限（10%）**: テーマに直接的に関連し、かつ企業の専門領域に該当する場合のみ考慮
+- **絶対禁止事項**: テーマ、キーワード、SerpAPI分析結果に含まれないいかなる概念や用語もリサーチクエリに含めない
+
+**検索クエリ生成の厳密な基準:**
+1. テーマタイトルとキーワードに直結する基礎情報・定義
+2. 読者がそのキーワードで求める具体的な疑問・悩みへの答え
+3. テーマに完全一致する実践的なノウハウ・手順
+4. テーマキーワードに直接関連する統計データ・事例のみ
+5. テーマ範囲内での比較・選択肢のみ
 
 **重要:**
 - 上記テーマについて深く掘り下げるための、具体的で多様な検索クエリを **{ctx.context.num_research_queries}個** 生成してください。
@@ -412,13 +411,21 @@ def create_outline_instructions(base_prompt: str) -> Callable[[RunContextWrapper
 }}
 ```
 
+**重要な構成指針:**
+- **リサーチ結果を絶対優先（重要度90%）**: テーマとキーワード、SerpAPI分析、リサーチ結果に厳密に基づく構成
+- **企業情報は最小限の参考（重要度10%）**: テーマに直接的に関連し企業の専門領域に該当する場合のみ軽微に反映
+- **テーマ完全一致原則**: 選択されたテーマのタイトル、説明、キーワードから一切逸脱しない
+- **厳格な制限事項**: テーマ、キーワード、リサーチ結果に含まれないいかなる概念や用語も構成に含めない
+
+**アウトライン作成の厳密な基準:**
+1. テーマキーワードとリサーチ結果の**キーポイント**に完全一致する構成のみ作成
+2. **想定読者「{persona_description}」**がそのキーワードで求める情報のみを構成に含める
+3. スタイルガイドに従いつつ、テーマに集中したトーン設定
+4. SerpAPI分析結果とテーマに完全一致する差別化要素のみ反映
+5. 文字数指定に応じたセクション構成（テーマの範囲内で）
+
 **重要:**
-- 上記のテーマと**詳細なリサーチ結果**、SerpAPI分析結果に基づいて、記事のアウトラインを作成してください。
-- リサーチ結果の**キーポイント（出典情報も考慮）**や面白い切り口をアウトラインに反映させてください。
-- **想定する読者「{persona_description}」** が読みやすいように、記事全体のトーンを提案してください。{f'**クライアントのスタイルガイド（{ctx.context.company_style_guide}）に従って**' if ctx.context.company_style_guide else '日本の一般的なブログやコラムのような、**親しみやすく分かりやすいトーン**で'}トーンを決定してください。
-- SerpAPI分析で判明した競合の弱点を補強し、差別化要素を強調した構成にしてください。
 - あなたの応答は必ず `Outline` または `ClarificationNeeded` 型のJSON形式で出力してください。 (APIコンテキストではClarificationNeededはエラーとして処理)
-- 文字数指定がある場合は、それに応じてセクション数や深さを調整してください。
 """
         return full_prompt
     return dynamic_instructions_func
