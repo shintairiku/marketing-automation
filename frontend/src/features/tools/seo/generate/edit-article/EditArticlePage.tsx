@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import NextImage from 'next/image';
 import { AlertCircle, Bot, Copy, Download, Edit, Image, Loader2, Save, Sparkles, Trash2, Upload, Wand2, X } from 'lucide-react';
 
@@ -147,6 +147,7 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
   const [insertPosition, setInsertPosition] = useState<number>(0);
   const [editorView, setEditorView] = useState<'blocks' | 'visual'>('blocks');
   const [visualHtml, setVisualHtml] = useState('');
+  const visualSyncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const selectedBlocksCount = useMemo(() => blocks.filter(b => b.isSelected).length, [blocks]);
 
@@ -324,8 +325,23 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
 
   const handleVisualEditorChange = useCallback((nextHtml: string) => {
     setVisualHtml(nextHtml);
-    setBlocks(parseHtmlToBlocks(nextHtml));
+
+    if (visualSyncTimerRef.current) {
+      clearTimeout(visualSyncTimerRef.current);
+    }
+
+    visualSyncTimerRef.current = setTimeout(() => {
+      setBlocks(parseHtmlToBlocks(nextHtml));
+    }, 700);
   }, [parseHtmlToBlocks]);
+
+  useEffect(() => {
+    return () => {
+      if (visualSyncTimerRef.current) {
+        clearTimeout(visualSyncTimerRef.current);
+      }
+    };
+  }, []);
 
   // 記事の画像を復元する関数
   const restoreArticleImages = useCallback(async () => {
@@ -1342,7 +1358,7 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
 
   // 自動保存フックの設定
   const autoSave = useAutoSave(blocks, autoSaveArticle, {
-    delay: 2000, // 2秒のデバウンス
+    delay: 5000, // 5秒のデバウンスで入力負荷を軽減
     enabled: autoSaveEnabled && !!article && blocks.length > 0,
     maxRetries: 3, // 最大3回リトライ
     retryDelay: 1000, // 1秒後にリトライ開始
