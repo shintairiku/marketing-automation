@@ -29,6 +29,7 @@ import ArticlePreviewStyles from '../new-article/component/ArticlePreviewStyles'
 
 import BlockInsertButton from './components/BlockInsertButton';
 import ContentSelectorDialog from './components/ContentSelectorDialog';
+import HeadingLevelDialog from './components/HeadingLevelDialog';
 import TableOfContentsDialog from './components/TableOfContentsDialog';
 
 interface EditArticlePageProps {
@@ -37,7 +38,7 @@ interface EditArticlePageProps {
 
 interface ArticleBlock {
   id: string;
-  type: 'h1' | 'h2' | 'h3' | 'p' | 'ul' | 'ol' | 'li' | 'img' | 'image_placeholder' | 'replaced_image' | 'div';
+  type: 'h1' | 'h2' | 'h3' | 'h4' | 'h5' | 'h6' | 'p' | 'ul' | 'ol' | 'li' | 'img' | 'image_placeholder' | 'replaced_image' | 'div';
   content: string;
   isEditing: boolean;
   isSelected: boolean;
@@ -138,6 +139,7 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
   // コンテンツ挿入関連のstate
   const [contentSelectorOpen, setContentSelectorOpen] = useState(false);
   const [tocDialogOpen, setTocDialogOpen] = useState(false);
+  const [headingLevelDialogOpen, setHeadingLevelDialogOpen] = useState(false);
   const [insertPosition, setInsertPosition] = useState<number>(0);
 
   const selectedBlocksCount = useMemo(() => blocks.filter(b => b.isSelected).length, [blocks]);
@@ -416,11 +418,76 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
     }
   };
 
+  // 新しいブロックを作成するヘルパー関数
+  const createNewBlock = (type: ArticleBlock['type'], content: string = ''): ArticleBlock => {
+    return {
+      id: `block-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      type,
+      content,
+      isEditing: false,
+      isSelected: false
+    };
+  };
+
   // コンテンツタイプ選択の処理
   const handleSelectContentType = (type: string) => {
     if (type === 'table-of-contents') {
       setTocDialogOpen(true);
+    } else if (type === 'heading') {
+      setHeadingLevelDialogOpen(true);
+    } else {
+      // テキストブロックの追加
+      let blockType: ArticleBlock['type'] = 'p';
+      let initialContent = '';
+
+      switch (type) {
+        case 'paragraph':
+          blockType = 'p';
+          initialContent = 'ここにテキストを入力してください...';
+          break;
+        case 'unordered-list':
+          blockType = 'ul';
+          initialContent = '<li>リストアイテム 1</li><li>リストアイテム 2</li>';
+          break;
+        case 'ordered-list':
+          blockType = 'ol';
+          initialContent = '<li>番号付きアイテム 1</li><li>番号付きアイテム 2</li>';
+          break;
+        default:
+          blockType = 'p';
+          initialContent = '新しいブロック';
+      }
+
+      const newBlock = createNewBlock(blockType, initialContent);
+      insertNewBlock(newBlock);
     }
+
+    // ダイアログを閉じる
+    setContentSelectorOpen(false);
+  };
+
+  // 見出しレベル選択の処理
+  const handleSelectHeadingLevel = (level: number) => {
+    const blockType = `h${level}` as ArticleBlock['type'];
+    const initialContent = `見出し ${level}`;
+    const newBlock = createNewBlock(blockType, initialContent);
+    insertNewBlock(newBlock);
+  };
+
+  // ブロック挿入の共通処理
+  const insertNewBlock = (newBlock: ArticleBlock) => {
+    // 指定された位置にブロックを挿入
+    setBlocks(prev => {
+      const newBlocks = [...prev];
+      const safeInsertPos = Math.min(insertPosition, newBlocks.length);
+      newBlocks.splice(safeInsertPos, 0, newBlock);
+      return newBlocks;
+    });
+
+    // 挿入後、新しいブロックを編集モードにする
+    setTimeout(() => {
+      startEditing(newBlock.id);
+    }, 100);
   };
 
   // 目次の挿入と見出しIDの更新
@@ -2063,6 +2130,14 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
         onClose={() => setTocDialogOpen(false)}
         onInsertToc={handleInsertToc}
         htmlContent={blocksToHtml(blocks)}
+      />
+
+      {/* 見出しレベル選択ダイアログ */}
+      <HeadingLevelDialog
+        isOpen={headingLevelDialogOpen}
+        onClose={() => setHeadingLevelDialogOpen(false)}
+        onSelectHeading={handleSelectHeadingLevel}
+        position={insertPosition}
       />
     </div>
   );
