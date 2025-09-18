@@ -1582,3 +1582,105 @@ async def copy_template_flow(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to copy template flow"
         )
+
+# --- AI Content Generation Endpoints ---
+
+from .services.ai_content_generation_service import AIContentGenerationService
+from .schemas import AIContentGenerationRequest, AIContentGenerationResponse
+from fastapi import UploadFile, File, Form
+
+@router.post("/ai-content-generation", response_model=AIContentGenerationResponse)
+async def generate_ai_content(
+    request: AIContentGenerationRequest,
+    current_user_id: str = Depends(get_current_user_id_from_token)
+):
+    """
+    AIコンテンツ生成エンドポイント
+    ユーザー入力（テキスト、画像、URL）からコンテンツブロックを生成
+    """
+    try:
+        ai_service = AIContentGenerationService()
+
+        # 入力データを構築
+        input_data = {
+            "type": request.input_type,
+            "content": request.content,
+            "include_heading": request.include_heading,
+            "article_id": request.article_id,
+            "insert_position": request.insert_position,
+            "article_html": request.article_html
+        }
+
+        if request.image_data:
+            input_data["image_data"] = request.image_data
+
+        if request.additional_text:
+            input_data["additional_text"] = request.additional_text
+
+        # コンテンツ生成
+        result = await ai_service.generate_content_blocks(
+            input_data=input_data,
+            user_instruction=request.user_instruction,
+            user_id=current_user_id
+        )
+
+        return AIContentGenerationResponse(**result)
+
+    except Exception as e:
+        logger.error(f"AI content generation failed: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"AI content generation failed: {str(e)}"
+        )
+
+@router.post("/ai-content-generation/upload", response_model=AIContentGenerationResponse)
+async def generate_ai_content_from_upload(
+    file: UploadFile = File(...),
+    include_heading: bool = Form(False),
+    user_instruction: Optional[str] = Form(None),
+    article_id: Optional[str] = Form(None),
+    insert_position: Optional[int] = Form(None),
+    article_html: Optional[str] = Form(None),
+    current_user_id: str = Depends(get_current_user_id_from_token)
+):
+    """
+    ファイルアップロードからAIコンテンツ生成
+    """
+    try:
+        ai_service = AIContentGenerationService()
+
+        # ファイルを一時保存
+        import tempfile
+        import os
+
+        with tempfile.NamedTemporaryFile(delete=False) as temp_file:
+            content = await file.read()
+            temp_file.write(content)
+            temp_file_path = temp_file.name
+
+        try:
+            # コンテンツ生成
+            result = await ai_service.generate_content_from_file(
+                file_path=temp_file_path,
+                file_type=file.content_type or "application/octet-stream",
+                user_instruction=user_instruction,
+                include_heading=include_heading,
+                user_id=current_user_id,
+                article_id=article_id,
+                insert_position=insert_position,
+                article_html=article_html
+            )
+
+            return AIContentGenerationResponse(**result)
+
+        finally:
+            # 一時ファイル削除
+            if os.path.exists(temp_file_path):
+                os.unlink(temp_file_path)
+
+    except Exception as e:
+        logger.error(f"AI content generation from upload failed: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"AI content generation from upload failed: {str(e)}"
+        )

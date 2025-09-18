@@ -241,7 +241,8 @@ export default function InputSection({ onStartGeneration, isConnected, isGenerat
           <Card>
             <CardHeader>
               <CardTitle className="text-lg flex items-center gap-2">
-                <Image className="h-5 w-5" />
+                {/* eslint-disable-next-line jsx-a11y/alt-text */}
+                <Image className="h-5 w-5" aria-hidden="true" />
                 画像生成・挿入機能
               </CardTitle>
             </CardHeader>

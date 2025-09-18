@@ -56,13 +56,24 @@ export async function POST(
   const { path: pathArray } = await params;
   const pathString = pathArray.join('/');
   const url = `${API_BASE_URL}/${pathString}`;
-  const body = await request.text();
 
-  // Forward Authorization header if present
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-  };
-  
+  // Check if request is FormData
+  const contentType = request.headers.get('content-type');
+  const isFormData = contentType?.includes('multipart/form-data');
+
+  let body: any;
+  const headers: Record<string, string> = {};
+
+  if (isFormData) {
+    // For FormData, let fetch set the Content-Type with boundary
+    const formData = await request.formData();
+    body = formData;
+  } else {
+    // For JSON
+    headers['Content-Type'] = 'application/json';
+    body = await request.text();
+  }
+
   const authHeader = request.headers.get('Authorization');
   if (authHeader) {
     headers.Authorization = authHeader;

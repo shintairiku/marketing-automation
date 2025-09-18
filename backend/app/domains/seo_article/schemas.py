@@ -400,3 +400,38 @@ except ImportError:
         """エージェント出力の基底クラス"""
         content: Any = Field(description="出力内容")
         metadata: Dict[str, Any] = Field(default_factory=dict, description="メタデータ")
+
+# --- AI Content Generation Models ---
+
+class AIContentInputType(str, Enum):
+    TEXT = "text"
+    IMAGE = "image"
+    URL = "url"
+
+class AIContentGenerationRequest(BaseModel):
+    """AIコンテンツ生成リクエスト（統一入力形式）"""
+    input_type: AIContentInputType = Field(default="text", description="入力タイプ（通常はtext）")
+    content: str = Field(..., description="テキスト内容（URLを含む場合は自動的にWeb検索を実行）")
+    include_heading: bool = Field(False, description="見出しを含めるかどうか")
+
+    # 記事文脈情報（編集画面での使用）
+    article_id: Optional[str] = Field(None, description="記事ID（文脈情報取得用）")
+    insert_position: Optional[int] = Field(None, description="挿入位置（ブロックインデックス）")
+    article_html: Optional[str] = Field(None, description="記事全体のHTML（文脈参照用）")
+
+    # 下位互換性のため保持（非推奨）
+    image_data: Optional[str] = Field(None, description="base64エンコードされた画像データ（非推奨：ファイルアップロードを使用）")
+    additional_text: Optional[str] = Field(None, description="追加のテキスト情報（非推奨：contentに統合）")
+    user_instruction: Optional[str] = Field(None, description="ユーザーからの追加指示（非推奨：contentに統合）")
+
+class AIContentBlock(BaseModel):
+    """生成されたコンテンツブロック"""
+    type: str = Field(..., description="ブロックタイプ (heading, paragraph)")
+    content: str = Field(..., description="ブロック内容")
+    level: Optional[int] = Field(None, description="見出しレベル (1-6, headingの場合のみ)")
+
+class AIContentGenerationResponse(BaseModel):
+    """AIコンテンツ生成レスポンス"""
+    success: bool = Field(..., description="生成成功フラグ")
+    blocks: List[AIContentBlock] = Field(default_factory=list, description="生成されたコンテンツブロック")
+    error: Optional[str] = Field(None, description="エラーメッセージ")
