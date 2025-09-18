@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 from typing import List, Optional, Dict, Any, Union
 from enum import Enum
 from app.common.schemas import BasePayload
@@ -41,9 +41,18 @@ class GenerateArticleRequest(BaseModel):
     # --- 画像モード関連 (新規追加) ---
     image_mode: bool = Field(False, description="画像プレースホルダー機能を使用するかどうか")
     image_settings: Optional[dict] = Field(None, description="画像生成設定")
-    
+
     # --- スタイルテンプレート関連 (新規追加) ---
     style_template_id: Optional[str] = Field(None, description="使用するスタイルテンプレートのID")
+
+    # --- アウトライン高度化設定 ---
+    advanced_outline_mode: bool = Field(False, description="高度アウトラインモードを有効にするかどうか")
+    outline_top_level_heading: Optional[int] = Field(
+        default=2,
+        description="トップレベル見出しに使用するHTMLレベル (例: 2=H2, 3=H3)",
+        ge=2,
+        le=6,
+    )
 
     class Config:
         json_schema_extra = {
@@ -60,7 +69,9 @@ class GenerateArticleRequest(BaseModel):
                 "company_description": "札幌を拠点に、自然素材を活かした健康で快適な注文住宅を提供しています。",
                 "image_mode": False,
                 "image_settings": {},
-                "company_style_guide": "専門用語を避け、温かみのある丁寧語（ですます調）で。子育て世代の読者に寄り添い、安心感を与えるようなトーンを心がける。"
+                "company_style_guide": "専門用語を避け、温かみのある丁寧語（ですます調）で。子育て世代の読者に寄り添い、安心感を与えるようなトーンを心がける。",
+                "advanced_outline_mode": False,
+                "outline_top_level_heading": 2,
             }
         }
 
@@ -116,13 +127,18 @@ class ResearchCompletePayload(BasePayload):
 
 class OutlineSectionData(BaseModel):
     heading: str
+    level: int = Field(2, description="この見出しのHTMLレベル (例: 2=H2)", ge=1, le=6)
+    description: Optional[str] = Field(default=None, description="この見出しで扱う内容の簡潔な説明")
     estimated_chars: Optional[int] = None
     subsections: Optional[List['OutlineSectionData']] = None # 再帰的な型ヒント
 
 class OutlineData(BaseModel):
     title: str
     suggested_tone: str
+    top_level_heading: int = Field(2, description="トップレベル見出しに使用するHTMLレベル", ge=1, le=6)
     sections: List[OutlineSectionData]
+
+OutlineSectionData.model_rebuild()
 
 class OutlinePayload(BasePayload):
     """アウトラインペイロード (承認要求時に使用)"""
@@ -384,3 +400,38 @@ except ImportError:
         """エージェント出力の基底クラス"""
         content: Any = Field(description="出力内容")
         metadata: Dict[str, Any] = Field(default_factory=dict, description="メタデータ")
+
+# --- AI Content Generation Models ---
+
+class AIContentInputType(str, Enum):
+    TEXT = "text"
+    IMAGE = "image"
+    URL = "url"
+
+class AIContentGenerationRequest(BaseModel):
+    """AIコンテンツ生成リクエスト（統一入力形式）"""
+    input_type: AIContentInputType = Field(default="text", description="入力タイプ（通常はtext）")
+    content: str = Field(..., description="テキスト内容（URLを含む場合は自動的にWeb検索を実行）")
+    include_heading: bool = Field(False, description="見出しを含めるかどうか")
+
+    # 記事文脈情報（編集画面での使用）
+    article_id: Optional[str] = Field(None, description="記事ID（文脈情報取得用）")
+    insert_position: Optional[int] = Field(None, description="挿入位置（ブロックインデックス）")
+    article_html: Optional[str] = Field(None, description="記事全体のHTML（文脈参照用）")
+
+    # 下位互換性のため保持（非推奨）
+    image_data: Optional[str] = Field(None, description="base64エンコードされた画像データ（非推奨：ファイルアップロードを使用）")
+    additional_text: Optional[str] = Field(None, description="追加のテキスト情報（非推奨：contentに統合）")
+    user_instruction: Optional[str] = Field(None, description="ユーザーからの追加指示（非推奨：contentに統合）")
+
+class AIContentBlock(BaseModel):
+    """生成されたコンテンツブロック"""
+    type: str = Field(..., description="ブロックタイプ (heading, paragraph)")
+    content: str = Field(..., description="ブロック内容")
+    level: Optional[int] = Field(None, description="見出しレベル (1-6, headingの場合のみ)")
+
+class AIContentGenerationResponse(BaseModel):
+    """AIコンテンツ生成レスポンス"""
+    success: bool = Field(..., description="生成成功フラグ")
+    blocks: List[AIContentBlock] = Field(default_factory=list, description="生成されたコンテンツブロック")
+    error: Optional[str] = Field(None, description="エラーメッセージ")

@@ -68,10 +68,15 @@ class ImageGenerationService:
         
         # Google Cloud設定
         self.location = settings.google_cloud_location
-        self.storage_path = Path(settings.image_storage_path)
+        # 画像保存先はバックエンドルート基準 + 環境設定パスを解決
+        backend_root = Path(__file__).parent.parent.parent.parent
+        configured_path = Path(settings.image_storage_path)
+        self.storage_path = (
+            configured_path if configured_path.is_absolute() else backend_root / configured_path
+        )
         
-        # ストレージディレクトリを作成
-        self.storage_path.mkdir(exist_ok=True)
+        # ストレージディレクトリを作成（親も含めて）
+        self.storage_path.mkdir(parents=True, exist_ok=True)
         
         # Vertex AI の初期化
         self._initialized = False

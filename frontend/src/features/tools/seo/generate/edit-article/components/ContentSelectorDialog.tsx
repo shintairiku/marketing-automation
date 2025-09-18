@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { BookOpen, Plus } from 'lucide-react';
+import { BookOpen, Heading1, Heading2, Heading3, List, ListOrdered, Plus, Type } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -21,14 +21,45 @@ interface ContentSelectorDialogProps {
 
 const contentTypes = [
   {
+    id: 'paragraph',
+    title: '段落',
+    description: '通常のテキスト段落を追加します。',
+    icon: Type,
+    color: 'from-gray-500 to-gray-600',
+    hoverColor: 'hover:from-gray-600 hover:to-gray-700'
+  },
+  {
+    id: 'heading',
+    title: '見出し',
+    description: '見出しを追加します。H1からH6までのレベルを選択できます。',
+    icon: Heading1,
+    color: 'from-purple-500 to-purple-600',
+    hoverColor: 'hover:from-purple-600 hover:to-purple-700'
+  },
+  {
+    id: 'unordered-list',
+    title: '箇条書きリスト',
+    description: 'ビュレットポイント形式のリストを追加します。',
+    icon: List,
+    color: 'from-green-500 to-green-600',
+    hoverColor: 'hover:from-green-600 hover:to-green-700'
+  },
+  {
+    id: 'ordered-list',
+    title: '番号付きリスト',
+    description: '順番を示す番号付きのリストを追加します。',
+    icon: ListOrdered,
+    color: 'from-orange-500 to-orange-600',
+    hoverColor: 'hover:from-orange-600 hover:to-orange-700'
+  },
+  {
     id: 'table-of-contents',
     title: '目次を追加',
     description: '記事の見出しから自動で目次を生成します。見出しレベルをカスタマイズできます。',
     icon: BookOpen,
-    color: 'from-blue-500 to-blue-600',
-    hoverColor: 'hover:from-blue-600 hover:to-blue-700'
+    color: 'from-teal-500 to-teal-600',
+    hoverColor: 'hover:from-teal-600 hover:to-teal-700'
   },
-  // 将来的に他のコンテンツタイプを追加予定
 ];
 
 export default function ContentSelectorDialog({

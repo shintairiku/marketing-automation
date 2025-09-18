@@ -5,6 +5,7 @@ import { motion } from 'framer-motion';
 import { AlertCircle, CheckCircle, Info, RefreshCw } from 'lucide-react';
 
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import ConnectionStatus from '@/components/ui/connection-status';
@@ -286,6 +287,36 @@ export default function EnhancedArticleGeneration({
   const renderOutlineApproval = () => {
     if (!state.outline) return null;
 
+    const renderOutlineTree = (items: any[], depth = 0): React.ReactElement[] | null => {
+      if (!Array.isArray(items) || items.length === 0) return null;
+      return items.map((item, index) => {
+        const key = `outline-approval-${depth}-${index}`;
+        const children = renderOutlineTree(item?.subsections || [], depth + 1);
+        return (
+          <div
+            key={key}
+            className={`space-y-1 ${depth > 0 ? 'border-l border-dashed border-gray-200 pl-3' : ''}`}
+          >
+            <div className="flex items-center gap-2">
+              {typeof item?.level === 'number' && (
+                <Badge variant="outline" className="bg-white text-blue-700">
+                  H{item.level}
+                </Badge>
+              )}
+              <h5 className="text-sm font-medium">{item?.heading || ''}</h5>
+            </div>
+            {item?.description && (
+              <p className="ml-6 text-xs text-gray-500">{item.description}</p>
+            )}
+            {item?.estimated_chars && (
+              <p className="ml-6 text-xs text-gray-400">約 {item.estimated_chars} 文字</p>
+            )}
+            {children && <div className="space-y-1">{children}</div>}
+          </div>
+        );
+      });
+    };
+
     return (
       <Card>
         <CardHeader>
@@ -299,16 +330,7 @@ export default function EnhancedArticleGeneration({
             <h4 className="font-medium">{state.outline.title}</h4>
             {state.outline.sections && (
               <div className="mt-3 space-y-2">
-                {state.outline.sections.map((section: any, index: number) => (
-                  <div key={index} className="pl-3 border-l-2 border-gray-300">
-                    <h5 className="text-sm font-medium">{section.heading}</h5>
-                    {section.estimated_chars && (
-                      <p className="text-xs text-gray-500">
-                        約 {section.estimated_chars} 文字
-                      </p>
-                    )}
-                  </div>
-                ))}
+                {renderOutlineTree(state.outline.sections)}
               </div>
             )}
           </div>

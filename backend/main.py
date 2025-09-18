@@ -36,8 +36,10 @@ app.include_router(api_router)
 
 # 画像の静的ファイル配信は /images/serve/{filename} エンドポイントで処理
 # StaticFilesによる /images マウントは画像APIと衝突するため削除
-# 画像ディレクトリは確保しておく
-images_directory = Path(__file__).parent / settings.image_storage_path.lstrip('/')
+# 画像ディレクトリは確保しておく（backendルート基準で解決）
+backend_root = Path(__file__).parent
+configured_path = Path(settings.image_storage_path)
+images_directory = configured_path if configured_path.is_absolute() else backend_root / configured_path
 images_directory.mkdir(parents=True, exist_ok=True)
 print(f"画像ディレクトリ: {images_directory.resolve()}")
 

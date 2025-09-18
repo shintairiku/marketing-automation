@@ -837,7 +837,7 @@ export const useArticleGenerationRealtime = ({
       
       return newState;
     });
-  }, [lastProcessedState, lastProcessedTime, processedEventIds]); // Include deduplication state
+  }, [ingestProcessData, mapBackendStepToUIStep, setValidatedState, processedEventIds]); // Include deduplication state
 
   const handleRealtimeError = useCallback((error: Error) => {
     console.error('Realtime error:', error);
@@ -935,7 +935,7 @@ export const useArticleGenerationRealtime = ({
       }));
       throw error;
     }
-  }, [getToken]);
+  }, [getToken, setValidatedState]);
 
   const submitUserInput = useCallback(async (inputData: any) => {
     if (!processId) {
@@ -969,7 +969,7 @@ export const useArticleGenerationRealtime = ({
       }));
       throw error;
     }
-  }, [processId, getToken]);
+  }, [processId, getToken, setValidatedState]);
 
   const selectPersona = useCallback(async (personaId: number): Promise<ActionResult> => {
     // Only proceed if connected to Supabase Realtime
@@ -1025,7 +1025,7 @@ export const useArticleGenerationRealtime = ({
       }));
       return { success: false, error: error instanceof Error ? error.message : 'ペルソナ選択に失敗しました' };
     }
-  }, [submitUserInput, isConnected, fetchProcessData]);
+  }, [submitUserInput, isConnected, fetchProcessData, setValidatedState]);
 
   const selectTheme = useCallback(async (themeIndex: number): Promise<ActionResult> => {
     // Only proceed if connected to Supabase Realtime
@@ -1080,7 +1080,7 @@ export const useArticleGenerationRealtime = ({
       }));
       return { success: false, error: error instanceof Error ? error.message : 'テーマ選択に失敗しました' };
     }
-  }, [submitUserInput, isConnected, fetchProcessData]);
+  }, [submitUserInput, isConnected, fetchProcessData, setValidatedState]);
 
   const approvePlan = useCallback(async (approved: boolean): Promise<ActionResult> => {
     // Only proceed if connected to Supabase Realtime
@@ -1134,7 +1134,7 @@ export const useArticleGenerationRealtime = ({
       }));
       return { success: false, error: error instanceof Error ? error.message : 'リサーチ計画承認に失敗しました' };
     }
-  }, [submitUserInput, isConnected, fetchProcessData]);
+  }, [submitUserInput, isConnected, fetchProcessData, setValidatedState]);
 
   const approveOutline = useCallback(async (approved: boolean): Promise<ActionResult> => {
     // Only proceed if connected to Supabase Realtime
@@ -1187,7 +1187,7 @@ export const useArticleGenerationRealtime = ({
       }));
       return { success: false, error: error instanceof Error ? error.message : 'アウトライン承認に失敗しました' };
     }
-  }, [submitUserInput, isConnected, fetchProcessData]);
+  }, [submitUserInput, isConnected, fetchProcessData, setValidatedState]);
 
   const pauseGeneration = useCallback(async () => {
     if (!processId) return false;
@@ -1268,7 +1268,7 @@ export const useArticleGenerationRealtime = ({
       console.error('❌ Manual data refresh failed:', error);
       return { synced: false, conflicts: [error instanceof Error ? error.message : 'Unknown error'], resolved: false };
     }
-  }, []); // NO DEPENDENCIES - use current values directly
+  }, [fetchProcessData, handleRealtimeEvent, processId]); // Add required dependencies
 
   // Get pending actions summary
   const getPendingActionsSummary = useCallback(() => {
