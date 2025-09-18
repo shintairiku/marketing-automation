@@ -18,8 +18,8 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { Textarea } from '@/components/ui/textarea';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/hooks/use-toast';
 import { useArticleDetail } from '@/hooks/useArticles';
 import { useAutoSave } from '@/hooks/useAutoSave';
@@ -158,22 +158,6 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
     return voidElements.includes(tagName.toLowerCase());
   };
 
-  // HTMLコンテンツをブロックに分割（画像プレースホルダー対応） - メモ化対応
-  const parseHtmlToBlocks = useMemo(() => {
-    const cache = new Map<string, ArticleBlock[]>();
-    return (html: string): ArticleBlock[] => {
-      // 簡易ハッシュでキャッシュ
-      const cacheKey = html.length + html.slice(0, 50) + html.slice(-50);
-      if (cache.has(cacheKey)) {
-        return cache.get(cacheKey)!;
-      }
-
-      const result = parseHtmlToBlocksInternal(html);
-      cache.set(cacheKey, result);
-      return result;
-    };
-  }, []);
-
   const parseHtmlToBlocksInternal = useCallback((html: string): ArticleBlock[] => {
     const blocks: ArticleBlock[] = [];
     let blockIndex = 0;
@@ -295,6 +279,22 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
       return true;
     });
   }, []);
+
+  // HTMLコンテンツをブロックに分割（メモ化対応）
+  const parseHtmlToBlocks = useMemo(() => {
+    const cache = new Map<string, ArticleBlock[]>();
+    return (html: string): ArticleBlock[] => {
+      // 簡易ハッシュでキャッシュ
+      const cacheKey = html.length + html.slice(0, 50) + html.slice(-50);
+      if (cache.has(cacheKey)) {
+        return cache.get(cacheKey)!;
+      }
+
+      const result = parseHtmlToBlocksInternal(html);
+      cache.set(cacheKey, result);
+      return result;
+    };
+  }, [parseHtmlToBlocksInternal]);
 
   // ブロックをHTMLに戻す（画像プレースホルダー対応）
   const blocksToHtml = useCallback((blocks: ArticleBlock[]): string => {

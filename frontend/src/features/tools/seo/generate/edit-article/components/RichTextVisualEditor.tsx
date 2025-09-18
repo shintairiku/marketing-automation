@@ -12,14 +12,14 @@ import {
   List,
   ListOrdered,
   Quote,
+  Redo,
   Strikethrough,
   Underline,
   Undo,
-  Redo,
 } from 'lucide-react';
 
-import { cn } from '@/utils/cn';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { cn } from '@/utils/cn';
 
 interface RichTextVisualEditorProps {
   value: string;
@@ -42,7 +42,7 @@ const isBrowser = typeof window !== 'undefined' && typeof document !== 'undefine
 
 // Simple debounce function
 function useDebounce<T extends (...args: any[]) => void>(func: T, delay: number): T {
-  const timeoutRef = useRef<ReturnType<typeof setTimeout>>();
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   return useCallback(
     ((...args: any[]) => {
@@ -121,10 +121,11 @@ const RichTextVisualEditor: React.FC<RichTextVisualEditorProps> = ({
       const selection = window.getSelection();
       if (selection && selection.rangeCount > 0) {
         const range = selection.getRangeAt(0);
-        let element = range.commonAncestorContainer;
+        let element: HTMLElement | null = range.commonAncestorContainer as HTMLElement;
 
         if (element.nodeType === Node.TEXT_NODE) {
-          element = element.parentElement!;
+          element = element.parentElement;
+          if (!element) return;
         }
 
         while (element && element !== editorRef.current) {
@@ -138,6 +139,7 @@ const RichTextVisualEditor: React.FC<RichTextVisualEditorProps> = ({
             break;
           }
           element = element.parentElement;
+          if (!element) break;
         }
       }
 

@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useRef, useState } from 'react';
+import Image from 'next/image';
 import { Brain, Loader2, Paperclip, Send, X } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
@@ -256,9 +257,11 @@ export default function AIContentGenerationDialog({
                     className="flex items-center gap-3 p-3 bg-white rounded-lg border border-gray-200"
                   >
                     {attachedFile.preview ? (
-                      <img
+                      <Image
                         src={attachedFile.preview}
                         alt={attachedFile.file.name}
+                        width={48}
+                        height={48}
                         className="w-12 h-12 rounded object-cover"
                       />
                     ) : (
