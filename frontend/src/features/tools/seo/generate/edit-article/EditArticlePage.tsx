@@ -2,7 +2,24 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import NextImage from 'next/image';
-import { AlertCircle, Bot, Copy, Download, Edit, Image, Loader2, Save, Sparkles, Trash2, Upload, Wand2, X } from 'lucide-react';
+import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  DragEndEvent,
+  DragStartEvent,
+  DragOverlay,
+} from '@dnd-kit/core';
+import {
+  arrayMove,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  verticalListSortingStrategy,
+} from '@dnd-kit/sortable';
+import { AlertCircle, Bot, Copy, Download, Edit, GripVertical, Image, Loader2, Save, Sparkles, Trash2, Upload, Wand2, X } from 'lucide-react';
 
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
@@ -33,6 +50,7 @@ import BlockInsertButton from './components/BlockInsertButton';
 import ContentSelectorDialog from './components/ContentSelectorDialog';
 import HeadingLevelDialog from './components/HeadingLevelDialog';
 import RichTextVisualEditor from './components/RichTextVisualEditor';
+import SortableBlock from './components/SortableBlock';
 import TableOfContentsDialog from './components/TableOfContentsDialog';
 
 interface EditArticlePageProps {
@@ -129,6 +147,21 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
   const { toast } = useToast();
   const [imageHistoryVisible, setImageHistoryVisible] = useState<{ [blockId: string]: boolean }>({});
   const [imageHistory, setImageHistory] = useState<{ [placeholderId: string]: any[] }>({});
+
+  // ドラッグ&ドロップのための状態
+  const [activeId, setActiveId] = useState<string | null>(null);
+
+  // DnD Kit sensors for better UX
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: {
+        distance: 8, // 8px移動してからドラッグ開始（誤操作防止）
+      },
+    }),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    })
+  );
   
   // AI編集モーダル用state
   const [isAiModalOpen, setIsAiModalOpen] = useState(false);
@@ -662,6 +695,34 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
     if (window.confirm(`${selectedBlocksCount}件のブロックを本当に削除しますか？`)) {
       setBlocks(prev => prev.filter(b => !b.isSelected));
     }
+  };
+
+  // ドラッグ&ドロップのハンドラー
+  const handleDragStart = (event: DragStartEvent) => {
+    const { active } = event;
+    setActiveId(active.id as string);
+  };
+
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+
+    if (active.id !== over?.id) {
+      setBlocks((items) => {
+        const oldIndex = items.findIndex((item) => item.id === active.id);
+        const newIndex = items.findIndex((item) => item.id === over?.id);
+
+        if (oldIndex !== -1 && newIndex !== -1) {
+          return arrayMove(items, oldIndex, newIndex);
+        }
+        return items;
+      });
+    }
+
+    setActiveId(null);
+  };
+
+  const handleDragCancel = () => {
+    setActiveId(null);
   };
 
   // AI編集モーダルを開く
@@ -1931,8 +1992,19 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
         <TabsContent value="blocks" className="mt-4">
           <Card className="p-4 md:p-8">
             <ArticlePreviewStyles>
-              <div className="max-w-4xl mx-auto space-y-2">
-                {blocks.map((block, index) => {
+              <DndContext
+                sensors={sensors}
+                collisionDetection={closestCenter}
+                onDragStart={handleDragStart}
+                onDragEnd={handleDragEnd}
+                onDragCancel={handleDragCancel}
+              >
+                <SortableContext
+                  items={blocks.map(b => b.id)}
+                  strategy={verticalListSortingStrategy}
+                >
+                  <div className="max-w-4xl mx-auto space-y-2">
+                    {blocks.map((block, index) => {
                   const confirmationForBlock = aiConfirmations.find(c => c.blockId === block.id);
                   return (
                     <React.Fragment key={block.id}>
@@ -1943,9 +2015,10 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
                         position={index}
                       />
 
-                      <div
-                        className={cn(
-                          'group relative flex items-start gap-3 py-1 pr-2 pl-10 rounded-md transition-colors',
+                      <SortableBlock id={block.id} isDragging={activeId === block.id}>
+                        <div
+                          className={cn(
+                            'group relative flex items-start gap-3 py-1 pr-2 rounded-md transition-colors',
                           {
                             'bg-blue-50': hoveredBlockId === block.id && !block.isEditing && !confirmationForBlock,
                             'bg-white': !!confirmationForBlock,
@@ -2109,6 +2182,7 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
                           )}
                         </div>
                       </div>
+                      </SortableBlock>
                     </React.Fragment>
                   );
                 })}
@@ -2119,7 +2193,20 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
                   onAIGenerate={handleAIGenerate}
                   position={blocks.length}
                 />
-              </div>
+                  </div>
+                </SortableContext>
+
+                {/* ドラッグ中のオーバーレイ */}
+                <DragOverlay>
+                  {activeId ? (
+                    <div className="bg-white rounded-lg shadow-2xl border-2 border-blue-400 opacity-90 p-4">
+                      <div className="text-sm text-gray-600">
+                        {blocks.find(b => b.id === activeId)?.content?.substring(0, 100)}...
+                      </div>
+                    </div>
+                  ) : null}
+                </DragOverlay>
+              </DndContext>
             </ArticlePreviewStyles>
           </Card>
         </TabsContent>
