@@ -388,12 +388,6 @@ export default function AIContentGenerationDialog({
           </div>
         </div>
 
-        {/* パワードバイ */}
-        <div className="mt-4 p-3 bg-gradient-to-r from-purple-50 to-blue-50 rounded-lg border border-purple-200">
-          <p className="text-xs text-purple-700 text-center">
-            🚀 <strong>Powered by OpenAI GPT-5</strong> with Web Search - 最新情報も活用
-          </p>
-        </div>
       </DialogContent>
     </Dialog>
   );
