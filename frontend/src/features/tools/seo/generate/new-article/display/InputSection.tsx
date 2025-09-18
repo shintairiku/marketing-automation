@@ -323,17 +323,14 @@ export default function InputSection({ onStartGeneration, isConnected, isGenerat
                           <SelectValue placeholder="トップレベル見出しを選択" />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="h2">H2（標準的な構成）</SelectItem>
-                          <SelectItem value="h3">H3（細かく分類された構成）</SelectItem>
+                          <SelectItem value="h2">H2</SelectItem>
+                          <SelectItem value="h3">H3</SelectItem>
                         </SelectContent>
                       </Select>
                     </div>
                     <div className="space-y-1 text-xs text-blue-800">
                       <p>
-                        H2 を大見出しにすると小見出しは H3 で生成されます。H3 を選ぶと小見出しは H4 となり、より細かな単位でライティングを行います。
-                      </p>
-                      <p>
-                        生成後のアウトライン編集でも、この階層構造に沿って各見出しを調整できます。
+                        大見出しをH2にするかH3にするかを選択できます。生成後のアウトライン編集でも、この階層構造に沿って各見出しを調整できます。
                       </p>
                     </div>
                   </div>
