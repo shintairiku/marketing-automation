@@ -6,6 +6,7 @@ import {
   Eraser,
   Heading2,
   Heading3,
+  Heading4,
   Italic,
   Link2,
   List,
@@ -18,6 +19,7 @@ import {
 } from 'lucide-react';
 
 import { cn } from '@/utils/cn';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 
 interface RichTextVisualEditorProps {
   value: string;
@@ -63,9 +65,54 @@ const RichTextVisualEditor: React.FC<RichTextVisualEditorProps> = ({
   const [isFocused, setIsFocused] = useState(false);
   const isUpdatingRef = useRef(false);
   const lastValueRef = useRef(value);
+  const [activeStates, setActiveStates] = useState<Record<string, boolean>>({});
 
   // Debounced onChange to reduce frequent updates
   const debouncedOnChange = useDebounce(onChange, 200);
+
+  // Check formatting states for active button styling
+  const checkActiveStates = useCallback(() => {
+    if (!isBrowser || !editorRef.current || !isFocused) return;
+
+    try {
+      const states: Record<string, boolean> = {
+        bold: document.queryCommandState('bold'),
+        italic: document.queryCommandState('italic'),
+        underline: document.queryCommandState('underline'),
+        strikeThrough: document.queryCommandState('strikeThrough'),
+        insertUnorderedList: document.queryCommandState('insertUnorderedList'),
+        insertOrderedList: document.queryCommandState('insertOrderedList'),
+      };
+
+      // Check for heading types by examining the selection
+      const selection = window.getSelection();
+      if (selection && selection.rangeCount > 0) {
+        const range = selection.getRangeAt(0);
+        let element = range.commonAncestorContainer;
+
+        if (element.nodeType === Node.TEXT_NODE) {
+          element = element.parentElement!;
+        }
+
+        while (element && element !== editorRef.current) {
+          const tagName = (element as Element).tagName?.toLowerCase();
+          if (['h1', 'h2', 'h3', 'h4', 'h5', 'h6'].includes(tagName)) {
+            states[tagName] = true;
+            break;
+          }
+          if (tagName === 'blockquote') {
+            states.blockquote = true;
+            break;
+          }
+          element = element.parentElement;
+        }
+      }
+
+      setActiveStates(states);
+    } catch (error) {
+      console.error('Error checking command states:', error);
+    }
+  }, [isFocused]);
 
   // Handle input changes
   const handleInput = useCallback(() => {
@@ -78,7 +125,24 @@ const RichTextVisualEditor: React.FC<RichTextVisualEditorProps> = ({
       lastValueRef.current = currentHtml;
       debouncedOnChange(currentHtml);
     }
-  }, [debouncedOnChange]);
+
+    // Check active states after input
+    checkActiveStates();
+  }, [debouncedOnChange, checkActiveStates]);
+
+  // Listen for selection changes to update active states
+  useEffect(() => {
+    if (!isBrowser) return;
+
+    const handleSelectionChange = () => {
+      if (isFocused && editorRef.current?.contains(document.activeElement)) {
+        checkActiveStates();
+      }
+    };
+
+    document.addEventListener('selectionchange', handleSelectionChange);
+    return () => document.removeEventListener('selectionchange', handleSelectionChange);
+  }, [isFocused, checkActiveStates]);
 
   // Sync external value changes (only when not actively editing)
   useEffect(() => {
@@ -127,7 +191,9 @@ const RichTextVisualEditor: React.FC<RichTextVisualEditorProps> = ({
 
   const handleFocus = useCallback(() => {
     setIsFocused(true);
-  }, []);
+    // Check active states when focused
+    setTimeout(checkActiveStates, 0);
+  }, [checkActiveStates]);
 
   const handleBlur = useCallback(() => {
     setIsFocused(false);
@@ -136,69 +202,112 @@ const RichTextVisualEditor: React.FC<RichTextVisualEditorProps> = ({
   }, [handleInput]);
 
   const toolbarButtons: ToolbarButton[] = [
-    { key: 'bold', icon: <Bold className="h-4 w-4" />, label: '太字', command: 'bold' },
-    { key: 'italic', icon: <Italic className="h-4 w-4" />, label: '斜体', command: 'italic' },
-    { key: 'underline', icon: <Underline className="h-4 w-4" />, label: '下線', command: 'underline' },
-    { key: 'strike', icon: <Strikethrough className="h-4 w-4" />, label: '打ち消し線', command: 'strikeThrough' },
-    { key: 'h2', icon: <Heading2 className="h-4 w-4" />, label: '見出し2', command: 'formatBlock', commandValue: 'H2' },
-    { key: 'h3', icon: <Heading3 className="h-4 w-4" />, label: '見出し3', command: 'formatBlock', commandValue: 'H3' },
-    { key: 'ul', icon: <List className="h-4 w-4" />, label: '箇条書き', command: 'insertUnorderedList' },
-    { key: 'ol', icon: <ListOrdered className="h-4 w-4" />, label: '番号付き', command: 'insertOrderedList' },
-    { key: 'quote', icon: <Quote className="h-4 w-4" />, label: '引用', command: 'formatBlock', commandValue: 'BLOCKQUOTE' },
-    { key: 'link', icon: <Link2 className="h-4 w-4" />, label: 'リンク', onClick: handleCreateLink },
-    { key: 'clear', icon: <Eraser className="h-4 w-4" />, label: '書式クリア', command: 'removeFormat' },
-    { key: 'undo', icon: <Undo className="h-4 w-4" />, label: '元に戻す', command: 'undo' },
-    { key: 'redo', icon: <Redo className="h-4 w-4" />, label: 'やり直す', command: 'redo' },
+    { key: 'bold', icon: <Bold className="h-4 w-4" />, label: '太字（Ctrl+B）- 選択したテキストを太字にします', command: 'bold' },
+    { key: 'italic', icon: <Italic className="h-4 w-4" />, label: '斜体（Ctrl+I）- 選択したテキストを斜体にします', command: 'italic' },
+    { key: 'underline', icon: <Underline className="h-4 w-4" />, label: '下線（Ctrl+U）- 選択したテキストに下線を引きます', command: 'underline' },
+    { key: 'strike', icon: <Strikethrough className="h-4 w-4" />, label: '打ち消し線 - 選択したテキストに打ち消し線を引きます', command: 'strikeThrough' },
+    { key: 'h2', icon: <Heading2 className="h-4 w-4" />, label: '見出し2 - 大見出しを作成します', command: 'formatBlock', commandValue: 'H2' },
+    { key: 'h3', icon: <Heading3 className="h-4 w-4" />, label: '見出し3 - 中見出しを作成します', command: 'formatBlock', commandValue: 'H3' },
+    { key: 'h4', icon: <Heading4 className="h-4 w-4" />, label: '見出し4 - 小見出しを作成します', command: 'formatBlock', commandValue: 'H4' },
+    { key: 'ul', icon: <List className="h-4 w-4" />, label: '箇条書き - 順序なしリストを作成します', command: 'insertUnorderedList' },
+    { key: 'ol', icon: <ListOrdered className="h-4 w-4" />, label: '番号付きリスト - 順序ありリストを作成します', command: 'insertOrderedList' },
+    { key: 'quote', icon: <Quote className="h-4 w-4" />, label: '引用 - 引用ブロックを作成します', command: 'formatBlock', commandValue: 'BLOCKQUOTE' },
+    { key: 'link', icon: <Link2 className="h-4 w-4" />, label: 'リンク（Ctrl+K）- 選択したテキストにリンクを設定します', onClick: handleCreateLink },
+    { key: 'clear', icon: <Eraser className="h-4 w-4" />, label: '書式クリア - 選択したテキストの書式をクリアします', command: 'removeFormat' },
+    { key: 'undo', icon: <Undo className="h-4 w-4" />, label: '元に戻す（Ctrl+Z）- 直前の操作を取り消します', command: 'undo' },
+    { key: 'redo', icon: <Redo className="h-4 w-4" />, label: 'やり直す（Ctrl+Y）- 取り消した操作をやり直します', command: 'redo' },
   ];
 
   return (
-    <div className={cn('flex flex-col border border-gray-200 rounded-lg bg-white shadow-sm', className)}>
-      <div className="flex flex-wrap gap-1 border-b border-gray-200 bg-gray-50 px-3 py-2">
-        {toolbarButtons.map((button) => {
-          const handleMouseDown = (event: React.MouseEvent<HTMLButtonElement>) => {
-            event.preventDefault(); // Prevent focus loss
-            if (button.onClick) {
-              button.onClick();
-            } else if (button.command) {
-              execute(button.command, button.commandValue);
-            }
-          };
+    <TooltipProvider>
+      <div className={cn('flex flex-col border border-gray-200 rounded-lg bg-white shadow-sm', className)}>
+        <div className="flex flex-wrap gap-1 border-b border-gray-200 bg-gray-50 px-3 py-2">
+          {toolbarButtons.map((button) => {
+            const handleMouseDown = (event: React.MouseEvent<HTMLButtonElement>) => {
+              event.preventDefault(); // Prevent focus loss
+              if (button.onClick) {
+                button.onClick();
+              } else if (button.command) {
+                execute(button.command, button.commandValue);
+              }
+            };
 
-          return (
-            <button
-              key={button.key}
-              type="button"
-              className="inline-flex items-center justify-center rounded-md border border-transparent bg-white px-2 py-1 text-sm text-gray-600 shadow-sm transition-colors hover:bg-purple-50 hover:text-purple-600 focus:outline-none focus:ring-2 focus:ring-purple-500"
-              onMouseDown={handleMouseDown}
-              aria-label={button.label}
-            >
-              {button.icon}
-            </button>
-          );
-        })}
-      </div>
+            // Determine if button is active
+            const isActive = (() => {
+              switch (button.key) {
+                case 'bold':
+                  return activeStates.bold;
+                case 'italic':
+                  return activeStates.italic;
+                case 'underline':
+                  return activeStates.underline;
+                case 'strike':
+                  return activeStates.strikeThrough;
+                case 'h2':
+                  return activeStates.h2;
+                case 'h3':
+                  return activeStates.h3;
+                case 'h4':
+                  return activeStates.h4;
+                case 'ul':
+                  return activeStates.insertUnorderedList;
+                case 'ol':
+                  return activeStates.insertOrderedList;
+                case 'quote':
+                  return activeStates.blockquote;
+                default:
+                  return false;
+              }
+            })();
 
-      <div className="relative">
-        <div
-          ref={editorRef}
-          className={cn(
-            'prose prose-base prose-gray max-w-none min-h-[420px] resize-vertical overflow-auto p-6 focus:outline-none',
-            isFocused ? 'ring-2 ring-purple-500 ring-offset-0' : ''
+            return (
+              <Tooltip key={button.key}>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    className={cn(
+                      "inline-flex items-center justify-center rounded-md border border-transparent px-2 py-1 text-sm shadow-sm transition-colors focus:outline-none focus:ring-2 focus:ring-purple-500",
+                      isActive
+                        ? "bg-purple-100 text-purple-700 border-purple-200 hover:bg-purple-200"
+                        : "bg-white text-gray-600 hover:bg-purple-50 hover:text-purple-600"
+                    )}
+                    onMouseDown={handleMouseDown}
+                    aria-label={button.label}
+                    aria-pressed={isActive}
+                  >
+                    {button.icon}
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom" className="max-w-xs">
+                  <p className="text-xs">{button.label}</p>
+                </TooltipContent>
+              </Tooltip>
+            );
+          })}
+        </div>
+
+        <div className="relative">
+          <div
+            ref={editorRef}
+            className={cn(
+              'prose prose-base prose-gray max-w-none min-h-[420px] resize-vertical overflow-auto p-6 focus:outline-none',
+              isFocused ? 'ring-2 ring-purple-500 ring-offset-0' : ''
+            )}
+            contentEditable
+            suppressContentEditableWarning
+            onInput={handleInput}
+            onFocus={handleFocus}
+            onBlur={handleBlur}
+            data-placeholder={placeholder}
+          />
+          {(!value || value.trim().length === 0) && !isFocused && (
+            <div className="pointer-events-none absolute left-6 top-6 text-sm text-gray-400">
+              {placeholder}
+            </div>
           )}
-          contentEditable
-          suppressContentEditableWarning
-          onInput={handleInput}
-          onFocus={handleFocus}
-          onBlur={handleBlur}
-          data-placeholder={placeholder}
-        />
-        {(!value || value.trim().length === 0) && !isFocused && (
-          <div className="pointer-events-none absolute left-6 top-6 text-sm text-gray-400">
-            {placeholder}
-          </div>
-        )}
+        </div>
       </div>
-    </div>
+    </TooltipProvider>
   );
 };
 
