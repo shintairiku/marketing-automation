@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Bold,
   Eraser,
@@ -36,8 +36,22 @@ interface ToolbarButton {
 }
 
 const DEFAULT_PLACEHOLDER = 'ここにコンテンツを入力してください';
-
 const isBrowser = typeof window !== 'undefined' && typeof document !== 'undefined';
+
+// Simple debounce function
+function useDebounce<T extends (...args: any[]) => void>(func: T, delay: number): T {
+  const timeoutRef = useRef<ReturnType<typeof setTimeout>>();
+
+  return useCallback(
+    ((...args: any[]) => {
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
+      }
+      timeoutRef.current = setTimeout(() => func(...args), delay);
+    }) as T,
+    [func, delay]
+  );
+}
 
 const RichTextVisualEditor: React.FC<RichTextVisualEditorProps> = ({
   value,
@@ -47,49 +61,79 @@ const RichTextVisualEditor: React.FC<RichTextVisualEditorProps> = ({
 }) => {
   const editorRef = useRef<HTMLDivElement>(null);
   const [isFocused, setIsFocused] = useState(false);
+  const isUpdatingRef = useRef(false);
+  const lastValueRef = useRef(value);
 
-  // 同期的にHTMLを反映
+  // Debounced onChange to reduce frequent updates
+  const debouncedOnChange = useDebounce(onChange, 200);
+
+  // Handle input changes
+  const handleInput = useCallback(() => {
+    if (!editorRef.current || isUpdatingRef.current) return;
+
+    const currentHtml = editorRef.current.innerHTML;
+
+    // Only emit if content actually changed
+    if (currentHtml !== lastValueRef.current) {
+      lastValueRef.current = currentHtml;
+      debouncedOnChange(currentHtml);
+    }
+  }, [debouncedOnChange]);
+
+  // Sync external value changes (only when not actively editing)
   useEffect(() => {
-    if (!editorRef.current) return;
+    if (!editorRef.current || isUpdatingRef.current) return;
+
     const editor = editorRef.current;
-    const sanitized = value && value.trim().length > 0 ? value : '<p><br></p>';
-    if (editor.innerHTML !== sanitized) {
+    const currentHtml = editor.innerHTML;
+
+    // Only update if external value is different and editor is not focused
+    if (value !== currentHtml && !isFocused) {
+      isUpdatingRef.current = true;
+      const sanitized = value && value.trim().length > 0 ? value : '<p><br></p>';
       editor.innerHTML = sanitized;
-    }
-  }, [value]);
+      lastValueRef.current = sanitized;
 
-  const emitChange = () => {
-    if (!editorRef.current) return;
-    let html = editorRef.current.innerHTML;
-    // ブラウザによっては <div><br></div> が生成されるため空扱いにする
-    if (html === '<div><br></div>' || html === '<p><br></p>' || html === '<br>') {
-      html = '';
+      // Reset flag after DOM update
+      requestAnimationFrame(() => {
+        isUpdatingRef.current = false;
+      });
     }
-    onChange(html);
-  };
+  }, [value, isFocused]);
 
-  const execute = (command: string, commandValue?: string) => {
+  const execute = useCallback((command: string, commandValue?: string) => {
     if (!isBrowser || !editorRef.current) return;
-    editorRef.current.focus();
+
     try {
+      editorRef.current.focus();
       document.execCommand(command, false, commandValue ?? undefined);
+      handleInput(); // Trigger change detection
     } catch (error) {
       console.error('Failed to execute command', command, error);
     }
-    emitChange();
-  };
+  }, [handleInput]);
 
-  const handleCreateLink = () => {
+  const handleCreateLink = useCallback(() => {
     if (!isBrowser || !editorRef.current) return;
+
     const url = window.prompt('リンク先のURLを入力してください');
     if (!url) {
       execute('unlink');
       return;
     }
-    editorRef.current.focus();
-    document.execCommand('createLink', false, url);
-    emitChange();
-  };
+
+    execute('createLink', url);
+  }, [execute]);
+
+  const handleFocus = useCallback(() => {
+    setIsFocused(true);
+  }, []);
+
+  const handleBlur = useCallback(() => {
+    setIsFocused(false);
+    // Force sync on blur to ensure consistency
+    handleInput();
+  }, [handleInput]);
 
   const toolbarButtons: ToolbarButton[] = [
     { key: 'bold', icon: <Bold className="h-4 w-4" />, label: '太字', command: 'bold' },
@@ -112,13 +156,10 @@ const RichTextVisualEditor: React.FC<RichTextVisualEditorProps> = ({
       <div className="flex flex-wrap gap-1 border-b border-gray-200 bg-gray-50 px-3 py-2">
         {toolbarButtons.map((button) => {
           const handleMouseDown = (event: React.MouseEvent<HTMLButtonElement>) => {
-            event.preventDefault();
-            event.stopPropagation();
+            event.preventDefault(); // Prevent focus loss
             if (button.onClick) {
               button.onClick();
-              return;
-            }
-            if (button.command) {
+            } else if (button.command) {
               execute(button.command, button.commandValue);
             }
           };
@@ -146,9 +187,9 @@ const RichTextVisualEditor: React.FC<RichTextVisualEditorProps> = ({
           )}
           contentEditable
           suppressContentEditableWarning
-          onInput={emitChange}
-          onBlur={() => setIsFocused(false)}
-          onFocus={() => setIsFocused(true)}
+          onInput={handleInput}
+          onFocus={handleFocus}
+          onBlur={handleBlur}
           data-placeholder={placeholder}
         />
         {(!value || value.trim().length === 0) && !isFocused && (

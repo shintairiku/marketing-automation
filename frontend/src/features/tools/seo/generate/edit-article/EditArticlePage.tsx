@@ -148,6 +148,7 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
   const [editorView, setEditorView] = useState<'blocks' | 'visual'>('blocks');
   const [visualHtml, setVisualHtml] = useState('');
   const visualSyncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const visualHtmlRef = useRef('');
 
   const selectedBlocksCount = useMemo(() => blocks.filter(b => b.isSelected).length, [blocks]);
 
@@ -157,8 +158,23 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
     return voidElements.includes(tagName.toLowerCase());
   };
 
-  // HTMLコンテンツをブロックに分割（画像プレースホルダー対応）
-  const parseHtmlToBlocks = useCallback((html: string): ArticleBlock[] => {
+  // HTMLコンテンツをブロックに分割（画像プレースホルダー対応） - メモ化対応
+  const parseHtmlToBlocks = useMemo(() => {
+    const cache = new Map<string, ArticleBlock[]>();
+    return (html: string): ArticleBlock[] => {
+      // 簡易ハッシュでキャッシュ
+      const cacheKey = html.length + html.slice(0, 50) + html.slice(-50);
+      if (cache.has(cacheKey)) {
+        return cache.get(cacheKey)!;
+      }
+
+      const result = parseHtmlToBlocksInternal(html);
+      cache.set(cacheKey, result);
+      return result;
+    };
+  }, []);
+
+  const parseHtmlToBlocksInternal = useCallback((html: string): ArticleBlock[] => {
     const blocks: ArticleBlock[] = [];
     let blockIndex = 0;
     
@@ -318,21 +334,30 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
   const handleEditorTabChange = useCallback((value: string) => {
     const nextView = value === 'visual' ? 'visual' : 'blocks';
     if (nextView === 'visual') {
-      setVisualHtml(blocksToHtml(blocks));
+      const html = blocksToHtml(blocks);
+      visualHtmlRef.current = html;
+      setVisualHtml(html);
     }
     setEditorView(nextView);
   }, [blocks, blocksToHtml]);
 
   const handleVisualEditorChange = useCallback((nextHtml: string) => {
+    if (visualHtmlRef.current === nextHtml) {
+      return;
+    }
+
+    visualHtmlRef.current = nextHtml;
+    // Immediate state update for visual feedback
     setVisualHtml(nextHtml);
 
     if (visualSyncTimerRef.current) {
       clearTimeout(visualSyncTimerRef.current);
     }
 
+    // Longer debounce to prevent excessive block parsing during typing
     visualSyncTimerRef.current = setTimeout(() => {
       setBlocks(parseHtmlToBlocks(nextHtml));
-    }, 700);
+    }, 500);
   }, [parseHtmlToBlocks]);
 
   useEffect(() => {
@@ -342,6 +367,10 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
       }
     };
   }, []);
+
+  useEffect(() => {
+    visualHtmlRef.current = visualHtml;
+  }, [visualHtml]);
 
   // 記事の画像を復元する関数
   const restoreArticleImages = useCallback(async () => {
@@ -1345,25 +1374,20 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
     }
   }, [article, articleId, blocks, blocksToHtml, getToken, isSaving]);
 
-  // コンテンツ抽出関数：UI状態を除外して実際のコンテンツのみを抽出
-  const extractContent = useCallback((blocks: ArticleBlock[]) => {
-    return blocks.map(block => ({
-      id: block.id,
-      type: block.type,
-      content: block.content,
-      placeholderData: block.placeholderData,
-      imageData: block.imageData
-    }));
+
+  // Content extractor for efficient comparison
+  const contentExtractor = useCallback((blocks: ArticleBlock[]) => {
+    return blocks.map(b => b.content).join('');
   }, []);
 
   // 自動保存フックの設定
   const autoSave = useAutoSave(blocks, autoSaveArticle, {
-    delay: 5000, // 5秒のデバウンスで入力負荷を軽減
+    delay: 3000, // 3秒のデバウンスで応答性を向上
     enabled: autoSaveEnabled && !!article && blocks.length > 0,
+    contentExtractor, // HTMLコンテンツのみを比較対象に
     maxRetries: 3, // 最大3回リトライ
     retryDelay: 1000, // 1秒後にリトライ開始
     excludeKeys: ['isEditing', 'isSelected'], // UI状態を除外
-    contentExtractor: (blocks: ArticleBlock[]) => JSON.stringify(extractContent(blocks)), // コンテンツのみを抽出
   });
 
   // 自動保存の制御: 特定の操作中は無効化
