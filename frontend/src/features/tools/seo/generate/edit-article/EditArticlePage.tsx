@@ -27,6 +27,7 @@ import { useAuth } from '@clerk/nextjs';
 
 import ArticlePreviewStyles from '../new-article/component/ArticlePreviewStyles';
 
+import AIContentGenerationDialog from './components/AIContentGenerationDialog';
 import BlockInsertButton from './components/BlockInsertButton';
 import ContentSelectorDialog from './components/ContentSelectorDialog';
 import HeadingLevelDialog from './components/HeadingLevelDialog';
@@ -140,6 +141,7 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
   const [contentSelectorOpen, setContentSelectorOpen] = useState(false);
   const [tocDialogOpen, setTocDialogOpen] = useState(false);
   const [headingLevelDialogOpen, setHeadingLevelDialogOpen] = useState(false);
+  const [aiContentDialogOpen, setAiContentDialogOpen] = useState(false);
   const [insertPosition, setInsertPosition] = useState<number>(0);
 
   const selectedBlocksCount = useMemo(() => blocks.filter(b => b.isSelected).length, [blocks]);
@@ -472,6 +474,41 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
     const initialContent = `見出し ${level}`;
     const newBlock = createNewBlock(blockType, initialContent);
     insertNewBlock(newBlock);
+  };
+
+  // AIコンテンツ生成の開始
+  const handleAIGenerate = (position: number) => {
+    setInsertPosition(position);
+    setAiContentDialogOpen(true);
+  };
+
+  // AIコンテンツ生成の完了
+  const handleAIContentGenerated = (blocks: Array<{
+    type: 'heading' | 'paragraph';
+    content: string;
+    level?: number;
+  }>) => {
+    // 生成されたブロックをArticleBlockに変換して挿入
+    blocks.forEach((block, index) => {
+      let articleBlock: ArticleBlock;
+
+      if (block.type === 'heading') {
+        const level = block.level || 2;
+        articleBlock = createNewBlock(`h${level}` as ArticleBlock['type'], block.content);
+      } else {
+        articleBlock = createNewBlock('p', block.content);
+      }
+
+      // 複数ブロックの場合は順番に挿入
+      setBlocks(prev => {
+        const newBlocks = [...prev];
+        const safeInsertPos = Math.min(insertPosition + index, newBlocks.length);
+        newBlocks.splice(safeInsertPos, 0, articleBlock);
+        return newBlocks;
+      });
+    });
+
+    setAiContentDialogOpen(false);
   };
 
   // ブロック挿入の共通処理
@@ -1837,6 +1874,7 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
                 {/* ブロック間の挿入ボタン */}
                 <BlockInsertButton
                   onInsertContent={handleInsertContent}
+                  onAIGenerate={handleAIGenerate}
                   position={index}
                 />
                 
@@ -2010,6 +2048,7 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
           {/* 最後のブロックの後に挿入ボタンを追加 */}
           <BlockInsertButton
             onInsertContent={handleInsertContent}
+            onAIGenerate={handleAIGenerate}
             position={blocks.length}
           />
         </div>
@@ -2138,6 +2177,17 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
         onClose={() => setHeadingLevelDialogOpen(false)}
         onSelectHeading={handleSelectHeadingLevel}
         position={insertPosition}
+      />
+
+      {/* AIコンテンツ生成ダイアログ */}
+      <AIContentGenerationDialog
+        isOpen={aiContentDialogOpen}
+        onClose={() => setAiContentDialogOpen(false)}
+        onGenerate={handleAIContentGenerated}
+        position={insertPosition}
+        getToken={getToken}
+        articleId={articleId}
+        articleHtml={article?.content}
       />
     </div>
   );

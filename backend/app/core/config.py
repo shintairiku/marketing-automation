@@ -46,6 +46,11 @@ class Settings(BaseSettings):
     model_for_agents: str = os.getenv("MODEL_FOR_AGENTS", "gpt-4o-mini")
     max_turns_for_agents: int = int(os.getenv("MAX_TURNS_FOR_AGENTS", "10"))
 
+    # AI Content Generation settings (using Responses API)
+    ai_content_generation_model: str = os.getenv("AI_CONTENT_GENERATION_MODEL", "gpt-5-mini")
+    ai_content_generation_reasoning_effort: str = os.getenv("AI_CONTENT_GENERATION_REASONING_EFFORT", "low")
+    ai_content_enable_web_search: bool = os.getenv("AI_CONTENT_ENABLE_WEB_SEARCH", "true").lower() == "true"
+
     # Scraping settings
     scraping_timeout: int = int(os.getenv("SCRAPING_TIMEOUT", "5"))
     scraping_delay: float = float(os.getenv("SCRAPING_DELAY", "0.2"))
