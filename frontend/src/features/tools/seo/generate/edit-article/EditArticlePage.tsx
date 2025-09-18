@@ -1926,9 +1926,6 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
             <TabsTrigger value="blocks">ブロック編集</TabsTrigger>
             <TabsTrigger value="visual">ビジュアル編集</TabsTrigger>
           </TabsList>
-          <p className="text-xs text-gray-500 sm:text-sm">
-            どちらのモードでも編集内容は自動で保存されます。
-          </p>
         </div>
 
         <TabsContent value="blocks" className="mt-4">

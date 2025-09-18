@@ -66,9 +66,42 @@ const RichTextVisualEditor: React.FC<RichTextVisualEditorProps> = ({
   const isUpdatingRef = useRef(false);
   const lastValueRef = useRef(value);
   const [activeStates, setActiveStates] = useState<Record<string, boolean>>({});
+  const [editorHeight, setEditorHeight] = useState(420);
 
   // Debounced onChange to reduce frequent updates
   const debouncedOnChange = useDebounce(onChange, 200);
+
+  // Calculate dynamic editor height based on screen size
+  const calculateEditorHeight = useCallback(() => {
+    if (!isBrowser) return 420;
+
+    const windowHeight = window.innerHeight;
+    const toolbarHeight = 52; // Approximate toolbar height
+    const headerHeight = 80; // Approximate page header height
+    const paddingBuffer = 120; // Buffer for margins and padding
+
+    const availableHeight = windowHeight - headerHeight - toolbarHeight - paddingBuffer;
+    const minHeight = 300; // Minimum editor height
+    const maxHeight = 800; // Maximum editor height for very tall screens
+
+    return Math.max(minHeight, Math.min(maxHeight, availableHeight));
+  }, []);
+
+  // Update editor height on window resize
+  useEffect(() => {
+    if (!isBrowser) return;
+
+    const updateHeight = () => {
+      setEditorHeight(calculateEditorHeight());
+    };
+
+    // Set initial height
+    updateHeight();
+
+    // Listen for window resize
+    window.addEventListener('resize', updateHeight);
+    return () => window.removeEventListener('resize', updateHeight);
+  }, [calculateEditorHeight]);
 
   // Check formatting states for active button styling
   const checkActiveStates = useCallback(() => {
@@ -290,9 +323,10 @@ const RichTextVisualEditor: React.FC<RichTextVisualEditorProps> = ({
           <div
             ref={editorRef}
             className={cn(
-              'prose prose-base prose-gray max-w-none min-h-[420px] resize-vertical overflow-auto p-6 focus:outline-none',
+              'prose prose-base prose-gray max-w-none overflow-y-auto p-6 focus:outline-none',
               isFocused ? 'ring-2 ring-purple-500 ring-offset-0' : ''
             )}
+            style={{ height: `${editorHeight}px` }}
             contentEditable
             suppressContentEditableWarning
             onInput={handleInput}
