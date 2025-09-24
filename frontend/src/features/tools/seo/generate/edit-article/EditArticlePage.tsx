@@ -2,12 +2,11 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import NextImage from 'next/image';
-import { AlertCircle, Bot, Copy, Download, Edit, GripVertical, Image, Loader2, Save, Sparkles, Trash2, Undo, Upload, Wand2, X } from 'lucide-react';
+import { AlertCircle, Bot, Copy, Download, Edit, Image, Loader2, Save, Sparkles, Trash2, Undo, Upload, Wand2, X } from 'lucide-react';
 
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
-import { Checkbox } from '@/components/ui/checkbox';
 import {
   Dialog,
   DialogClose,
@@ -25,7 +24,6 @@ import { useArticleDetail } from '@/hooks/useArticles';
 import { useAutoSave } from '@/hooks/useAutoSave';
 import { cn } from '@/utils/cn';
 import { useAuth } from '@clerk/nextjs';
-import type { DraggableAttributes } from '@dnd-kit/core';
 import {
   closestCenter,
   DndContext,
@@ -132,7 +130,7 @@ interface SortableBlockProps {
 }
 
 interface SortableRenderProps {
-  attributes: DraggableAttributes;
+  attributes: Record<string, any>;
   listeners: Record<string, any>;
   setActivatorNodeRef: (element: HTMLElement | null) => void;
   setNodeRef: (element: HTMLElement | null) => void;
@@ -180,9 +178,27 @@ const SortableBlock: React.FC<SortableBlockProps> = ({ id, disabled, children, o
   });
 };
 
-const DropIndicator = () => (
-  <div className="relative mx-1 my-2 md:mx-3">
-    <div className="h-1 rounded-full bg-gradient-to-r from-purple-300 via-purple-500 to-purple-300 shadow-sm" />
+const GripDots: React.FC = () => (
+  <span className="grid grid-cols-2 gap-[2px] text-inherit">
+    {Array.from({ length: 6 }).map((_, index) => (
+      <span
+        key={`dot-${index}`}
+        className="h-[3px] w-[3px] rounded-full bg-current"
+      />
+    ))}
+  </span>
+);
+
+const DropIndicator: React.FC = () => (
+  <div className="pointer-events-none relative py-3">
+    <div className="absolute inset-x-0 top-1/2 -translate-y-1/2">
+      <div className="mx-auto flex max-w-4xl items-center gap-3 px-[3.25rem]">
+        <span className="relative flex h-4 w-4 items-center justify-center">
+          <span className="h-3 w-3 rounded-full border border-blue-500 bg-white shadow-sm" />
+        </span>
+        <span className="h-[3px] flex-1 rounded-full bg-blue-500 shadow-[0_0_10px_rgba(59,130,246,0.35)]" />
+      </div>
+    </div>
   </div>
 );
 
@@ -293,7 +309,7 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
   }, [blocks, updateDraggingGroup, updateSelection]);
 
   const handleDragOver = useCallback((event: DragOverEvent) => {
-    const { active, over } = event;
+    const { active, over, delta } = event;
     if (!over) {
       setDropIndicatorIndex(null);
       return;
@@ -302,13 +318,25 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
     const activeId = String(active.id);
     const overId = String(over.id);
     const groupIds = draggingBlockIdsRef.current.length ? draggingBlockIdsRef.current : [activeId];
+    const filteredBlocks = blocks.filter(block => !groupIds.includes(block.id));
+
+    // Get the current mouse position via delta
     const activeRect = active.rect.current.translated ?? active.rect.current.initial;
     const overRect = over.rect;
-    const filteredBlocks = blocks.filter(block => !groupIds.includes(block.id));
+
+    if (!activeRect || !overRect) {
+      setDropIndicatorIndex(null);
+      return;
+    }
+
+    // Calculate current position based on mouse cursor
+    const currentMouseY = activeRect.top + (delta?.y ?? 0);
+    const overBlockCenterY = overRect.top + overRect.height / 2;
 
     let targetIndex = filteredBlocks.findIndex(block => block.id === overId);
 
     if (targetIndex === -1) {
+      // If hovering over a dragged block, find the nearest non-dragged block
       const overIndexInOriginal = blocks.findIndex(block => block.id === overId);
       if (overIndexInOriginal !== -1) {
         targetIndex = filteredBlocks.findIndex(block => {
@@ -323,9 +351,11 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
       }
     }
 
-    const movingDown = activeRect && overRect ? activeRect.top < overRect.top : false;
-    const insertionIndex = movingDown ? targetIndex + 1 : targetIndex;
+    // Determine insertion point based on cursor position relative to block center
+    const insertBelow = currentMouseY > overBlockCenterY;
+    const insertionIndex = insertBelow ? targetIndex + 1 : targetIndex;
     const boundedIndex = Math.min(filteredBlocks.length, Math.max(0, insertionIndex));
+
     setDropIndicatorIndex(boundedIndex);
   }, [blocks]);
 
@@ -2293,7 +2323,7 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
                           >
                             {({ attributes, listeners, setActivatorNodeRef, setNodeRef, style, isDragging, isOver }) => {
                               const dragHandleClass = cn(
-                                'flex h-7 w-7 items-center justify-center rounded-md border border-transparent bg-white text-gray-400 shadow-sm transition focus-visible:outline-none',
+                                'flex h-5 w-5 items-center justify-center rounded-md border border-transparent text-gray-400 transition focus-visible:outline-none',
                                 {
                                   'cursor-not-allowed opacity-40': dragDisabled,
                                   'cursor-grab active:cursor-grabbing hover:border-purple-200 hover:text-purple-500 focus-visible:ring-2 focus-visible:ring-purple-500': !dragDisabled,
@@ -2302,9 +2332,16 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
 
                               const combinedStyle: React.CSSProperties = {
                                 ...style,
-                                // Hide blocks that are part of the dragging group completely
-                                opacity: (isDragging || isGroupDragged) ? 0.35 : style?.opacity ?? 1,
+                                opacity: (isDragging || isGroupDragged) ? 0 : style?.opacity ?? 1,
                                 transform: style?.transform,
+                                ...(isDragging || isGroupDragged ? {
+                                  visibility: 'hidden',
+                                  height: 0,
+                                  minHeight: 0,
+                                  padding: 0,
+                                  margin: 0,
+                                  overflow: 'hidden'
+                                } : {})
                               };
 
                               return (
@@ -2312,7 +2349,7 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
                                   ref={setNodeRef}
                                   style={combinedStyle}
                                   className={cn(
-                                    'group relative flex items-start gap-3 rounded-md border border-transparent py-1 pr-3 pl-14 transition-all duration-150',
+                                    'group relative flex items-start gap-3 rounded-lg border border-transparent px-3 py-1 transition-all duration-150',
                                     {
                                       'bg-blue-50': hoveredBlockId === block.id && !block.isEditing && !confirmationForBlock,
                                       'border-blue-400 bg-blue-50/70 shadow-inner': isSelected && !isDragging && !confirmationForBlock,
@@ -2328,19 +2365,7 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
                                   data-block-id={block.id}
                                   data-selected={isSelected.toString()}
                                 >
-                                  <div
-                                    className={cn(
-                                      'absolute left-0 top-0 h-full w-12 rounded-l-md border-l-4 border-transparent transition-colors duration-150',
-                                      isSelected ? 'border-purple-400 bg-purple-100/40' : 'hover:bg-purple-100/20'
-                                    )}
-                                    data-selection-anchor="true"
-                                    data-selection-overlay="true"
-                                  />
-                                  <div
-                                    className="absolute left-2 top-1.5 flex flex-col items-center gap-2 text-gray-400 transition-opacity opacity-60 group-hover:opacity-100 group-focus-within:opacity-100"
-                                    data-selection-anchor="true"
-                                    style={{ zIndex: 10 }}
-                                  >
+                                  <div className="absolute left-0 top-1/2 flex -translate-y-1/2 items-center gap-2 pl-1 pr-3">
                                     <button
                                       type="button"
                                       ref={setActivatorNodeRef}
@@ -2351,20 +2376,13 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
                                       disabled={dragDisabled}
                                       data-interactive="true"
                                     >
-                                      <GripVertical className="h-4 w-4" />
+                                      <GripDots />
                                     </button>
-                                    <div data-interactive="true">
-                                      <Checkbox
-                                        checked={block.isSelected}
-                                        onCheckedChange={(checked) => handleSelectionToggle(block.id, checked)}
-                                        disabled={!!confirmationForBlock}
-                                      />
-                                    </div>
                                   </div>
 
-                                  <div className="flex-1 w-full">
+                                  <div className="ml-9 flex-1" data-allow-selection="true">
                                     {confirmationForBlock ? (
-                                      <div className="border-2 border-blue-200 rounded-lg p-4 my-2 transition-all duration-300 bg-white shadow-md">
+                                      <div className="notion-card border border-blue-100/80 bg-white/95 p-4 my-2 rounded-xl shadow-[0_15px_35px_-25px_rgba(99,102,241,0.55)] transition-all duration-300">
                                         <h3 className="text-lg font-semibold text-blue-800 mb-3">AIによる修正提案</h3>
                                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                           <div>
@@ -2394,7 +2412,7 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
                                         </div>
                                       </div>
                                     ) : block.isEditing ? (
-                                      <div>
+                                      <div className="notion-editing-panel border border-blue-100 bg-white/95 rounded-xl p-3 shadow-[0_12px_25px_-20px_rgba(99,102,241,0.45)]">
                                         <Textarea
                                           defaultValue={block.content}
                                           onBlur={(e) => saveBlock(block.id, e.target.value)}
@@ -2533,17 +2551,20 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
                     <div className="pointer-events-none max-w-4xl">
                       <ArticlePreviewStyles>
                         <div className="relative pointer-events-none">
-                          {overlayBlocks.slice(0, 3).map((block, index) => (
+                          {overlayBlocks.slice(0, Math.min(5, overlayBlocks.length)).map((block, index) => (
                             <div
                               key={`overlay-${block.id}-${index}`}
-                              className="pointer-events-none rounded-lg border border-purple-200 bg-white px-5 py-4 shadow-2xl"
-                              style={{ transform: `translate(${index * 10}px, ${index * 8}px)` }}
+                              className="pointer-events-none rounded-lg border-2 border-purple-400 bg-white px-5 py-4 shadow-2xl"
+                              style={{
+                                transform: `translate(${index * 8}px, ${index * 6}px)`,
+                                opacity: 1 - (index * 0.15)
+                              }}
                             >
-                              <div className="mb-2 flex items-center justify-between text-[11px] font-semibold tracking-wide text-purple-500">
-                                <span>{draggingBlockIds.length > 1 ? `選択ブロック ${index + 1}` : 'ブロック'}</span>
+                              <div className="mb-2 flex items-center justify-between text-[11px] font-semibold tracking-wide text-purple-600">
+                                <span>{draggingBlockIds.length > 1 ? `選択 ${index + 1}` : 'ドラッグ中'}</span>
                                 {draggingBlockIds.length > 1 && index === 0 && (
-                                  <span className="rounded-full bg-purple-100 px-2 py-0.5 text-[10px] text-purple-700">
-                                    {draggingBlockIds.length} 件移動中
+                                  <span className="rounded-full bg-purple-200 px-2 py-0.5 text-[10px] text-purple-800 font-bold">
+                                    {draggingBlockIds.length} 個選択
                                   </span>
                                 )}
                               </div>
@@ -2554,9 +2575,9 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
                           ))}
                         </div>
                       </ArticlePreviewStyles>
-                      {overlayBlocks.length > 3 && (
-                        <div className="mt-3 text-center text-xs text-gray-500">
-                          他 {overlayBlocks.length - 3} 件
+                      {overlayBlocks.length > 5 && (
+                        <div className="mt-3 text-center text-xs text-purple-600 font-semibold">
+                          他 {overlayBlocks.length - 5} 個
                         </div>
                       )}
                     </div>

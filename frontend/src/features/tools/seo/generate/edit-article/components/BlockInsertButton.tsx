@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { Brain,Plus } from 'lucide-react';
+import { Brain, Plus } from 'lucide-react';
 
 import { cn } from '@/utils/cn';
 
@@ -24,8 +24,7 @@ export default function BlockInsertButton({
   return (
     <div
       className={cn(
-        "relative w-full h-6 flex items-center justify-center group",
-        "transition-all duration-200 ease-in-out",
+        'relative my-1 flex w-full items-center justify-center py-2',
         className
       )}
       data-interactive="true"
@@ -35,63 +34,39 @@ export default function BlockInsertButton({
         setHoveredButton(null);
       }}
     >
-      {/* ホバー時に表示される水平線 */}
-      <div
-        className={cn(
-          "absolute inset-0 flex items-center transition-opacity duration-200",
-          isVisible ? "opacity-100" : "opacity-0"
-        )}
-      >
-        <div className="w-full h-px bg-gray-300" />
-      </div>
+      <span className="pointer-events-none absolute inset-x-0 top-1/2 -translate-y-1/2">
+        <span className="mx-auto block h-px w-full max-w-3xl bg-gradient-to-r from-transparent via-slate-200 to-transparent" />
+      </span>
 
-      {/* ボタンコンテナ */}
       <div className="relative z-10 flex items-center gap-2">
-        {/* 追加ボタン */}
         <button
           className={cn(
-            "flex items-center justify-center",
-            "w-8 h-8 rounded-full border transition-all duration-200",
-            "focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2",
-            isVisible || hoveredButton === 'add'
-              ? "opacity-100 scale-100 bg-white border-gray-300 shadow-sm hover:border-blue-400 hover:shadow-md"
-              : "opacity-0 scale-75 bg-transparent border-transparent"
+            'flex h-6 w-6 items-center justify-center rounded-full border border-slate-200 bg-white shadow-sm transition-all',
+            'focus:outline-none focus:ring-2 focus:ring-purple-500/70 focus:ring-offset-2',
+            isVisible ? 'opacity-100 translate-y-0' : 'pointer-events-none translate-y-1 opacity-0'
           )}
           onMouseEnter={() => setHoveredButton('add')}
           onMouseLeave={() => setHoveredButton(null)}
           onClick={() => onInsertContent('selector', position)}
           title="コンテンツを追加"
         >
-          <Plus
-            className={cn(
-              "w-4 h-4 transition-colors duration-200",
-              hoveredButton === 'add' ? "text-blue-600" : "text-gray-600"
-            )}
-          />
+          <Plus className={cn('h-3.5 w-3.5 text-slate-500 transition-colors', hoveredButton === 'add' ? 'text-purple-500' : '')} />
         </button>
 
-        {/* AIボタン */}
         {onAIGenerate && (
           <button
             className={cn(
-              "flex items-center justify-center",
-              "w-8 h-8 rounded-full border transition-all duration-200",
-              "focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-offset-2",
-              isVisible || hoveredButton === 'ai'
-                ? "opacity-100 scale-100 bg-gradient-to-br from-purple-500 to-purple-600 border-purple-400 shadow-sm hover:from-purple-600 hover:to-purple-700 hover:shadow-md"
-                : "opacity-0 scale-75 bg-transparent border-transparent"
+              'hidden sm:flex h-6 items-center gap-1 rounded-full border border-purple-200 bg-gradient-to-r from-purple-500/90 via-purple-500 to-purple-500 text-white shadow-sm transition-all',
+              'px-3 text-xs font-medium hover:from-purple-500 hover:to-purple-600 focus:outline-none focus:ring-2 focus:ring-purple-500/70 focus:ring-offset-2',
+              isVisible ? 'opacity-100 translate-y-0' : 'pointer-events-none translate-y-1 opacity-0'
             )}
             onMouseEnter={() => setHoveredButton('ai')}
             onMouseLeave={() => setHoveredButton(null)}
             onClick={() => onAIGenerate(position)}
             title="AIでコンテンツを生成"
           >
-            <Brain
-              className={cn(
-                "w-4 h-4 transition-colors duration-200",
-                hoveredButton === 'ai' || isVisible ? "text-white" : "text-purple-600"
-              )}
-            />
+            <Brain className="h-3.5 w-3.5" />
+            <span>AI</span>
           </button>
         )}
       </div>
