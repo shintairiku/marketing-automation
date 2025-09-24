@@ -2,7 +2,7 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import NextImage from 'next/image';
-import { AlertCircle, Bot, Copy, Download, Edit, Image, Loader2, Save, Sparkles, Trash2, Upload, Wand2, X } from 'lucide-react';
+import { AlertCircle, Bot, Copy, Download, Edit, GripVertical, Image, Loader2, Save, Sparkles, Trash2, Undo, Upload, Wand2, X } from 'lucide-react';
 
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
@@ -25,6 +25,27 @@ import { useArticleDetail } from '@/hooks/useArticles';
 import { useAutoSave } from '@/hooks/useAutoSave';
 import { cn } from '@/utils/cn';
 import { useAuth } from '@clerk/nextjs';
+import type { DraggableAttributes } from '@dnd-kit/core';
+import {
+  closestCenter,
+  DndContext,
+  DragEndEvent,
+  DragOverEvent,
+  DragOverlay,
+  DragStartEvent,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+} from '@dnd-kit/core';
+import {
+  arrayMove,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 
 import ArticlePreviewStyles from '../new-article/component/ArticlePreviewStyles';
 
@@ -107,6 +128,57 @@ const SafeImage = ({ src, alt, className, style, width, height, onClick }: {
   );
 };
 
+interface SortableBlockProps {
+  id: string;
+  disabled?: boolean;
+  children: (props: SortableRenderProps) => React.ReactNode;
+}
+
+interface SortableRenderProps {
+  attributes: DraggableAttributes;
+  listeners: Record<string, any>;
+  setActivatorNodeRef: (element: HTMLElement | null) => void;
+  setNodeRef: (element: HTMLElement | null) => void;
+  style: React.CSSProperties;
+  isDragging: boolean;
+  isOver: boolean;
+}
+
+const SortableBlock: React.FC<SortableBlockProps> = ({ id, disabled, children }) => {
+  const {
+    attributes,
+    listeners,
+    setActivatorNodeRef,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+    isOver,
+  } = useSortable({ id, disabled });
+
+  const style: React.CSSProperties = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    zIndex: isDragging ? 90 : undefined,
+  };
+
+  return children({
+    attributes,
+    listeners: listeners ?? {},
+    setActivatorNodeRef,
+    setNodeRef,
+    style,
+    isDragging,
+    isOver,
+  });
+};
+
+const DropIndicator = () => (
+  <div className="relative mx-1 my-2 md:mx-3">
+    <div className="h-1 rounded-full bg-gradient-to-r from-purple-300 via-purple-500 to-purple-300 shadow-sm" />
+  </div>
+);
+
 export default function EditArticlePage({ articleId }: EditArticlePageProps) {
   const { getToken } = useAuth();
   const { article, loading, error, refetch } = useArticleDetail(articleId);
@@ -119,6 +191,9 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
 
   const [hoveredBlockId, setHoveredBlockId] = useState<string | null>(null);
   const [aiEditingLoading, setAiEditingLoading] = useState(false);
+  const [activeBlockId, setActiveBlockId] = useState<string | null>(null);
+  const [activeBlockSnapshot, setActiveBlockSnapshot] = useState<ArticleBlock | null>(null);
+  const [dropIndicatorIndex, setDropIndicatorIndex] = useState<number | null>(null);
   
   // 画像関連の状態
   const [imageUploadLoading, setImageUploadLoading] = useState<{ [blockId: string]: boolean }>({});
@@ -139,6 +214,17 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
 
   const [aiConfirmations, setAiConfirmations] = useState<AiConfirmationState[]>([]);
 
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: { distance: 6 },
+    }),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    })
+  );
+
+  const blockIds = useMemo(() => blocks.map(block => block.id), [blocks]);
+
   // コンテンツ挿入関連のstate
   const [contentSelectorOpen, setContentSelectorOpen] = useState(false);
   const [tocDialogOpen, setTocDialogOpen] = useState(false);
@@ -151,6 +237,85 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
   const visualHtmlRef = useRef('');
 
   const selectedBlocksCount = useMemo(() => blocks.filter(b => b.isSelected).length, [blocks]);
+
+  const handleDragStart = useCallback((event: DragStartEvent) => {
+    const activeId = String(event.active.id);
+    const startBlock = blocks.find(block => block.id === activeId) || null;
+    setActiveBlockId(activeId);
+    setActiveBlockSnapshot(startBlock);
+
+    const startIndex = blocks.findIndex(block => block.id === activeId);
+    if (startIndex !== -1) {
+      setDropIndicatorIndex(startIndex);
+    }
+  }, [blocks]);
+
+  const handleDragOver = useCallback((event: DragOverEvent) => {
+    const { active, over } = event;
+    if (!over) {
+      setDropIndicatorIndex(null);
+      return;
+    }
+
+    const activeId = String(active.id);
+    const overId = String(over.id);
+    const activeIndex = blocks.findIndex(block => block.id === activeId);
+    const overIndex = blocks.findIndex(block => block.id === overId);
+
+    if (activeIndex === -1 || overIndex === -1) {
+      setDropIndicatorIndex(null);
+      return;
+    }
+
+    if (activeIndex === overIndex) {
+      setDropIndicatorIndex(overIndex);
+      return;
+    }
+
+    const isMovingDown = activeIndex < overIndex;
+    const newIndex = isMovingDown ? overIndex + 1 : overIndex;
+    const clampedIndex = Math.min(blocks.length, Math.max(0, newIndex));
+    setDropIndicatorIndex(clampedIndex);
+  }, [blocks]);
+
+  const resetDragState = useCallback(() => {
+    setActiveBlockId(null);
+    setActiveBlockSnapshot(null);
+    setDropIndicatorIndex(null);
+  }, []);
+
+  const handleDragEnd = useCallback((event: DragEndEvent) => {
+    const { active, over } = event;
+    if (!over) {
+      resetDragState();
+      return;
+    }
+
+    const activeId = String(active.id);
+    const overId = String(over.id);
+
+    if (activeId === overId) {
+      resetDragState();
+      return;
+    }
+
+    setBlocks(prev => {
+      const oldIndex = prev.findIndex(block => block.id === activeId);
+      const newIndex = prev.findIndex(block => block.id === overId);
+
+      if (oldIndex === -1 || newIndex === -1) {
+        return prev;
+      }
+
+      return arrayMove(prev, oldIndex, newIndex);
+    });
+
+    resetDragState();
+  }, [resetDragState]);
+
+  const handleDragCancel = useCallback(() => {
+    resetDragState();
+  }, [resetDragState]);
 
   // void要素の判定
   const isVoidElement = (tagName: string): boolean => {
@@ -1931,195 +2096,249 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
         <TabsContent value="blocks" className="mt-4">
           <Card className="p-4 md:p-8">
             <ArticlePreviewStyles>
-              <div className="max-w-4xl mx-auto space-y-2">
-                {blocks.map((block, index) => {
-                  const confirmationForBlock = aiConfirmations.find(c => c.blockId === block.id);
-                  return (
-                    <React.Fragment key={block.id}>
-                      {/* ブロック間の挿入ボタン */}
-                      <BlockInsertButton
-                        onInsertContent={handleInsertContent}
-                        onAIGenerate={handleAIGenerate}
-                        position={index}
-                      />
-
-                      <div
-                        className={cn(
-                          'group relative flex items-start gap-3 py-1 pr-2 pl-10 rounded-md transition-colors',
-                          {
-                            'bg-blue-50': hoveredBlockId === block.id && !block.isEditing && !confirmationForBlock,
-                            'bg-white': !!confirmationForBlock,
-                          },
-                        )}
-                        onMouseEnter={() => !confirmationForBlock && setHoveredBlockId(block.id)}
-                        onMouseLeave={() => setHoveredBlockId(null)}
-                      >
-                        <div className="absolute left-2 top-3 transition-opacity opacity-20 group-hover:opacity-100">
-                          <Checkbox
-                            checked={block.isSelected}
-                            onCheckedChange={(checked) => handleSelectionToggle(block.id, checked)}
-                            disabled={!!confirmationForBlock}
+              <DndContext
+                sensors={sensors}
+                collisionDetection={closestCenter}
+                onDragStart={handleDragStart}
+                onDragOver={handleDragOver}
+                onDragEnd={handleDragEnd}
+                onDragCancel={handleDragCancel}
+              >
+                <SortableContext items={blockIds} strategy={verticalListSortingStrategy}>
+                  <div className="max-w-4xl mx-auto space-y-2">
+                    {blocks.map((block, index) => {
+                      const confirmationForBlock = aiConfirmations.find(c => c.blockId === block.id);
+                      const dragDisabled = !!confirmationForBlock || block.isEditing;
+                      return (
+                        <React.Fragment key={block.id}>
+                          {dropIndicatorIndex === index && <DropIndicator />}
+                          <BlockInsertButton
+                            onInsertContent={handleInsertContent}
+                            onAIGenerate={handleAIGenerate}
+                            position={index}
                           />
-                        </div>
 
-                        <div className="flex-1 w-full">
-                          {confirmationForBlock ? (
-                            <div className="border-2 border-blue-200 rounded-lg p-4 my-2 transition-all duration-300 bg-white shadow-md">
-                              <h3 className="text-lg font-semibold text-blue-800 mb-3">AIによる修正提案</h3>
-                              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                <div>
-                                  <h4 className="font-bold mb-2 text-sm text-gray-500">変更前</h4>
-                                  <ArticlePreviewStyles>
-                                    <div
-                                      className="text-sm border p-3 rounded-md bg-gray-50 max-h-48 overflow-y-auto prose-sm"
-                                      dangerouslySetInnerHTML={{ __html: confirmationForBlock.originalContent }}
-                                    />
-                                  </ArticlePreviewStyles>
-                                </div>
-                                <div>
-                                  <h4 className="font-bold mb-2 text-sm text-blue-600">変更後</h4>
-                                  <ArticlePreviewStyles>
-                                    <div
-                                      className="text-sm border border-blue-200 p-3 rounded-md bg-blue-50 max-h-48 overflow-y-auto prose-sm"
-                                      dangerouslySetInnerHTML={{ __html: confirmationForBlock.newContent }}
-                                    />
-                                  </ArticlePreviewStyles>
-                                </div>
-                              </div>
-                              <div className="flex justify-end items-center gap-2 mt-4">
-                                {aiEditingLoading && <Bot className="w-4 h-4 animate-spin text-blue-600" />}
-                                <Button variant="outline" size="sm" onClick={() => handleRegenerate(block.id)} disabled={aiEditingLoading}>再生成</Button>
-                                <Button variant="ghost" size="sm" onClick={() => handleCancel(block.id)} disabled={aiEditingLoading}>キャンセル</Button>
-                                <Button size="sm" onClick={() => handleApprove(block.id)} disabled={aiEditingLoading}>承認して反映</Button>
-                              </div>
-                            </div>
-                          ) : block.isEditing ? (
-                            <div>
-                              <Textarea
-                                defaultValue={block.content}
-                                onBlur={(e) => saveBlock(block.id, e.target.value)}
-                                className="w-full p-2 border rounded resize-y min-h-[80px]"
-                                autoFocus
-                              />
-                              <div className="flex justify-end gap-2 mt-2">
-                                <Button size="sm" variant="outline" onClick={() => cancelEditing(block.id)}>キャンセル</Button>
-                                <Button
-                                  size="sm"
-                                  onClick={(e) => {
-                                    const textarea = (e.target as HTMLElement).closest('div')?.querySelector('textarea');
-                                    if (textarea) saveBlock(block.id, textarea.value);
-                                  }}
-                                >
-                                  保存
-                                </Button>
-                              </div>
-                            </div>
-                          ) : (
-                            <Popover>
-                              <PopoverTrigger asChild>
-                                <div className="w-full cursor-pointer p-1 rounded-md hover:bg-gray-100/50">
-                                  {block.type === 'image_placeholder'
-                                    ? renderImagePlaceholderBlock(block)
-                                    : block.type === 'replaced_image'
-                                      ? renderReplacedImageBlock(block)
-                                      : renderBlockContent(block)}
-                                </div>
-                              </PopoverTrigger>
-                              <PopoverContent className="w-48 p-1" side="right" align="start">
-                                <div className="space-y-1">
-                                  {block.type === 'image_placeholder' ? (
-                                    <>
-                                      <Button
-                                        variant="ghost"
-                                        className="w-full justify-start"
-                                        size="sm"
-                                        onClick={() => triggerFileUpload(block.id)}
-                                        disabled={imageUploadLoading[block.id]}
-                                      >
-                                        {imageUploadLoading[block.id] ? (
-                                          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-gray-600 mr-2" />
-                                        ) : (
-                                          <Upload className="w-4 h-4 mr-2" />
-                                        )}
-                                        画像をアップロード
-                                      </Button>
-                                      <Button
-                                        variant="ghost"
-                                        className="w-full justify-start"
-                                        size="sm"
-                                        onClick={() => handleImageGeneration(block.id)}
-                                        disabled={imageGenerationLoading[block.id]}
-                                      >
-                                        {imageGenerationLoading[block.id] ? (
-                                          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-gray-600 mr-2" />
-                                        ) : (
-                                          <Sparkles className="w-4 h-4 mr-2" />
-                                        )}
-                                        AI画像生成
-                                      </Button>
-                                      <Button variant="ghost" className="w-full justify-start text-red-500 hover:text-red-600" size="sm" onClick={() => deleteBlock(block.id)}>
-                                        <Trash2 className="w-4 h-4 mr-2" /> 削除
-                                      </Button>
-                                    </>
-                                  ) : block.type === 'replaced_image' ? (
-                                    <>
-                                      <Button
-                                        variant="ghost"
-                                        className="w-full justify-start"
-                                        size="sm"
-                                        onClick={() => handleImageRestore(block.id)}
-                                      >
-                                        <Wand2 className="w-4 h-4 mr-2" />
-                                        プレースホルダーに戻す
-                                      </Button>
-                                      <Button
-                                        variant="ghost"
-                                        className="w-full justify-start"
-                                        size="sm"
-                                        onClick={() => triggerFileUpload(block.id)}
-                                        disabled={imageUploadLoading[block.id]}
-                                      >
-                                        {imageUploadLoading[block.id] ? (
-                                          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-gray-600 mr-2" />
-                                        ) : (
-                                          <Upload className="w-4 h-4 mr-2" />
-                                        )}
-                                        別の画像に変更
-                                      </Button>
-                                      <Button variant="ghost" className="w-full justify-start text-red-500 hover:text-red-600" size="sm" onClick={() => deleteBlock(block.id)}>
-                                        <Trash2 className="w-4 h-4 mr-2" /> 削除
-                                      </Button>
-                                    </>
-                                  ) : (
-                                    <>
-                                      <Button variant="ghost" className="w-full justify-start" size="sm" onClick={() => openAiModal('single', block)}>
-                                        <Bot className="w-4 h-4 mr-2" /> AIに修正を依頼
-                                      </Button>
-                                      <Button variant="ghost" className="w-full justify-start" size="sm" onClick={() => startEditing(block.id)}>
-                                        <Edit className="w-4 h-4 mr-2" /> 自分で修正
-                                      </Button>
-                                      <Button variant="ghost" className="w-full justify-start text-red-500 hover:text-red-600" size="sm" onClick={() => deleteBlock(block.id)}>
-                                        <Trash2 className="w-4 h-4 mr-2" /> 削除
-                                      </Button>
-                                    </>
+                          <SortableBlock id={block.id} disabled={dragDisabled}>
+                            {({ attributes, listeners, setActivatorNodeRef, setNodeRef, style, isDragging, isOver }) => {
+                              const dragHandleClass = cn(
+                                'flex h-7 w-7 items-center justify-center rounded-md border border-transparent bg-white text-gray-400 shadow-sm transition focus-visible:outline-none',
+                                {
+                                  'cursor-not-allowed opacity-40': dragDisabled,
+                                  'cursor-grab active:cursor-grabbing hover:border-purple-200 hover:text-purple-500 focus-visible:ring-2 focus-visible:ring-purple-500': !dragDisabled,
+                                }
+                              );
+
+                              return (
+                                <div
+                                  ref={setNodeRef}
+                                  style={{ ...style, opacity: isDragging ? 0.35 : 1 }}
+                                  className={cn(
+                                    'group relative flex items-start gap-3 rounded-md py-1 pr-3 pl-14 transition-colors',
+                                    {
+                                      'bg-blue-50': hoveredBlockId === block.id && !block.isEditing && !confirmationForBlock,
+                                      'bg-white': !!confirmationForBlock,
+                                      'ring-2 ring-purple-300/90 bg-white shadow-lg': isDragging,
+                                      'ring-2 ring-purple-200/70 bg-purple-50/70': isOver && !isDragging && !confirmationForBlock,
+                                    },
                                   )}
-                                </div>
-                              </PopoverContent>
-                            </Popover>
-                          )}
-                        </div>
-                      </div>
-                    </React.Fragment>
-                  );
-                })}
+                                  onMouseEnter={() => !confirmationForBlock && setHoveredBlockId(block.id)}
+                                  onMouseLeave={() => setHoveredBlockId(null)}
+                                >
+                                  <div className="absolute left-2 top-1.5 flex flex-col items-center gap-2 text-gray-400 transition-opacity opacity-60 group-hover:opacity-100 group-focus-within:opacity-100">
+                                    <button
+                                      type="button"
+                                      ref={setActivatorNodeRef}
+                                      {...attributes}
+                                      {...listeners}
+                                      className={dragHandleClass}
+                                      aria-label="ブロックをドラッグして並び替える"
+                                      disabled={dragDisabled}
+                                    >
+                                      <GripVertical className="h-4 w-4" />
+                                    </button>
+                                    <Checkbox
+                                      checked={block.isSelected}
+                                      onCheckedChange={(checked) => handleSelectionToggle(block.id, checked)}
+                                      disabled={!!confirmationForBlock}
+                                    />
+                                  </div>
 
-                {/* 最後のブロックの後に挿入ボタンを追加 */}
-                <BlockInsertButton
-                  onInsertContent={handleInsertContent}
-                  onAIGenerate={handleAIGenerate}
-                  position={blocks.length}
-                />
-              </div>
+                                  <div className="flex-1 w-full">
+                                    {confirmationForBlock ? (
+                                      <div className="border-2 border-blue-200 rounded-lg p-4 my-2 transition-all duration-300 bg-white shadow-md">
+                                        <h3 className="text-lg font-semibold text-blue-800 mb-3">AIによる修正提案</h3>
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                          <div>
+                                            <h4 className="font-bold mb-2 text-sm text-gray-500">変更前</h4>
+                                            <ArticlePreviewStyles>
+                                              <div
+                                                className="text-sm border p-3 rounded-md bg-gray-50 max-h-48 overflow-y-auto prose-sm"
+                                                dangerouslySetInnerHTML={{ __html: confirmationForBlock.originalContent }}
+                                              />
+                                            </ArticlePreviewStyles>
+                                          </div>
+                                          <div>
+                                            <h4 className="font-bold mb-2 text-sm text-blue-600">変更後</h4>
+                                            <ArticlePreviewStyles>
+                                              <div
+                                                className="text-sm border border-blue-200 p-3 rounded-md bg-blue-50 max-h-48 overflow-y-auto prose-sm"
+                                                dangerouslySetInnerHTML={{ __html: confirmationForBlock.newContent }}
+                                              />
+                                            </ArticlePreviewStyles>
+                                          </div>
+                                        </div>
+                                        <div className="flex justify-end items-center gap-2 mt-4">
+                                          {aiEditingLoading && <Bot className="w-4 h-4 animate-spin text-blue-600" />}
+                                          <Button variant="outline" size="sm" onClick={() => handleRegenerate(block.id)} disabled={aiEditingLoading}>再生成</Button>
+                                          <Button variant="ghost" size="sm" onClick={() => handleCancel(block.id)} disabled={aiEditingLoading}>キャンセル</Button>
+                                          <Button size="sm" onClick={() => handleApprove(block.id)} disabled={aiEditingLoading}>承認して反映</Button>
+                                        </div>
+                                      </div>
+                                    ) : block.isEditing ? (
+                                      <div>
+                                        <Textarea
+                                          defaultValue={block.content}
+                                          onBlur={(e) => saveBlock(block.id, e.target.value)}
+                                          className="w-full p-2 border rounded resize-y min-h-[80px]"
+                                          autoFocus
+                                        />
+                                        <div className="flex justify-end gap-2 mt-2">
+                                          <Button size="sm" variant="outline" onClick={() => cancelEditing(block.id)}>キャンセル</Button>
+                                          <Button
+                                            size="sm"
+                                            onClick={(e) => {
+                                              const textarea = (e.target as HTMLElement).closest('div')?.querySelector('textarea');
+                                              if (textarea) saveBlock(block.id, textarea.value);
+                                            }}
+                                          >
+                                            保存
+                                          </Button>
+                                        </div>
+                                      </div>
+                                    ) : (
+                                      <Popover>
+                                        <PopoverTrigger asChild>
+                                          <div className="w-full cursor-pointer rounded-md p-1 hover:bg-gray-100/50">
+                                            {block.type === 'image_placeholder'
+                                              ? renderImagePlaceholderBlock(block)
+                                              : block.type === 'replaced_image'
+                                                ? renderReplacedImageBlock(block)
+                                                : renderBlockContent(block)}
+                                          </div>
+                                        </PopoverTrigger>
+                                        <PopoverContent className="w-48 p-1" side="right" align="start">
+                                          <div className="space-y-1">
+                                            {block.type === 'image_placeholder' ? (
+                                              <>
+                                                <Button
+                                                  variant="ghost"
+                                                  className="w-full justify-start"
+                                                  size="sm"
+                                                  onClick={() => triggerFileUpload(block.id)}
+                                                  disabled={imageUploadLoading[block.id]}
+                                                >
+                                                  {imageUploadLoading[block.id] ? (
+                                                    <div className="mr-2 h-4 w-4 animate-spin rounded-full border-b-2 border-gray-600" />
+                                                  ) : (
+                                                    <Upload className="w-4 h-4 mr-2" />
+                                                  )}
+                                                  画像をアップロード
+                                                </Button>
+                                                <Button
+                                                  variant="ghost"
+                                                  className="w-full justify-start"
+                                                  size="sm"
+                                                  onClick={() => handleImageGeneration(block.id)}
+                                                  disabled={imageGenerationLoading[block.id]}
+                                                >
+                                                  {imageGenerationLoading[block.id] ? (
+                                                    <div className="mr-2 h-4 w-4 animate-spin rounded-full border-b-2 border-gray-600" />
+                                                  ) : (
+                                                    <Sparkles className="w-4 h-4 mr-2" />
+                                                  )}
+                                                  AIで画像を生成
+                                                </Button>
+                                                <Button
+                                                  variant="ghost"
+                                                  className="w-full justify-start text-red-500 hover:text-red-600"
+                                                  size="sm"
+                                                  onClick={() => deleteBlock(block.id)}
+                                                >
+                                                  <Trash2 className="w-4 h-4 mr-2" /> 削除
+                                                </Button>
+                                              </>
+                                            ) : block.type === 'replaced_image' ? (
+                                              <>
+                                                <Button
+                                                  variant="ghost"
+                                                  className="w-full justify-start"
+                                                  size="sm"
+                                                  onClick={() => handleImageRestore(block.id)}
+                                                  disabled={historyLoading[block.id]}
+                                                >
+                                                  {historyLoading[block.id] ? (
+                                                    <div className="mr-2 h-4 w-4 animate-spin rounded-full border-b-2 border-gray-600" />
+                                                  ) : (
+                                                    <Undo className="w-4 h-4 mr-2" />
+                                                  )}
+                                                  元の画像に戻す
+                                                </Button>
+                                                <Button
+                                                  variant="ghost"
+                                                  className="w-full justify-start"
+                                                  size="sm"
+                                                  onClick={() => triggerFileUpload(block.id)}
+                                                  disabled={imageUploadLoading[block.id]}
+                                                >
+                                                  {imageUploadLoading[block.id] ? (
+                                                    <div className="mr-2 h-4 w-4 animate-spin rounded-full border-b-2 border-gray-600" />
+                                                  ) : (
+                                                    <Upload className="w-4 h-4 mr-2" />
+                                                  )}
+                                                  別の画像に変更
+                                                </Button>
+                                                <Button variant="ghost" className="w-full justify-start text-red-500 hover:text-red-600" size="sm" onClick={() => deleteBlock(block.id)}><Trash2 className="w-4 h-4 mr-2" /> 削除</Button>
+                                              </>
+                                            ) : (
+                                              <>
+                                                <Button variant="ghost" className="w-full justify-start" size="sm" onClick={() => openAiModal('single', block)}><Bot className="w-4 h-4 mr-2" /> AIに修正を依頼</Button>
+                                                <Button variant="ghost" className="w-full justify-start" size="sm" onClick={() => startEditing(block.id)}><Edit className="w-4 h-4 mr-2" /> 自分で修正</Button>
+                                                <Button variant="ghost" className="w-full justify-start text-red-500 hover:text-red-600" size="sm" onClick={() => deleteBlock(block.id)}><Trash2 className="w-4 h-4 mr-2" /> 削除</Button>
+                                              </>
+                                            )}
+                                          </div>
+                                        </PopoverContent>
+                                      </Popover>
+                                    )}
+                                  </div>
+                                </div>
+                              );
+                            }}
+                          </SortableBlock>
+                        </React.Fragment>
+                      );
+                    })}
+
+                    {dropIndicatorIndex === blocks.length && <DropIndicator />}
+
+                    <BlockInsertButton
+                      onInsertContent={handleInsertContent}
+                      onAIGenerate={handleAIGenerate}
+                      position={blocks.length}
+                    />
+                  </div>
+                </SortableContext>
+
+                <DragOverlay dropAnimation={{ duration: 160, easing: 'cubic-bezier(0.2, 0.7, 0.3, 1)' }}>
+                  {activeBlockSnapshot ? (
+                    <div className="max-w-4xl rounded-lg border border-purple-200 bg-white p-4 shadow-2xl">
+                      <div className="prose prose-gray max-w-none text-sm">
+                        {renderBlockContent(activeBlockSnapshot)}
+                      </div>
+                    </div>
+                  ) : null}
+                </DragOverlay>
+              </DndContext>
             </ArticlePreviewStyles>
           </Card>
         </TabsContent>
