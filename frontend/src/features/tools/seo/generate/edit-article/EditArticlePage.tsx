@@ -38,13 +38,7 @@ import {
   useSensor,
   useSensors,
 } from '@dnd-kit/core';
-import {
-  arrayMove,
-  SortableContext,
-  sortableKeyboardCoordinates,
-  useSortable,
-  verticalListSortingStrategy,
-} from '@dnd-kit/sortable';
+import { SortableContext, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 
 import ArticlePreviewStyles from '../new-article/component/ArticlePreviewStyles';
@@ -54,6 +48,7 @@ import BlockInsertButton from './components/BlockInsertButton';
 import ContentSelectorDialog from './components/ContentSelectorDialog';
 import HeadingLevelDialog from './components/HeadingLevelDialog';
 import RichTextVisualEditor from './components/RichTextVisualEditor';
+import SelectionManager from './components/SelectionManager';
 import TableOfContentsDialog from './components/TableOfContentsDialog';
 
 interface EditArticlePageProps {
@@ -87,6 +82,7 @@ interface AiConfirmationState {
   originalContent: string;
   newContent: string;
 }
+
 
 // Safe Image component that falls back to regular img on error
 const SafeImage = ({ src, alt, className, style, width, height, onClick }: {
@@ -132,6 +128,7 @@ interface SortableBlockProps {
   id: string;
   disabled?: boolean;
   children: (props: SortableRenderProps) => React.ReactNode;
+  onNodeChange?: (id: string, node: HTMLElement | null) => void;
 }
 
 interface SortableRenderProps {
@@ -144,7 +141,7 @@ interface SortableRenderProps {
   isOver: boolean;
 }
 
-const SortableBlock: React.FC<SortableBlockProps> = ({ id, disabled, children }) => {
+const SortableBlock: React.FC<SortableBlockProps> = ({ id, disabled, children, onNodeChange }) => {
   const {
     attributes,
     listeners,
@@ -156,6 +153,16 @@ const SortableBlock: React.FC<SortableBlockProps> = ({ id, disabled, children })
     isOver,
   } = useSortable({ id, disabled });
 
+  const composedNodeRef = useCallback(
+    (node: HTMLElement | null) => {
+      setNodeRef(node);
+      if (onNodeChange) {
+        onNodeChange(id, node);
+      }
+    },
+    [id, onNodeChange, setNodeRef]
+  );
+
   const style: React.CSSProperties = {
     transform: CSS.Transform.toString(transform),
     transition,
@@ -166,7 +173,7 @@ const SortableBlock: React.FC<SortableBlockProps> = ({ id, disabled, children })
     attributes,
     listeners: listeners ?? {},
     setActivatorNodeRef,
-    setNodeRef,
+    setNodeRef: composedNodeRef,
     style,
     isDragging,
     isOver,
@@ -191,9 +198,11 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
 
   const [hoveredBlockId, setHoveredBlockId] = useState<string | null>(null);
   const [aiEditingLoading, setAiEditingLoading] = useState(false);
-  const [activeBlockId, setActiveBlockId] = useState<string | null>(null);
   const [activeBlockSnapshot, setActiveBlockSnapshot] = useState<ArticleBlock | null>(null);
   const [dropIndicatorIndex, setDropIndicatorIndex] = useState<number | null>(null);
+  const [draggingBlockIds, setDraggingBlockIds] = useState<string[]>([]);
+  const blockRefs = useRef<Record<string, HTMLElement | null>>({});
+  const draggingBlockIdsRef = useRef<string[]>([]);
   
   // 画像関連の状態
   const [imageUploadLoading, setImageUploadLoading] = useState<{ [blockId: string]: boolean }>({});
@@ -225,6 +234,14 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
 
   const blockIds = useMemo(() => blocks.map(block => block.id), [blocks]);
 
+  useEffect(() => {
+    const nextRefs: Record<string, HTMLElement | null> = {};
+    blocks.forEach(block => {
+      nextRefs[block.id] = blockRefs.current[block.id] ?? null;
+    });
+    blockRefs.current = nextRefs;
+  }, [blocks]);
+
   // コンテンツ挿入関連のstate
   const [contentSelectorOpen, setContentSelectorOpen] = useState(false);
   const [tocDialogOpen, setTocDialogOpen] = useState(false);
@@ -238,17 +255,42 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
 
   const selectedBlocksCount = useMemo(() => blocks.filter(b => b.isSelected).length, [blocks]);
 
+  const updateDraggingGroup = useCallback((ids: string[]) => {
+    draggingBlockIdsRef.current = ids;
+    setDraggingBlockIds(ids);
+  }, []);
+
+  const updateSelection = useCallback((selectedIds: Set<string>) => {
+    setBlocks(prev => {
+      let changed = false;
+      const next = prev.map(block => {
+        const shouldSelect = selectedIds.has(block.id);
+        if (block.isSelected !== shouldSelect) {
+          changed = true;
+          return { ...block, isSelected: shouldSelect };
+        }
+        return block;
+      });
+      return changed ? next : prev;
+    });
+  }, [setBlocks]);
+
   const handleDragStart = useCallback((event: DragStartEvent) => {
     const activeId = String(event.active.id);
-    const startBlock = blocks.find(block => block.id === activeId) || null;
-    setActiveBlockId(activeId);
-    setActiveBlockSnapshot(startBlock);
+    const selectedIds = blocks.filter(block => block.isSelected).map(block => block.id);
+    const isActiveSelected = selectedIds.includes(activeId);
+    const groupIds = isActiveSelected && selectedIds.length > 1 ? selectedIds : [activeId];
 
-    const startIndex = blocks.findIndex(block => block.id === activeId);
-    if (startIndex !== -1) {
-      setDropIndicatorIndex(startIndex);
+    if (!isActiveSelected) {
+      updateSelection(new Set([activeId]));
     }
-  }, [blocks]);
+
+    updateDraggingGroup(groupIds);
+
+    const startBlock = blocks.find(block => block.id === activeId) || null;
+    setActiveBlockSnapshot(startBlock);
+    setDropIndicatorIndex(null);
+  }, [blocks, updateDraggingGroup, updateSelection]);
 
   const handleDragOver = useCallback((event: DragOverEvent) => {
     const { active, over } = event;
@@ -259,63 +301,133 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
 
     const activeId = String(active.id);
     const overId = String(over.id);
-    const activeIndex = blocks.findIndex(block => block.id === activeId);
-    const overIndex = blocks.findIndex(block => block.id === overId);
+    const groupIds = draggingBlockIdsRef.current.length ? draggingBlockIdsRef.current : [activeId];
+    const activeRect = active.rect.current.translated ?? active.rect.current.initial;
+    const overRect = over.rect;
+    const filteredBlocks = blocks.filter(block => !groupIds.includes(block.id));
 
-    if (activeIndex === -1 || overIndex === -1) {
-      setDropIndicatorIndex(null);
-      return;
+    let targetIndex = filteredBlocks.findIndex(block => block.id === overId);
+
+    if (targetIndex === -1) {
+      const overIndexInOriginal = blocks.findIndex(block => block.id === overId);
+      if (overIndexInOriginal !== -1) {
+        targetIndex = filteredBlocks.findIndex(block => {
+          const indexInOriginal = blocks.findIndex(item => item.id === block.id);
+          return indexInOriginal > overIndexInOriginal;
+        });
+        if (targetIndex === -1) {
+          targetIndex = filteredBlocks.length;
+        }
+      } else {
+        targetIndex = filteredBlocks.length;
+      }
     }
 
-    if (activeIndex === overIndex) {
-      setDropIndicatorIndex(overIndex);
-      return;
-    }
-
-    const isMovingDown = activeIndex < overIndex;
-    const newIndex = isMovingDown ? overIndex + 1 : overIndex;
-    const clampedIndex = Math.min(blocks.length, Math.max(0, newIndex));
-    setDropIndicatorIndex(clampedIndex);
+    const movingDown = activeRect && overRect ? activeRect.top < overRect.top : false;
+    const insertionIndex = movingDown ? targetIndex + 1 : targetIndex;
+    const boundedIndex = Math.min(filteredBlocks.length, Math.max(0, insertionIndex));
+    setDropIndicatorIndex(boundedIndex);
   }, [blocks]);
 
   const resetDragState = useCallback(() => {
-    setActiveBlockId(null);
+    updateDraggingGroup([]);
     setActiveBlockSnapshot(null);
     setDropIndicatorIndex(null);
-  }, []);
+  }, [updateDraggingGroup]);
 
   const handleDragEnd = useCallback((event: DragEndEvent) => {
-    const { active, over } = event;
-    if (!over) {
-      resetDragState();
-      return;
+    const targetIndex = dropIndicatorIndex;
+    const groupIds = draggingBlockIdsRef.current.length ? draggingBlockIdsRef.current : [String(event.active.id)];
+
+    if (targetIndex != null && groupIds.length > 0) {
+      const groupSet = new Set(groupIds);
+      setBlocks(prev => {
+        const movingBlocks = prev.filter(block => groupSet.has(block.id));
+        const remainingBlocks = prev.filter(block => !groupSet.has(block.id));
+        const insertIndex = Math.min(targetIndex, remainingBlocks.length);
+        const merged = [
+          ...remainingBlocks.slice(0, insertIndex),
+          ...movingBlocks,
+          ...remainingBlocks.slice(insertIndex),
+        ];
+        return merged.map(block => (groupSet.has(block.id) ? { ...block, isSelected: true } : block));
+      });
     }
-
-    const activeId = String(active.id);
-    const overId = String(over.id);
-
-    if (activeId === overId) {
-      resetDragState();
-      return;
-    }
-
-    setBlocks(prev => {
-      const oldIndex = prev.findIndex(block => block.id === activeId);
-      const newIndex = prev.findIndex(block => block.id === overId);
-
-      if (oldIndex === -1 || newIndex === -1) {
-        return prev;
-      }
-
-      return arrayMove(prev, oldIndex, newIndex);
-    });
 
     resetDragState();
-  }, [resetDragState]);
+  }, [dropIndicatorIndex, resetDragState, setBlocks]);
 
   const handleDragCancel = useCallback(() => {
     resetDragState();
   }, [resetDragState]);
+
+
+  // Handle selection changes from SelectionManager
+  const handleSelectionChange = useCallback((selectedIds: Set<string>) => {
+    updateSelection(selectedIds);
+  }, [updateSelection]);
+
+  const handleBlockPointerDown = useCallback((blockId: string) => (event: React.PointerEvent<HTMLDivElement>) => {
+    if (event.button !== 0) return;
+
+    const target = event.target as HTMLElement;
+    if (target.closest('[data-interactive="true"]')) return;
+    if (target.closest('[data-block-content="true"]')) return;
+    if (target.closest('[data-selection-overlay="true"]')) return;
+    if (target.closest('[data-selection-anchor="true"]')) return;
+
+    event.preventDefault();
+
+    const isModifier = event.shiftKey || event.metaKey || event.ctrlKey;
+
+    setBlocks(prev => {
+      const targetBlock = prev.find(item => item.id === blockId);
+      const targetSelected = targetBlock?.isSelected ?? false;
+      const selectedCount = prev.filter(item => item.isSelected).length;
+
+      if (isModifier) {
+        return prev.map(item =>
+          item.id === blockId ? { ...item, isSelected: !targetSelected } : item
+        );
+      }
+
+      if (targetSelected && selectedCount === 1) {
+        return prev;
+      }
+
+      return prev.map(item => {
+        if (item.id === blockId) {
+          return { ...item, isSelected: true };
+        }
+        return item.isSelected ? { ...item, isSelected: false } : item;
+      });
+    });
+  }, [setBlocks]);
+
+  const indicatorReferenceBlocks = useMemo(() => {
+    const draggingSet = new Set(draggingBlockIds);
+    return blocks.filter(block => !draggingSet.has(block.id));
+  }, [blocks, draggingBlockIds]);
+
+  const dropIndicatorTargetId = dropIndicatorIndex != null && dropIndicatorIndex < indicatorReferenceBlocks.length
+    ? indicatorReferenceBlocks[dropIndicatorIndex].id
+    : null;
+
+  const showDropIndicatorAtEnd = dropIndicatorIndex != null && dropIndicatorIndex >= indicatorReferenceBlocks.length && draggingBlockIds.length > 0;
+
+  const draggingPreviewBlocks = useMemo(
+    () =>
+      draggingBlockIds
+        .map(id => blocks.find(block => block.id === id))
+        .filter((block): block is ArticleBlock => Boolean(block)),
+    [draggingBlockIds, blocks]
+  );
+
+  const overlayBlocks = draggingPreviewBlocks.length > 0
+    ? draggingPreviewBlocks
+    : activeBlockSnapshot
+      ? [activeBlockSnapshot]
+      : [];
 
   // void要素の判定
   const isVoidElement = (tagName: string): boolean => {
@@ -1636,6 +1748,49 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
     });
   };
 
+  const stripHtml = (html: string) => html.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+
+  const renderDragOverlayBlock = (block: ArticleBlock) => {
+    if (block.type === 'replaced_image' && block.imageData) {
+      return (
+        <div className="flex flex-col items-center gap-2">
+          <SafeImage
+            src={block.imageData.image_url}
+            alt={block.imageData.alt_text}
+            className="max-h-40 w-full rounded-lg object-cover"
+            width={600}
+            height={240}
+          />
+          <span className="text-xs text-gray-500">{block.imageData.alt_text}</span>
+        </div>
+      );
+    }
+
+    if (block.type === 'image_placeholder' && block.placeholderData) {
+      return (
+        <div className="rounded-md border border-dashed border-purple-300 bg-purple-50 px-4 py-3 text-sm text-purple-700">
+          <div className="font-medium">画像プレースホルダー</div>
+          <div className="text-xs opacity-80">ID: {block.placeholderData.placeholder_id}</div>
+          <div className="mt-1 text-xs leading-relaxed">{block.placeholderData.description_jp}</div>
+        </div>
+      );
+    }
+
+    const previewText = stripHtml(block.content || '') || '(空のコンテンツ)';
+
+    if (['ul', 'ol'].includes(block.type)) {
+      return (
+        <ul className="list-disc space-y-1 pl-5 text-sm text-gray-700">
+          {previewText.split(/\s*[•\-\d.]+\s*/).filter(Boolean).slice(0, 4).map((item, index) => (
+            <li key={`${block.id}-preview-${index}`}>{item}</li>
+          ))}
+        </ul>
+      );
+    }
+
+    return <p className="text-sm leading-relaxed text-gray-700">{previewText}</p>;
+  };
+
   // 画像プレースホルダーブロックのレンダリング
   const renderImagePlaceholderBlock = (block: ArticleBlock) => {
     if (!block.placeholderData) return null;
@@ -2093,32 +2248,49 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
           </TabsList>
         </div>
 
-        <TabsContent value="blocks" className="mt-4">
-          <Card className="p-4 md:p-8">
-            <ArticlePreviewStyles>
-              <DndContext
-                sensors={sensors}
-                collisionDetection={closestCenter}
-                onDragStart={handleDragStart}
-                onDragOver={handleDragOver}
-                onDragEnd={handleDragEnd}
-                onDragCancel={handleDragCancel}
-              >
-                <SortableContext items={blockIds} strategy={verticalListSortingStrategy}>
-                  <div className="max-w-4xl mx-auto space-y-2">
+        <TabsContent value="blocks" className="mt-4 relative">
+          <SelectionManager
+            onSelectionChange={handleSelectionChange}
+            blockRefs={blockRefs.current}
+            className="relative w-full select-none min-h-screen"
+            style={{ minHeight: '100vh' }}
+          >
+            <Card className="p-4 md:p-8 relative z-10">
+              <ArticlePreviewStyles>
+
+                <DndContext
+                  sensors={sensors}
+                  collisionDetection={closestCenter}
+                  onDragStart={handleDragStart}
+                  onDragOver={handleDragOver}
+                  onDragEnd={handleDragEnd}
+                  onDragCancel={handleDragCancel}
+                >
+                  <SortableContext items={blockIds} strategy={verticalListSortingStrategy}>
+                    <div className="relative mx-auto max-w-4xl space-y-2">
+
                     {blocks.map((block, index) => {
                       const confirmationForBlock = aiConfirmations.find(c => c.blockId === block.id);
                       const dragDisabled = !!confirmationForBlock || block.isEditing;
+                      const isSelected = block.isSelected;
+                      const isGroupDragged = draggingBlockIds.length > 1 && draggingBlockIds.includes(block.id);
+
                       return (
                         <React.Fragment key={block.id}>
-                          {dropIndicatorIndex === index && <DropIndicator />}
                           <BlockInsertButton
                             onInsertContent={handleInsertContent}
                             onAIGenerate={handleAIGenerate}
                             position={index}
                           />
+                          {draggingBlockIds.length > 0 && dropIndicatorTargetId === block.id && <DropIndicator />}
 
-                          <SortableBlock id={block.id} disabled={dragDisabled}>
+                          <SortableBlock
+                            id={block.id}
+                            disabled={dragDisabled}
+                            onNodeChange={(id, node) => {
+                              blockRefs.current[id] = node;
+                            }}
+                          >
                             {({ attributes, listeners, setActivatorNodeRef, setNodeRef, style, isDragging, isOver }) => {
                               const dragHandleClass = cn(
                                 'flex h-7 w-7 items-center justify-center rounded-md border border-transparent bg-white text-gray-400 shadow-sm transition focus-visible:outline-none',
@@ -2128,23 +2300,47 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
                                 }
                               );
 
+                              const combinedStyle: React.CSSProperties = {
+                                ...style,
+                                // Hide blocks that are part of the dragging group completely
+                                opacity: (isDragging || isGroupDragged) ? 0.35 : style?.opacity ?? 1,
+                                transform: style?.transform,
+                              };
+
                               return (
                                 <div
                                   ref={setNodeRef}
-                                  style={{ ...style, opacity: isDragging ? 0.35 : 1 }}
+                                  style={combinedStyle}
                                   className={cn(
-                                    'group relative flex items-start gap-3 rounded-md py-1 pr-3 pl-14 transition-colors',
+                                    'group relative flex items-start gap-3 rounded-md border border-transparent py-1 pr-3 pl-14 transition-all duration-150',
                                     {
                                       'bg-blue-50': hoveredBlockId === block.id && !block.isEditing && !confirmationForBlock,
+                                      'border-blue-400 bg-blue-50/70 shadow-inner': isSelected && !isDragging && !confirmationForBlock,
                                       'bg-white': !!confirmationForBlock,
-                                      'ring-2 ring-purple-300/90 bg-white shadow-lg': isDragging,
+                                      'ring-2 ring-purple-300/90 bg-white shadow-xl': isDragging,
+                                      'ring-2 ring-purple-200/70 bg-purple-50/80 shadow-lg': isGroupDragged && !isDragging,
                                       'ring-2 ring-purple-200/70 bg-purple-50/70': isOver && !isDragging && !confirmationForBlock,
                                     },
                                   )}
+                                  onPointerDown={handleBlockPointerDown(block.id)}
                                   onMouseEnter={() => !confirmationForBlock && setHoveredBlockId(block.id)}
                                   onMouseLeave={() => setHoveredBlockId(null)}
+                                  data-block-id={block.id}
+                                  data-selected={isSelected.toString()}
                                 >
-                                  <div className="absolute left-2 top-1.5 flex flex-col items-center gap-2 text-gray-400 transition-opacity opacity-60 group-hover:opacity-100 group-focus-within:opacity-100">
+                                  <div
+                                    className={cn(
+                                      'absolute left-0 top-0 h-full w-12 rounded-l-md border-l-4 border-transparent transition-colors duration-150',
+                                      isSelected ? 'border-purple-400 bg-purple-100/40' : 'hover:bg-purple-100/20'
+                                    )}
+                                    data-selection-anchor="true"
+                                    data-selection-overlay="true"
+                                  />
+                                  <div
+                                    className="absolute left-2 top-1.5 flex flex-col items-center gap-2 text-gray-400 transition-opacity opacity-60 group-hover:opacity-100 group-focus-within:opacity-100"
+                                    data-selection-anchor="true"
+                                    style={{ zIndex: 10 }}
+                                  >
                                     <button
                                       type="button"
                                       ref={setActivatorNodeRef}
@@ -2153,14 +2349,17 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
                                       className={dragHandleClass}
                                       aria-label="ブロックをドラッグして並び替える"
                                       disabled={dragDisabled}
+                                      data-interactive="true"
                                     >
                                       <GripVertical className="h-4 w-4" />
                                     </button>
-                                    <Checkbox
-                                      checked={block.isSelected}
-                                      onCheckedChange={(checked) => handleSelectionToggle(block.id, checked)}
-                                      disabled={!!confirmationForBlock}
-                                    />
+                                    <div data-interactive="true">
+                                      <Checkbox
+                                        checked={block.isSelected}
+                                        onCheckedChange={(checked) => handleSelectionToggle(block.id, checked)}
+                                        disabled={!!confirmationForBlock}
+                                      />
+                                    </div>
                                   </div>
 
                                   <div className="flex-1 w-full">
@@ -2218,7 +2417,7 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
                                     ) : (
                                       <Popover>
                                         <PopoverTrigger asChild>
-                                          <div className="w-full cursor-pointer rounded-md p-1 hover:bg-gray-100/50">
+                                          <div className="w-full cursor-pointer rounded-md p-1 hover:bg-gray-100/50" data-block-content="true" data-allow-selection="true">
                                             {block.type === 'image_placeholder'
                                               ? renderImagePlaceholderBlock(block)
                                               : block.type === 'replaced_image'
@@ -2226,7 +2425,7 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
                                                 : renderBlockContent(block)}
                                           </div>
                                         </PopoverTrigger>
-                                        <PopoverContent className="w-48 p-1" side="right" align="start">
+                                        <PopoverContent className="w-48 p-1" side="right" align="start" data-interactive="true">
                                           <div className="space-y-1">
                                             {block.type === 'image_placeholder' ? (
                                               <>
@@ -2319,28 +2518,55 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
                       );
                     })}
 
-                    {dropIndicatorIndex === blocks.length && <DropIndicator />}
+                    {draggingBlockIds.length > 0 && showDropIndicatorAtEnd && <DropIndicator />}
 
                     <BlockInsertButton
                       onInsertContent={handleInsertContent}
                       onAIGenerate={handleAIGenerate}
                       position={blocks.length}
                     />
-                  </div>
-                </SortableContext>
+                    </div>
+                  </SortableContext>
 
                 <DragOverlay dropAnimation={{ duration: 160, easing: 'cubic-bezier(0.2, 0.7, 0.3, 1)' }}>
-                  {activeBlockSnapshot ? (
-                    <div className="max-w-4xl rounded-lg border border-purple-200 bg-white p-4 shadow-2xl">
-                      <div className="prose prose-gray max-w-none text-sm">
-                        {renderBlockContent(activeBlockSnapshot)}
-                      </div>
+                  {overlayBlocks.length > 0 ? (
+                    <div className="pointer-events-none max-w-4xl">
+                      <ArticlePreviewStyles>
+                        <div className="relative pointer-events-none">
+                          {overlayBlocks.slice(0, 3).map((block, index) => (
+                            <div
+                              key={`overlay-${block.id}-${index}`}
+                              className="pointer-events-none rounded-lg border border-purple-200 bg-white px-5 py-4 shadow-2xl"
+                              style={{ transform: `translate(${index * 10}px, ${index * 8}px)` }}
+                            >
+                              <div className="mb-2 flex items-center justify-between text-[11px] font-semibold tracking-wide text-purple-500">
+                                <span>{draggingBlockIds.length > 1 ? `選択ブロック ${index + 1}` : 'ブロック'}</span>
+                                {draggingBlockIds.length > 1 && index === 0 && (
+                                  <span className="rounded-full bg-purple-100 px-2 py-0.5 text-[10px] text-purple-700">
+                                    {draggingBlockIds.length} 件移動中
+                                  </span>
+                                )}
+                              </div>
+                              <div className="pointer-events-none">
+                                {renderDragOverlayBlock(block)}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </ArticlePreviewStyles>
+                      {overlayBlocks.length > 3 && (
+                        <div className="mt-3 text-center text-xs text-gray-500">
+                          他 {overlayBlocks.length - 3} 件
+                        </div>
+                      )}
                     </div>
                   ) : null}
                 </DragOverlay>
               </DndContext>
+
             </ArticlePreviewStyles>
-          </Card>
+            </Card>
+          </SelectionManager>
         </TabsContent>
 
         <TabsContent value="visual" className="mt-4">

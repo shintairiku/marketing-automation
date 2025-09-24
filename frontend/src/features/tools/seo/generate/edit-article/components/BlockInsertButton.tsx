@@ -28,6 +28,7 @@ export default function BlockInsertButton({
         "transition-all duration-200 ease-in-out",
         className
       )}
+      data-interactive="true"
       onMouseEnter={() => setIsVisible(true)}
       onMouseLeave={() => {
         setIsVisible(false);
