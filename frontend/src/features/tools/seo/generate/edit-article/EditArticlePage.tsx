@@ -401,6 +401,9 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
     if (event.button !== 0) return;
 
     const target = event.target as HTMLElement;
+    const interactiveSelector = 'button, a[href], input, textarea, select, label, [role="button"], [contenteditable="true"]';
+
+    if (target.closest(interactiveSelector)) return;
     if (target.closest('[data-interactive="true"]')) return;
     if (target.closest('[data-block-content="true"]')) return;
     if (target.closest('[data-selection-overlay="true"]')) return;
@@ -2365,7 +2368,7 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
                                   data-block-id={block.id}
                                   data-selected={isSelected.toString()}
                                 >
-                                  <div className="absolute left-0 top-1/2 flex -translate-y-1/2 items-center gap-2 pl-1 pr-3">
+                                  <div className="pointer-events-none absolute left-0 top-1/2 flex -translate-y-1/2 items-center gap-2 pl-1 pr-3">
                                     <button
                                       type="button"
                                       ref={setActivatorNodeRef}
@@ -2375,6 +2378,7 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
                                       aria-label="ブロックをドラッグして並び替える"
                                       disabled={dragDisabled}
                                       data-interactive="true"
+                                      style={{ pointerEvents: 'auto' }}
                                     >
                                       <GripDots />
                                     </button>
