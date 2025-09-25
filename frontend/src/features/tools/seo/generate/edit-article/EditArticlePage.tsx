@@ -45,6 +45,7 @@ import AIContentGenerationDialog from './components/AIContentGenerationDialog';
 import BlockInsertButton from './components/BlockInsertButton';
 import ContentSelectorDialog from './components/ContentSelectorDialog';
 import HeadingLevelDialog from './components/HeadingLevelDialog';
+import ImagePlaceholderDialog from './components/ImagePlaceholderDialog';
 import RichTextVisualEditor from './components/RichTextVisualEditor';
 import SelectionManager from './components/SelectionManager';
 import TableOfContentsDialog from './components/TableOfContentsDialog';
@@ -262,6 +263,7 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
   const [contentSelectorOpen, setContentSelectorOpen] = useState(false);
   const [tocDialogOpen, setTocDialogOpen] = useState(false);
   const [headingLevelDialogOpen, setHeadingLevelDialogOpen] = useState(false);
+  const [imagePlaceholderDialogOpen, setImagePlaceholderDialogOpen] = useState(false);
   const [aiContentDialogOpen, setAiContentDialogOpen] = useState(false);
   const [insertPosition, setInsertPosition] = useState<number>(0);
   const [editorView, setEditorView] = useState<'blocks' | 'visual'>('blocks');
@@ -809,6 +811,8 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
       setTocDialogOpen(true);
     } else if (type === 'heading') {
       setHeadingLevelDialogOpen(true);
+    } else if (type === 'image-placeholder') {
+      setImagePlaceholderDialogOpen(true);
     } else {
       // テキストブロックの追加
       let blockType: ArticleBlock['type'] = 'p';
@@ -846,6 +850,26 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
     const initialContent = `見出し ${level}`;
     const newBlock = createNewBlock(blockType, initialContent);
     insertNewBlock(newBlock);
+  };
+
+  // 画像プレースホルダー追加の処理
+  const handleAddImagePlaceholder = (description: string, position: number) => {
+    const placeholderId = `placeholder-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    const newBlock: ArticleBlock = {
+      id: `block-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      type: 'image_placeholder',
+      content: `<!-- IMAGE_PLACEHOLDER: ${placeholderId}|${description}|${description} -->`,
+      isEditing: false,
+      isSelected: false,
+      placeholderData: {
+        placeholder_id: placeholderId,
+        description_jp: description,
+        prompt_en: description,
+        alt_text: description,
+      }
+    };
+    insertNewBlock(newBlock);
+    setImagePlaceholderDialogOpen(false);
   };
 
   // AIコンテンツ生成の開始
@@ -2724,6 +2748,14 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
         isOpen={headingLevelDialogOpen}
         onClose={() => setHeadingLevelDialogOpen(false)}
         onSelectHeading={handleSelectHeadingLevel}
+        position={insertPosition}
+      />
+
+      {/* 画像プレースホルダー追加ダイアログ */}
+      <ImagePlaceholderDialog
+        isOpen={imagePlaceholderDialogOpen}
+        onClose={() => setImagePlaceholderDialogOpen(false)}
+        onAddImagePlaceholder={handleAddImagePlaceholder}
         position={insertPosition}
       />
 

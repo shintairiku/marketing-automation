@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { BookOpen, Heading1, Heading2, Heading3, List, ListOrdered, Plus, Type } from 'lucide-react';
+import { BookOpen, Heading1, Heading2, Heading3, Image, List, ListOrdered, Plus, Type } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -51,6 +51,14 @@ const contentTypes = [
     icon: ListOrdered,
     color: 'from-orange-500 to-orange-600',
     hoverColor: 'hover:from-orange-600 hover:to-orange-700'
+  },
+  {
+    id: 'image-placeholder',
+    title: '画像プレースホルダー',
+    description: '画像の説明を入力して、後で画像をアップロードまたは生成できるプレースホルダーを追加します。',
+    icon: Image,
+    color: 'from-blue-500 to-blue-600',
+    hoverColor: 'hover:from-blue-600 hover:to-blue-700'
   },
   {
     id: 'table-of-contents',
