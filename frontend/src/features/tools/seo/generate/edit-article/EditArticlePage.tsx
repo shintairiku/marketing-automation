@@ -46,6 +46,7 @@ import BlockInsertButton from './components/BlockInsertButton';
 import ContentSelectorDialog from './components/ContentSelectorDialog';
 import HeadingLevelDialog from './components/HeadingLevelDialog';
 import ImagePlaceholderDialog from './components/ImagePlaceholderDialog';
+import PromptEditDialog from './components/PromptEditDialog';
 import RichTextVisualEditor from './components/RichTextVisualEditor';
 import SelectionManager from './components/SelectionManager';
 import TableOfContentsDialog from './components/TableOfContentsDialog';
@@ -230,7 +231,11 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
   const { toast } = useToast();
   const [imageHistoryVisible, setImageHistoryVisible] = useState<{ [blockId: string]: boolean }>({});
   const [imageHistory, setImageHistory] = useState<{ [placeholderId: string]: any[] }>({});
-  
+
+  // プロンプト編集関連のstate
+  const [editingPromptBlockId, setEditingPromptBlockId] = useState<string | null>(null);
+  const [promptSaveLoading, setPromptSaveLoading] = useState(false);
+
   // AI編集モーダル用state
   const [isAiModalOpen, setIsAiModalOpen] = useState(false);
   const [aiInstruction, setAiInstruction] = useState("");
@@ -264,6 +269,7 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
   const [tocDialogOpen, setTocDialogOpen] = useState(false);
   const [headingLevelDialogOpen, setHeadingLevelDialogOpen] = useState(false);
   const [imagePlaceholderDialogOpen, setImagePlaceholderDialogOpen] = useState(false);
+  const [promptEditDialogOpen, setPromptEditDialogOpen] = useState(false);
   const [aiContentDialogOpen, setAiContentDialogOpen] = useState(false);
   const [insertPosition, setInsertPosition] = useState<number>(0);
   const [editorView, setEditorView] = useState<'blocks' | 'visual'>('blocks');
@@ -1419,6 +1425,83 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
     }
   };
 
+  // プロンプト編集を開始
+  const handlePromptEditStart = (blockId: string) => {
+    setEditingPromptBlockId(blockId);
+    setPromptEditDialogOpen(true);
+  };
+
+  // プロンプト保存処理
+  const handlePromptSave = async (newPrompt: string) => {
+    if (!editingPromptBlockId) return;
+
+    const block = blocks.find(b => b.id === editingPromptBlockId);
+    if (!block || !block.placeholderData) return;
+
+    try {
+      setPromptSaveLoading(true);
+
+      const token = await getToken();
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+      };
+      if (token) {
+        headers["Authorization"] = `Bearer ${token}`;
+      }
+
+      // プレースホルダー更新APIを呼び出し
+      const response = await fetch(`/api/proxy/images/update-placeholder`, {
+        method: 'PATCH',
+        headers,
+        body: JSON.stringify({
+          article_id: articleId,
+          placeholder_id: block.placeholderData.placeholder_id,
+          prompt_en: newPrompt.trim(),
+          description_jp: block.placeholderData.description_jp,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Update failed: ${response.status}`);
+      }
+
+      const result = await response.json();
+
+      // ローカル状態を更新
+      setBlocks(prev => prev.map(b =>
+        b.id === editingPromptBlockId
+          ? {
+              ...b,
+              placeholderData: {
+                ...b.placeholderData!,
+                prompt_en: newPrompt.trim(),
+              },
+              content: `<!-- IMAGE_PLACEHOLDER: ${b.placeholderData!.placeholder_id}|${b.placeholderData!.description_jp}|${newPrompt.trim()} -->`
+            }
+          : b
+      ));
+
+      toast({
+        title: "プロンプトを更新しました",
+        description: "生成プロンプトが正常に保存されました。",
+        variant: "default",
+      });
+
+      setPromptEditDialogOpen(false);
+      setEditingPromptBlockId(null);
+
+    } catch (error) {
+      console.error('プロンプト更新エラー:', error);
+      toast({
+        title: "更新に失敗",
+        description: "プロンプトの更新に失敗しました。再試行してください。",
+        variant: "destructive",
+      });
+    } finally {
+      setPromptSaveLoading(false);
+    }
+  };
+
   // 画像履歴を取得
   const fetchImageHistory = async (placeholderId: string, blockId?: string) => {
     if (blockId) {
@@ -1994,8 +2077,22 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
             <span className="text-gray-600">{block.placeholderData.description_jp}</span>
           </div>
           <div>
-            <span className="font-medium text-gray-700">生成プロンプト: </span>
-            <span className="text-gray-600 font-mono text-xs bg-gray-100 px-2 py-1 rounded">
+            <div className="flex items-center justify-between gap-2">
+              <span className="font-medium text-gray-700">生成プロンプト:</span>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-6 px-2 text-xs text-purple-600 hover:text-purple-700 hover:bg-purple-50"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handlePromptEditStart(block.id);
+                }}
+              >
+                <Edit className="w-3 h-3 mr-1" />
+                編集
+              </Button>
+            </div>
+            <span className="text-gray-600 font-mono text-xs bg-gray-100 px-2 py-1 rounded block mt-1">
               {block.placeholderData.prompt_en}
             </span>
           </div>
@@ -2757,6 +2854,27 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
         onClose={() => setImagePlaceholderDialogOpen(false)}
         onAddImagePlaceholder={handleAddImagePlaceholder}
         position={insertPosition}
+      />
+
+      {/* プロンプト編集ダイアログ */}
+      <PromptEditDialog
+        isOpen={promptEditDialogOpen}
+        onClose={() => {
+          setPromptEditDialogOpen(false);
+          setEditingPromptBlockId(null);
+        }}
+        onSave={handlePromptSave}
+        initialPrompt={
+          editingPromptBlockId
+            ? blocks.find(b => b.id === editingPromptBlockId)?.placeholderData?.prompt_en || ''
+            : ''
+        }
+        placeholderId={
+          editingPromptBlockId
+            ? blocks.find(b => b.id === editingPromptBlockId)?.placeholderData?.placeholder_id || ''
+            : ''
+        }
+        isSaving={promptSaveLoading}
       />
 
       {/* AIコンテンツ生成ダイアログ */}

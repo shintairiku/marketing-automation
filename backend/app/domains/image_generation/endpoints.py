@@ -54,6 +54,14 @@ class ImageRestoreRequest(BaseModel):
     article_id: str
     placeholder_id: str
 
+class PlaceholderUpdateRequest(BaseModel):
+    """プレースホルダー更新リクエスト"""
+    article_id: str = Field(description="記事ID")
+    placeholder_id: str = Field(description="プレースホルダーID")
+    prompt_en: str = Field(description="更新する英語プロンプト")
+    description_jp: Optional[str] = Field(default=None, description="日本語説明（オプション）")
+    alt_text: Optional[str] = Field(default=None, description="代替テキスト（オプション）")
+
 class UploadImageResponse(BaseModel):
     """画像アップロードレスポンス"""
     success: bool = Field(description="アップロード成功フラグ")
@@ -765,11 +773,114 @@ async def get_placeholder_history(
         return {
             "images_history": placeholder_images
         }
-        
+
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"画像履歴取得エラー - article_id: {article_id}, placeholder_id: {placeholder_id}, error: {e}")
         raise HTTPException(status_code=500, detail=f"画像履歴取得に失敗しました: {str(e)}")
+
+@router.patch("/update-placeholder")
+async def update_placeholder(
+    request: PlaceholderUpdateRequest,
+    current_user_id: str = Depends(get_current_user_id_from_token)
+):
+    """プレースホルダーの情報を更新する（プロンプト、説明など）"""
+    try:
+        logger.info(f"プレースホルダー更新開始 - article_id: {request.article_id}, placeholder_id: {request.placeholder_id}")
+
+        # 記事の取得と権限確認
+        article_result = supabase.table("articles").select("*").eq("id", request.article_id).eq("user_id", current_user_id).execute()
+
+        if not article_result.data:
+            raise HTTPException(status_code=404, detail="記事が見つからないか、アクセス権限がありません")
+
+        article = article_result.data[0]
+        current_content = article["content"]
+
+        # プレースホルダー情報を取得または作成
+        placeholder_result = supabase.table("image_placeholders").select("*").eq("article_id", request.article_id).eq("placeholder_id", request.placeholder_id).execute()
+
+        if placeholder_result.data:
+            # 既存のプレースホルダーを更新
+            existing_placeholder = placeholder_result.data[0]
+            update_data = {
+                "prompt_en": request.prompt_en,
+            }
+
+            # オプションフィールドの更新
+            if request.description_jp:
+                update_data["description_jp"] = request.description_jp
+            # alt_textはimage_placeholdersテーブルに存在しないため削除
+
+            # データベースのプレースホルダーを更新
+            db_update_result = supabase.table("image_placeholders").update(update_data).eq("article_id", request.article_id).eq("placeholder_id", request.placeholder_id).execute()
+
+            if not db_update_result.data:
+                logger.warning(f"プレースホルダーDB更新が空の結果を返しました: {db_update_result}")
+
+            # 更新後の値を取得（デフォルト値も含めて）
+            updated_description = request.description_jp if request.description_jp else existing_placeholder.get("description_jp", "")
+            # alt_textは使用しない（テーブルに存在しないため）
+
+        else:
+            # 記事コンテンツからプレースホルダーを検索して新規作成
+            import re
+            pattern = f'<!-- IMAGE_PLACEHOLDER: {request.placeholder_id}\\|([^|]+)\\|([^>]+) -->'
+            match = re.search(pattern, current_content)
+
+            if not match:
+                raise HTTPException(status_code=404, detail="プレースホルダーが記事内に見つかりません")
+
+            # 既存の説明と新しい説明を決定
+            existing_description = match.group(1).strip()
+            updated_description = request.description_jp if request.description_jp else existing_description
+
+            # 新しいプレースホルダーをDBに作成
+            placeholder_data = {
+                "article_id": request.article_id,
+                "placeholder_id": request.placeholder_id,
+                "description_jp": updated_description,
+                "prompt_en": request.prompt_en,
+                "position_index": 1,
+                "status": "pending"
+            }
+
+            placeholder_insert = supabase.table("image_placeholders").insert(placeholder_data).execute()
+            if not placeholder_insert.data:
+                logger.warning(f"新規プレースホルダーDB作成が失敗しました: {placeholder_insert}")
+
+        # 記事コンテンツ内のプレースホルダーコメントを更新
+        import re
+        placeholder_pattern = f'<!-- IMAGE_PLACEHOLDER: {request.placeholder_id}\\|[^|]+\\|[^>]+ -->'
+        updated_placeholder_comment = f'<!-- IMAGE_PLACEHOLDER: {request.placeholder_id}|{updated_description}|{request.prompt_en} -->'
+
+        updated_content = re.sub(placeholder_pattern, updated_placeholder_comment, current_content)
+
+        # 記事内容を更新
+        content_update_result = supabase.table("articles").update({"content": updated_content}).eq("id", request.article_id).execute()
+
+        if not content_update_result.data:
+            raise HTTPException(status_code=500, detail="記事コンテンツの更新に失敗しました")
+
+        logger.info(f"プレースホルダー更新成功 - article_id: {request.article_id}, placeholder_id: {request.placeholder_id}")
+
+        return {
+            "success": True,
+            "message": "プレースホルダー情報が正常に更新されました",
+            "placeholder_id": request.placeholder_id,
+            "updated_content": updated_content,
+            "updated_placeholder": {
+                "placeholder_id": request.placeholder_id,
+                "description_jp": updated_description,
+                "prompt_en": request.prompt_en
+            }
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"プレースホルダー更新エラー - article_id: {request.article_id}, placeholder_id: {request.placeholder_id}, error: {e}")
+        raise HTTPException(status_code=500, detail=f"プレースホルダー更新に失敗しました: {str(e)}")
 
 # --- Additional endpoints from routers/images.py can be added here as needed ---
