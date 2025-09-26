@@ -31,9 +31,9 @@ from app.common.schemas import (
 )
 from app.domains.seo_article.context import ArticleContext
 from app.domains.seo_article.schemas import (
-    ThemeProposal, ResearchPlan, ResearchQueryResult, ResearchReport, Outline, OutlineSection,
+    ThemeProposal, ResearchPlan, ResearchQueryResult, ResearchReport, Outline,
     RevisedArticle, ClarificationNeeded, StatusUpdate, ArticleSection, GeneratedPersonasResponse, ThemeProposal as ThemeIdea,
-    SerpKeywordAnalysisReport, OutlineSectionData,
+    SerpKeywordAnalysisReport,
     ArticleSectionWithImages
 )
 from app.domains.seo_article.agents.definitions import (
@@ -1645,7 +1645,12 @@ class GenerationFlowManager:
         agent_output = await self.run_agent(current_agent, agent_input, context, run_config)
 
         if isinstance(agent_output, Outline):
-            context.generated_outline = agent_output
+            normalized_outline = self.service.utils.normalize_outline_structure(
+                agent_output,
+                top_level_hint=getattr(context, 'outline_top_level_heading', 2)
+            )
+            context.generated_outline = normalized_outline
+            context.outline_top_level_heading = normalized_outline.top_level_heading
             context.current_step = "outline_generated"
             console.print(f"[cyan]アウトライン（{len(agent_output.sections)}セクション）を生成しました。[/cyan]")
             
@@ -2153,20 +2158,22 @@ class GenerationFlowManager:
                         # 編集されたアウトラインを適用
                         if (isinstance(edited_outline_data.get("title"), str) and 
                             isinstance(edited_outline_data.get("sections"), list)):
-                            edited_sections = []
-                            for section_data in edited_outline_data["sections"]:
-                                if isinstance(section_data.get("heading"), str):
-                                    edited_sections.append(OutlineSectionData(
-                                        heading=section_data["heading"],
-                                        estimated_chars=section_data.get("estimated_chars", 400)
-                                    ))
-                            
-                            context.generated_outline = Outline(
-                                status="outline",
-                                title=edited_outline_data["title"],
-                                suggested_tone=edited_outline_data.get("suggested_tone", "丁寧で読みやすい解説調"),
-                                sections=edited_sections
+                            top_level = edited_outline_data.get("top_level_heading")
+                            if not isinstance(top_level, int) or top_level not in (2, 3):
+                                top_level = getattr(context, 'outline_top_level_heading', 2)
+
+                            normalized_outline = self.service.utils.normalize_outline_structure(
+                                {
+                                    "title": edited_outline_data["title"],
+                                    "suggested_tone": edited_outline_data.get("suggested_tone", "丁寧で読みやすい解説調"),
+                                    "top_level_heading": top_level,
+                                    "sections": edited_outline_data.get("sections", []),
+                                },
+                                top_level_hint=top_level,
                             )
+
+                            context.generated_outline = normalized_outline
+                            context.outline_top_level_heading = normalized_outline.top_level_heading
                             context.current_step = "outline_approved"
                             console.print("[green]編集されたアウトラインが適用されました（EditOutlinePayload）。[/green]")
                             await self.service.utils.send_server_event(context, StatusUpdatePayload(
@@ -2196,20 +2203,22 @@ class GenerationFlowManager:
                         # 編集されたアウトラインを適用
                         if (isinstance(edited_outline_data.get("title"), str) and 
                             isinstance(edited_outline_data.get("sections"), list)):
-                            edited_sections = []
-                            for section_data in edited_outline_data["sections"]:
-                                if isinstance(section_data.get("heading"), str):
-                                    edited_sections.append(OutlineSectionData(
-                                        heading=section_data["heading"],
-                                        estimated_chars=section_data.get("estimated_chars", 400)
-                                    ))
-                            
-                            context.generated_outline = Outline(
-                                status="outline",
-                                title=edited_outline_data["title"],
-                                suggested_tone=edited_outline_data.get("suggested_tone", "丁寧で読みやすい解説調"),
-                                sections=edited_sections
+                            top_level = edited_outline_data.get("top_level_heading")
+                            if not isinstance(top_level, int) or top_level not in (2, 3):
+                                top_level = getattr(context, 'outline_top_level_heading', 2)
+
+                            normalized_outline = self.service.utils.normalize_outline_structure(
+                                {
+                                    "title": edited_outline_data["title"],
+                                    "suggested_tone": edited_outline_data.get("suggested_tone", "丁寧で読みやすい解説調"),
+                                    "top_level_heading": top_level,
+                                    "sections": edited_outline_data.get("sections", []),
+                                },
+                                top_level_hint=top_level,
                             )
+
+                            context.generated_outline = normalized_outline
+                            context.outline_top_level_heading = normalized_outline.top_level_heading
                             context.current_step = "outline_approved"
                             console.print("[green]編集されたアウトラインが適用されました（EditAndProceedPayload）。[/green]")
                             await self.service.utils.send_server_event(context, StatusUpdatePayload(
@@ -2240,20 +2249,22 @@ class GenerationFlowManager:
                             edited_outline_data = payload.edited_content
                             if (isinstance(edited_outline_data.get("title"), str) and 
                                 isinstance(edited_outline_data.get("sections"), list)):
-                                edited_sections = []
-                                for section_data in edited_outline_data["sections"]:
-                                    if isinstance(section_data.get("heading"), str):
-                                        edited_sections.append(OutlineSection(
-                                            heading=section_data["heading"],
-                                            estimated_chars=section_data.get("estimated_chars", 400)
-                                        ))
-                                
-                                context.generated_outline = Outline(
-                                    status="outline",
-                                    title=edited_outline_data["title"],
-                                    suggested_tone=edited_outline_data.get("suggested_tone", "丁寧で読みやすい解説調"),
-                                    sections=edited_sections
+                                top_level = edited_outline_data.get("top_level_heading")
+                                if not isinstance(top_level, int) or top_level not in (2, 3):
+                                    top_level = getattr(context, 'outline_top_level_heading', 2)
+
+                                normalized_outline = self.service.utils.normalize_outline_structure(
+                                    {
+                                        "title": edited_outline_data["title"],
+                                        "suggested_tone": edited_outline_data.get("suggested_tone", "丁寧で読みやすい解説調"),
+                                        "top_level_heading": top_level,
+                                        "sections": edited_outline_data.get("sections", []),
+                                    },
+                                    top_level_hint=top_level,
                                 )
+
+                                context.generated_outline = normalized_outline
+                                context.outline_top_level_heading = normalized_outline.top_level_heading
                                 context.current_step = "outline_approved"
                                 console.print("[green]編集されたアウトラインが適用されました（EDIT_GENERIC）。[/green]")
                                 await self.service.utils.send_server_event(context, StatusUpdatePayload(

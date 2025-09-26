@@ -245,7 +245,7 @@ export const useSupabaseRealtime = ({
     } finally {
       setIsSyncing(false);
     }
-  }, [processId, userId, getToken, validateData, onDataSync, currentData]); // Add dependencies for correct updates
+  }, [processId, userId, getToken, validateData, onDataSync, onError, currentData]); // Add dependencies for correct updates
   
   // Update the ref whenever dependencies would change
   useEffect(() => {
@@ -276,7 +276,7 @@ export const useSupabaseRealtime = ({
         setQueuedActions(prev => [...prev, action]);
       }
     }
-  }, []); // NO DEPENDENCIES - use current values directly
+  }, [isConnected, queuedActions]); // Add required dependencies
   
   // Update the ref whenever dependencies change
   useEffect(() => {
@@ -285,7 +285,10 @@ export const useSupabaseRealtime = ({
 
   // Connection guard to prevent infinite loops
   const connectionInProgressRef = useRef(false);
-  
+
+  // Use ref to avoid circular dependency
+  const connectRef = useRef<(() => Promise<void>) | null>(null);
+
   const connect: () => Promise<void> = useCallback(async () => {
     // LOOP PREVENTION: Check if connection is already in progress
     if (connectionInProgressRef.current || channelRef.current || !processId || isConnecting) {
@@ -449,15 +452,22 @@ export const useSupabaseRealtime = ({
       onConnectionStateChange?.(false, connectionMetrics.current);
       
       // Attempt to reconnect
-      if (reconnectAttempts.current < maxReconnectAttempts) {
-        scheduleReconnect();
+      if (reconnectAttempts.current < maxReconnectAttempts && scheduleReconnectRef.current) {
+        scheduleReconnectRef.current();
       }
     }
-  }, []); // NO DEPENDENCIES to prevent recreation
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [getToken, onConnectionStateChange, onDataSync, onError, onEvent, onStatusChange, processId, isConnecting, lastEventSequence]); // scheduleReconnect handled via ref to avoid circular dependency
+
+  // Update connect ref
+  useEffect(() => {
+    connectRef.current = connect;
+  }, [connect]);
 
   // Reconnect scheduling with loop prevention
   const reconnectInProgressRef = useRef(false);
-  
+  const scheduleReconnectRef = useRef<(() => void) | null>(null);
+
   const scheduleReconnect = useCallback(() => {
     if (isManuallyDisconnectedRef.current || reconnectInProgressRef.current) {
       console.log('📡 Skipping reconnect - manually disconnected or reconnect in progress');
@@ -483,10 +493,17 @@ export const useSupabaseRealtime = ({
       }
       // Clear reconnect guard before attempting connection
       reconnectInProgressRef.current = false;
-      // Use the callback directly instead of state dependency to avoid loops
-      connect();
+      // Use the ref to avoid circular dependency
+      if (connectRef.current) {
+        connectRef.current();
+      }
     }, delay);
-  }, []); // NO DEPENDENCIES to prevent recreation
+  }, []); // No dependencies needed - using ref
+
+  // Update scheduleReconnect ref
+  useEffect(() => {
+    scheduleReconnectRef.current = scheduleReconnect;
+  }, [scheduleReconnect]);
 
   const disconnect = useCallback(() => {
     // Set manual disconnect flag to prevent automatic reconnection
@@ -543,11 +560,11 @@ export const useSupabaseRealtime = ({
       setQueuedActions(prev => [...prev, action]);
       
       // Attempt to reconnect if not already trying
-      if (!currentConnecting && !isManuallyDisconnectedRef.current && !connectionInProgressRef.current) {
-        connect();
+      if (!currentConnecting && !isManuallyDisconnectedRef.current && !connectionInProgressRef.current && connectRef.current) {
+        connectRef.current();
       }
     }
-  }, []); // NO DEPENDENCIES - use current values directly
+  }, [isConnected, isConnecting]); // Removed connect dependency - using ref
 
   // DISABLED: No periodic polling - database is single source of truth via Realtime
   // Setup periodic data sync if enabled
@@ -566,9 +583,9 @@ export const useSupabaseRealtime = ({
   useEffect(() => {
     let shouldConnect = autoConnect && processId && !channelRef.current && !connectionInProgressRef.current;
     
-    if (shouldConnect) {
+    if (shouldConnect && connectRef.current) {
       console.log('🔌 Auto-connecting on mount/processId change');
-      connect();
+      connectRef.current();
     }
     
     // SINGLE cleanup function to prevent double disconnection
@@ -591,7 +608,7 @@ export const useSupabaseRealtime = ({
       setIsConnected(false);
       setIsConnecting(false);
     };
-  }, [autoConnect, processId]); // MINIMAL dependencies
+  }, [autoConnect, processId]); // Using ref for connect to avoid dependency
 
   // Fallback recovery triggers - lightweight resync on visibility/online changes
   useEffect(() => {

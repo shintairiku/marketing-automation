@@ -156,6 +156,15 @@ class ArticleGenerationService:
             
             logger.info(f"✅ [CREATE_PROCESS] Request data converted, image_mode: {request_dict.get('image_mode', False)}")
             
+            # Determine outline settings with validation
+            raw_outline_level = request_dict.get("outline_top_level_heading", 2)
+            try:
+                outline_top_level = int(raw_outline_level)
+            except (TypeError, ValueError):
+                outline_top_level = 2
+            if outline_top_level not in (2, 3):
+                outline_top_level = 2
+
             # Create ArticleContext from request
             logger.info("🧠 [CREATE_PROCESS] Creating ArticleContext")
             context = ArticleContext(
@@ -183,6 +192,8 @@ class ArticleGenerationService:
                 image_mode=request_dict.get("image_mode", False),
                 image_settings=request_dict.get("image_settings", {}),
                 style_template_id=request_dict.get("style_template_id"),
+                advanced_outline_mode=request_dict.get("advanced_outline_mode", False),
+                outline_top_level_heading=outline_top_level,
                 websocket=None,  # Background mode
                 user_response_event=None,  # Background mode
                 user_id=user_id

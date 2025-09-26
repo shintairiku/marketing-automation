@@ -17,7 +17,8 @@ from pydantic import ValidationError, BaseModel
 from app.core.config import settings
 from app.domains.seo_article.schemas import (
     # Server event payloads
-    SectionChunkPayload, SelectThemePayload, ApprovePayload, SelectPersonaPayload, EditAndProceedPayload, EditThemePayload, EditPlanPayload, EditOutlinePayload
+    SectionChunkPayload, SelectThemePayload, ApprovePayload, SelectPersonaPayload, EditAndProceedPayload, EditThemePayload, EditPlanPayload, EditOutlinePayload,
+    OutlineData, OutlineSectionData,
 )
 from app.common.schemas import (
     ServerEventMessage, ErrorPayload, UserInputRequestPayload, UserInputType
@@ -129,6 +130,67 @@ class GenerationUtils:
     
     def __init__(self, service):
         self.service = service  # ArticleGenerationServiceへの参照
+
+    def normalize_outline_structure(self, outline: Any, top_level_hint: int = 2) -> OutlineData:
+        """Ensure outline has consistent heading levels and subsection structure."""
+        if outline is None:
+            raise ValueError("Outline cannot be None when normalizing structure")
+
+        outline_dict = outline.model_dump() if hasattr(outline, "model_dump") else dict(outline)
+
+        raw_top_level = outline_dict.get("top_level_heading", top_level_hint)
+        try:
+            top_level = int(raw_top_level)
+        except (TypeError, ValueError):
+            top_level = top_level_hint or 2
+        if top_level not in (2, 3):
+            top_level = 2 if top_level < 3 else 3
+
+        def normalize_node(node: Any, fallback_level: int) -> Dict[str, Any]:
+            node_dict = node.model_dump() if hasattr(node, "model_dump") else dict(node)
+
+            # Normalize heading information
+            heading = node_dict.get("heading") or ""
+            node_dict["heading"] = heading.strip()
+
+            raw_level = node_dict.get("level", fallback_level)
+            try:
+                level = int(raw_level)
+            except (TypeError, ValueError):
+                level = fallback_level
+            level = max(min(level, 6), fallback_level)
+            node_dict["level"] = level
+
+            # Normalize optional fields
+            if node_dict.get("description") is None:
+                node_dict["description"] = ""
+
+            estimated = node_dict.get("estimated_chars")
+            if estimated is not None:
+                try:
+                    node_dict["estimated_chars"] = max(0, int(estimated))
+                except (TypeError, ValueError):
+                    node_dict["estimated_chars"] = None
+
+            children = node_dict.get("subsections") or []
+            normalized_children: List[Dict[str, Any]] = []
+            for child in children:
+                normalized_child = normalize_node(child, min(level + 1, 6))
+                if normalized_child.get("heading"):
+                    normalized_children.append(normalized_child)
+            node_dict["subsections"] = normalized_children
+            return node_dict
+
+        normalized_sections: List[Dict[str, Any]] = []
+        for section in outline_dict.get("sections", []) or []:
+            normalized_section = normalize_node(section, top_level)
+            if normalized_section.get("heading"):
+                normalized_sections.append(normalized_section)
+
+        outline_dict["top_level_heading"] = top_level
+        outline_dict["sections"] = normalized_sections
+
+        return OutlineData(**outline_dict)
 
     async def send_server_event(self, context: ArticleContext, payload: BaseModel):
         """WebSocket経由でサーバーイベントを送信するヘルパー関数"""
