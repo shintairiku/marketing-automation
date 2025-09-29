@@ -57,13 +57,67 @@ async def test_research_agent():
         # final_outputがあれば表示
         if hasattr(result, 'final_output') and result.final_output:
             final_output = result.final_output
-            print(f"📊 最終出力タイプ: {type(final_output)}")
+            print(f"\n📊 最終出力タイプ: {type(final_output)}")
+            print(f"📊 出力の属性: {[attr for attr in dir(final_output) if not attr.startswith('_')]}")
+            
             if hasattr(final_output, 'summary'):
-                print(f"📝 レポート概要: {final_output.summary[:200]}...")
+                print(f"\n📝 レポート概要:")
+                print(f"{final_output.summary[:500]}")
+            else:
+                print("❌ summary属性が見つかりません")
+                
             if hasattr(final_output, 'queries_used'):
-                print(f"🔍 検索クエリ数: {len(final_output.queries_used)}")
+                print(f"\n🔍 使用されたクエリ ({len(final_output.queries_used)} 件):")
+                for i, query in enumerate(final_output.queries_used[:5], 1):
+                    print(f"   {i}. {query}")
+            else:
+                print("❌ queries_used属性が見つかりません")
+                
             if hasattr(final_output, 'key_findings'):
-                print(f"📚 収集した情報数: {len(final_output.key_findings)}")
+                print(f"\n📚 主要な発見事項 ({len(final_output.key_findings)} 件):")
+                for i, finding in enumerate(final_output.key_findings[:3], 1):
+                    finding_str = str(finding)[:150] if finding else "N/A"
+                    print(f"   {i}. {finding_str}")
+            else:
+                print("❌ key_findings属性が見つかりません")
+                
+            # ResearchReportDataの実際のフィールドを確認
+            print(f"\n📋 ResearchReportDataの実際の内容:")
+            
+            if hasattr(final_output, 'overall_summary') and final_output.overall_summary:
+                print(f"\n📝 全体要約:")
+                print(f"{final_output.overall_summary[:500]}")
+            
+            if hasattr(final_output, 'topic') and final_output.topic:
+                print(f"\n🎯 トピック: {final_output.topic}")
+            
+            if hasattr(final_output, 'key_points') and final_output.key_points:
+                print(f"\n📚 重要ポイント ({len(final_output.key_points)} 件):")
+                for i, point in enumerate(final_output.key_points[:3], 1):
+                    print(f"   {i}. {str(point)[:150]}")
+            
+            if hasattr(final_output, 'interesting_angles') and final_output.interesting_angles:
+                print(f"\n💡 興味深い視点 ({len(final_output.interesting_angles)} 件):")
+                for i, angle in enumerate(final_output.interesting_angles[:3], 1):
+                    print(f"   {i}. {str(angle)[:150]}")
+            
+            if hasattr(final_output, 'all_sources') and final_output.all_sources:
+                print(f"\n🔗 情報源 ({len(final_output.all_sources)} 件):")
+                for i, source in enumerate(final_output.all_sources[:3], 1):
+                    print(f"   {i}. {str(source)[:100]}")
+            
+            # 全フィールドの状態確認
+            print(f"\n📊 全フィールドの状態:")
+            for field in ['topic', 'overall_summary', 'key_points', 'interesting_angles', 'all_sources']:
+                value = getattr(final_output, field, None)
+                if value:
+                    value_type = type(value).__name__
+                    if isinstance(value, list):
+                        print(f"  ✓ {field}: {value_type} ({len(value)} 件)")
+                    else:
+                        print(f"  ✓ {field}: {value_type} - 存在")
+                else:
+                    print(f"  ✗ {field}: 空または未設定")
         else:
             print("📝 final_output が見つかりません")
         
