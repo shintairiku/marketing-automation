@@ -492,7 +492,7 @@ class BackgroundTaskManager:
                 
             elif step_name == "researching":
                 logger.info(f"[TASK {task_id}] Executing comprehensive research")
-                await flow_manager.execute_research_background(context, run_config)
+                await flow_manager.execute_research_step(context)
                 logger.info(f"[TASK {task_id}] Research completed, current step: {context.current_step}")
                 
             elif step_name == "outline_generating":

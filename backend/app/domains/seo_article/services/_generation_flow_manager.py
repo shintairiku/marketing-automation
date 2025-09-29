@@ -1602,6 +1602,27 @@ class GenerationFlowManager:
             console.print("[red]リサーチ合成中に予期しないエージェント出力タイプを受け取りました。[/red]")
             context.current_step = "error"
 
+    async def execute_research_step(self, context: ArticleContext):
+        """Execute research step for background tasks"""
+        try:
+            process_id = getattr(context, 'process_id', 'unknown')
+            run_config = RunConfig(
+                workflow_name="SEO記事生成ワークフロー（バックグラウンド）",
+                trace_id=f"trace_bg_research_{process_id}",
+                group_id=process_id,
+                trace_metadata={
+                    "process_id": process_id,
+                    "background_processing": "true",
+                    "current_step": "researching"
+                }
+            )
+            await self.execute_research_background(context, run_config)
+        except Exception as e:
+            logger.error(f"Error in research step: {e}")
+            context.current_step = "error"
+            context.error_message = str(e)
+            raise
+
     async def execute_research_background(self, context: "ArticleContext", run_config: RunConfig):
         """包括的リサーチの実行（計画・実行・要約を統合）"""
         if not context.selected_theme:
