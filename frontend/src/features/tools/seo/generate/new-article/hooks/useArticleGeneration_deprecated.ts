@@ -91,7 +91,6 @@ export const useArticleGeneration = ({ processId, userId }: UseArticleGeneration
       { id: 'keyword_analyzing', title: 'キーワード分析', status: 'pending' },
       { id: 'persona_generating', title: 'ペルソナ生成', status: 'pending' },
       { id: 'theme_generating', title: 'テーマ提案', status: 'pending' },
-      { id: 'research_planning', title: 'リサーチ計画', status: 'pending' },
       { id: 'researching', title: 'リサーチ実行', status: 'pending' },
       { id: 'outline_generating', title: 'アウトライン作成', status: 'pending' },
       { id: 'writing_sections', title: '記事執筆', status: 'pending' },
@@ -127,24 +126,7 @@ export const useArticleGeneration = ({ processId, userId }: UseArticleGeneration
         // ステップの状態を更新
         let mappedStep = payload.step;
         
-        // research_synthesizing は researching として扱うが、要約フェーズであることを明示
-        if (payload.step === 'research_synthesizing') {
-          mappedStep = 'researching';
-          // リサーチ要約中の表示
-          newState.steps = newState.steps.map(step => {
-            if (step.id === 'researching') {
-              return { 
-                ...step, 
-                status: 'in_progress', 
-                message: '要約レポートを作成中...' 
-              };
-            }
-            return step;
-          });
-          // リサーチ進捗をクリア（要約フェーズでは不要）
-          newState.researchProgress = undefined;
-          return newState;
-        }
+        // research_synthesizing removed: integrated research handles this internally
         
         const currentStepIndex = newState.steps.findIndex(s => s.id === mappedStep);
         
@@ -191,14 +173,7 @@ export const useArticleGeneration = ({ processId, userId }: UseArticleGeneration
               step.id === 'theme_generating' ? { ...step, status: 'completed' } : step
             );
             break;
-          case 'approve_plan':
-            newState.researchPlan = payload.data.plan;
-            newState.inputType = 'approve_plan';
-            newState.currentStep = 'research_plan_generated';
-            newState.steps = newState.steps.map(step => 
-              step.id === 'research_planning' ? { ...step, status: 'completed' } : step
-            );
-            break;
+          // approve_plan case removed: integrated research no longer requires plan approval
           case 'approve_outline':
             newState.outline = payload.data.outline;
             newState.inputType = 'approve_outline';
@@ -231,15 +206,7 @@ export const useArticleGeneration = ({ processId, userId }: UseArticleGeneration
         );
       }
 
-      if (payload.plan && !payload.request_type) {
-        newState.researchPlan = payload.plan;
-        newState.isWaitingForInput = true;
-        newState.inputType = 'approve_plan';
-        newState.currentStep = 'research_plan_generated';
-        newState.steps = newState.steps.map(step => 
-          step.id === 'research_planning' ? { ...step, status: 'completed' } : step
-        );
-      }
+      // Research plan approval removed: integrated research no longer requires plan approval
 
       if (payload.outline && !payload.request_type) {
         newState.outline = payload.outline;
@@ -435,7 +402,7 @@ export const useArticleGeneration = ({ processId, userId }: UseArticleGeneration
         };
         
         // リサーチステップを実行中に
-        if (newState.currentStep === 'researching' || newState.currentStep === 'research_synthesizing') {
+        if (newState.currentStep === 'researching') {
           newState.steps = newState.steps.map(step => 
             step.id === 'researching' ? { 
               ...step, 
@@ -445,16 +412,11 @@ export const useArticleGeneration = ({ processId, userId }: UseArticleGeneration
           );
         }
         
-        // リサーチ完了判定
-        if (payload.query_index + 1 === payload.total_queries) {
-          // 最後のクエリの場合、次のメッセージでresearch_synthesizingに移行するため
-          // ここでは進捗を維持
-        }
+        // Integrated research handles completion automatically
+        // No need for individual query progress tracking
       }
       
-      // リサーチ進捗のクリア（要約フェーズ開始時）
-      if (payload.step === 'research_synthesizing' && newState.researchProgress) {
-        newState.researchProgress = undefined;
+      // research_synthesizing handling removed: integrated research handles this internally
       }
       
       // リサーチ完了後のoutline_generatingへの遷移時に、researchingステップを完了にする
@@ -616,7 +578,7 @@ export const useArticleGeneration = ({ processId, userId }: UseArticleGeneration
       
       // プロセス状態を復元
       const currentStep = processData.current_step_name || processData.status;
-      const isUserInputStep = ['theme_proposed', 'persona_generated', 'research_plan_generated', 'outline_generated'].includes(currentStep);
+      const isUserInputStep = ['theme_proposed', 'persona_generated', 'outline_generated'].includes(currentStep);
       
       // 画像モードの値を複数のソースから確実に取得
       const imageMode = processData.image_mode ?? processData.article_context?.image_mode ?? false;
@@ -675,7 +637,7 @@ export const useArticleGeneration = ({ processId, userId }: UseArticleGeneration
     switch (step) {
       case 'theme_proposed': return 'select_theme';
       case 'persona_generated': return 'select_persona';
-      case 'research_plan_generated': return 'approve_plan';
+      // research_plan_generated removed: integrated research no longer requires plan approval
       case 'outline_generated': return 'approve_outline';
       default: return undefined;
     }

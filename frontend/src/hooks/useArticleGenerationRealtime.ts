@@ -61,8 +61,7 @@ export const useArticleGenerationRealtime = ({
       { id: 'keyword_analyzing', name: 'キーワード分析', status: 'pending' },
       { id: 'persona_generating', name: 'ペルソナ生成', status: 'pending' },
       { id: 'theme_generating', name: 'テーマ提案', status: 'pending' },
-      { id: 'research_planning', name: 'リサーチ計画', status: 'pending' },
-      { id: 'researching', name: 'リサーチ実行（リサーチ要約）', status: 'pending' },
+      { id: 'researching', name: 'リサーチ実行', status: 'pending' },
       { id: 'outline_generating', name: 'アウトライン作成', status: 'pending' },
       { id: 'writing_sections', name: '執筆', status: 'pending' },
       { id: 'editing', name: '編集・校正', status: 'pending' },
@@ -91,7 +90,6 @@ export const useArticleGenerationRealtime = ({
     const validStepInputTypes: Record<string, string[]> = {
       'persona_generating': ['select_persona'],
       'theme_generating': ['select_theme'],
-      'research_planning': ['approve_plan'],
       'outline_generating': ['approve_outline'],
     };
     
@@ -136,16 +134,7 @@ export const useArticleGenerationRealtime = ({
           }
           break;
           
-        case 'approve_plan':
-          if (!sanitizedState.researchPlan || sanitizedState.currentStep !== 'research_planning') {
-            console.log('🔒 Clearing invalid plan approval state:', {
-              hasResearchPlan: !!sanitizedState.researchPlan,
-              currentStep: sanitizedState.currentStep
-            });
-            sanitizedState.isWaitingForInput = false;
-            sanitizedState.inputType = undefined;
-          }
-          break;
+        // approve_plan removed: integrated research no longer requires plan approval
           
         case 'approve_outline':
           // More lenient check: only clear if we're clearly not in outline phase
@@ -220,17 +209,10 @@ export const useArticleGenerationRealtime = ({
       // Theme Generation Phase  
       'theme_generating': 'theme_generating',
       'theme_proposed': 'theme_generating', // Keep as generating until selected
-      'theme_selected': 'research_planning', // Auto-transition to research planning loading
+      'theme_selected': 'researching', // Auto-transition to research execution
       
-      // Research Planning Phase
-      'research_planning': 'research_planning',
-      'research_plan_generated': 'research_planning', // Show completed research planning (user approval UI)
-      'research_plan_approved': 'researching', // Auto-transition to research execution loading
-      
-      // Research Execution Phase
-      'researching': 'researching',
-      'research_synthesizing': 'researching',
-      'research_report_generated': 'outline_generating', // Auto-transition to outline generation
+      // Research Execution Phase (Integrated)
+      'researching': 'researching', // Unified research step
       
       // Outline Generation Phase
       'outline_generating': 'outline_generating',
@@ -255,7 +237,7 @@ export const useArticleGenerationRealtime = ({
     // Handle special cases based on status
     if (status === 'user_input_required') {
       // Keep current step when waiting for user input
-      const inputSteps = ['persona_generated', 'theme_proposed', 'research_plan_generated', 'outline_generated'];
+      const inputSteps = ['persona_generated', 'theme_proposed', 'outline_generated'];
       if (inputSteps.includes(backendStep)) {
         return stepMapping[backendStep] || 'keyword_analyzing';
       }
@@ -286,7 +268,7 @@ export const useArticleGenerationRealtime = ({
         console.log(`🔍 Step mapping: ${backendStep} -> ${uiStep} (waiting: ${next.isWaitingForInput})`);
 
         // Progressive step completion: mark current step AND all previous steps as completed
-        const stepOrder = ['keyword_analyzing', 'persona_generating', 'theme_generating', 'research_planning', 'researching', 'outline_generating', 'writing_sections', 'editing'];
+        const stepOrder = ['keyword_analyzing', 'persona_generating', 'theme_generating', 'researching', 'outline_generating', 'writing_sections', 'editing'];
         const currentStepIndex = stepOrder.indexOf(uiStep);
         
         console.log(`🎯 Progressive step completion: current="${uiStep}" (index=${currentStepIndex}), waiting=${next.isWaitingForInput}`);
@@ -439,7 +421,6 @@ export const useArticleGenerationRealtime = ({
             'keyword_analyzing': 'persona_generating',
             'persona_generating': null, // Waits for user selection
             'theme_generating': null, // Waits for user selection  
-            'research_planning': null, // Waits for user approval
             'researching': 'outline_generating',
             'outline_generating': null, // Waits for user approval
             'writing_sections': 'editing',
@@ -497,21 +478,14 @@ export const useArticleGenerationRealtime = ({
                 });
                 break;
               case 'select_theme':
-                newState.currentStep = 'research_planning';
-                newState.steps = newState.steps.map((step: GenerationStep) => {
-                  if (step.id === 'theme_generating') return { ...step, status: 'completed' as StepStatus };
-                  if (step.id === 'research_planning') return { ...step, status: 'in_progress' as StepStatus };
-                  return step;
-                });
-                break;
-              case 'approve_plan':
                 newState.currentStep = 'researching';
                 newState.steps = newState.steps.map((step: GenerationStep) => {
-                  if (step.id === 'research_planning') return { ...step, status: 'completed' as StepStatus };
+                  if (step.id === 'theme_generating') return { ...step, status: 'completed' as StepStatus };
                   if (step.id === 'researching') return { ...step, status: 'in_progress' as StepStatus };
                   return step;
                 });
                 break;
+              // approve_plan case removed: integrated research no longer requires plan approval
               case 'approve_outline':
                 newState.currentStep = 'writing_sections';
                 newState.steps = newState.steps.map((step: GenerationStep) => {
@@ -774,22 +748,9 @@ export const useArticleGenerationRealtime = ({
           break;
           
         case 'theme_selection_completed':
-          console.log('💡 Theme selected - auto-progressing to research planning');
+          console.log('💡 Theme selected - auto-progressing to research execution');
           newState.steps = newState.steps.map((step: GenerationStep) => {
             if (step.id === 'theme_generating') return { ...step, status: 'completed' as StepStatus };
-            if (step.id === 'research_planning') return { ...step, status: 'in_progress' as StepStatus };
-            return step;
-          });
-          newState.currentStep = 'research_planning';
-          // Clear user input waiting state
-          newState.isWaitingForInput = false;
-          newState.inputType = undefined;
-          break;
-          
-        case 'research_plan_approval_completed':
-          console.log('📋 Research plan approved - auto-progressing to research execution');
-          newState.steps = newState.steps.map((step: GenerationStep) => {
-            if (step.id === 'research_planning') return { ...step, status: 'completed' as StepStatus };
             if (step.id === 'researching') return { ...step, status: 'in_progress' as StepStatus };
             return step;
           });
@@ -798,6 +759,8 @@ export const useArticleGenerationRealtime = ({
           newState.isWaitingForInput = false;
           newState.inputType = undefined;
           break;
+          
+        // research_plan_approval_completed removed: integrated research no longer requires plan approval
           
         case 'outline_approval_completed':
           console.log('📝 Outline approved - auto-progressing to writing sections');
@@ -1003,7 +966,7 @@ export const useArticleGenerationRealtime = ({
           // If process is now in theme selection or later, treat as success
           const currentStep = freshData?.current_step_name;
           if (currentStep === 'theme_selection' || 
-              currentStep === 'research_planning' || 
+              currentStep === 'researching' || 
               currentStep === 'outline_generation' || 
               currentStep === 'section_writing' || 
               currentStep === 'editing' || 
@@ -1056,9 +1019,9 @@ export const useArticleGenerationRealtime = ({
           // Refresh process state to check if it has moved to the next step
           const freshData = await fetchProcessData();
           
-          // If process is now in research planning or later, treat as success
+          // If process is now in research execution or later, treat as success
           const currentStep = freshData?.current_step_name;
-          if (currentStep === 'research_planning' || 
+          if (currentStep === 'researching' || 
               currentStep === 'outline_generation' || 
               currentStep === 'section_writing' || 
               currentStep === 'editing' || 
