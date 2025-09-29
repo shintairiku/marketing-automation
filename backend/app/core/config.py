@@ -38,7 +38,7 @@ class Settings(BaseSettings):
 
     # デフォルトモデル名 (環境変数またはデフォルト値)
     default_model: str = os.getenv("DEFAULT_MODEL", "gpt-4o-mini")
-    research_model: str = os.getenv("RESEARCH_MODEL", "gpt-4o-mini")
+    research_model: str = os.getenv("RESEARCH_MODEL", "gpt-5-mini")
     writing_model: str = os.getenv("WRITING_MODEL", "gpt-4o-mini")
     editing_model: str = os.getenv("EDITING_MODEL", "gpt-4o-mini")
     
