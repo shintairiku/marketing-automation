@@ -307,6 +307,87 @@ def create_research_synthesizer_instructions(base_prompt: str) -> Callable[[RunC
         return full_prompt
     return dynamic_instructions_func
 
+def create_research_instructions(base_prompt: str) -> Callable[[RunContextWrapper[ArticleContext], Agent[ArticleContext]], Awaitable[str]]:
+    async def dynamic_instructions_func(ctx: RunContextWrapper[ArticleContext], agent: Agent[ArticleContext]) -> str:
+        if not ctx.context.selected_theme:
+            raise ValueError("リサーチ計画を作成するためのテーマが選択されていません。")
+        if not ctx.context.selected_detailed_persona:
+            raise ValueError("リサーチ計画のための詳細なペルソナが選択されていません。")
+        persona_description = ctx.context.selected_detailed_persona
+
+        # 企業情報（拡張）
+        company_info_str = build_enhanced_company_context(ctx.context)
+
+        # SerpAPI分析結果を含める
+        seo_guidance_str = ""
+        if ctx.context.serp_analysis_report:
+            seo_guidance_str = f"""
+
+=== SerpAPI分析ガイダンス ===
+競合記事の主要テーマ: {', '.join(ctx.context.serp_analysis_report.main_themes)}
+コンテンツギャップ（調査すべき領域）: {', '.join(ctx.context.serp_analysis_report.content_gaps)}
+差別化ポイント: {', '.join(ctx.context.serp_analysis_report.competitive_advantages)}
+検索ユーザーの意図: {ctx.context.serp_analysis_report.user_intent_analysis}
+
+上記の分析結果を踏まえ、競合が扱っていない角度や、より深く掘り下げるべき領域を重点的にリサーチしてください。
+"""
+
+        full_prompt = f"""{base_prompt}
+
+--- リサーチ対象テーマ ---
+タイトル: {ctx.context.selected_theme.title}
+説明: {ctx.context.selected_theme.description}
+キーワード: {', '.join(ctx.context.selected_theme.keywords)}
+想定読者の詳細:\n{persona_description}
+
+{seo_guidance_str}
+
+=== 企業情報（参考用・制限的使用） ===
+{company_info_str}
+---
+
+**検索クエリ生成の厳密な基準:**
+1. テーマタイトルとキーワードに直結する基礎情報・定義
+2. 読者がそのキーワードで求める具体的な疑問・悩みへの答え
+3. テーマに完全一致する実践的なノウハウ・手順
+4. テーマキーワードに直接関連する統計データ・事例のみ
+5. テーマ範囲内での比較・選択肢のみ
+
+**重要:**
+- 上記テーマについて深く掘り下げるための、具体的で多様な検索クエリを **{ctx.context.num_research_queries}個** 生成してください。
+- 各クエリには、そのクエリで何を明らかにしたいか（focus）を明確に記述してください。
+
+**重要なリサーチ指針:**
+- 生成した検索クエリを使用して `web_search` ツールを実行してください。
+- **権威ある情報源を最優先で活用してください**：
+  * **Wikipedia（ja.wikipedia.org）**: 基礎情報、定義、概要
+  * **政府機関・自治体サイト（.go.jp）**: 統計データ、公式見解、制度情報
+  * **学術機関（.ac.jp）**: 研究データ、専門知識
+  * **業界団体・公的機関**: 業界統計、ガイドライン
+  * **大手メディア・新聞社**: ニュース、トレンド情報
+  * **企業公式サイト**: 製品情報、サービス詳細
+- 検索結果を**深く分析**し、記事テーマとクエリの焦点に関連する**具体的な情報、データ、主張、引用**などを**詳細に抽出**してください。
+- 個人ブログやまとめサイト、広告的なコンテンツよりも、**公的機関、学術機関、業界の権威、著名メディア**からの情報を優先して選択してください。
+- 検索結果全体の**簡潔な要約 (summary)** も生成してください。
+- **`save_research_snippet` ツールは使用しないでください。**
+
+**重要なリサーチ結果要約指針:**
+- 上記の詳細なリサーチ結果全体を分析し、記事執筆に役立つように情報を統合・要約してください。
+- 以下の要素を含む**実用的で詳細なリサーチレポート**を作成してください:
+    - `overall_summary`: リサーチ全体から得られた主要な洞察やポイントの要約。
+    - `key_points`: 記事に含めるべき重要なポイントや事実をリスト形式で記述し、各ポイントについて**それを裏付ける情報源URL (`supporting_sources`)** を `KeyPoint` 形式で明確に紐付けてください。
+    - `interesting_angles`: 記事を面白くするための切り口や視点のアイデアのリスト形式。
+    - `all_sources`: 参照した全ての情報源URLのリスト（重複削除済み、可能であれば重要度順）。
+- レポートは論文調ではなく、記事作成者がすぐに使えるような分かりやすい言葉で記述してください。
+- あなたの応答は必ず `ResearchReport` 型のJSON形式で出力してください。
+
+検索クエリの作成、リサーチの実行はすべて上記の指針に従って厳格に行い、内部で実行してください。
+出力は必ず `ResearchReport` 型のJSON形式のみで行ってください。リサーチ計画や実行は内部で完結させ、他のテキストは一切含めないでください。
+
+"""
+        return full_prompt
+    return dynamic_instructions_func
+
 def create_outline_instructions(base_prompt: str) -> Callable[[RunContextWrapper[ArticleContext], Agent[ArticleContext]], Awaitable[str]]:
     async def dynamic_instructions_func(ctx: RunContextWrapper[ArticleContext], agent: Agent[ArticleContext]) -> str:
         if not ctx.context.selected_theme or not ctx.context.research_report:
@@ -1284,6 +1365,23 @@ editor_agent = Agent[ArticleContext](
     model_settings=ModelSettings(max_tokens=32768),  # 最大出力トークン数設定
     tools=[web_search_tool],
     output_type=RevisedArticle, # 修正: RevisedArticleを返す
+)
+
+# リサーチエージェント（計画、実行、要約を一度に実行するエージェント）
+RESEARCH_AGENT_BASE_PROMPT = """
+あなたはリサーチエージェントです。与えられたテーマに基づいて、計画、実行、要約を一度に行います。
+1. まず、テーマを深く掘り下げ、読者が知りたいであろう情報を網羅するための効果的なWeb検索クエリプランを作成します。
+2. 次に、その検索クエリでWeb検索を実行し、結果を深く分析します。記事テーマに関連する具体的で信頼できる情報、デ
+3. 最後に、収集された詳細なリサーチ結果を分析し、記事のテーマに沿って統合・要約します。各キーポイントについて、記事作成者がすぐに活用できる実用的で詳細なリサーチレポートを作成します。
+
+"""
+research_agent = Agent[ArticleContext](
+    name="ResearchAgent",
+    instructions=create_research_instructions(RESEARCH_AGENT_BASE_PROMPT),
+    model=settings.research_model,
+    model_settings=ModelSettings(max_tokens=32768),  # 最大出力トークン数設定
+    tools=[web_search_tool],
+    output_type=ResearchReport, 
 )
 
 # LiteLLMエージェント生成関数 (APIでは直接使わないかもしれないが、念のため残す)
