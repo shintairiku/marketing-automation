@@ -678,7 +678,7 @@ class GenerationFlowManager:
                 "initial_keywords": context.initial_keywords
             })
             
-        elif context.current_step == "research_planning":
+        elif context.current_step == "researching":
             await self.execute_research_background(context, run_config)
             
         elif context.current_step == "outline_generating":

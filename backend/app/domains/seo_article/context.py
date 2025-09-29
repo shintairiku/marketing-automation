@@ -83,12 +83,7 @@ class ArticleContext:
         "theme_generating",   # テーマ生成中
         "theme_proposed",     # ユーザー選択待ち
         "theme_selected",
-        "research_planning",
-        "research_plan_generated", # ユーザー承認待ち
-        "research_plan_approved",  # 計画承認済み
-        "researching",
-        "research_synthesizing",
-        "research_report_generated", # 承認は任意
+        "researching",        # 統合リサーチ実行中（計画・実行・要約を含む）
         "outline_generating",
         "outline_generated", # ユーザー承認待ち
         "writing_sections",

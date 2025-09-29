@@ -490,20 +490,10 @@ class BackgroundTaskManager:
                 await flow_manager.execute_theme_generation_step(context)
                 logger.info(f"[TASK {task_id}] Theme generation completed, current step: {context.current_step}")
                 
-            elif step_name == "research_planning":
-                logger.info(f"[TASK {task_id}] Executing research planning step")
-                await flow_manager.execute_research_planning_step(context)
-                logger.info(f"[TASK {task_id}] Research planning completed, current step: {context.current_step}")
-                
             elif step_name == "researching":
-                logger.info(f"[TASK {task_id}] Executing research step")
-                await self._execute_research_with_progress(context, process_id)
+                logger.info(f"[TASK {task_id}] Executing comprehensive research")
+                await flow_manager.execute_research_background(context, run_config)
                 logger.info(f"[TASK {task_id}] Research completed, current step: {context.current_step}")
-                
-            elif step_name == "research_synthesizing":
-                logger.info(f"[TASK {task_id}] Executing research synthesis step")
-                await flow_manager.execute_research_synthesis_step(context)
-                logger.info(f"[TASK {task_id}] Research synthesis completed, current step: {context.current_step}")
                 
             elif step_name == "outline_generating":
                 logger.info(f"[TASK {task_id}] Executing outline generation step")
@@ -860,14 +850,14 @@ class BackgroundTaskManager:
                 selected_index = payload.get("selected_index")
                 if selected_index is not None and hasattr(context, 'generated_themes') and context.generated_themes:
                     context.selected_theme = context.generated_themes[selected_index]
-                    context.current_step = "research_planning"
+                    context.current_step = "researching"
                     
             elif response_type == "approve_plan":
                 approved = payload.get("approved", False)
                 if approved:
                     context.current_step = "researching"
                 else:
-                    context.current_step = "research_planning"  # Regenerate
+                    context.current_step = "researching"  # Regenerate
                     
             elif response_type == "approve_outline":
                 approved = payload.get("approved", False)
@@ -888,9 +878,9 @@ class BackgroundTaskManager:
                     context.generated_themes = []
                     logger.info("Regenerating themes from theme_proposed step")
                 elif context.current_step == "research_plan_generated":
-                    context.current_step = "research_planning"
+                    context.current_step = "researching"
                     context.research_plan = None
-                    logger.info("Regenerating research plan from research_plan_generated step")
+                    logger.info("Regenerating research from research_plan_generated step")
                 elif context.current_step == "outline_generated":
                     context.current_step = "outline_generating"
                     context.generated_outline = None
@@ -926,8 +916,8 @@ class BackgroundTaskManager:
                             # Import ThemeProposalData from schemas
                             from app.domains.seo_article.schemas import ThemeProposalData
                             context.selected_theme = ThemeProposalData(**edited_content)
-                            context.current_step = "research_planning"
-                            logger.info("✅ [EDIT_THEME] Applied theme edit and proceeding to research planning")
+                            context.current_step = "researching"
+                            logger.info("✅ [EDIT_THEME] Applied theme edit and proceeding to research")
                         except Exception as theme_error:
                             logger.error(f"💥 [EDIT_THEME] Error creating ThemeProposalData: {theme_error}")
                             raise
