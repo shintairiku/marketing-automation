@@ -615,7 +615,7 @@ class BackgroundTaskManager:
         # Publish completion summary
         await self._publish_realtime_event(
             process_id=process_id,
-            event_type="research_completed",
+            event_type="research_synthesis_completed",
             event_data={
                 "message": f"Research execution completed: {successful_queries}/{total_queries} queries successful",
                 "successful_queries": successful_queries,

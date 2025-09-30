@@ -1616,6 +1616,7 @@ class GenerationFlowManager:
                     "current_step": "researching"
                 }
             )
+            # 統合リサーチを直接実行
             await self.execute_research_background(context, run_config)
         except Exception as e:
             logger.error(f"Error in research step: {e}")
@@ -1653,7 +1654,7 @@ class GenerationFlowManager:
                     
                     result = supabase.rpc('create_process_event', {
                         'p_process_id': getattr(context, 'process_id', 'unknown'),
-                        'p_event_type': 'research_completed',
+                        'p_event_type': 'research_synthesis_completed',
                         'p_event_data': {
                             'step': 'research',
                             'message': 'Research completed successfully',
@@ -1667,10 +1668,28 @@ class GenerationFlowManager:
                     }).execute()
                     
                     if result.data:
-                        logger.info(f"Published research_completed event for process {getattr(context, 'process_id', 'unknown')}")
+                        logger.info(f"Published research_synthesis_completed event for process {getattr(context, 'process_id', 'unknown')}")
                         
                 except Exception as e:
-                    logger.error(f"Error publishing research_completed event: {e}")
+                    logger.error(f"Error publishing research_synthesis_completed event: {e}")
+                
+                # Save context after research completion
+                process_id = getattr(context, 'process_id', None)
+                user_id = getattr(context, 'user_id', None)
+                if process_id and user_id:
+                    try:
+                        # 1) Ensure current_step_name is set to completion state
+                        context.current_step = "research_completed"
+                        await self.service.persistence_service.update_process_state(
+                            process_id=process_id,
+                            current_step_name="research_completed"
+                        )
+                        
+                        # 2) Save context with research report to DB
+                        await self.service.persistence_service.save_context_to_db(context, process_id=process_id, user_id=user_id)
+                        logger.info("Context saved successfully after research completion")
+                    except Exception as save_err:
+                        logger.error(f"Failed to save context after research completion: {save_err}")
                 
                 context.current_step = "outline_generating"
                 
