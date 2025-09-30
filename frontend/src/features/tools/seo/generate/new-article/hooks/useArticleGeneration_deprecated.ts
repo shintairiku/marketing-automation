@@ -417,7 +417,6 @@ export const useArticleGeneration = ({ processId, userId }: UseArticleGeneration
       }
       
       // research_synthesizing handling removed: integrated research handles this internally
-      }
       
       // リサーチ完了後のoutline_generatingへの遷移時に、researchingステップを完了にする
       if (payload.step === 'outline_generating') {
