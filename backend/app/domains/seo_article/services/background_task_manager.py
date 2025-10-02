@@ -384,11 +384,24 @@ class BackgroundTaskManager:
                 
                 try:
                     # Check if current step requires user input
+                    # IMPORTANT: Save snapshot BEFORE breaking the loop for user input steps!
                     if context.current_step in ['persona_generated', 'theme_proposed', 'research_plan_generated', 'outline_generated']:
-                        logger.info(f"👤 [TASK {task_id}] Step {current_step} requires user input, waiting...")
+                        logger.info(f"👤 [TASK {task_id}] Step {current_step} requires user input")
+
+                        # Save snapshot for this decision point BEFORE waiting for user input
+                        logger.info(f"📸 [TASK {task_id}] Saving snapshot for user input step: {current_step}")
+                        await self.service.flow_manager.save_step_snapshot_if_applicable(
+                            context=context,
+                            completed_step=current_step,
+                            process_id=process_id,
+                            user_id=user_id
+                        )
+
+                        # Now handle user input and break
+                        logger.info(f"⏸️ [TASK {task_id}] Waiting for user input...")
                         await self._handle_user_input_step(context, process_id, user_id, task_id)
                         break  # Exit loop and wait for user input
-                    
+
                     # Publish step start event
                     logger.info(f"📢 [TASK {task_id}] Publishing step_started event for {current_step}")
                     await self._publish_realtime_event(
@@ -405,7 +418,10 @@ class BackgroundTaskManager:
                     logger.info(f"⚡ [TASK {task_id}] Executing step: {current_step}")
                     await self._execute_single_step_with_events(context, process_id, user_id, task_id)
                     logger.info(f"✅ [TASK {task_id}] Step execution completed, new step: {context.current_step}")
-                    
+
+                    # Note: Snapshot saving is handled above (line 393) for user input steps
+                    # For other steps, we don't save snapshots (only 3 specific steps are saved)
+
                     # Publish step completion event
                     await self._publish_realtime_event(
                         process_id=process_id,
@@ -417,7 +433,7 @@ class BackgroundTaskManager:
                             "task_id": task_id
                         }
                     )
-                    
+
                     # Save progress to database
                     logger.info(f"💾 [TASK {task_id}] Saving context to database")
                     await self.service.persistence_service.save_context_to_db(

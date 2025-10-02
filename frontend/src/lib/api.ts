@@ -92,6 +92,57 @@ export class ApiClient {
   async getArticleFlows() {
     return this.request<any[]>('/article-flows/');
   }
+
+  // ============================================================================
+  // STEP SNAPSHOT MANAGEMENT
+  // ============================================================================
+
+  /**
+   * Get all step snapshots for a generation process
+   * @param processId - Process ID
+   * @param token - Authorization token
+   * @returns List of snapshots
+   */
+  async getProcessSnapshots(processId: string, token?: string) {
+    const headers = token ? { 'Authorization': `Bearer ${token}` } : undefined;
+    return this.request<Array<{
+      snapshot_id: string;
+      step_name: string;
+      step_index: number;
+      step_category?: string;
+      step_description: string;
+      created_at: string;
+      can_restore: boolean;
+    }>>(`/articles/generation/${processId}/snapshots`, { headers });
+  }
+
+  /**
+   * Restore a process to a previous step from a snapshot
+   * @param processId - Process ID
+   * @param snapshotId - Snapshot ID to restore from
+   * @param token - Authorization token
+   * @returns Restoration result
+   */
+  async restoreFromSnapshot(
+    processId: string,
+    snapshotId: string,
+    token?: string,
+    createNewBranch: boolean = false  // Changed: restoration just moves HEAD (like git checkout)
+  ) {
+    const headers = token ? { 'Authorization': `Bearer ${token}` } : undefined;
+    return this.request<{
+      success: boolean;
+      process_id: string;
+      restored_step: string;
+      snapshot_id: string;
+      branch_id?: string;
+      created_new_branch?: boolean;
+      message: string;
+    }>(`/articles/generation/${processId}/snapshots/${snapshotId}/restore?create_new_branch=${createNewBranch}`, {
+      method: 'POST',
+      headers,
+    });
+  }
 }
 
 export const apiClient = new ApiClient();
