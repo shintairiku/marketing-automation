@@ -70,7 +70,7 @@ class ProcessPersistenceService:
                 # 統合リサーチ対応: research_planning, research_plan_approved, research_synthesizing を削除
                 if step in ["start", "keyword_analyzing", "keyword_analyzed", "persona_generating", 
                            "persona_selected", "theme_generating", "theme_selected", "researching", 
-                           "outline_generating", "writing_sections", "editing"]:
+                           "research_completed", "outline_generating", "writing_sections", "editing"]:
                     return "in_progress"
                 elif step == "completed":
                     return "completed"

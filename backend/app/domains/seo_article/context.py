@@ -84,6 +84,7 @@ class ArticleContext:
         "theme_proposed",     # ユーザー選択待ち
         "theme_selected",
         "researching",        # 統合リサーチ実行中（計画・実行・要約を含む）
+        "research_completed", # リサーチ完了処理中（アウトライン遷移前の一時ステップ）
         "outline_generating",
         "outline_generated", # ユーザー承認待ち
         "writing_sections",

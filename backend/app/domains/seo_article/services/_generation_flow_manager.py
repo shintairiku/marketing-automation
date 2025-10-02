@@ -68,7 +68,7 @@ except ImportError as e:
 # ステップ分類定数 - 完全なステップカバレッジ
 AUTONOMOUS_STEPS = {
     'keyword_analyzing', 'keyword_analyzed', 'persona_generating', 'theme_generating',
-    'research_planning', 'researching', 'research_synthesizing', 'research_report_generated',
+    'research_planning', 'researching', 'research_completed', 'research_synthesizing', 'research_report_generated',
     'outline_generating', 'writing_sections', 'editing'
 }
 
@@ -90,7 +90,7 @@ INITIAL_STEPS = {
 }
 
 DISCONNECTION_RESILIENT_STEPS = {
-    'research_planning', 'researching', 'research_synthesizing', 'research_report_generated',
+    'research_planning', 'researching', 'research_completed', 'research_synthesizing', 'research_report_generated',
     'outline_generating', 'writing_sections', 'editing'
 }
 

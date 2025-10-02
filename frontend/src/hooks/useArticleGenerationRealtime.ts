@@ -159,7 +159,7 @@ export const useArticleGenerationRealtime = ({
     
     // Clear input state if we're in a non-interactive step
     // Note: outline_generating is removed as it requires user approval for the generated outline
-    const nonInteractiveSteps = ['keyword_analyzing', 'researching', 'writing_sections', 'editing', 'completed', 'error'];
+    const nonInteractiveSteps = ['keyword_analyzing', 'researching', 'research_completed', 'writing_sections', 'editing', 'completed', 'error'];
     if (nonInteractiveSteps.includes(sanitizedState.currentStep) && sanitizedState.isWaitingForInput) {
       console.log('🔒 Clearing input state for non-interactive step:', sanitizedState.currentStep);
       sanitizedState.isWaitingForInput = false;
@@ -213,6 +213,7 @@ export const useArticleGenerationRealtime = ({
       
       // Research Execution Phase (Integrated)
       'researching': 'researching', // Unified research step
+      'research_completed': 'outline_generating', // Treat backend handoff as outline phase onset
       
       // Outline Generation Phase
       'outline_generating': 'outline_generating',
@@ -547,7 +548,7 @@ export const useArticleGenerationRealtime = ({
           
           // Mark current step as error
           if (event.event_data.step_name) {
-            const errorStepName = event.event_data.step_name;
+            const errorStepName = mapBackendStepToUIStep(event.event_data.step_name);
             newState.steps = newState.steps.map((step: GenerationStep) => 
               step.id === errorStepName ? { ...step, status: 'error' as StepStatus } : step
             );
