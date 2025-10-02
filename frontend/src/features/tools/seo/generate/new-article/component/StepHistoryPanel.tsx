@@ -39,47 +39,6 @@ export default function StepHistoryPanel({
     autoFetch: true,
   });
 
-  // generated_articles_stateの更新を監視してスナップショットを再取得
-  useEffect(() => {
-    if (!processId) return;
-
-    const setupRealtimeSubscription = async () => {
-      try {
-        const { createClient } = await import('@/lib/supabase/client');
-        const supabase = createClient();
-
-        const channel = supabase
-          .channel(`process_state_${processId}`)
-          .on(
-            'postgres_changes',
-            {
-              event: 'UPDATE',
-              schema: 'public',
-              table: 'generated_articles_state',
-              filter: `id=eq.${processId}`
-            },
-            (payload) => {
-              console.log('📊 Process state updated, refreshing snapshots');
-              fetchSnapshots();
-            }
-          )
-          .subscribe();
-
-        return () => {
-          supabase.removeChannel(channel);
-        };
-      } catch (err) {
-        console.error('Failed to setup realtime subscription for process state:', err);
-      }
-    };
-
-    const cleanup = setupRealtimeSubscription();
-
-    return () => {
-      cleanup.then(fn => fn?.());
-    };
-  }, [processId, fetchSnapshots]);
-
   // ブランチごとにグループ化
   const branches = useMemo(() => {
     const branchMap = new Map<string, BranchNode>();
@@ -237,7 +196,7 @@ export default function StepHistoryPanel({
                 {!isLoading && !error && branches.length > 0 && (
                   <div className="space-y-6">
                     <div className="text-sm text-muted-foreground mb-4">
-                      過去のステップに戻って、異なる選択を試すことができます
+                      過去のステップに戻って、異なる選択を試すことができます（ペルソナ・テーマ・アウトラインの3つで分岐可能）
                     </div>
 
                     {/* ブランチごとに表示 */}

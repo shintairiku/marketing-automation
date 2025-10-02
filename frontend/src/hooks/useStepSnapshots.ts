@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useAuth } from '@clerk/nextjs';
 import { apiClient } from '@/lib/api';
 
@@ -64,6 +64,12 @@ export function useStepSnapshots({ processId, autoFetch = true }: UseStepSnapsho
     }
   }, [processId, getToken]);
 
+  // fetchSnapshotsの最新版への参照を保持
+  const fetchSnapshotsRef = useRef(fetchSnapshots);
+  useEffect(() => {
+    fetchSnapshotsRef.current = fetchSnapshots;
+  }, [fetchSnapshots]);
+
   // スナップショットから復元
   const restoreFromSnapshot = useCallback(async (snapshotId: string): Promise<RestoreResult | null> => {
     if (!processId) return null;
@@ -106,8 +112,8 @@ export function useStepSnapshots({ processId, autoFetch = true }: UseStepSnapsho
     // Supabaseクライアントのインポート
     const setupRealtimeSubscription = async () => {
       try {
-        const { createClient } = await import('@/lib/supabase/client');
-        const supabase = createClient();
+        const supabaseModule = await import('@/libs/supabase/supabase-client');
+        const supabase = supabaseModule.default;
 
         const channel = supabase
           .channel(`snapshots_${processId}`)
@@ -121,11 +127,27 @@ export function useStepSnapshots({ processId, autoFetch = true }: UseStepSnapsho
             },
             (payload) => {
               console.log('📸 New snapshot detected:', payload);
-              // 新しいスナップショットが追加されたら再取得
-              fetchSnapshots();
+              // 最新のfetchSnapshotsを使用して再取得
+              fetchSnapshotsRef.current();
             }
           )
-          .subscribe();
+          .on(
+            'postgres_changes',
+            {
+              event: 'UPDATE',
+              schema: 'public',
+              table: 'article_generation_step_snapshots',
+              filter: `process_id=eq.${processId}`
+            },
+            (payload) => {
+              console.log('📝 Snapshot updated:', payload);
+              // スナップショットの更新（is_currentなど）を反映
+              fetchSnapshotsRef.current();
+            }
+          )
+          .subscribe((status) => {
+            console.log(`📡 Realtime subscription status for snapshots: ${status}`);
+          });
 
         return () => {
           supabase.removeChannel(channel);
@@ -140,7 +162,7 @@ export function useStepSnapshots({ processId, autoFetch = true }: UseStepSnapsho
     return () => {
       cleanup.then(fn => fn?.());
     };
-  }, [processId, fetchSnapshots]);
+  }, [processId]); // fetchSnapshotsを依存配列から削除
 
   return {
     snapshots,
