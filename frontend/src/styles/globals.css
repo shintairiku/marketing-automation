@@ -33,6 +33,11 @@
 
     --ring: 233 48% 48%;            /* match primary */
 
+    --primary-dark: #2d2d25;
+    --primary-beige: #fbf3e4;
+    --primary-green: #59906f;
+    --primary-orange: #dd6132;
+
     --radius: 0.5rem;
   }
 
@@ -57,6 +62,11 @@
     --destructive: 358 79% 66%;
     --destructive-foreground: 0 0% 100%;
     --ring: 233 48% 48%;
+
+    --primary-dark: #2d2d25;
+    --primary-beige: #fbf3e4;
+    --primary-green: #59906f;
+    --primary-orange: #dd6132;
     --radius: 0.5rem;
   }
   ::selection {

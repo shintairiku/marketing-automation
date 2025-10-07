@@ -54,6 +54,10 @@ const config: Config = {
         'sidebar-icon-muted': '#757575',
         'sidebar-text-muted': '#616161',
         'sidebar-border': '#E0E0E0',
+        'primary-dark': '#2d2d25',
+        'primary-beige': '#fbf3e4',
+        'primary-green': '#59906f',
+        'primary-orange': '#dd6132',
       },
       borderRadius: {
         lg: `var(--radius)`,
