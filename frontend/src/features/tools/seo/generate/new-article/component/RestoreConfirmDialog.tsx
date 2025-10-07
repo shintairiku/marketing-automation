@@ -1,7 +1,10 @@
 'use client';
 
 import { useState } from 'react';
-import { AlertTriangle, RotateCcw, Loader2 } from 'lucide-react';
+import { AlertTriangle, Loader2, RotateCcw } from 'lucide-react';
+
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Button } from '@/components/ui/button';
 import {
   Dialog,
   DialogContent,
@@ -10,9 +13,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { Button } from '@/components/ui/button';
-import { Alert, AlertDescription } from '@/components/ui/alert';
-import { useStepSnapshots, StepSnapshot } from '@/hooks/useStepSnapshots';
+import { StepSnapshot, useStepSnapshots } from '@/hooks/useStepSnapshots';
 
 interface RestoreConfirmDialogProps {
   isOpen: boolean;

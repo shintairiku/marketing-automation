@@ -1,13 +1,24 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
-import { History, ChevronDown, ChevronUp, RotateCcw, Clock, MapPin, GitBranch } from 'lucide-react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
+import { useEffect, useMemo, useState } from 'react';
+import { AnimatePresence, motion } from 'framer-motion';
+import {
+  ChevronDown,
+  ChevronUp,
+  Clock,
+  GitBranch,
+  History,
+  MapPin,
+  RefreshCw,
+  RotateCcw,
+} from 'lucide-react';
+
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
-import { useStepSnapshots, StepSnapshot } from '@/hooks/useStepSnapshots';
+import { StepSnapshot, useStepSnapshots } from '@/hooks/useStepSnapshots';
+
 import RestoreConfirmDialog from './RestoreConfirmDialog';
 
 interface StepHistoryPanelProps {
@@ -33,11 +44,24 @@ export default function StepHistoryPanel({
   const [isExpanded, setIsExpanded] = useState(false);
   const [selectedSnapshot, setSelectedSnapshot] = useState<StepSnapshot | null>(null);
   const [showRestoreDialog, setShowRestoreDialog] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
   const { snapshots, isLoading, error, fetchSnapshots } = useStepSnapshots({
     processId,
     autoFetch: true,
   });
+
+  // 手動更新ハンドラー
+  const handleRefresh = async (e: React.MouseEvent) => {
+    e.stopPropagation(); // カードの展開/折りたたみを防ぐ
+    setIsRefreshing(true);
+    try {
+      await fetchSnapshots();
+    } finally {
+      // 視覚的フィードバックのため少し遅延
+      setTimeout(() => setIsRefreshing(false), 500);
+    }
+  };
 
   // ブランチごとにグループ化
   const branches = useMemo(() => {
@@ -101,7 +125,7 @@ export default function StepHistoryPanel({
     const normalizedCurrent = normalizeStep(currentStep);
     const normalizedSnapshot = normalizeStep(snapshot.step_name);
 
-    return normalizedCurrent === normalizedSnapshot && snapshot.is_active_branch;
+    return normalizedCurrent === normalizedSnapshot && (snapshot.is_active_branch ?? false);
   };
 
   const handleRestoreClick = (snapshot: StepSnapshot) => {
@@ -156,13 +180,25 @@ export default function StepHistoryPanel({
                 </Badge>
               )}
             </div>
-            <Button variant="ghost" size="sm">
-              {isExpanded ? (
-                <ChevronUp className="h-4 w-4" />
-              ) : (
-                <ChevronDown className="h-4 w-4" />
-              )}
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={handleRefresh}
+                disabled={isRefreshing || isLoading}
+                className="hover:bg-accent"
+              >
+                <RefreshCw className={`h-4 w-4 ${isRefreshing ? 'animate-spin' : ''}`} />
+                <span className="ml-1.5 text-xs">更新</span>
+              </Button>
+              <Button variant="ghost" size="sm">
+                {isExpanded ? (
+                  <ChevronUp className="h-4 w-4" />
+                ) : (
+                  <ChevronDown className="h-4 w-4" />
+                )}
+              </Button>
+            </div>
           </div>
         </CardHeader>
 

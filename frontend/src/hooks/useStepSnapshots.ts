@@ -1,8 +1,9 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef } from 'react';
-import { useAuth } from '@clerk/nextjs';
+import { useCallback, useEffect, useRef, useState } from 'react';
+
 import { apiClient } from '@/lib/api';
+import { useAuth } from '@clerk/nextjs';
 
 export interface StepSnapshot {
   snapshot_id: string;
