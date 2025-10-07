@@ -39,7 +39,9 @@ export function TopSection() {
 
             <div>
               <h1 className='mb-6 text-3xl font-bold leading-tight tracking-tight text-white sm:text-4xl lg:text-5xl'>
-                高品質なSEO記事を
+                高品質な
+                <span className='font-sans uppercase'>SEO</span>
+                記事を
                 <br className='hidden sm:block' />
                 わずか数分で自動生成
               </h1>
