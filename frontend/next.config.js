@@ -8,6 +8,10 @@ const nextConfig = {
         port: '',
         pathname: '/marketing-automation-images/**',
       },
+      {
+        protocol: 'https',
+        hostname: 'images.unsplash.com',
+      },
     ],
   },
   async rewrites() {
