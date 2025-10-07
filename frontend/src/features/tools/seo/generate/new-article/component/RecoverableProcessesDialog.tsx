@@ -65,6 +65,7 @@ export default function RecoverableProcessesDialog({
       'research_planning': 'リサーチ計画',
       'research_plan_generated': 'リサーチ計画承認待ち',
       'researching': 'リサーチ実行',
+      'research_completed': 'リサーチ完了処理',
       'research_synthesizing': 'リサーチ統合',
       'outline_generating': 'アウトライン作成',
       'outline_generated': 'アウトライン承認待ち',

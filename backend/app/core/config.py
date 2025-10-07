@@ -38,7 +38,7 @@ class Settings(BaseSettings):
 
     # デフォルトモデル名 (環境変数またはデフォルト値)
     default_model: str = os.getenv("DEFAULT_MODEL", "gpt-4o-mini")
-    research_model: str = os.getenv("RESEARCH_MODEL", "gpt-4o-mini")
+    research_model: str = os.getenv("RESEARCH_MODEL", "gpt-5-mini")
     writing_model: str = os.getenv("WRITING_MODEL", "gpt-4o-mini")
     editing_model: str = os.getenv("EDITING_MODEL", "gpt-4o-mini")
     
@@ -59,6 +59,9 @@ class Settings(BaseSettings):
 
     # デバッグフラグ
     debug: bool = os.getenv("DEBUG", "false").lower() == "true"
+    
+    # 記事生成フロー設定
+    use_reordered_flow: bool = os.getenv("USE_REORDERED_FLOW", "true").lower() == "true"
     
     # Google Cloud設定 (画像生成用)
     google_cloud_project: str = Field(default_factory=lambda: os.getenv("GOOGLE_CLOUD_PROJECT", ""))

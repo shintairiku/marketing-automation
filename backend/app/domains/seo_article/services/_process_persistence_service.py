@@ -67,10 +67,10 @@ class ProcessPersistenceService:
             # Map current_step to valid generation_status enum values
             def map_step_to_status(step: str) -> str:
                 """Map context step to valid generation_status enum value"""
+                # 統合リサーチ対応: research_planning, research_plan_approved, research_synthesizing を削除
                 if step in ["start", "keyword_analyzing", "keyword_analyzed", "persona_generating", 
-                           "persona_selected", "theme_generating", "theme_selected", "research_planning", 
-                           "research_plan_approved", "researching", "research_synthesizing", 
-                           "outline_generating", "writing_sections", "editing"]:
+                           "persona_selected", "theme_generating", "theme_selected", "researching", 
+                           "research_completed", "outline_generating", "writing_sections", "editing"]:
                     return "in_progress"
                 elif step == "completed":
                     return "completed"
@@ -698,8 +698,6 @@ class ProcessPersistenceService:
                     "persona_generating": "ペルソナ生成中",
                     "theme_generating": "テーマ生成中",
                     "theme_proposed": "テーマ選択待ち",
-                    "research_planning": "リサーチ計画策定中",
-                    "research_plan_generated": "リサーチ計画承認待ち",
                     "researching": "リサーチ実行中",
                     "outline_generating": "アウトライン生成中",
                     "outline_generated": "アウトライン承認待ち",
@@ -808,8 +806,6 @@ class ProcessPersistenceService:
                     "persona_generating": "ペルソナ生成中",
                     "theme_generating": "テーマ生成中",
                     "theme_proposed": "テーマ選択待ち",
-                    "research_planning": "リサーチ計画策定中",
-                    "research_plan_generated": "リサーチ計画承認待ち",
                     "researching": "リサーチ実行中",
                     "outline_generating": "アウトライン生成中",
                     "outline_generated": "アウトライン承認待ち",

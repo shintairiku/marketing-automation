@@ -85,6 +85,7 @@ export default function GenerationErrorHandler({
       'theme_generating': 'テーマ生成',
       'research_planning': 'リサーチ計画',
       'researching': 'リサーチ実行',
+      'research_completed': 'リサーチ完了処理',
       'research_synthesizing': 'リサーチ統合',
       'outline_generating': 'アウトライン生成',
       'writing_sections': '記事執筆',

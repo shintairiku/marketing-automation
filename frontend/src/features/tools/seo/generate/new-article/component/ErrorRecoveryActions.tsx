@@ -71,6 +71,7 @@ export default function ErrorRecoveryActions({
             'theme_generating': 'テーマ提案',
             'research_planning': 'リサーチ計画',
             'researching': 'リサーチ実行',
+            'research_completed': 'リサーチ完了処理',
             'outline_generating': 'アウトライン作成',
             'writing_sections': '記事執筆',
             'editing': '編集・校正',
