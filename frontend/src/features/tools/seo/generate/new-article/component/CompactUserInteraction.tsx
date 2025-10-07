@@ -25,6 +25,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { PersonaOption, ThemeOption } from '@/types/article-generation';
+import { getOutlineApprovalMessage,getThemeSelectionMessage } from '@/utils/flow-config';
 
 import type { EditableOutline, EditableOutlineSection } from '../../types/outline';
 
@@ -557,7 +558,7 @@ export default function CompactUserInteraction({
                 </Button>
                 
                 <div className="text-sm text-muted-foreground">
-                  選択後、自動でリサーチを開始します
+                  {getThemeSelectionMessage()}
                 </div>
               </div>
             )}
@@ -840,7 +841,7 @@ export default function CompactUserInteraction({
                   disabled={isWaiting}
                 >
                   <Check className="w-4 h-4" />
-                  この構成で執筆開始
+                  {getOutlineApprovalMessage()}
                   <ChevronRight className="w-4 h-4" />
                 </Button>
               </div>
