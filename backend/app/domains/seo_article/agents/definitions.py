@@ -1,8 +1,11 @@
 # -*- coding: utf-8 -*-
 # 既存のスクリプトからエージェント定義とプロンプト生成関数をここに移動・整理
+import logging
 from typing import Callable, Awaitable, Union, Any, List, Dict
 from agents import Agent, RunContextWrapper, ModelSettings
 from datetime import datetime, timezone
+
+logger = logging.getLogger(__name__)
 # 循環参照を避けるため、モデル、ツール、コンテキストは直接インポートしない
 # from .models import AgentOutput, ResearchQueryResult, ResearchReport, Outline, RevisedArticle
 # from .tools import web_search_tool, analyze_competitors, get_company_data
@@ -318,6 +321,26 @@ def create_research_instructions(base_prompt: str) -> Callable[[RunContextWrappe
         # 企業情報（拡張）
         company_info_str = build_enhanced_company_context(ctx.context)
 
+        # アウトライン情報がある場合は指示に含める
+        outline_str = ""
+        if ctx.context.generated_outline:
+            outline = ctx.context.generated_outline
+            outline_str = f"記事アウトライン: {outline.title if hasattr(outline, 'title') else 'N/A'}\n"
+            if hasattr(outline, 'sections') and outline.sections:
+                def format_section(section, indent="  "):
+                    heading = section.heading if hasattr(section, 'heading') else str(section.get('heading', ''))
+                    level = section.level if hasattr(section, 'level') else section.get('level', 2)
+                    formatted = f"{indent}H{level}: {heading}\n"
+                    # サブセクションがある場合は再帰的に処理
+                    if hasattr(section, 'subsections') and section.subsections:
+                        for subsection in section.subsections:
+                            formatted += format_section(subsection, indent + "  ")
+                    
+                    return formatted
+                
+                for section in outline.sections:
+                    outline_str += format_section(section)
+
         # SerpAPI分析結果を含める
         seo_guidance_str = ""
         if ctx.context.serp_analysis_report:
@@ -339,6 +362,7 @@ def create_research_instructions(base_prompt: str) -> Callable[[RunContextWrappe
 説明: {ctx.context.selected_theme.description}
 キーワード: {', '.join(ctx.context.selected_theme.keywords)}
 想定読者の詳細:\n{persona_description}
+{outline_str}
 
 {seo_guidance_str}
 
@@ -390,8 +414,8 @@ def create_research_instructions(base_prompt: str) -> Callable[[RunContextWrappe
 
 def create_outline_instructions(base_prompt: str) -> Callable[[RunContextWrapper[ArticleContext], Agent[ArticleContext]], Awaitable[str]]:
     async def dynamic_instructions_func(ctx: RunContextWrapper[ArticleContext], agent: Agent[ArticleContext]) -> str:
-        if not ctx.context.selected_theme or not ctx.context.research_report:
-            raise ValueError("アウトライン作成に必要なテーマまたはリサーチレポートがありません。")
+        if not ctx.context.selected_theme:
+            raise ValueError("アウトライン作成に必要なテーマがありません。")
         if not ctx.context.selected_detailed_persona:
             raise ValueError("アウトライン作成のための詳細なペルソナが選択されていません。")
         persona_description = ctx.context.selected_detailed_persona
@@ -401,7 +425,15 @@ def create_outline_instructions(base_prompt: str) -> Callable[[RunContextWrapper
         child_heading_level = min(outline_top_level + 1, 6)
         advanced_outline_mode = getattr(ctx.context, 'advanced_outline_mode', False)
 
-        research_summary = ctx.context.research_report.overall_summary
+        # フロー設定に応じてリサーチ結果を処理
+        from app.core.config import settings
+        if hasattr(ctx.context, 'research_report') and ctx.context.research_report:
+            research_summary = ctx.context.research_report.overall_summary
+            sources_count = len(ctx.context.research_report.all_sources)
+        else:
+            # reorderedフローでは研究レポートがまだ存在しない場合
+            research_summary = "まだリサーチが実行されていません。テーマとキーワードに基づいてアウトラインを作成してください。"
+            sources_count = 0
         # 企業情報（拡張）
         company_info_block = f"""
 
@@ -459,7 +491,7 @@ def create_outline_instructions(base_prompt: str) -> Callable[[RunContextWrapper
 {seo_structure_guidance}
 --- 詳細なリサーチ結果 ---
 {research_summary}
-参照した全情報源URL数: {len(ctx.context.research_report.all_sources)}
+参照した全情報源URL数: {sources_count}
 ---
 
 --- アウトライン構造の要件 ---
