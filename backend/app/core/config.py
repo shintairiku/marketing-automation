@@ -60,6 +60,9 @@ class Settings(BaseSettings):
     # デバッグフラグ
     debug: bool = os.getenv("DEBUG", "false").lower() == "true"
     
+    # 記事生成フロー設定
+    use_reordered_flow: bool = os.getenv("USE_REORDERED_FLOW", "true").lower() == "true"
+    
     # Google Cloud設定 (画像生成用)
     google_cloud_project: str = Field(default_factory=lambda: os.getenv("GOOGLE_CLOUD_PROJECT", ""))
     google_cloud_location: str = Field(default_factory=lambda: os.getenv("GOOGLE_CLOUD_LOCATION", "us-central1"))
