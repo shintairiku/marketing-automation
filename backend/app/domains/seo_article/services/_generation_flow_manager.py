@@ -1691,7 +1691,14 @@ class GenerationFlowManager:
                     except Exception as save_err:
                         logger.error(f"Failed to save context after research completion: {save_err}")
                 
-                context.current_step = "outline_generating"
+                # フロー設定に応じて次のステップを決定
+                from app.core.config import settings
+                if settings.use_reordered_flow:
+                    context.current_step = "writing_sections"
+                    logger.info("Reordered flow: Moving from research completion to writing_sections")
+                else:
+                    context.current_step = "outline_generating"
+                    logger.info("Classic flow: Moving from research completion to outline_generating")
                 
                 # WebSocket経由でレポートを送信
                 if context.websocket:
@@ -1731,10 +1738,15 @@ class GenerationFlowManager:
 
     async def execute_outline_generating_background(self, context: "ArticleContext", run_config: RunConfig):
         """アウトライン生成のバックグラウンド実行"""
-        if not context.research_report:
+        from app.core.config import settings
+        
+        # 旧フロー時はリサーチ報告書をチェック
+        if not settings.use_reordered_flow and not context.research_report:
             console.print("[red]リサーチ報告書がありません。アウトライン生成をスキップします。[/red]")
             context.current_step = "error"
             return
+        elif settings.use_reordered_flow and not context.research_report:
+            logger.info("Reordered flow: Generating outline without research report")
 
         # Publish outline generation start event for Supabase Realtime
         try:
@@ -1762,8 +1774,19 @@ class GenerationFlowManager:
             logger.error(f"Error publishing outline_generation_started event: {e}")
 
         current_agent = outline_agent
-        agent_input = f"テーマ: {context.selected_theme.title}\nペルソナ: {context.selected_detailed_persona}\nリサーチ報告書: {context.research_report.model_dump_json(indent=2)}\n目標文字数: {context.target_length}"
-        console.print(f"🤖 {current_agent.name} にアウトライン生成を依頼します...")
+        
+        # フロー設定に応じてエージェント入力を構築
+        if settings.use_reordered_flow and context.research_report is None:
+            # 新フローではリサーチ前にアウトライン生成
+            agent_input = f"テーマ: {context.selected_theme.title}\nペルソナ: {context.selected_detailed_persona}\n目標文字数: {context.target_length}"
+            console.print(f"🤖 {current_agent.name} にアウトライン生成を依頼します (リサーチ前)...")
+        else:
+            # 旧フローではリサーチ後にアウトライン生成
+            if context.research_report is None:
+                raise ValueError("Classic flow requires research_report before outline generation")
+            agent_input = f"テーマ: {context.selected_theme.title}\nペルソナ: {context.selected_detailed_persona}\nリサーチ報告書: {context.research_report.model_dump_json(indent=2)}\n目標文字数: {context.target_length}"
+            console.print(f"🤖 {current_agent.name} にアウトライン生成を依頼します (リサーチ後)...")
+        
         agent_output = await self.run_agent(current_agent, agent_input, context, run_config)
 
         if isinstance(agent_output, Outline):
@@ -1773,6 +1796,8 @@ class GenerationFlowManager:
             )
             context.generated_outline = normalized_outline
             context.outline_top_level_heading = normalized_outline.top_level_heading
+            # コンテキストに正規化されたアウトラインを保存
+            context.outline = normalized_outline
             context.current_step = "outline_generated"
             console.print(f"[cyan]アウトライン（{len(agent_output.sections)}セクション）を生成しました。[/cyan]")
             
@@ -2296,6 +2321,8 @@ class GenerationFlowManager:
 
                             context.generated_outline = normalized_outline
                             context.outline_top_level_heading = normalized_outline.top_level_heading
+                            # CRITICAL: Set context.outline for research agent access
+                            context.outline = normalized_outline
                             context.current_step = "outline_approved"
                             console.print("[green]編集されたアウトラインが適用されました（EditOutlinePayload）。[/green]")
                             await self.service.utils.send_server_event(context, StatusUpdatePayload(
@@ -2341,6 +2368,8 @@ class GenerationFlowManager:
 
                             context.generated_outline = normalized_outline
                             context.outline_top_level_heading = normalized_outline.top_level_heading
+                            # コンテキストに正規化されたアウトラインを保存
+                            context.outline = normalized_outline
                             context.current_step = "outline_approved"
                             console.print("[green]編集されたアウトラインが適用されました（EditAndProceedPayload）。[/green]")
                             await self.service.utils.send_server_event(context, StatusUpdatePayload(
@@ -2387,6 +2416,8 @@ class GenerationFlowManager:
 
                                 context.generated_outline = normalized_outline
                                 context.outline_top_level_heading = normalized_outline.top_level_heading
+                                # コンテキストに正規化されたアウトラインを保存
+                                context.outline = normalized_outline
                                 context.current_step = "outline_approved"
                                 console.print("[green]編集されたアウトラインが適用されました（EDIT_GENERIC）。[/green]")
                                 await self.service.utils.send_server_event(context, StatusUpdatePayload(
@@ -2423,16 +2454,24 @@ class GenerationFlowManager:
 
     async def handle_outline_approved_step(self, context: ArticleContext, process_id: Optional[str] = None, user_id: Optional[str] = None):
         """アウトライン承認ステップの処理"""
-        console.print("記事執筆ステップに進みます...")
+        from app.core.config import settings
         
-        # セクションライティングの初期化（重要：current_section_indexを0にリセット）
-        context.current_section_index = 0
-        context.generated_sections_html = []
-        context.section_writer_history = []
-        
-        console.print(f"[yellow]セクションライティング初期化: {len(context.generated_outline.sections)}セクションを実行予定[/yellow]")
-        
-        context.current_step = "writing_sections"
+        if settings.use_reordered_flow:
+            # 新フローではアウトライン承認後にリサーチ実行
+            console.print("リサーチ実行ステップに進みます...")
+            context.current_step = "researching"
+        else:
+            # 旧フローではアウトライン承認に記事執筆
+            console.print("記事執筆ステップに進みます...")
+            
+            # セクションライティングの初期化（重要：current_section_indexを0にリセット）
+            context.current_section_index = 0
+            context.generated_sections_html = []
+            context.section_writer_history = []
+            
+            console.print(f"[yellow]セクションライティング初期化: {len(context.generated_outline.sections)}セクションを実行予定[/yellow]")
+            
+            context.current_step = "writing_sections"
         
         # データベースに現在の状態を保存
         if process_id and user_id:
@@ -2442,9 +2481,15 @@ class GenerationFlowManager:
             except Exception as save_err:
                 logger.error(f"Failed to save context after outline approval step: {save_err}")
         
+        # フローに応じたメッセージを送信
+        if settings.use_reordered_flow:
+            message = "Outline approved, starting research."
+        else:
+            message = "Outline approved, starting section writing."
+            
         await self.service.utils.send_server_event(context, StatusUpdatePayload(
             step=context.current_step, 
-            message="Outline approved, starting section writing.", 
+            message=message, 
             image_mode=getattr(context, 'image_mode', False)
         ))
 

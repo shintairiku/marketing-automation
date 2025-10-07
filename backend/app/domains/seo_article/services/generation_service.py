@@ -15,6 +15,8 @@ import logging
 from typing import Dict, Any, Optional, List
 from datetime import datetime, timezone
 
+from app.core.config import settings
+
 # DEPRECATED: WebSocket functionality replaced by Supabase Realtime
 # from ._websocket_handler_deprecated import WebSocketHandler
 from ._generation_flow_manager import GenerationFlowManager
@@ -196,7 +198,9 @@ class ArticleGenerationService:
                 outline_top_level_heading=outline_top_level,
                 websocket=None,  # Background mode
                 user_response_event=None,  # Background mode
-                user_id=user_id
+                user_id=user_id,
+                # フロー設定を追加
+                flow_mode="reordered" if settings.use_reordered_flow else "classic"
             )
             logger.info(f"✅ [CREATE_PROCESS] ArticleContext created, current_step: {context.current_step}")
 

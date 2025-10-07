@@ -27,6 +27,10 @@ class ArticleContext:
     vector_store_id: Optional[str] = None # File Search用
     num_research_queries: int = 5 # リサーチクエリ数の上限
     num_persona_examples: int = 3 # 追加: 生成する具体的なペルソナの数
+    
+    # フロー設定
+    flow_mode: Optional[str] = None  # "reordered"（新フロー） or "classic"（旧フロー）
+    
     # 会社情報 - 基本情報
     company_name: Optional[str] = None
     company_description: Optional[str] = None
