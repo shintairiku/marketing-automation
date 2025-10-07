@@ -16,6 +16,7 @@ import CompactUserInteraction from "../component/CompactUserInteraction";
 import ErrorRecoveryActions from "../component/ErrorRecoveryActions";
 import GenerationErrorHandler from "../component/GenerationErrorHandler";
 import ProcessRecoveryDialog from "../component/ProcessRecoveryDialog";
+import StepHistoryPanel from "../component/StepHistoryPanel";
 
 interface GenerationProcessPageProps {
     jobId: string;
@@ -485,6 +486,26 @@ export default function GenerationProcessPage({ jobId }: GenerationProcessPagePr
                             onRestart={handleRestartFromError}
                             retryCount={retryCount}
                             maxRetries={3}
+                        />
+                    </motion.div>
+                )}
+            </AnimatePresence>
+
+            {/* ステップ履歴パネル */}
+            <AnimatePresence>
+                {state.currentStep !== 'start' && !isLoading && (
+                    <motion.div
+                        initial={{ opacity: 0, y: 20 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: -20 }}
+                    >
+                        <StepHistoryPanel
+                            processId={jobId}
+                            currentStep={state.currentStep}
+                            onRestoreSuccess={() => {
+                                // ページをリロードして状態を更新
+                                window.location.reload();
+                            }}
                         />
                     </motion.div>
                 )}

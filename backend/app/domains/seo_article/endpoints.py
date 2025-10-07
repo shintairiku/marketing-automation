@@ -1684,3 +1684,154 @@ async def generate_ai_content_from_upload(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"AI content generation from upload failed: {str(e)}"
         )
+
+# --- Step Snapshot Management Endpoints ---
+
+class SnapshotResponse(BaseModel):
+    """Step snapshot response model"""
+    snapshot_id: str
+    step_name: str
+    step_index: int
+    step_category: Optional[str] = None
+    step_description: str
+    created_at: str
+    can_restore: bool
+    # Branch management fields
+    branch_id: Optional[str] = None
+    branch_name: Optional[str] = None
+    is_active_branch: bool = False
+    parent_snapshot_id: Optional[str] = None
+    is_current: bool = False
+
+class RestoreSnapshotResponse(BaseModel):
+    """Snapshot restoration response model"""
+    success: bool
+    process_id: str
+    restored_step: str
+    snapshot_id: str
+    message: str
+
+@router.get("/generation/{process_id}/snapshots", response_model=List[SnapshotResponse], status_code=status.HTTP_200_OK)
+async def get_process_snapshots(
+    process_id: str,
+    user_id: str = Depends(get_current_user_id_from_token)
+):
+    """
+    Get all available step snapshots for a generation process.
+
+    This endpoint returns a chronological list of snapshots representing
+    each step completion in the generation process. Users can restore
+    to any of these snapshots to retry from that step.
+
+    **Parameters:**
+    - process_id: Generation process ID
+    - user_id: User ID (from authentication)
+
+    **Returns:**
+    - List of snapshots ordered chronologically (oldest to newest)
+    """
+    try:
+        # Validate process access
+        process_state = await article_service.get_generation_process_state(process_id, user_id)
+        if not process_state:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Process not found or access denied"
+            )
+
+        # Get snapshots
+        snapshots = await article_service.persistence_service.get_snapshots_for_process(
+            process_id=process_id,
+            user_id=user_id
+        )
+
+        return [SnapshotResponse(**snapshot) for snapshot in snapshots]
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error retrieving snapshots for process {process_id}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to retrieve process snapshots"
+        )
+
+@router.post("/generation/{process_id}/snapshots/{snapshot_id}/restore", response_model=RestoreSnapshotResponse, status_code=status.HTTP_200_OK)
+async def restore_process_from_snapshot(
+    process_id: str,
+    snapshot_id: str,
+    background_tasks: BackgroundTasks,
+    create_new_branch: bool = False,  # Changed: restoration just moves HEAD (like git checkout)
+    user_id: str = Depends(get_current_user_id_from_token)
+):
+    """
+    Restore a generation process to a previous step from a snapshot (like git checkout).
+
+    This moves the current position (HEAD) to the specified snapshot.
+    Branching happens automatically when progressing forward from a restored position.
+
+    **Parameters:**
+    - process_id: Generation process ID
+    - snapshot_id: Snapshot ID to restore from
+    - create_new_branch: Deprecated (kept for API compatibility, ignored)
+    - user_id: User ID (from authentication)
+
+    **Returns:**
+    - Restoration result with success status, restored step information, and branch info
+    """
+    try:
+        # Validate process access
+        process_state = await article_service.get_generation_process_state(process_id, user_id)
+        if not process_state:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Process not found or access denied"
+            )
+
+        # Check if process is in a state that allows restoration
+        non_restorable_statuses = ['in_progress', 'resuming', 'auto_progressing']
+        if process_state.get("status") in non_restorable_statuses:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Cannot restore process in status: {process_state.get('status')}. Please pause the process first."
+            )
+
+        # Restore from snapshot with branch option
+        result = await article_service.persistence_service.restore_from_snapshot(
+            snapshot_id=snapshot_id,
+            user_id=user_id,
+            create_new_branch=create_new_branch
+        )
+
+        # If restoration was successful and the restored step requires user input,
+        # the process will automatically be set to user_input_required status
+        # No need to start background task here
+
+        # If the restored step is an autonomous step, we can optionally continue processing
+        restored_step = result.get("restored_step")
+        autonomous_steps = {
+            'keyword_analyzing', 'keyword_analyzed', 'persona_generating', 'theme_generating',
+            'research_planning', 'researching', 'research_synthesizing', 'research_report_generated',
+            'outline_generating', 'writing_sections', 'editing'
+        }
+
+        if restored_step in autonomous_steps:
+            # Optionally auto-continue for autonomous steps
+            # For now, we'll let the user manually resume
+            pass
+
+        return RestoreSnapshotResponse(**result)
+
+    except HTTPException:
+        raise
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+    except Exception as e:
+        logger.error(f"Error restoring process {process_id} from snapshot {snapshot_id}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to restore process from snapshot"
+        )
