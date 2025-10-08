@@ -612,6 +612,35 @@ async def main():
         tracing_disabled=args.disable_tracing,
     )
 
+    # Auto-read target file once when the session has no prior history.
+    try:
+        existing_items = await session.get_items(limit=1)
+    except Exception as e:
+        existing_items = None
+        print(f"[warn] Failed to inspect session history: {e}")
+
+    if not existing_items:
+        preload_prompt = (
+            f"事前に対象ファイル {target_rel} の内容を確認するため、"
+            "read_file(offset=1, limit_lines=400, with_line_numbers=True) を実行してください。"
+        )
+        try:
+            preload_result = await Runner.run(
+                agent,
+                input=preload_prompt,
+                context=ctx,
+                session=session,
+                run_config=run_config,
+            )
+            if preload_result.final_output is not None:
+                print(
+                    preload_result.final_output
+                    if isinstance(preload_result.final_output, str)
+                    else str(preload_result.final_output)
+                )
+        except Exception as e:
+            print(f"[warn] 初回の read_file 呼び出しに失敗しました: {e}")
+
     try:
         while True:
             try:
