@@ -13,7 +13,7 @@ Env:
   export OPENAI_API_KEY=sk-...
 
 Run:
-  python codex_patch_agent.py --file ./README.md --model gpt-5-codex
+  python codex_patch_agent.py --file ./README.md --model gpt-5-mini
 """
 
 from __future__ import annotations
@@ -28,7 +28,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, List, Optional, Tuple, Dict
 
-from agents import Agent, Runner, function_tool, ModelSettings, SQLiteSession
+from agents import Agent, Runner, RunConfig, function_tool, ModelSettings, SQLiteSession
+from agents import tracing as agent_tracing
 from agents.run_context import RunContextWrapper
 import dotenv
 
@@ -422,6 +423,40 @@ def apply_patch_to_fs(ctx: AppContext, ap: ApplyPatch) -> ApplyResult:
 # =========================
 # Tools
 # =========================
+def ensure_session_trace(
+    workflow_name: str,
+    trace_id: Optional[str],
+    group_id: Optional[str],
+    metadata: Optional[Dict[str, Any]],
+    disabled: bool,
+) -> Tuple[Optional[agent_tracing.Trace], bool]:
+    """
+    Ensure a single trace stays active for the CLI session.
+    Returns the active trace (if any) and whether it was created here.
+    """
+    if disabled:
+        return None, False
+
+    existing = agent_tracing.get_current_trace()
+    if existing:
+        if trace_id and existing.trace_id != trace_id:
+            print(
+                f"[trace] Existing trace {existing.trace_id} differs from requested {trace_id}; "
+                "continuing with existing trace."
+            )
+        return existing, False
+
+    trace_obj = agent_tracing.trace(
+        workflow_name=workflow_name,
+        trace_id=trace_id or agent_tracing.gen_trace_id(),
+        group_id=group_id,
+        metadata=metadata,
+        disabled=False,
+    )
+    trace_obj.start(mark_as_current=True)
+    return trace_obj, True
+
+
 @function_tool
 def read_file(context: RunContextWrapper[AppContext],
               offset: int = 1,
@@ -509,20 +544,54 @@ async def main():
     parser.add_argument("--session", default="codex-patch-session", help="Session id for SQLiteSession")
     parser.add_argument("--force-tools", action="store_true",
                         help="Force tool use via ModelSettings(tool_choice='required')")
+    parser.add_argument("--trace-workflow-name", default="text-edit-agent",
+                        help="Workflow name used for OpenAI trace logging")
+    parser.add_argument("--trace-group-id", default=None,
+                        help="Group identifier for trace correlation (defaults to session id)")
+    parser.add_argument("--trace-id", default=None,
+                        help="Explicit trace id to reuse across runs")
+    parser.add_argument("--disable-tracing", action="store_true",
+                        help="Disable OpenAI trace export for this session")
     args = parser.parse_args()
 
     target = Path(args.file).expanduser().resolve()
     root = target.parent
     ctx = AppContext(root=root, target_path=target)
+    target_rel = rel_to(root, target)
+    workflow_name = args.trace_workflow_name or "text-edit-agent"
+
+    trace_metadata: Optional[Dict[str, Any]] = None
+    trace_group_id: Optional[str] = None
+    session_trace: Optional[agent_tracing.Trace] = None
+    trace_created = False
+
+    if not args.disable_tracing:
+        trace_metadata = {"target_file": target_rel}
+        trace_group_id = args.trace_group_id or args.session
+        session_trace, trace_created = ensure_session_trace(
+            workflow_name=workflow_name,
+            trace_id=args.trace_id,
+            group_id=trace_group_id,
+            metadata=trace_metadata,
+            disabled=False,
+        )
+        active_trace_id = session_trace.trace_id if session_trace else None
+    else:
+        active_trace_id = None
 
     # Print banner
     print("╭────────────────────────────────────────────────────╮")
     print("│  Codex-compatible Patch Agent (OpenAI Agents SDK)  │")
     print(f"│  model : {args.model:<40s}│")
-    print(f"│  file  : {rel_to(root, target):<40s}│")
+    print(f"│  file  : {target_rel:<40s}│")
     print("╰────────────────────────────────────────────────────╯")
     print("ヒント: 例) read_file(offset=1, limit_lines=100) と指示すると読みます。")
     print("      編集は apply_patch で差分を生成してください。終了は Ctrl+C。")
+    if active_trace_id:
+        print(f"      Trace ID: {active_trace_id}")
+    elif args.disable_tracing:
+        print("      Tracing disabled for this session.")
+    print("      exit/quit と入力しても終了できます。")
 
     ms = ModelSettings(tool_choice="required" if args.force_tools else "auto")
 
@@ -535,26 +604,47 @@ async def main():
     )
 
     session = SQLiteSession(args.session)
+    run_config = RunConfig(
+        workflow_name=workflow_name,
+        trace_id=active_trace_id,
+        group_id=trace_group_id,
+        trace_metadata=trace_metadata,
+        tracing_disabled=args.disable_tracing,
+    )
 
-    while True:
-        try:
-            user = input("\n› ").strip()
-            if not user:
-                continue
-            if user.lower() in {"exit", "quit"}:
-                print("bye.")
+    try:
+        while True:
+            try:
+                user = input("\n› ").strip()
+                if not user:
+                    continue
+                if user.lower() in {"exit", "quit"}:
+                    print("bye.")
+                    break
+                result = await Runner.run(
+                    agent,
+                    input=user,
+                    context=ctx,
+                    session=session,
+                    run_config=run_config,
+                )
+                if result.final_output:
+                    print(
+                        result.final_output
+                        if isinstance(result.final_output, str)
+                        else str(result.final_output)
+                    )
+            except KeyboardInterrupt:
+                print("\nbye.")
                 break
-            result = await Runner.run(agent, input=user, context=ctx, session=session)
-            if result.final_output:
-                print(result.final_output if isinstance(result.final_output, str) else str(result.final_output))
-        except KeyboardInterrupt:
-            print("\nbye.")
-            break
-        except EOFError:
-            print("\nbye.")
-            break
-        except Exception as e:
-            print(f"[error] {e}")
+            except EOFError:
+                print("\nbye.")
+                break
+            except Exception as e:
+                print(f"[error] {e}")
+    finally:
+        if trace_created and session_trace:
+            session_trace.finish(reset_current=True)
 
 if __name__ == "__main__":
     asyncio.run(main())
