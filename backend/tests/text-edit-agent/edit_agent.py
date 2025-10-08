@@ -29,6 +29,7 @@ from pathlib import Path
 from typing import Any, List, Optional, Tuple, Dict
 
 from agents import Agent, Runner, function_tool, ModelSettings, SQLiteSession
+from agents.run_context import RunContextWrapper
 import dotenv
 
 dotenv.load_dotenv()
@@ -422,7 +423,7 @@ def apply_patch_to_fs(ctx: AppContext, ap: ApplyPatch) -> ApplyResult:
 # Tools
 # =========================
 @function_tool
-def read_file(context,
+def read_file(context: RunContextWrapper[AppContext],
               offset: int = 1,
               limit_lines: int = 400,
               with_line_numbers: bool = True) -> str:
@@ -432,7 +433,7 @@ def read_file(context,
     - limit_lines: 取得行数
     - with_line_numbers: 行番号付き
     """
-    app: AppContext = getattr(context, "context", context)
+    app: AppContext = context.context
     target = app.target_path
     lines = read_text_lines(target)
     if not lines:
@@ -448,14 +449,14 @@ def read_file(context,
     return header + "\n".join(view)
 
 @function_tool
-def apply_patch(context, patch: str) -> str:
+def apply_patch(context: RunContextWrapper[AppContext], patch: str) -> str:
     """
     Codex 互換 apply_patch を適用します（Add/Update/Delete/Move, @@ 対応）。
     - すべて root 配下の相対パスのみ許可
     - このエージェントは「単一ファイル」ポリシー：ターゲット以外の編集は拒否（Move の宛先は例外）
     - 成功時は JSON サマリを返します
     """
-    app: AppContext = getattr(context, "context", context)
+    app: AppContext = context.context
     ap = parse_apply_patch(patch)
     result = apply_patch_to_fs(app, ap)
     return "APPLIED " + json.dumps(dataclasses.asdict(result), ensure_ascii=False)
@@ -503,8 +504,8 @@ CODEX_STYLE_INSTRUCTIONS = """
 async def main():
     parser = argparse.ArgumentParser(description="Codex-compatible Patch Agent (Agents SDK, single-file)")
     parser.add_argument("--file", required=True, help="Editable file path")
-    parser.add_argument("--model", default=os.environ.get("AGENT_MODEL", "gpt-5-codex"),
-                        help="Model name (default: gpt-5-codex)")
+    parser.add_argument("--model", default=os.environ.get("AGENT_MODEL", "gpt-5-mini"),
+                        help="Model name (default: gpt-5-mini)")
     parser.add_argument("--session", default="codex-patch-session", help="Session id for SQLiteSession")
     parser.add_argument("--force-tools", action="store_true",
                         help="Force tool use via ModelSettings(tool_choice='required')")
@@ -523,7 +524,7 @@ async def main():
     print("ヒント: 例) read_file(offset=1, limit_lines=100) と指示すると読みます。")
     print("      編集は apply_patch で差分を生成してください。終了は Ctrl+C。")
 
-    ms = ModelSettings(temperature=0.2, tool_choice=("required" if args.force_tools else "auto"))
+    ms = ModelSettings(tool_choice="required" if args.force_tools else "auto")
 
     agent = Agent[AppContext](
         name="Codex-like Patch Agent",
@@ -540,10 +541,16 @@ async def main():
             user = input("\n› ").strip()
             if not user:
                 continue
+            if user.lower() in {"exit", "quit"}:
+                print("bye.")
+                break
             result = await Runner.run(agent, input=user, context=ctx, session=session)
             if result.final_output:
                 print(result.final_output if isinstance(result.final_output, str) else str(result.final_output))
         except KeyboardInterrupt:
+            print("\nbye.")
+            break
+        except EOFError:
             print("\nbye.")
             break
         except Exception as e:
