@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import React, { useMemo, useState } from "react";
 import { ArrowDown, ArrowUp, Edit3, Plus, Save, Trash2, XCircle } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
@@ -36,6 +36,125 @@ type Props = {
 const ensureSubsections = (section: EditableOutlineSection | undefined): EditableOutlineSection[] => {
   if (!section) return [];
   return Array.isArray(section.subsections) ? section.subsections : [];
+};
+
+// パスベースでネストされたサブセクションを更新するためのヘルパー型
+type SectionPath = number[];
+
+// 再帰的にサブセクションを更新するヘルパー関数
+const updateNestedSubsection = (
+  sections: EditableOutlineSection[],
+  path: SectionPath,
+  patch: Partial<EditableOutlineSection>
+): EditableOutlineSection[] => {
+  if (path.length === 0) return sections;
+
+  const [currentIndex, ...restPath] = path;
+
+  return sections.map((section, idx) => {
+    if (idx !== currentIndex) return section;
+
+    if (restPath.length === 0) {
+      // 最終レベル: このセクション自体を更新
+      return {
+        ...section,
+        ...patch,
+        subsections: patch.subsections !== undefined
+          ? ensureSubsections({ subsections: patch.subsections } as EditableOutlineSection)
+          : ensureSubsections(section),
+      } as EditableOutlineSection;
+    }
+
+    // 再帰的に子を更新
+    return {
+      ...section,
+      subsections: updateNestedSubsection(ensureSubsections(section), restPath, patch),
+    };
+  });
+};
+
+// 再帰的にサブセクションを削除するヘルパー関数
+const removeNestedSubsection = (
+  sections: EditableOutlineSection[],
+  path: SectionPath
+): EditableOutlineSection[] => {
+  if (path.length === 0) return sections;
+
+  const [currentIndex, ...restPath] = path;
+
+  if (restPath.length === 0) {
+    // 最終レベル: このセクションを削除
+    return sections.filter((_, idx) => idx !== currentIndex);
+  }
+
+  return sections.map((section, idx) => {
+    if (idx !== currentIndex) return section;
+
+    return {
+      ...section,
+      subsections: removeNestedSubsection(ensureSubsections(section), restPath),
+    };
+  });
+};
+
+// 再帰的にサブセクションを移動するヘルパー関数
+const moveNestedSubsection = (
+  sections: EditableOutlineSection[],
+  path: SectionPath,
+  dir: -1 | 1
+): EditableOutlineSection[] => {
+  if (path.length === 0) return sections;
+
+  const [currentIndex, ...restPath] = path;
+
+  if (restPath.length === 0) {
+    // 最終レベル: この配列内で移動
+    const target = currentIndex + dir;
+    if (target < 0 || target >= sections.length) return sections;
+
+    const nextSections = sections.slice();
+    const tmp = nextSections[currentIndex];
+    nextSections[currentIndex] = nextSections[target];
+    nextSections[target] = tmp;
+    return nextSections;
+  }
+
+  return sections.map((section, idx) => {
+    if (idx !== currentIndex) return section;
+
+    return {
+      ...section,
+      subsections: moveNestedSubsection(ensureSubsections(section), restPath, dir),
+    };
+  });
+};
+
+// 再帰的にサブセクションを追加するヘルパー関数
+const addNestedSubsection = (
+  sections: EditableOutlineSection[],
+  path: SectionPath,
+  newSubsection: EditableOutlineSection
+): EditableOutlineSection[] => {
+  if (path.length === 0) return sections;
+
+  const [currentIndex, ...restPath] = path;
+
+  return sections.map((section, idx) => {
+    if (idx !== currentIndex) return section;
+
+    if (restPath.length === 0) {
+      // 最終レベル: このセクションの子として追加
+      return {
+        ...section,
+        subsections: [...ensureSubsections(section), newSubsection],
+      };
+    }
+
+    return {
+      ...section,
+      subsections: addNestedSubsection(ensureSubsections(section), restPath, newSubsection),
+    };
+  });
 };
 
 export default function MainSectionEditor({ value, onChange, onCancel, onSaveAndStart, disabled }: Props) {
@@ -203,12 +322,207 @@ export default function MainSectionEditor({ value, onChange, onCancel, onSaveAnd
     });
   };
 
-  const childLevelOptions = useMemo(() => {
-    if (childLevelBase === childLevelSecondary) {
-      return [childLevelBase];
+  // 動的に見出しレベル選択肢を生成（親レベル+1から最大h6まで）
+  const getAvailableLevels = (parentLevel: number): number[] => {
+    const startLevel = Math.min(parentLevel + 1, 6);
+    const levels: number[] = [];
+    for (let level = startLevel; level <= 6; level++) {
+      levels.push(level);
     }
-    return [childLevelBase, childLevelSecondary];
-  }, [childLevelBase, childLevelSecondary]);
+    return levels;
+  };
+
+  const childLevelOptions = useMemo(() => {
+    return getAvailableLevels(value.topLevel);
+  }, [value.topLevel]);
+
+  // 再帰的なサブセクションレンダリングコンポーネント
+  const renderSubsections = (
+    parentPath: SectionPath,
+    subsections: EditableOutlineSection[],
+    parentLevel: number,
+    depth: number = 0
+  ): React.ReactElement => {
+    const availableLevels = getAvailableLevels(parentLevel);
+    const bgColors = [
+      'bg-blue-50/70 border-blue-200',
+      'bg-purple-50/70 border-purple-200',
+      'bg-green-50/70 border-green-200',
+      'bg-yellow-50/70 border-yellow-200',
+    ];
+    const bgColor = bgColors[Math.min(depth, bgColors.length - 1)];
+    const indentClass = depth > 0 ? 'ml-4' : '';
+
+    return (
+      <div className={`space-y-2 ${indentClass}`}>
+        {subsections.map((subsection, subIndex) => {
+          const currentPath = [...parentPath, subIndex];
+          const levelValue = `h${subsection.level}`;
+          const nestedSubsections = ensureSubsections(subsection);
+          const hasChildren = nestedSubsections.length > 0;
+
+          return (
+            <div
+              key={subIndex}
+              className={`space-y-3 rounded border border-dashed ${bgColor} p-3`}
+            >
+              <div className="flex flex-col gap-3 md:flex-row md:items-start">
+                <div className="flex items-start gap-2 md:flex-1">
+                  <Badge variant="outline" className="mt-1 shrink-0 bg-white">
+                    H{subsection.level}
+                  </Badge>
+                  <div className="flex-1 space-y-2">
+                    <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+                      <Select
+                        value={levelValue}
+                        onValueChange={(val) => {
+                          const newLevel = Number(val.replace("h", ""));
+                          const nextSections = updateNestedSubsection(
+                            sections,
+                            currentPath,
+                            { level: newLevel }
+                          );
+                          onChange({ ...value, sections: nextSections });
+                          setTouched(true);
+                        }}
+                        disabled={disabled}
+                      >
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {availableLevels.map((lvl) => (
+                            <SelectItem key={lvl} value={`h${lvl}`}>
+                              H{lvl}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <Input
+                        type="number"
+                        value={subsection.estimated_chars ?? 200}
+                        onChange={(e) => {
+                          const nextSections = updateNestedSubsection(
+                            sections,
+                            currentPath,
+                            { estimated_chars: Math.max(0, Number(e.target.value) || 0) }
+                          );
+                          onChange({ ...value, sections: nextSections });
+                          setTouched(true);
+                        }}
+                        placeholder="目安文字数"
+                        min={0}
+                        disabled={disabled}
+                      />
+                    </div>
+                    <Input
+                      value={subsection.heading}
+                      onChange={(e) => {
+                        const nextSections = updateNestedSubsection(
+                          sections,
+                          currentPath,
+                          { heading: e.target.value }
+                        );
+                        onChange({ ...value, sections: nextSections });
+                        setTouched(true);
+                      }}
+                      placeholder={`見出しのタイトル (H${subsection.level})`}
+                      disabled={disabled}
+                    />
+                    <Textarea
+                      value={subsection.description ?? ""}
+                      onChange={(e) => {
+                        const nextSections = updateNestedSubsection(
+                          sections,
+                          currentPath,
+                          { description: e.target.value }
+                        );
+                        onChange({ ...value, sections: nextSections });
+                        setTouched(true);
+                      }}
+                      placeholder="この見出しで触れる内容（任意）"
+                      disabled={disabled}
+                      className="min-h-[60px]"
+                    />
+                  </div>
+                </div>
+                <div className="flex items-center gap-1">
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    onClick={() => {
+                      const nextSections = moveNestedSubsection(sections, currentPath, -1);
+                      onChange({ ...value, sections: nextSections });
+                      setTouched(true);
+                    }}
+                    disabled={disabled || subIndex === 0}
+                  >
+                    <ArrowUp className="h-4 w-4" />
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    onClick={() => {
+                      const nextSections = moveNestedSubsection(sections, currentPath, 1);
+                      onChange({ ...value, sections: nextSections });
+                      setTouched(true);
+                    }}
+                    disabled={disabled || subIndex === subsections.length - 1}
+                  >
+                    <ArrowDown className="h-4 w-4" />
+                  </Button>
+                  <Button
+                    variant="destructive"
+                    size="icon"
+                    onClick={() => {
+                      const nextSections = removeNestedSubsection(sections, currentPath);
+                      onChange({ ...value, sections: nextSections });
+                      setTouched(true);
+                    }}
+                    disabled={disabled}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
+
+              {/* 再帰的にネストされたサブセクションを表示 */}
+              {hasChildren && renderSubsections(currentPath, nestedSubsections, subsection.level, depth + 1)}
+
+              {/* 子見出しを追加ボタン（h6未満の場合のみ） */}
+              {subsection.level < 6 && (
+                <div className="mt-2">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => {
+                      const newSubLevel = Math.min(subsection.level + 1, 6);
+                      const newSub: EditableOutlineSection = {
+                        heading: "",
+                        level: newSubLevel,
+                        description: "",
+                        estimated_chars: 150,
+                        subsections: [],
+                      };
+                      const nextSections = addNestedSubsection(sections, currentPath, newSub);
+                      onChange({ ...value, sections: nextSections });
+                      setTouched(true);
+                    }}
+                    disabled={disabled}
+                    className="flex items-center gap-2 text-xs"
+                  >
+                    <Plus className="h-3 w-3" />
+                    H{Math.min(subsection.level + 1, 6)}見出しを追加
+                  </Button>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    );
+  };
 
   return (
     <Card className="border border-blue-200 bg-blue-50/40">
@@ -336,104 +650,7 @@ export default function MainSectionEditor({ value, onChange, onCancel, onSaveAnd
                     </div>
                   </div>
 
-                  <div className="space-y-2">
-                    {subsections.map((subsection, subIndex) => {
-                      const levelValue = `h${subsection.level}`;
-                      return (
-                        <div
-                          key={subIndex}
-                          className="space-y-3 rounded border border-dashed border-blue-200 bg-blue-50/70 p-3"
-                        >
-                          <div className="flex flex-col gap-3 md:flex-row md:items-start">
-                            <div className="flex items-start gap-2 md:flex-1">
-                              <Badge variant="outline" className="mt-1 shrink-0 bg-white">
-                                H{subsection.level}
-                              </Badge>
-                              <div className="flex-1 space-y-2">
-                                <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
-                                  <Select
-                                    value={levelValue}
-                                    onValueChange={(val) =>
-                                      updateSubsection(index, subIndex, {
-                                        level: Number(val.replace("h", "")),
-                                      })
-                                    }
-                                    disabled={disabled}
-                                  >
-                                    <SelectTrigger>
-                                      <SelectValue />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                      {childLevelOptions.map((lvl) => (
-                                        <SelectItem key={lvl} value={`h${lvl}`}>
-                                          H{lvl}
-                                        </SelectItem>
-                                      ))}
-                                    </SelectContent>
-                                  </Select>
-                                  <Input
-                                    type="number"
-                                    value={subsection.estimated_chars ?? 200}
-                                    onChange={(e) =>
-                                      updateSubsection(index, subIndex, {
-                                        estimated_chars: Math.max(0, Number(e.target.value) || 0),
-                                      })
-                                    }
-                                    placeholder="目安文字数"
-                                    min={0}
-                                    disabled={disabled}
-                                  />
-                                </div>
-                                <Input
-                                  value={subsection.heading}
-                                  onChange={(e) =>
-                                    updateSubsection(index, subIndex, { heading: e.target.value })
-                                  }
-                                  placeholder="小見出しのタイトル"
-                                  disabled={disabled}
-                                />
-                                <Textarea
-                                  value={subsection.description ?? ""}
-                                  onChange={(e) =>
-                                    updateSubsection(index, subIndex, { description: e.target.value })
-                                  }
-                                  placeholder="この小見出しで触れる内容（任意）"
-                                  disabled={disabled}
-                                  className="min-h-[60px]"
-                                />
-                              </div>
-                            </div>
-                            <div className="flex items-center gap-1">
-                              <Button
-                                variant="outline"
-                                size="icon"
-                                onClick={() => moveSubsection(index, subIndex, -1)}
-                                disabled={disabled || subIndex === 0}
-                              >
-                                <ArrowUp className="h-4 w-4" />
-                              </Button>
-                              <Button
-                                variant="outline"
-                                size="icon"
-                                onClick={() => moveSubsection(index, subIndex, 1)}
-                                disabled={disabled || subIndex === subsections.length - 1}
-                              >
-                                <ArrowDown className="h-4 w-4" />
-                              </Button>
-                              <Button
-                                variant="destructive"
-                                size="icon"
-                                onClick={() => removeSubsection(index, subIndex)}
-                                disabled={disabled}
-                              >
-                                <Trash2 className="h-4 w-4" />
-                              </Button>
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
+                  {subsections.length > 0 && renderSubsections([index], subsections, section.level)}
 
                   <div>
                     <Button
