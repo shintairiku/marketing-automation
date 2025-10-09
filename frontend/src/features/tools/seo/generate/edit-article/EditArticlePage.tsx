@@ -2,7 +2,22 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import NextImage from 'next/image';
-import { AlertCircle, Bot, Copy, Download, Edit, Image, Loader2, Save, Sparkles, Trash2, Upload, Wand2, X } from 'lucide-react';
+import {
+  AlertCircle,
+  Bot,
+  Clock,
+  Copy,
+  Download,
+  Edit,
+  Image,
+  Loader2,
+  Save,
+  Sparkles,
+  Trash2,
+  Upload,
+  Wand2,
+  X,
+} from 'lucide-react';
 
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
@@ -22,6 +37,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/hooks/use-toast';
 import { useArticleDetail } from '@/hooks/useArticles';
+import { useArticleVersions } from '@/hooks/useArticleVersions';
 import { useAutoSave } from '@/hooks/useAutoSave';
 import { cn } from '@/utils/cn';
 import { useAuth } from '@clerk/nextjs';
@@ -34,6 +50,7 @@ import ContentSelectorDialog from './components/ContentSelectorDialog';
 import HeadingLevelDialog from './components/HeadingLevelDialog';
 import RichTextVisualEditor from './components/RichTextVisualEditor';
 import TableOfContentsDialog from './components/TableOfContentsDialog';
+import VersionHistoryPanel from './components/VersionHistoryPanel';
 
 interface EditArticlePageProps {
   articleId: string;
@@ -113,9 +130,13 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
   const [blocks, setBlocks] = useState<ArticleBlock[]>([]);
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
-  
+
   // 自動保存の制御状態
   const [autoSaveEnabled, setAutoSaveEnabled] = useState(true);
+
+  // バージョン管理
+  const { saveVersion, refreshVersions } = useArticleVersions(articleId);
+  const [versionPanelOpen, setVersionPanelOpen] = useState(false);
 
   const [hoveredBlockId, setHoveredBlockId] = useState<string | null>(null);
   const [aiEditingLoading, setAiEditingLoading] = useState(false);
@@ -1317,8 +1338,22 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
         const errorData = await response.json().catch(() => ({ detail: "レスポンスがJSON形式ではありません" }));
         throw new Error(`Save failed: ${errorData.detail || response.statusText}`);
       }
-      
+
       await refetch();
+
+      // バージョンを保存
+      try {
+        await saveVersion(
+          article.title,
+          updatedContent,
+          '手動保存',
+          50 // 最大50バージョン保持
+        );
+      } catch (versionError) {
+        console.warn('バージョンの保存に失敗しました:', versionError);
+        // バージョン保存の失敗は警告のみで、記事の保存自体は成功とみなす
+      }
+
       alert('記事が正常に保存されました！');
 
     } catch (error) {
@@ -1364,15 +1399,28 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
         const errorData = await response.json().catch(() => ({ detail: "レスポンスがJSON形式ではありません" }));
         throw new Error(`自動保存失敗: ${errorData.detail || response.statusText}`);
       }
-      
+
       console.log('自動保存が完了しました');
+
+      // 自動保存時もバージョンを保存
+      try {
+        await saveVersion(
+          article.title,
+          updatedContent,
+          '自動保存',
+          50 // 最大50バージョン保持
+        );
+      } catch (versionError) {
+        console.warn('バージョンの自動保存に失敗しました:', versionError);
+        // バージョン保存の失敗は警告のみ
+      }
 
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       console.error('自動保存エラー:', errorMessage);
       throw error; // useAutoSaveフックがエラーを処理します
     }
-  }, [article, articleId, blocks, blocksToHtml, getToken, isSaving]);
+  }, [article, articleId, blocks, blocksToHtml, getToken, isSaving, saveVersion]);
 
 
   // Content extractor for efficient comparison
@@ -1892,6 +1940,15 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
             <Button
               variant="outline"
               size="sm"
+              onClick={() => setVersionPanelOpen(!versionPanelOpen)}
+              className="text-purple-600 border-purple-200 hover:bg-purple-50"
+            >
+              <Clock className="h-4 w-4 mr-1" />
+              バージョン履歴
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
               onClick={copyHtmlToClipboard}
               className="text-blue-600 border-blue-200 hover:bg-blue-50"
             >
@@ -2267,6 +2324,27 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
         articleId={articleId}
         articleHtml={article?.content}
       />
+
+      {/* バージョン履歴パネル */}
+      {versionPanelOpen && (
+        <div className="fixed right-0 top-0 bottom-0 w-96 bg-white shadow-2xl border-l border-gray-200 z-50 overflow-y-auto">
+          <div className="sticky top-0 bg-white border-b border-gray-200 p-4 flex items-center justify-between">
+            <h2 className="text-lg font-semibold">バージョン履歴</h2>
+            <Button variant="ghost" size="sm" onClick={() => setVersionPanelOpen(false)}>
+              <X className="h-4 w-4" />
+            </Button>
+          </div>
+          <div className="p-4">
+            <VersionHistoryPanel
+              articleId={articleId}
+              onVersionRestore={() => {
+                refetch();
+                setVersionPanelOpen(false);
+              }}
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 } 

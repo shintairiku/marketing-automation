@@ -34,6 +34,7 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from app.domains.company.service import CompanyService
 from app.domains.seo_article.services.flow_service import get_supabase_client
 from app.infrastructure.logging.service import LoggingService
+from app.domains.seo_article.services.version_service import get_version_service
 
 # 静的: 1タグHTMLの出力検疫用設定
 SAFE_URL_SCHEMES = {"http", "https", "mailto", "tel"}
@@ -1834,4 +1835,316 @@ async def restore_process_from_snapshot(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to restore process from snapshot"
+        )
+
+
+# ============================================================================
+# ARTICLE VERSION MANAGEMENT ENDPOINTS
+# ============================================================================
+
+class SaveVersionRequest(BaseModel):
+    """バージョン保存リクエスト"""
+    title: str = Field(..., description="記事タイトル")
+    content: str = Field(..., description="記事コンテンツ (HTML)")
+    change_description: Optional[str] = Field(None, description="変更の説明")
+    metadata: Optional[Dict[str, Any]] = Field(None, description="追加メタデータ")
+    max_versions: int = Field(50, description="保持する最大バージョン数", ge=1, le=200)
+
+
+class VersionResponse(BaseModel):
+    """バージョン情報レスポンス"""
+    version_id: str
+    version_number: int
+    title: str
+    change_description: Optional[str]
+    is_current: bool
+    created_at: str
+    user_id: str
+    metadata: Optional[Dict[str, Any]]
+
+
+class VersionDetailResponse(VersionResponse):
+    """バージョン詳細レスポンス（コンテンツ含む）"""
+    article_id: str
+    content: str
+
+
+class NavigateVersionRequest(BaseModel):
+    """バージョンナビゲーションリクエスト"""
+    direction: str = Field(..., description="ナビゲーション方向: 'next' または 'previous'")
+
+
+class RestoreVersionRequest(BaseModel):
+    """バージョン復元リクエスト"""
+    create_new_version: bool = Field(True, description="復元時に新しいバージョンを作成するか")
+
+
+@router.post("/{article_id}/versions", response_model=dict, status_code=status.HTTP_201_CREATED)
+async def save_article_version(
+    article_id: str,
+    request: SaveVersionRequest,
+    user_id: str = Depends(get_current_user_id_from_token)
+):
+    """
+    記事の新しいバージョンを保存します。
+
+    - **article_id**: 記事のUUID
+    - **request**: バージョン保存リクエスト
+
+    自動的に古いバージョンを削除し、指定された最大バージョン数を維持します。
+    """
+    try:
+        version_service = get_version_service()
+
+        result = await version_service.save_version(
+            article_id=article_id,
+            user_id=user_id,
+            title=request.title,
+            content=request.content,
+            change_description=request.change_description,
+            metadata=request.metadata,
+            max_versions=request.max_versions
+        )
+
+        return {
+            "success": True,
+            "message": "バージョンが正常に保存されました",
+            "data": result
+        }
+
+    except Exception as e:
+        logger.error(f"Error saving version for article {article_id}: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"バージョンの保存に失敗しました: {str(e)}"
+        )
+
+
+@router.get("/{article_id}/versions", response_model=List[VersionResponse], status_code=status.HTTP_200_OK)
+async def get_article_versions(
+    article_id: str,
+    limit: int = Query(100, ge=1, le=500, description="取得する最大バージョン数"),
+    user_id: str = Depends(get_current_user_id_from_token)
+):
+    """
+    記事のバージョン履歴を取得します。
+
+    - **article_id**: 記事のUUID
+    - **limit**: 取得する最大バージョン数（デフォルト: 100）
+
+    バージョンは新しい順に返されます。
+    """
+    try:
+        version_service = get_version_service()
+
+        versions = await version_service.get_version_history(
+            article_id=article_id,
+            user_id=user_id,
+            limit=limit
+        )
+
+        return versions
+
+    except Exception as e:
+        logger.error(f"Error getting versions for article {article_id}: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"バージョン履歴の取得に失敗しました: {str(e)}"
+        )
+
+
+@router.get("/{article_id}/versions/current", response_model=VersionDetailResponse, status_code=status.HTTP_200_OK)
+async def get_current_version(
+    article_id: str,
+    user_id: str = Depends(get_current_user_id_from_token)
+):
+    """
+    記事の現在のバージョンを取得します。
+
+    - **article_id**: 記事のUUID
+    """
+    try:
+        version_service = get_version_service()
+
+        current_version = await version_service.get_current_version(
+            article_id=article_id,
+            user_id=user_id
+        )
+
+        if not current_version:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="現在のバージョンが見つかりません"
+            )
+
+        return current_version
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting current version for article {article_id}: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"現在のバージョンの取得に失敗しました: {str(e)}"
+        )
+
+
+@router.get("/{article_id}/versions/{version_id}", response_model=VersionDetailResponse, status_code=status.HTTP_200_OK)
+async def get_version_by_id(
+    article_id: str,
+    version_id: str,
+    user_id: str = Depends(get_current_user_id_from_token)
+):
+    """
+    特定のバージョンの詳細を取得します。
+
+    - **article_id**: 記事のUUID
+    - **version_id**: バージョンのUUID
+    """
+    try:
+        version_service = get_version_service()
+
+        version = await version_service.get_version(
+            version_id=version_id,
+            user_id=user_id
+        )
+
+        if not version:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="バージョンが見つかりません"
+            )
+
+        # Verify the version belongs to the specified article
+        if version["article_id"] != article_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="指定された記事にこのバージョンは属していません"
+            )
+
+        return version
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting version {version_id}: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"バージョンの取得に失敗しました: {str(e)}"
+        )
+
+
+@router.post("/{article_id}/versions/{version_id}/restore", response_model=dict, status_code=status.HTTP_200_OK)
+async def restore_version(
+    article_id: str,
+    version_id: str,
+    request: RestoreVersionRequest,
+    user_id: str = Depends(get_current_user_id_from_token)
+):
+    """
+    指定されたバージョンに記事を復元します。
+
+    - **article_id**: 記事のUUID
+    - **version_id**: 復元するバージョンのUUID
+    - **create_new_version**: 復元時に新しいバージョンを作成するか（デフォルト: true）
+
+    create_new_versionがtrueの場合、復元された状態が新しいバージョンとして保存されます。
+    """
+    try:
+        version_service = get_version_service()
+
+        result = await version_service.restore_version(
+            version_id=version_id,
+            user_id=user_id,
+            create_new_version=request.create_new_version
+        )
+
+        return {
+            "success": True,
+            "message": "バージョンが正常に復元されました",
+            "data": result
+        }
+
+    except Exception as e:
+        logger.error(f"Error restoring version {version_id}: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"バージョンの復元に失敗しました: {str(e)}"
+        )
+
+
+@router.post("/{article_id}/versions/navigate", response_model=dict, status_code=status.HTTP_200_OK)
+async def navigate_version(
+    article_id: str,
+    request: NavigateVersionRequest,
+    user_id: str = Depends(get_current_user_id_from_token)
+):
+    """
+    次または前のバージョンにナビゲートします（Googleドキュメント風）。
+
+    - **article_id**: 記事のUUID
+    - **direction**: ナビゲーション方向 ('next' または 'previous')
+
+    新しいバージョンは作成せず、単純に現在のバージョンマーカーを移動します。
+    """
+    try:
+        if request.direction not in ['next', 'previous']:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="direction は 'next' または 'previous' である必要があります"
+            )
+
+        version_service = get_version_service()
+
+        result = await version_service.navigate_version(
+            article_id=article_id,
+            user_id=user_id,
+            direction=request.direction
+        )
+
+        return {
+            "success": True,
+            "message": f"{request.direction} バージョンに移動しました",
+            "data": result
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error navigating version for article {article_id}: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"バージョンのナビゲーションに失敗しました: {str(e)}"
+        )
+
+
+@router.delete("/{article_id}/versions/{version_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_version(
+    article_id: str,
+    version_id: str,
+    user_id: str = Depends(get_current_user_id_from_token)
+):
+    """
+    特定のバージョンを削除します。
+
+    - **article_id**: 記事のUUID
+    - **version_id**: 削除するバージョンのUUID
+
+    注意: 現在のバージョンは削除できません。
+    """
+    try:
+        version_service = get_version_service()
+
+        await version_service.delete_version(
+            version_id=version_id,
+            user_id=user_id
+        )
+
+        return None
+
+    except Exception as e:
+        logger.error(f"Error deleting version {version_id}: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"バージョンの削除に失敗しました: {str(e)}"
         )
