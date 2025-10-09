@@ -9,6 +9,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { useArticleGenerationRealtime } from '@/hooks/useArticleGenerationRealtime';
+import { getOutlineGenerationMessage,getStepProgressMap } from '@/utils/flow-config';
 import { useAuth,useUser } from '@clerk/nextjs';
 
 import CompactGenerationFlow from "../component/CompactGenerationFlow";
@@ -168,7 +169,7 @@ export default function GenerationProcessPage({ jobId }: GenerationProcessPagePr
         } else if (state.currentStep === 'research_synthesizing') {
             messages.push('収集した情報を整理し、記事に活用できる形にまとめています...');
         } else if (state.currentStep === 'outline_generating') {
-            messages.push('読者に価値を提供する記事構成を設計しています...');
+            messages.push(getOutlineGenerationMessage());
         } else if (state.currentStep === 'writing_sections') {
             if (state.sectionsProgress) {
                 messages.push(`専門性と読みやすさを両立した記事を執筆しています... (${state.sectionsProgress.currentSection}/${state.sectionsProgress.totalSections})`);
@@ -197,17 +198,8 @@ export default function GenerationProcessPage({ jobId }: GenerationProcessPagePr
     }, [state.currentStep, state.articleId, state.error, state.steps, router]);
 
     const getProgressPercentage = () => {
-        // 8つのステップに基づく進捗計算
-        const stepProgressMap = {
-            'keyword_analyzing': 12.5,      // キーワード分析: 12.5%
-            'persona_generating': 25,       // ペルソナ生成: 25%
-            'theme_generating': 37.5,       // テーマ提案: 37.5%
-            'research_planning': 50,        // リサーチ計画: 50%
-            'researching': 62.5,            // リサーチ実行（リサーチ要約）: 62.5%
-            'outline_generating': 75,       // アウトライン作成: 75%
-            'writing_sections': 87.5,       // 執筆: 87.5%
-            'editing': 100,                 // 編集・校正: 100%
-        };
+        // フロー設定に応じた動的進捗計算
+        const stepProgressMap = getStepProgressMap();
         
         // ユーザー入力待ちの場合は、現在のステップの進捗を返す
         const progress = stepProgressMap[state.currentStep as keyof typeof stepProgressMap];

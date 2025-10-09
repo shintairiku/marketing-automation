@@ -13,6 +13,7 @@ import {
   SectionsProgress,
   StepStatus,
   ThemeData} from '@/types/article-generation';
+import { getNextStepAfterOutline,getNextStepAfterResearch, getNextStepAfterTheme } from '@/utils/flow-config';
 import { useAuth } from '@clerk/nextjs';
 
 import { ProcessEvent,useSupabaseRealtime } from './useSupabaseRealtime';
@@ -54,19 +55,31 @@ export const useArticleGenerationRealtime = ({
   const { getToken } = useAuth();
   
   // Generation state - with debouncing for stable UI
+  // フラグに応じてフローを切り替え
+  const isReorderedFlow = process.env.NEXT_PUBLIC_USE_REORDERED_FLOW === 'true' || 
+                          process.env.NEXT_PUBLIC_USE_REORDERED_FLOW === undefined; // デフォルトは新フロー
+  const initialSteps = isReorderedFlow ? [
+    { id: 'keyword_analyzing', name: 'キーワード分析', status: 'pending' },
+    { id: 'persona_generating', name: 'ペルソナ生成', status: 'pending' },
+    { id: 'theme_generating', name: 'テーマ提案', status: 'pending' },
+    { id: 'outline_generating', name: 'アウトライン作成', status: 'pending' },
+    { id: 'researching', name: 'リサーチ実行', status: 'pending' },
+    { id: 'writing_sections', name: '執筆', status: 'pending' },
+    { id: 'editing', name: '編集・校正', status: 'pending' },
+  ] : [
+    { id: 'keyword_analyzing', name: 'キーワード分析', status: 'pending' },
+    { id: 'persona_generating', name: 'ペルソナ生成', status: 'pending' },
+    { id: 'theme_generating', name: 'テーマ提案', status: 'pending' },
+    { id: 'researching', name: 'リサーチ実行', status: 'pending' },
+    { id: 'outline_generating', name: 'アウトライン作成', status: 'pending' },
+    { id: 'writing_sections', name: '執筆', status: 'pending' },
+    { id: 'editing', name: '編集・校正', status: 'pending' },
+  ];
+  
   const [state, setState] = useState<GenerationState>({
     currentStep: 'keyword_analyzing',
     status: 'pending', // Initialize with pending status
-    steps: [
-      { id: 'keyword_analyzing', name: 'キーワード分析', status: 'pending' },
-      { id: 'persona_generating', name: 'ペルソナ生成', status: 'pending' },
-      { id: 'theme_generating', name: 'テーマ提案', status: 'pending' },
-      { id: 'research_planning', name: 'リサーチ計画', status: 'pending' },
-      { id: 'researching', name: 'リサーチ実行（リサーチ要約）', status: 'pending' },
-      { id: 'outline_generating', name: 'アウトライン作成', status: 'pending' },
-      { id: 'writing_sections', name: '執筆', status: 'pending' },
-      { id: 'editing', name: '編集・校正', status: 'pending' },
-    ],
+    steps: initialSteps,
     isWaitingForInput: false,
     personas: undefined,
     themes: undefined,
@@ -91,7 +104,6 @@ export const useArticleGenerationRealtime = ({
     const validStepInputTypes: Record<string, string[]> = {
       'persona_generating': ['select_persona'],
       'theme_generating': ['select_theme'],
-      'research_planning': ['approve_plan'],
       'outline_generating': ['approve_outline'],
     };
     
@@ -136,16 +148,7 @@ export const useArticleGenerationRealtime = ({
           }
           break;
           
-        case 'approve_plan':
-          if (!sanitizedState.researchPlan || sanitizedState.currentStep !== 'research_planning') {
-            console.log('🔒 Clearing invalid plan approval state:', {
-              hasResearchPlan: !!sanitizedState.researchPlan,
-              currentStep: sanitizedState.currentStep
-            });
-            sanitizedState.isWaitingForInput = false;
-            sanitizedState.inputType = undefined;
-          }
-          break;
+        // approve_plan removed: integrated research no longer requires plan approval
           
         case 'approve_outline':
           // More lenient check: only clear if we're clearly not in outline phase
@@ -170,7 +173,7 @@ export const useArticleGenerationRealtime = ({
     
     // Clear input state if we're in a non-interactive step
     // Note: outline_generating is removed as it requires user approval for the generated outline
-    const nonInteractiveSteps = ['keyword_analyzing', 'researching', 'writing_sections', 'editing', 'completed', 'error'];
+    const nonInteractiveSteps = ['keyword_analyzing', 'researching', 'research_completed', 'writing_sections', 'editing', 'completed', 'error'];
     if (nonInteractiveSteps.includes(sanitizedState.currentStep) && sanitizedState.isWaitingForInput) {
       console.log('🔒 Clearing input state for non-interactive step:', sanitizedState.currentStep);
       sanitizedState.isWaitingForInput = false;
@@ -220,17 +223,11 @@ export const useArticleGenerationRealtime = ({
       // Theme Generation Phase  
       'theme_generating': 'theme_generating',
       'theme_proposed': 'theme_generating', // Keep as generating until selected
-      'theme_selected': 'research_planning', // Auto-transition to research planning loading
+      'theme_selected': getNextStepAfterTheme(), // 新フローではフラグに応じて動的に次ステップを決定
       
-      // Research Planning Phase
-      'research_planning': 'research_planning',
-      'research_plan_generated': 'research_planning', // Show completed research planning (user approval UI)
-      'research_plan_approved': 'researching', // Auto-transition to research execution loading
-      
-      // Research Execution Phase
-      'researching': 'researching',
-      'research_synthesizing': 'researching',
-      'research_report_generated': 'outline_generating', // Auto-transition to outline generation
+      // Research Execution Phase (Integrated)
+      'researching': 'researching', // Unified research step
+      'research_completed': getNextStepAfterResearch(), // 新フローではフラグに応じて動的に次ステップを決定
       
       // Outline Generation Phase
       'outline_generating': 'outline_generating',
@@ -255,7 +252,7 @@ export const useArticleGenerationRealtime = ({
     // Handle special cases based on status
     if (status === 'user_input_required') {
       // Keep current step when waiting for user input
-      const inputSteps = ['persona_generated', 'theme_proposed', 'research_plan_generated', 'outline_generated'];
+      const inputSteps = ['persona_generated', 'theme_proposed', 'outline_generated'];
       if (inputSteps.includes(backendStep)) {
         return stepMapping[backendStep] || 'keyword_analyzing';
       }
@@ -286,7 +283,26 @@ export const useArticleGenerationRealtime = ({
         console.log(`🔍 Step mapping: ${backendStep} -> ${uiStep} (waiting: ${next.isWaitingForInput})`);
 
         // Progressive step completion: mark current step AND all previous steps as completed
-        const stepOrder = ['keyword_analyzing', 'persona_generating', 'theme_generating', 'research_planning', 'researching', 'outline_generating', 'writing_sections', 'editing'];
+        // フローを決定するロジックを追加
+        const stepOrderClassic = ['keyword_analyzing', 'persona_generating', 'theme_generating', 'researching', 'outline_generating', 'writing_sections', 'editing'];
+        const stepOrderReordered = ['keyword_analyzing', 'persona_generating', 'theme_generating', 'outline_generating', 'researching', 'writing_sections', 'editing'];
+        
+        // Determine which flow we're using based on current context
+        // Priority: 1. Backend context, 2. Environment variable, 3. Default to reordered
+        const backendFlow = data.article_context?.flow_mode === 'reordered';
+        const envFlow = process.env.NEXT_PUBLIC_USE_REORDERED_FLOW === 'true';
+        const defaultFlow = process.env.NEXT_PUBLIC_USE_REORDERED_FLOW === undefined; // Default to reordered if undefined
+        const isReorderedFlow = backendFlow || envFlow || defaultFlow;
+        
+        console.log('🔍 Flow determination:', {
+          backendFlow,
+          envFlow,
+          defaultFlow,
+          envValue: process.env.NEXT_PUBLIC_USE_REORDERED_FLOW,
+          finalResult: isReorderedFlow
+        });
+        
+        const stepOrder = isReorderedFlow ? stepOrderReordered : stepOrderClassic;
         const currentStepIndex = stepOrder.indexOf(uiStep);
         
         console.log(`🎯 Progressive step completion: current="${uiStep}" (index=${currentStepIndex}), waiting=${next.isWaitingForInput}`);
@@ -439,7 +455,6 @@ export const useArticleGenerationRealtime = ({
             'keyword_analyzing': 'persona_generating',
             'persona_generating': null, // Waits for user selection
             'theme_generating': null, // Waits for user selection  
-            'research_planning': null, // Waits for user approval
             'researching': 'outline_generating',
             'outline_generating': null, // Waits for user approval
             'writing_sections': 'editing',
@@ -497,26 +512,21 @@ export const useArticleGenerationRealtime = ({
                 });
                 break;
               case 'select_theme':
-                newState.currentStep = 'research_planning';
+                const nextStepAfterTheme = getNextStepAfterTheme();
+                newState.currentStep = nextStepAfterTheme;
                 newState.steps = newState.steps.map((step: GenerationStep) => {
                   if (step.id === 'theme_generating') return { ...step, status: 'completed' as StepStatus };
-                  if (step.id === 'research_planning') return { ...step, status: 'in_progress' as StepStatus };
+                  if (step.id === nextStepAfterTheme) return { ...step, status: 'in_progress' as StepStatus };
                   return step;
                 });
                 break;
-              case 'approve_plan':
-                newState.currentStep = 'researching';
-                newState.steps = newState.steps.map((step: GenerationStep) => {
-                  if (step.id === 'research_planning') return { ...step, status: 'completed' as StepStatus };
-                  if (step.id === 'researching') return { ...step, status: 'in_progress' as StepStatus };
-                  return step;
-                });
-                break;
+              // approve_plan case removed: integrated research no longer requires plan approval
               case 'approve_outline':
-                newState.currentStep = 'writing_sections';
+                const nextStepAfterOutline = getNextStepAfterOutline();
+                newState.currentStep = nextStepAfterOutline;
                 newState.steps = newState.steps.map((step: GenerationStep) => {
                   if (step.id === 'outline_generating') return { ...step, status: 'completed' as StepStatus };
-                  if (step.id === 'writing_sections') return { ...step, status: 'in_progress' as StepStatus };
+                  if (step.id === nextStepAfterOutline) return { ...step, status: 'in_progress' as StepStatus };
                   return step;
                 });
                 break;
@@ -573,7 +583,7 @@ export const useArticleGenerationRealtime = ({
           
           // Mark current step as error
           if (event.event_data.step_name) {
-            const errorStepName = event.event_data.step_name;
+            const errorStepName = mapBackendStepToUIStep(event.event_data.step_name);
             newState.steps = newState.steps.map((step: GenerationStep) => 
               step.id === errorStepName ? { ...step, status: 'error' as StepStatus } : step
             );
@@ -774,39 +784,30 @@ export const useArticleGenerationRealtime = ({
           break;
           
         case 'theme_selection_completed':
-          console.log('💡 Theme selected - auto-progressing to research planning');
+          const nextAfterTheme = getNextStepAfterTheme();
+          console.log(`💡 Theme selected - auto-progressing to ${nextAfterTheme}`);
           newState.steps = newState.steps.map((step: GenerationStep) => {
             if (step.id === 'theme_generating') return { ...step, status: 'completed' as StepStatus };
-            if (step.id === 'research_planning') return { ...step, status: 'in_progress' as StepStatus };
+            if (step.id === nextAfterTheme) return { ...step, status: 'in_progress' as StepStatus };
             return step;
           });
-          newState.currentStep = 'research_planning';
+          newState.currentStep = nextAfterTheme;
           // Clear user input waiting state
           newState.isWaitingForInput = false;
           newState.inputType = undefined;
           break;
           
-        case 'research_plan_approval_completed':
-          console.log('📋 Research plan approved - auto-progressing to research execution');
-          newState.steps = newState.steps.map((step: GenerationStep) => {
-            if (step.id === 'research_planning') return { ...step, status: 'completed' as StepStatus };
-            if (step.id === 'researching') return { ...step, status: 'in_progress' as StepStatus };
-            return step;
-          });
-          newState.currentStep = 'researching';
-          // Clear user input waiting state
-          newState.isWaitingForInput = false;
-          newState.inputType = undefined;
-          break;
+        // research_plan_approval_completed removed: integrated research no longer requires plan approval
           
         case 'outline_approval_completed':
-          console.log('📝 Outline approved - auto-progressing to writing sections');
+          const nextAfterOutline = getNextStepAfterOutline();
+          console.log(`📝 Outline approved - auto-progressing to ${nextAfterOutline}`);
           newState.steps = newState.steps.map((step: GenerationStep) => {
             if (step.id === 'outline_generating') return { ...step, status: 'completed' as StepStatus };
-            if (step.id === 'writing_sections') return { ...step, status: 'in_progress' as StepStatus };
+            if (step.id === nextAfterOutline) return { ...step, status: 'in_progress' as StepStatus };
             return step;
           });
-          newState.currentStep = 'writing_sections';
+          newState.currentStep = nextAfterOutline;
           // Clear user input waiting state
           newState.isWaitingForInput = false;
           newState.inputType = undefined;
@@ -1003,7 +1004,7 @@ export const useArticleGenerationRealtime = ({
           // If process is now in theme selection or later, treat as success
           const currentStep = freshData?.current_step_name;
           if (currentStep === 'theme_selection' || 
-              currentStep === 'research_planning' || 
+              currentStep === 'researching' || 
               currentStep === 'outline_generation' || 
               currentStep === 'section_writing' || 
               currentStep === 'editing' || 
@@ -1056,9 +1057,9 @@ export const useArticleGenerationRealtime = ({
           // Refresh process state to check if it has moved to the next step
           const freshData = await fetchProcessData();
           
-          // If process is now in research planning or later, treat as success
+          // If process is now in research execution or later, treat as success
           const currentStep = freshData?.current_step_name;
-          if (currentStep === 'research_planning' || 
+          if (currentStep === 'researching' || 
               currentStep === 'outline_generation' || 
               currentStep === 'section_writing' || 
               currentStep === 'editing' || 

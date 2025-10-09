@@ -27,6 +27,10 @@ class ArticleContext:
     vector_store_id: Optional[str] = None # File Search用
     num_research_queries: int = 5 # リサーチクエリ数の上限
     num_persona_examples: int = 3 # 追加: 生成する具体的なペルソナの数
+    
+    # フロー設定
+    flow_mode: Optional[str] = None  # "reordered"（新フロー） or "classic"（旧フロー）
+    
     # 会社情報 - 基本情報
     company_name: Optional[str] = None
     company_description: Optional[str] = None
@@ -83,12 +87,8 @@ class ArticleContext:
         "theme_generating",   # テーマ生成中
         "theme_proposed",     # ユーザー選択待ち
         "theme_selected",
-        "research_planning",
-        "research_plan_generated", # ユーザー承認待ち
-        "research_plan_approved",  # 計画承認済み
-        "researching",
-        "research_synthesizing",
-        "research_report_generated", # 承認は任意
+        "researching",        # 統合リサーチ実行中（計画・実行・要約を含む）
+        "research_completed", # リサーチ完了処理中（アウトライン遷移前の一時ステップ）
         "outline_generating",
         "outline_generated", # ユーザー承認待ち
         "writing_sections",
