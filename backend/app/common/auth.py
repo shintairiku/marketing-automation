@@ -63,6 +63,9 @@ def get_current_user_id_from_token(authorization: Optional[HTTPAuthorizationCred
         logger.error(f"🔒 [AUTH] Invalid JWT token: {e}")
         from fastapi import HTTPException
         raise HTTPException(status_code=401, detail=f"Invalid JWT token: {e}")
+    except HTTPException:
+        # Re-raise HTTPException as-is (don't wrap it in 500)
+        raise
     except Exception as e:
         logger.error(f"🔒 [AUTH] Unexpected error during authentication: {e}")
         logger.exception("🔒 [AUTH] Full exception details:")

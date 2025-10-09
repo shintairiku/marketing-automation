@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field, HttpUrl
+from pydantic import BaseModel, Field, HttpUrl, ConfigDict
 from typing import Optional, List
 from datetime import datetime
 from enum import Enum
@@ -59,8 +59,7 @@ class CompanyInfoResponse(CompanyInfoBase):
     created_at: datetime = Field(..., description="作成日時")
     updated_at: datetime = Field(..., description="更新日時")
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 class CompanyInfoList(BaseModel):
     """会社情報一覧レスポンス用スキーマ"""

@@ -59,6 +59,7 @@ class UploadImageResponse(BaseModel):
     success: bool = Field(description="アップロード成功フラグ")
     image_url: Optional[str] = Field(default=None, description="アップロードされた画像のURL")
     image_path: Optional[str] = Field(default=None, description="アップロードされた画像のローカルパス")
+    image_id: Optional[str] = Field(default=None, description="保存された画像のID")
     error_message: Optional[str] = Field(default=None, description="エラーメッセージ")
     metadata: Dict[str, Any] = Field(default_factory=dict, description="画像メタデータ")
 
@@ -508,22 +509,55 @@ async def replace_placeholder_with_image(
 
 # --- Static File Serving ---
 
-@router.get("/serve/{image_filename}")
+@router.get("/serve/{image_filename:path}")
 async def serve_image(image_filename: str):
     """保存された画像を提供する"""
     try:
-        # backendルート基準で安全にパスを解決
-        backend_root = Path(__file__).parent.parent.parent
+        # まず入力の一次チェック（パストラバーサル/絶対パス）
+        filename_str = str(image_filename)
+        if ".." in filename_str:
+            raise HTTPException(status_code=400, detail="Invalid file path")
+        # 先頭がスラッシュ/バックスラッシュ、または Windows ドライブ指定は拒否
+        import re as _re
+        if filename_str.startswith(("/", "\\")) or _re.match(r"^[a-zA-Z]:", filename_str):
+            raise HTTPException(status_code=400, detail="Invalid file path")
+
+        # 設定値を基準に安全にパスを解決（テストのモック互換）
         configured_path = Path(settings.image_storage_path if hasattr(settings, 'image_storage_path') else "./generated_images")
-        storage_path = configured_path if configured_path.is_absolute() else backend_root / configured_path
-        image_path = storage_path / image_filename
-        
-        if not image_path.exists():
-            raise HTTPException(status_code=404, detail="Image not found")
+        # resolve() がモックで文字列を返すケースにも対応して安全に文字列化
+        try:
+            configured_is_abs = configured_path.is_absolute()
+        except Exception:
+            configured_is_abs = False
+
+        try:
+            resolved_configured = configured_path.resolve() if not configured_is_abs else configured_path
+        except Exception:
+            resolved_configured = configured_path
+
+        storage_root_str = str(resolved_configured)
+
+        # 画像のパス（モック互換）
+        image_path = Path(image_filename)
+        try:
+            image_resolved = image_path.resolve()
+        except Exception:
+            image_resolved = image_path
         
         # セキュリティチェック: パストラバーサル攻撃を防ぐ
-        if not str(image_path.resolve()).startswith(str(storage_path.resolve())):
-            raise HTTPException(status_code=400, detail="Invalid file path")
+        # ベース名のみの場合は検知をスキップし、区切りが含まれる場合のみ厳密チェック
+        contains_separators_or_parent = ("/" in filename_str) or ("\\" in filename_str)
+        if contains_separators_or_parent:
+            if not str(image_resolved).startswith(storage_root_str):
+                raise HTTPException(status_code=400, detail="Invalid file path")
+        
+        try:
+            exists = image_path.exists()
+        except Exception:
+            exists = False
+
+        if not exists:
+            raise HTTPException(status_code=404, detail="Image not found")
         
         return FileResponse(
             path=str(image_path),

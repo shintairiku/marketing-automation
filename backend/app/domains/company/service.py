@@ -5,7 +5,7 @@ Company information service using Supabase client
 from typing import Optional
 from fastapi import HTTPException, status
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 import uuid
 
 from app.common.database import supabase
@@ -51,8 +51,8 @@ class CompanyService:
                 "avoid_terms": company_data.avoid_terms,
                 "popular_articles": company_data.popular_articles,
                 "target_area": company_data.target_area,
-                "created_at": datetime.utcnow().isoformat(),
-                "updated_at": datetime.utcnow().isoformat()
+                "created_at": datetime.now(timezone.utc).isoformat(),
+                "updated_at": datetime.now(timezone.utc).isoformat()
             }
 
             result = supabase.from_("company_info").insert(company_dict).execute()
@@ -176,11 +176,11 @@ class CompanyService:
                     await CompanyService._unset_default_companies(user_id)
 
             # 更新データを準備
-            update_data = company_data.dict(exclude_unset=True)
+            update_data = company_data.model_dump(exclude_unset=True)
             if 'website_url' in update_data and update_data['website_url']:
                 update_data['website_url'] = str(update_data['website_url'])
             
-            update_data['updated_at'] = datetime.utcnow().isoformat()
+            update_data['updated_at'] = datetime.now(timezone.utc).isoformat()
 
             # 更新実行
             result = supabase.from_("company_info")\
@@ -278,7 +278,7 @@ class CompanyService:
 
             # 指定された会社をデフォルトに設定
             result = supabase.from_("company_info")\
-                .update({"is_default": True, "updated_at": datetime.utcnow().isoformat()})\
+                .update({"is_default": True, "updated_at": datetime.now(timezone.utc).isoformat()})\
                 .eq("id", request.company_id)\
                 .eq("user_id", user_id)\
                 .execute()
@@ -303,7 +303,7 @@ class CompanyService:
         """ユーザーの全会社のデフォルト設定を外す"""
         try:
             supabase.from_("company_info")\
-                .update({"is_default": False, "updated_at": datetime.utcnow().isoformat()})\
+                .update({"is_default": False, "updated_at": datetime.now(timezone.utc).isoformat()})\
                 .eq("user_id", user_id)\
                 .eq("is_default", True)\
                 .execute()
