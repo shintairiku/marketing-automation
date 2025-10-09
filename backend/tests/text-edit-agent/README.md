@@ -20,25 +20,24 @@
 - `test.html`: 動作確認用のサンプルHTML。
 
 ## ファクトチェック → 必要なら編集
-HTML記事を検証し、誤りがあると判断した場合だけ apply_patch 編集を行います。
+HTML記事を1回のエージェント実行で検証し、誤りが見つかった場合のみ apply_patch 編集を行います。
 ```bash
 python fact_check_multi_agent.py fact-check --article ./test.html
 ```
 主なオプション:
 - `--edit-file`: 編集対象ファイル（省略時は `--article` と同じ）。
-- `--fact-model`: ファクトチェックモデル名（デフォルト `gpt-5-mini`）。
+- `--fact-model`: ファクトチェック用モデル名（デフォルト `gpt-5.5-mini`）。
 - `--edit-model`: 編集用モデル名（デフォルト `gpt-5-mini`）。
 - `--fact-max-turns`, `--edit-max-turns`: 各エージェントの最大ターン数。
-- `--force-text-tools`: Text-Editエージェントにapply_patch利用を必須化。
-- `--allow-agent-handoff`: Fact-Checkエージェントからの自律ハンドオフを有効化。
+- `--force-text-tools`: Text-Editエージェントに apply_patch 利用を必須化。
+- `--allow-agent-handoff`: Fact-Checkエージェントから編集エージェントへの自律ハンドオフを許可。
 
 ### 実行ログの読み方
-ターミナル出力に `[agents] phase_start:read` などのステータスメッセージが表示され、
-以下の情報がリアルタイムで確認できます。
-- `phase_start / phase_done`: Fact-Checkの3フェーズ（read / search / synthesis）。
-- `tool:web_search`: Web検索ツール起動。回数は `web_search_count` として最終表示。
+`[agents]` プレフィックス付きメッセージで進捗を確認できます。
+- `fact_check_start`: ファクトチェック開始（記事パス付き）。
+- `tool:read_article`, `tool:web_search`: 各ツール呼び出し。`web_search_count` は完了後のバナーに表示。
 - `llm_start / llm_end`: モデル呼び出しの開始・完了。
-- `text_edit_start / text_edit_done`: Text-Editエージェント実行状況。
+- `text_edit_start / text_edit_done`: 追加編集フェーズの実行状況。
 
 ## テキスト編集のみ（インタラクティブ）
 単体の Codex 互換エージェントを使う場合は `patch` サブコマンドを使用します。

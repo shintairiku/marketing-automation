@@ -593,32 +593,32 @@ def read_article(context: RunContextWrapper[AppContext],
 
 
 class FactCheckRunHooks(RunHooks[AppContext]):
-    """Lifecycle hooks to track tool usage, especially mandatory web search."""
+    """Lifecycle hooks to track tool usage with readable streaming logs."""
 
     def __init__(self) -> None:
         super().__init__()
         self.last_web_search_agent: Optional[str] = None
 
+    def _phase(self, context: RunContextWrapper[AppContext]) -> str:
+        return context.context.current_phase or "n/a"
+
     async def on_tool_start(self, context: RunContextWrapper[AppContext], agent: Agent[AppContext], tool) -> None:  # type: ignore[override]
-        if getattr(tool, "name", None) == "web_search":
+        name = getattr(tool, "name", str(tool))
+        if name == "web_search":
             context.context.web_search_count += 1
             self.last_web_search_agent = agent.name
-        phase = context.context.current_phase or "unknown"
-        _stream_log(f"tool:{getattr(tool, 'name', tool)}", f"agent={agent.name}", f"phase={phase}")
+        _stream_log(f"tool:{name}", f"agent={agent.name}", f"phase={self._phase(context)}")
 
     async def on_agent_end(self, context: RunContextWrapper[AppContext], agent: Agent[AppContext], output: Any) -> None:  # type: ignore[override]
         if isinstance(output, FactCheckReport):
             context.context.last_fact_report = output
-        phase = context.context.current_phase or "unknown"
-        _stream_log(f"agent_end:{agent.name}", f"phase={phase}")
+        _stream_log(f"agent_end:{agent.name}", f"phase={self._phase(context)}")
 
     async def on_llm_start(self, context: RunContextWrapper[AppContext], agent: Agent[AppContext], system_prompt: Optional[str], input_items: List[Any]) -> None:  # type: ignore[override]
-        phase = context.context.current_phase or "unknown"
-        _stream_log(f"llm_start:{agent.name}", f"phase={phase}")
+        _stream_log(f"llm_start:{agent.name}", f"phase={self._phase(context)}")
 
     async def on_llm_end(self, context: RunContextWrapper[AppContext], agent: Agent[AppContext], response) -> None:  # type: ignore[override]
-        phase = context.context.current_phase or "unknown"
-        _stream_log(f"llm_end:{agent.name}", f"phase={phase}")
+        _stream_log(f"llm_end:{agent.name}", f"phase={self._phase(context)}")
 
 
 def create_web_search_tool(country: Optional[str] = None,
@@ -648,23 +648,24 @@ def build_model_settings(*,
 
 FACT_CHECK_INSTRUCTIONS = """
 あなたはローカルHTML記事のファクトチェック専用エージェントです。
-対象: Contextに設定された article_path (UTF-8 HTML)。
+Context.article_path にある記事を対象に、以下の手順を厳守してください。
 
-# 最重要ルール
-- run開始後、必ず read_article(...) ツールで本文を収集し、主要な主張を列挙する。
-- 続いて Web Search ツールを使用して、各主張の裏付けや反証ソースを最低1件ずつ探す。
-- 信頼度の高いソース（公的機関・一次情報・著名メディア）を優先し、発行日やURLを必ず取得する。
-- 不確実な情報は「uncertain」として記録し、推測を行わない。
-
-# 出力仕様
-- FactCheckReport 型に厳密準拠。needs_edit が True の場合は issue/recommendation を明示し、apply_patchを使いやすいようにターゲット行やセクション番号を記す。
-- search_queries には実際に実行した検索クエリを列挙する。
-- citations は全件、URL・媒体名・要約を含める。
+1. 必ず最初に read_article(...) ツールで本文を読み込み、主要な主張・統計・固有名詞を箇条書きで整理する。
+2. 続けて必ず web_search ツールを1回以上呼び出し、信頼性の高いソースで各主張を検証する。
+   - 可能であれば複数のクエリをまとめて1回の検索にし、複数の候補を評価する。
+   - 出典URL、媒体、発行日、該当抜粋を収集する。
+3. FactCheckReport 型で最終結論を返し、needs_edit を正しく設定する。
+   - needs_edit=True の場合は issues[].recommendation に apply_patch が書きやすい修正指示を含める。
+   - search_queries と citations には使用した検索キーワードと根拠URLを列挙する。
+4. 不確実な情報は「uncertain」と明記し、推測による補完を行わない。
 """
 
-FACT_PHASE_READ_PROMPT = "記事の本文を確認し、主要な主張・統計・固有名詞を抽出してください。"
-FACT_PHASE_SEARCH_PROMPT = "抽出した主張を検証するためにウェブ検索を行い、信頼できるソースを収集してください。"
-FACT_PHASE_SYNTH_PROMPT = "検索結果と記事内容を統合し、FactCheckReport 型で最終結論をまとめてください。"
+FACTCHECK_RUN_PROMPT_TEMPLATE = """
+対象記事: `{article_rel}`
+- Context の read_article ツールで本文を取得し、主張リストを作成。
+- 必ず web_search ツールを最低1回実行し、主要ファクトを検証。
+- すべての結果を FactCheckReport 型で出力。
+"""
 
 
 def format_edit_handoff_prompt(ctx: AppContext, report: FactCheckReport) -> str:
@@ -906,58 +907,47 @@ async def run_fact_check_cli(args: argparse.Namespace) -> None:
         handoffs=[text_agent] if args.allow_agent_handoff else None,
     )
 
+    ctx.web_search_count = 0
+    ctx.last_fact_report = None
     hooks = FactCheckRunHooks()
-    phase_prompts = [FACT_PHASE_READ_PROMPT, FACT_PHASE_SEARCH_PROMPT, FACT_PHASE_SYNTH_PROMPT]
-    phase_tool_choices = ["read_article", "web_search", "auto"]
-    phase_labels = ["read", "search", "synthesis"]
-
-    final_output: Any = None
-    for idx, (prompt, tool_choice, label) in enumerate(zip(phase_prompts, phase_tool_choices, phase_labels)):
-        ms = build_model_settings(
-            tool_choice=tool_choice,
-            temperature=args.fact_temperature,
-            parallel_tool_calls=False,
-        )
-        run_config = replace(base_run_config, model_settings=ms)
-        ctx.current_phase = label
-        _stream_log(f"phase_start:{label}", f"tool_choice={tool_choice}")
-        result = await Runner.run(
-            fact_agent,
-            input=prompt,
-            context=ctx,
-            session=session,
-            hooks=hooks,
-            run_config=run_config,
-            max_turns=args.fact_max_turns,
-        )
-        if idx == len(phase_prompts) - 1:
-            final_output = result.final_output
-        inputs_count = len(getattr(result, "inputs", []) or [])
-        _stream_log(f"phase_done:{label}", f"turns={inputs_count}")
+    fact_prompt = textwrap.dedent(FACTCHECK_RUN_PROMPT_TEMPLATE.format(article_rel=rel_to(root, article))).strip()
+    ctx.current_phase = "fact-check"
+    _stream_log("fact_check_start", f"article={rel_to(root, article)}")
+    fact_ms = build_model_settings(tool_choice="auto", temperature=args.fact_temperature, parallel_tool_calls=False)
+    fact_run_config = replace(base_run_config, model_settings=fact_ms)
+    fact_result = await Runner.run(
+        fact_agent,
+        input=fact_prompt,
+        context=ctx,
+        session=session,
+        hooks=hooks,
+        run_config=fact_run_config,
+        max_turns=args.fact_max_turns,
+    )
     ctx.current_phase = None
-    report = ctx.last_fact_report if isinstance(ctx.last_fact_report, FactCheckReport) else final_output
-    if not isinstance(report, FactCheckReport):
+
+    candidate = ctx.last_fact_report if isinstance(ctx.last_fact_report, FactCheckReport) else fact_result.final_output
+    if not isinstance(candidate, FactCheckReport):
         raise RuntimeError("Fact-check agent did not return a structured FactCheckReport.")
-    if ctx.web_search_count <= 0:
-        raise RuntimeError("Fact-check agent completed without invoking web_search tool.")
+    report = candidate
 
     digest = build_fact_report_digest(report)
     _print_banner([
-        "Fact-Check pipeline completed",
+        "Fact-Check completed",
         f"web_search_count: {ctx.web_search_count}",
         f"needs_edit: {report.needs_edit}",
     ])
     print(digest)
 
-    edit_result = None
     if report.needs_edit:
+        ctx.current_phase = "text-edit"
         edit_prompt = format_edit_handoff_prompt(ctx, report)
         edit_ms = build_model_settings(
             tool_choice="required" if args.force_text_tools else "auto",
             temperature=args.edit_temperature,
         )
         edit_run_config = replace(base_run_config, model_settings=edit_ms)
-        _stream_log("text_edit_start", f"tool_choice={edit_ms.tool_choice}")
+        _stream_log("text_edit_start", f"target={rel_to(root, edit_path)}")
         edit_result = await Runner.run(
             text_agent,
             input=edit_prompt,
@@ -970,9 +960,9 @@ async def run_fact_check_cli(args: argparse.Namespace) -> None:
         if edit_result.final_output:
             print(edit_result.final_output if isinstance(edit_result.final_output, str) else str(edit_result.final_output))
         _stream_log("text_edit_done")
-
-    if not report.needs_edit:
+    else:
         print("\n修正は不要です。FactCheckReport を上記に出力しました。")
+    ctx.current_phase = None
 
     if trace_created and session_trace:
         session_trace.finish(reset_current=True)
