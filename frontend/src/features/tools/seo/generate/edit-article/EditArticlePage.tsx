@@ -44,6 +44,7 @@ import { useAuth } from '@clerk/nextjs';
 
 import ArticlePreviewStyles from '../new-article/component/ArticlePreviewStyles';
 
+import AIAgentEditTab from './components/AIAgentEditTab';
 import AIContentGenerationDialog from './components/AIContentGenerationDialog';
 import BlockInsertButton from './components/BlockInsertButton';
 import ContentSelectorDialog from './components/ContentSelectorDialog';
@@ -166,7 +167,7 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
   const [headingLevelDialogOpen, setHeadingLevelDialogOpen] = useState(false);
   const [aiContentDialogOpen, setAiContentDialogOpen] = useState(false);
   const [insertPosition, setInsertPosition] = useState<number>(0);
-  const [editorView, setEditorView] = useState<'blocks' | 'visual'>('blocks');
+  const [editorView, setEditorView] = useState<'blocks' | 'visual' | 'agent'>('blocks');
   const [visualHtml, setVisualHtml] = useState('');
   const visualSyncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const visualHtmlRef = useRef('');
@@ -353,11 +354,14 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
   }, []);
 
   const handleEditorTabChange = useCallback((value: string) => {
-    const nextView = value === 'visual' ? 'visual' : 'blocks';
-    if (nextView === 'visual') {
+    let nextView: 'blocks' | 'visual' | 'agent' = 'blocks';
+    if (value === 'visual') {
+      nextView = 'visual';
       const html = blocksToHtml(blocks);
       visualHtmlRef.current = html;
       setVisualHtml(html);
+    } else if (value === 'agent') {
+      nextView = 'agent';
     }
     setEditorView(nextView);
   }, [blocks, blocksToHtml]);
@@ -1979,9 +1983,10 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
 
       <Tabs value={editorView} onValueChange={handleEditorTabChange} className="w-full">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-          <TabsList className="grid w-full grid-cols-2 sm:w-auto">
+          <TabsList className="grid w-full grid-cols-3 sm:w-auto">
             <TabsTrigger value="blocks">ブロック編集</TabsTrigger>
             <TabsTrigger value="visual">ビジュアル編集</TabsTrigger>
+            <TabsTrigger value="agent">AIエージェント編集</TabsTrigger>
           </TabsList>
         </div>
 
@@ -2187,6 +2192,10 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
               <RichTextVisualEditor value={visualHtml} onChange={handleVisualEditorChange} />
             </ArticlePreviewStyles>
           </Card>
+        </TabsContent>
+
+        <TabsContent value="agent" className="mt-4">
+          <AIAgentEditTab articleId={articleId} onSave={() => refetch()} />
         </TabsContent>
       </Tabs>
       

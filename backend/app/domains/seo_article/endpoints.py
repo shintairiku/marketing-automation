@@ -12,6 +12,7 @@ This module provides:
 from fastapi import APIRouter, status, Depends, HTTPException, Query, BackgroundTasks, Request
 from typing import List, Optional, Dict, Any
 import logging
+from datetime import datetime
 from pydantic import BaseModel, Field
 from bs4 import BeautifulSoup
 import re
@@ -35,6 +36,7 @@ from app.domains.company.service import CompanyService
 from app.domains.seo_article.services.flow_service import get_supabase_client
 from app.infrastructure.logging.service import LoggingService
 from app.domains.seo_article.services.version_service import get_version_service
+from app.domains.seo_article.services.article_agent_wrapper import get_article_agent_service
 
 # 静的: 1タグHTMLの出力検疫用設定
 SAFE_URL_SCHEMES = {"http", "https", "mailto", "tel"}
@@ -2147,4 +2149,258 @@ async def delete_version(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"バージョンの削除に失敗しました: {str(e)}"
+        )
+
+
+# ============================================================================
+# AI AGENT EDIT ENDPOINTS
+# ============================================================================
+
+class AgentSessionCreateRequest(BaseModel):
+    """エージェントセッション作成リクエスト"""
+    pass
+
+
+class AgentSessionResponse(BaseModel):
+    """エージェントセッションレスポンス"""
+    session_id: str
+    article_id: str
+    created_at: str = Field(default_factory=lambda: datetime.utcnow().isoformat())
+
+
+class AgentChatRequest(BaseModel):
+    """エージェントチャットリクエスト"""
+    message: str = Field(..., description="ユーザーメッセージ")
+
+
+class AgentChatResponse(BaseModel):
+    """エージェントチャットレスポンス"""
+    message: str
+    conversation_history: List[Dict[str, Any]]
+
+
+@router.post("/{article_id}/agent/session", response_model=AgentSessionResponse, status_code=status.HTTP_201_CREATED)
+async def create_agent_session(
+    article_id: str,
+    request: AgentSessionCreateRequest,
+    user_id: str = Depends(get_current_user_id_from_token)
+):
+    """
+    AI エージェント編集セッションを作成します。
+
+    - **article_id**: 記事のUUID
+
+    エージェントとの会話を開始するためのセッションを作成します。
+    """
+    try:
+        agent_service = get_article_agent_service()
+
+        session_id = await agent_service.create_session(
+            article_id=article_id,
+            user_id=user_id
+        )
+
+        return AgentSessionResponse(
+            session_id=session_id,
+            article_id=article_id
+        )
+
+    except Exception as e:
+        logger.error(f"Error creating agent session for article {article_id}: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"エージェントセッションの作成に失敗しました: {str(e)}"
+        )
+
+
+@router.post("/{article_id}/agent/session/{session_id}/chat", response_model=AgentChatResponse)
+async def chat_with_agent(
+    article_id: str,
+    session_id: str,
+    request: AgentChatRequest,
+    user_id: str = Depends(get_current_user_id_from_token)
+):
+    """
+    AI エージェントとチャットします。
+
+    - **article_id**: 記事のUUID
+    - **session_id**: セッションID
+    - **message**: ユーザーメッセージ
+
+    エージェントが記事の編集を提案・実行します。
+    """
+    try:
+        agent_service = get_article_agent_service()
+
+        # チャット実行（非ストリーミング版）
+        response_text = ""
+        async for chunk in agent_service.chat(session_id, request.message):
+            response_text += chunk
+
+        # 会話履歴を取得
+        history = await agent_service.get_conversation_history(session_id)
+
+        return AgentChatResponse(
+            message=response_text,
+            conversation_history=history
+        )
+
+    except Exception as e:
+        logger.error(f"Error in agent chat: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"エージェントとのチャットに失敗しました: {str(e)}"
+        )
+
+
+@router.get("/{article_id}/agent/session/{session_id}/content", response_model=dict)
+async def get_agent_session_content(
+    article_id: str,
+    session_id: str,
+    user_id: str = Depends(get_current_user_id_from_token)
+):
+    """
+    エージェントセッションの現在のコンテンツを取得します。
+
+    - **article_id**: 記事のUUID
+    - **session_id**: セッションID
+
+    エージェントによる編集後の記事内容を返します。
+    """
+    try:
+        agent_service = get_article_agent_service()
+
+        current_content = await agent_service.get_current_content(session_id)
+
+        return {
+            "session_id": session_id,
+            "article_id": article_id,
+            "content": current_content
+        }
+
+    except Exception as e:
+        logger.error(f"Error getting agent session content: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"コンテンツの取得に失敗しました: {str(e)}"
+        )
+
+
+@router.get("/{article_id}/agent/session/{session_id}/diff", response_model=dict)
+async def get_agent_session_diff(
+    article_id: str,
+    session_id: str,
+    user_id: str = Depends(get_current_user_id_from_token)
+):
+    """
+    エージェントセッションの差分を取得します。
+
+    - **article_id**: 記事のUUID
+    - **session_id**: セッションID
+
+    元の記事と編集後の記事の差分を返します。
+    """
+    try:
+        agent_service = get_article_agent_service()
+
+        diff = await agent_service.get_diff(session_id)
+
+        return {
+            "session_id": session_id,
+            "article_id": article_id,
+            **diff
+        }
+
+    except Exception as e:
+        logger.error(f"Error getting agent session diff: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"差分の取得に失敗しました: {str(e)}"
+        )
+
+
+@router.post("/{article_id}/agent/session/{session_id}/save", status_code=status.HTTP_204_NO_CONTENT)
+async def save_agent_session_changes(
+    article_id: str,
+    session_id: str,
+    user_id: str = Depends(get_current_user_id_from_token)
+):
+    """
+    エージェントセッションの変更を保存します。
+
+    - **article_id**: 記事のUUID
+    - **session_id**: セッションID
+
+    エージェントによる編集をデータベースに保存します。
+    """
+    try:
+        agent_service = get_article_agent_service()
+
+        await agent_service.save_changes(session_id)
+
+        return None
+
+    except Exception as e:
+        logger.error(f"Error saving agent session changes: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"変更の保存に失敗しました: {str(e)}"
+        )
+
+
+@router.post("/{article_id}/agent/session/{session_id}/discard", status_code=status.HTTP_204_NO_CONTENT)
+async def discard_agent_session_changes(
+    article_id: str,
+    session_id: str,
+    user_id: str = Depends(get_current_user_id_from_token)
+):
+    """
+    エージェントセッションの変更を破棄します。
+
+    - **article_id**: 記事のUUID
+    - **session_id**: セッションID
+
+    エージェントによる編集を破棄し、元の記事に戻します。
+    """
+    try:
+        agent_service = get_article_agent_service()
+
+        await agent_service.discard_changes(session_id)
+
+        return None
+
+    except Exception as e:
+        logger.error(f"Error discarding agent session changes: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"変更の破棄に失敗しました: {str(e)}"
+        )
+
+
+@router.delete("/{article_id}/agent/session/{session_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def close_agent_session(
+    article_id: str,
+    session_id: str,
+    user_id: str = Depends(get_current_user_id_from_token)
+):
+    """
+    エージェントセッションを閉じます。
+
+    - **article_id**: 記事のUUID
+    - **session_id**: セッションID
+
+    セッションをクリーンアップし、リソースを解放します。
+    """
+    try:
+        agent_service = get_article_agent_service()
+
+        await agent_service.close_session(session_id)
+
+        return None
+
+    except Exception as e:
+        logger.error(f"Error closing agent session: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"セッションのクローズに失敗しました: {str(e)}"
         )
