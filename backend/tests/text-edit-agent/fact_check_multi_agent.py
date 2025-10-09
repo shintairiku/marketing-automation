@@ -588,6 +588,20 @@ def create_web_search_tool(country: Optional[str] = None,
     return WebSearchTool(user_location=user_location)
 
 
+def build_model_settings(*,
+                         tool_choice: Optional[str] = None,
+                         temperature: Optional[float] = None,
+                         parallel_tool_calls: Optional[bool] = None) -> ModelSettings:
+    kwargs: Dict[str, Any] = {}
+    if tool_choice is not None:
+        kwargs["tool_choice"] = tool_choice
+    if temperature is not None:
+        kwargs["temperature"] = temperature
+    if parallel_tool_calls is not None:
+        kwargs["parallel_tool_calls"] = parallel_tool_calls
+    return ModelSettings(**kwargs)
+
+
 FACT_CHECK_INSTRUCTIONS = """
 あなたはローカルHTML記事のファクトチェック専用エージェントです。
 対象: Contextに設定された article_path (UTF-8 HTML)。
@@ -759,8 +773,8 @@ CODEX_STYLE_INSTRUCTIONS = """
 def build_text_edit_agent(model: str,
                           *,
                           tool_choice: str = "auto",
-                          temperature: float = 0.15) -> Agent[AppContext]:
-    settings = ModelSettings(tool_choice=tool_choice, temperature=temperature)
+                          temperature: Optional[float] = None) -> Agent[AppContext]:
+    settings = build_model_settings(tool_choice=tool_choice, temperature=temperature)
     return Agent[AppContext](
         name="Codex-like Patch Agent",
         instructions=CODEX_STYLE_INSTRUCTIONS,
@@ -773,9 +787,9 @@ def build_text_edit_agent(model: str,
 def build_fact_check_agent(model: str,
                            web_tool: WebSearchTool,
                            *,
-                           temperature: float = 0.2,
+                           temperature: Optional[float] = None,
                            handoffs: Optional[List[Agent[AppContext]]] = None) -> Agent[AppContext]:
-    settings = ModelSettings(tool_choice="auto", temperature=temperature, parallel_tool_calls=False)
+    settings = build_model_settings(tool_choice="auto", temperature=temperature, parallel_tool_calls=False)
     tools = [read_article, web_tool, read_file]
     agent = Agent[AppContext](
         name="FactCheck Agent",
@@ -854,7 +868,11 @@ async def run_fact_check_cli(args: argparse.Namespace) -> None:
 
     final_output: Any = None
     for idx, (prompt, tool_choice) in enumerate(zip(phase_prompts, phase_tool_choices)):
-        ms = ModelSettings(tool_choice=tool_choice, temperature=args.fact_temperature, parallel_tool_calls=False)
+        ms = build_model_settings(
+            tool_choice=tool_choice,
+            temperature=args.fact_temperature,
+            parallel_tool_calls=False,
+        )
         run_config = replace(base_run_config, model_settings=ms)
         result = await Runner.run(
             fact_agent,
@@ -884,7 +902,7 @@ async def run_fact_check_cli(args: argparse.Namespace) -> None:
     edit_result = None
     if report.needs_edit:
         edit_prompt = format_edit_handoff_prompt(ctx, report)
-        edit_ms = ModelSettings(
+        edit_ms = build_model_settings(
             tool_choice="required" if args.force_text_tools else "auto",
             temperature=args.edit_temperature,
         )
@@ -927,7 +945,7 @@ async def run_patch_cli(args: argparse.Namespace) -> None:
     active_trace_id = session_trace.trace_id if session_trace else args.trace_id
 
     patch_tool_choice = "required" if args.force_tools else "auto"
-    model_settings = ModelSettings(tool_choice=patch_tool_choice, temperature=args.temperature)
+    model_settings = build_model_settings(tool_choice=patch_tool_choice, temperature=args.temperature)
     run_config = make_run_config(
         workflow_name=workflow_name,
         trace_id=active_trace_id,
@@ -1026,7 +1044,7 @@ def build_parser() -> argparse.ArgumentParser:
     patch.add_argument("--session", default="codex-patch-session", help="SQLite session id")
     patch.add_argument("--article", default=None, help="HTML article path (defaults to --file)")
     patch.add_argument("--force-tools", action="store_true", help="Force tool use (tool_choice='required')")
-    patch.add_argument("--temperature", type=float, default=0.15, help="Model temperature for edit agent")
+    patch.add_argument("--temperature", type=float, default=None, help="Model temperature for edit agent (omit for model defaults)")
     _add_trace_args(patch)
 
     fact = sub.add_parser("fact-check", help="Run fact-check → conditional text edit workflow")
@@ -1034,11 +1052,11 @@ def build_parser() -> argparse.ArgumentParser:
     fact.add_argument("--edit-file", default=None, help="Editable file path (defaults to --article)")
     fact.add_argument("--root", default=None, help="Workspace root (defaults to edit file parent)")
     fact.add_argument("--session", default="fact-check-session", help="SQLite session id")
-    fact.add_argument("--fact-model", default=os.environ.get("FACT_MODEL", "gpt-5.5-mini"), help="Model name for fact-check agent")
-    fact.add_argument("--fact-temperature", type=float, default=0.2, help="Temperature for fact-check agent")
+    fact.add_argument("--fact-model", default=os.environ.get("FACT_MODEL", "gpt-5-mini"), help="Model name for fact-check agent")
+    fact.add_argument("--fact-temperature", type=float, default=None, help="Temperature for fact-check agent (omit if unsupported)")
     fact.add_argument("--fact-max-turns", type=int, default=12, help="Max turns per fact-check phase")
     fact.add_argument("--edit-model", default=os.environ.get("AGENT_MODEL", "gpt-5-mini"), help="Model for text edit agent")
-    fact.add_argument("--edit-temperature", type=float, default=0.15, help="Temperature for text edit agent")
+    fact.add_argument("--edit-temperature", type=float, default=None, help="Temperature for text edit agent (omit if unsupported)")
     fact.add_argument("--edit-max-turns", type=int, default=12, help="Max turns for text edit agent")
     fact.add_argument("--force-text-tools", action="store_true", help="Force tool usage for text edit agent")
     fact.add_argument("--web-search-country", default="JP", help="Web search country code (ISO alpha-2)")
