@@ -28,6 +28,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import dataclasses
+import importlib
 import json
 import os
 import re
@@ -60,6 +61,8 @@ class AppContext:
     session_id: str = "fact-check-text-edit"
     web_search_count: int = 0
     last_fact_report: Optional["FactCheckReport"] = None
+    current_phase: Optional[str] = None
+    lxml_available: bool = field(default_factory=lambda: importlib.util.find_spec("lxml") is not None)
     # If moved by apply_patch, we update target_path in-place to follow the new location
 
 
@@ -449,25 +452,53 @@ def _normalize_ws(text: str) -> str:
     return " ".join(text.strip().split())
 
 
-def extract_article_sections(path: Path, max_sections: int = 160) -> List[Dict[str, Any]]:
+def _stream_log(*parts: Any) -> None:
+    msg = " ".join(str(p) for p in parts)
+    print(f"[agents] {msg}")
+
+
+def _build_soup(html: str, prefer_lxml: bool = True) -> Tuple[Optional[BeautifulSoup], Optional[str]]:
+    parsers = ["lxml", "html.parser", "html5lib"] if prefer_lxml else ["html.parser", "lxml", "html5lib"]
+    for parser in parsers:
+        try:
+            soup = BeautifulSoup(html, parser)
+            if soup is not None:
+                return soup, parser
+        except Exception:
+            continue
+    return None, None
+
+
+def extract_article_sections(path: Path, max_sections: int = 160) -> Tuple[List[Dict[str, Any]], str]:
     if not path.exists():
         raise FileNotFoundError(f"Article not found: {path}")
     html = path.read_text(encoding="utf-8", errors="ignore")
-    soup = BeautifulSoup(html, "lxml")
+    soup, parser_name = _build_soup(html)
     sections: List[Dict[str, Any]] = []
-    for idx, node in enumerate(soup.find_all(FACT_EXTRACTION_TAGS)):
-        raw = node.get_text(separator=" ", strip=True)
-        clean = _normalize_ws(raw)
-        if not clean:
-            continue
-        sections.append({
-            "index": idx,
-            "tag": node.name or "p",
-            "text": clean,
-        })
-        if len(sections) >= max_sections:
-            break
-    return sections
+    parser_used = parser_name or "plain-text"
+    if soup is not None:
+        for idx, node in enumerate(soup.find_all(FACT_EXTRACTION_TAGS)):
+            raw = node.get_text(separator=" ", strip=True)
+            clean = _normalize_ws(raw)
+            if not clean:
+                continue
+            sections.append({
+                "index": idx,
+                "tag": node.name or "p",
+                "text": clean,
+            })
+            if len(sections) >= max_sections:
+                break
+    else:
+        # Parser fallback: plain text lines
+        for idx, line in enumerate(html.splitlines()):
+            clean = _normalize_ws(line)
+            if not clean:
+                continue
+            sections.append({"index": idx, "tag": "p", "text": clean})
+            if len(sections) >= max_sections:
+                break
+    return sections, parser_used
 
 
 class FactCitation(BaseModel):
@@ -543,11 +574,12 @@ def read_article(context: RunContextWrapper[AppContext],
         include_summary: Append a gist paragraph for quick reference.
     """
     app = context.context
-    sections = extract_article_sections(app.article_path, max_sections=max_sections)
+    sections, parser_used = extract_article_sections(app.article_path, max_sections=max_sections)
     lines: List[str] = []
     rel_article = rel_to(app.root, app.article_path)
     lines.append(f"# Article: {rel_article}")
     lines.append(f"# Returned sections: {len(sections)} (max {max_sections})")
+    lines.append(f"# Parser: {parser_used}")
     for sec in sections:
         tag = sec["tag"].upper()
         if not include_headings and tag.lower().startswith("H"):
@@ -571,10 +603,22 @@ class FactCheckRunHooks(RunHooks[AppContext]):
         if getattr(tool, "name", None) == "web_search":
             context.context.web_search_count += 1
             self.last_web_search_agent = agent.name
+        phase = context.context.current_phase or "unknown"
+        _stream_log(f"tool:{getattr(tool, 'name', tool)}", f"agent={agent.name}", f"phase={phase}")
 
     async def on_agent_end(self, context: RunContextWrapper[AppContext], agent: Agent[AppContext], output: Any) -> None:  # type: ignore[override]
         if isinstance(output, FactCheckReport):
             context.context.last_fact_report = output
+        phase = context.context.current_phase or "unknown"
+        _stream_log(f"agent_end:{agent.name}", f"phase={phase}")
+
+    async def on_llm_start(self, context: RunContextWrapper[AppContext], agent: Agent[AppContext], system_prompt: Optional[str], input_items: List[Any]) -> None:  # type: ignore[override]
+        phase = context.context.current_phase or "unknown"
+        _stream_log(f"llm_start:{agent.name}", f"phase={phase}")
+
+    async def on_llm_end(self, context: RunContextWrapper[AppContext], agent: Agent[AppContext], response) -> None:  # type: ignore[override]
+        phase = context.context.current_phase or "unknown"
+        _stream_log(f"llm_end:{agent.name}", f"phase={phase}")
 
 
 def create_web_search_tool(country: Optional[str] = None,
@@ -865,15 +909,18 @@ async def run_fact_check_cli(args: argparse.Namespace) -> None:
     hooks = FactCheckRunHooks()
     phase_prompts = [FACT_PHASE_READ_PROMPT, FACT_PHASE_SEARCH_PROMPT, FACT_PHASE_SYNTH_PROMPT]
     phase_tool_choices = ["read_article", "web_search", "auto"]
+    phase_labels = ["read", "search", "synthesis"]
 
     final_output: Any = None
-    for idx, (prompt, tool_choice) in enumerate(zip(phase_prompts, phase_tool_choices)):
+    for idx, (prompt, tool_choice, label) in enumerate(zip(phase_prompts, phase_tool_choices, phase_labels)):
         ms = build_model_settings(
             tool_choice=tool_choice,
             temperature=args.fact_temperature,
             parallel_tool_calls=False,
         )
         run_config = replace(base_run_config, model_settings=ms)
+        ctx.current_phase = label
+        _stream_log(f"phase_start:{label}", f"tool_choice={tool_choice}")
         result = await Runner.run(
             fact_agent,
             input=prompt,
@@ -885,6 +932,9 @@ async def run_fact_check_cli(args: argparse.Namespace) -> None:
         )
         if idx == len(phase_prompts) - 1:
             final_output = result.final_output
+        inputs_count = len(getattr(result, "inputs", []) or [])
+        _stream_log(f"phase_done:{label}", f"turns={inputs_count}")
+    ctx.current_phase = None
     report = ctx.last_fact_report if isinstance(ctx.last_fact_report, FactCheckReport) else final_output
     if not isinstance(report, FactCheckReport):
         raise RuntimeError("Fact-check agent did not return a structured FactCheckReport.")
@@ -907,6 +957,7 @@ async def run_fact_check_cli(args: argparse.Namespace) -> None:
             temperature=args.edit_temperature,
         )
         edit_run_config = replace(base_run_config, model_settings=edit_ms)
+        _stream_log("text_edit_start", f"tool_choice={edit_ms.tool_choice}")
         edit_result = await Runner.run(
             text_agent,
             input=edit_prompt,
@@ -918,6 +969,7 @@ async def run_fact_check_cli(args: argparse.Namespace) -> None:
         print("\n=== Text-Edit Agent Final Output ===")
         if edit_result.final_output:
             print(edit_result.final_output if isinstance(edit_result.final_output, str) else str(edit_result.final_output))
+        _stream_log("text_edit_done")
 
     if not report.needs_edit:
         print("\n修正は不要です。FactCheckReport を上記に出力しました。")
