@@ -1245,16 +1245,289 @@ class ProcessPersistenceService:
         try:
             from app.core.config import get_supabase_client
             supabase = get_supabase_client()
-            
+
             # generation_process_idで検索してarticle_idを更新
             result = supabase.table("image_placeholders").update({
                 "article_id": article_id
             }).eq("generation_process_id", process_id).execute()
-            
+
             if result.data:
                 logger.info(f"Updated {len(result.data)} placeholders with article_id - article_id: {article_id}")
             else:
                 logger.warning(f"No placeholders found to update - process_id: {process_id}")
-                
+
         except Exception as e:
             logger.error(f"Failed to update placeholders article_id - article_id: {article_id}, process_id: {process_id}, error: {e}")
+
+    # ============================================================================
+    # STEP SNAPSHOT MANAGEMENT
+    # ============================================================================
+
+    async def save_step_snapshot(
+        self,
+        process_id: str,
+        step_name: str,
+        article_context: ArticleContext,
+        step_description: str = None,
+        step_category: str = None,
+        snapshot_metadata: dict = None
+    ) -> str:
+        """
+        Save a snapshot of the current step for later restoration.
+
+        Args:
+            process_id: Process ID
+            step_name: Current step name
+            article_context: ArticleContext object to snapshot
+            step_description: User-friendly step description
+            step_category: Step category (autonomous, user_input, etc.)
+            snapshot_metadata: Additional metadata
+
+        Returns:
+            Snapshot ID
+        """
+        logger.info(f"💾 save_step_snapshot called: process_id={process_id}, step_name={step_name}")
+        try:
+            from app.domains.seo_article.services.flow_service import get_supabase_client
+            import json
+            supabase = get_supabase_client()
+
+            # Serialize ArticleContext (reuse logic from save_context_to_db)
+            def safe_serialize_value(value):
+                """Recursively serialize any object to JSON-serializable format"""
+                if value is None:
+                    return None
+                elif isinstance(value, (str, int, float, bool)):
+                    return value
+                elif isinstance(value, list):
+                    return [safe_serialize_value(item) for item in value]
+                elif isinstance(value, dict):
+                    return {k: safe_serialize_value(v) for k, v in value.items()}
+                elif hasattr(value, "model_dump"):
+                    return value.model_dump()
+                elif hasattr(value, "__dict__"):
+                    return {k: safe_serialize_value(v) for k, v in value.__dict__.items()}
+                else:
+                    return str(value)
+
+            # Convert context to dict (excluding WebSocket and asyncio objects)
+            context_dict = {}
+            for key, value in article_context.__dict__.items():
+                if key not in ["websocket", "user_response_event"]:
+                    try:
+                        context_dict[key] = safe_serialize_value(value)
+                    except Exception as e:
+                        logger.warning(f"Failed to serialize {key} for snapshot: {e}. Using string representation.")
+                        context_dict[key] = str(value)
+
+            # Verify JSON serialization
+            try:
+                json.dumps(context_dict)
+            except Exception as e:
+                logger.error(f"Context not JSON serializable for snapshot: {e}")
+                raise e
+
+            # Call database function to save snapshot - synchronous execution like existing code
+            result = supabase.rpc(
+                'save_step_snapshot',
+                {
+                    'p_process_id': process_id,
+                    'p_step_name': step_name,
+                    'p_article_context': context_dict,
+                    'p_step_description': step_description,
+                    'p_step_category': step_category or self._get_step_category(step_name),
+                    'p_snapshot_metadata': snapshot_metadata or {}
+                }
+            ).execute()
+
+            snapshot_id = result.data
+            logger.info(f"✅ Saved snapshot for step '{step_name}' (snapshot_id: {snapshot_id}, process_id: {process_id})")
+
+            return snapshot_id
+
+        except Exception as e:
+            logger.error(f"❌ Failed to save step snapshot for process {process_id}, step {step_name}: {e}")
+            logger.exception(e)
+            # Don't raise - snapshot saving is non-critical
+            return None
+
+    async def get_snapshots_for_process(self, process_id: str, user_id: str) -> List[Dict[str, Any]]:
+        """
+        Get all available snapshots for a process.
+
+        Args:
+            process_id: Process ID
+            user_id: User ID for access control
+
+        Returns:
+            List of snapshot dictionaries
+        """
+        try:
+            from app.domains.seo_article.services.flow_service import get_supabase_client
+            supabase = get_supabase_client()
+
+            # First verify user has access to this process - synchronous execution
+            process_check = supabase.table("generated_articles_state").select("id").eq("id", process_id).eq("user_id", user_id).execute()
+
+            if not process_check.data:
+                logger.warning(f"User {user_id} does not have access to process {process_id}")
+                return []
+
+            # Get available snapshots using database function - synchronous execution
+            result = supabase.rpc(
+                'get_available_snapshots',
+                {'p_process_id': process_id}
+            ).execute()
+
+            snapshots = []
+            if result.data:
+                for row in result.data:
+                    snapshots.append({
+                        "snapshot_id": row["snapshot_id"],
+                        "step_name": row["step_name"],
+                        "step_index": row["step_index"],
+                        "step_category": row["step_category"],
+                        "step_description": row["step_description"] or self._get_default_step_description(row["step_name"]),
+                        "created_at": row["created_at"],
+                        "can_restore": row["can_restore"],
+                        "branch_id": row.get("branch_id"),
+                        "branch_name": row.get("branch_name"),
+                        "is_active_branch": row.get("is_active_branch", False),
+                        "parent_snapshot_id": row.get("parent_snapshot_id"),
+                        "is_current": row.get("is_current", False)  # NEW: current position marker (like git HEAD)
+                    })
+
+            logger.info(f"Retrieved {len(snapshots)} snapshots for process {process_id}")
+            return snapshots
+
+        except Exception as e:
+            logger.error(f"Error retrieving snapshots for process {process_id}: {e}")
+            logger.exception(e)
+            return []
+
+    async def restore_from_snapshot(
+        self,
+        snapshot_id: str,
+        user_id: str,
+        create_new_branch: bool = False  # Changed: restoration just moves HEAD, doesn't create snapshots
+    ) -> Dict[str, Any]:
+        """
+        Restore a process from a snapshot (like git checkout).
+
+        This moves the current position (HEAD) to the specified snapshot.
+        Branching happens automatically when progressing forward from a non-HEAD position.
+
+        Args:
+            snapshot_id: Snapshot ID to restore from
+            user_id: User ID for access control
+            create_new_branch: Deprecated - kept for API compatibility but ignored
+
+        Returns:
+            Dictionary with restoration result including branch information
+        """
+        try:
+            from app.domains.seo_article.services.flow_service import get_supabase_client
+            supabase = get_supabase_client()
+
+            logger.info(f"🔄 Restoring from snapshot {snapshot_id} (create_new_branch={create_new_branch})")
+
+            # Get snapshot details to verify ownership - synchronous execution
+            snapshot_result = supabase.table("article_generation_step_snapshots").select(
+                "process_id, step_name, can_restore"
+            ).eq("id", snapshot_id).execute()
+
+            if not snapshot_result.data:
+                raise ValueError(f"Snapshot {snapshot_id} not found")
+
+            snapshot = snapshot_result.data[0]
+            process_id = snapshot["process_id"]
+
+            # Verify user has access to this process - synchronous execution
+            process_check = supabase.table("generated_articles_state").select("id").eq("id", process_id).eq("user_id", user_id).execute()
+
+            if not process_check.data:
+                raise ValueError(f"User {user_id} does not have access to process {process_id}")
+
+            # Check if restoration is allowed
+            if not snapshot["can_restore"]:
+                raise ValueError(f"Snapshot {snapshot_id} cannot be restored")
+
+            # Call database function to restore with branch option - synchronous execution
+            result = supabase.rpc(
+                'restore_from_snapshot',
+                {
+                    'p_snapshot_id': snapshot_id,
+                    'p_create_new_branch': create_new_branch
+                }
+            ).execute()
+
+            restoration_result = result.data
+
+            branch_id = restoration_result.get('branch_id') if restoration_result else None
+            created_new_branch = restoration_result.get('created_new_branch', create_new_branch) if restoration_result else False
+
+            logger.info(f"✅ Successfully restored process {process_id} to step '{snapshot['step_name']}' from snapshot {snapshot_id}")
+            logger.info(f"📊 Branch info: branch_id={branch_id}, created_new={created_new_branch}")
+
+            return {
+                "success": True,
+                "process_id": process_id,
+                "restored_step": snapshot["step_name"],
+                "snapshot_id": snapshot_id,
+                "branch_id": branch_id,
+                "created_new_branch": created_new_branch,
+                "message": f"プロセスをステップ「{snapshot['step_name']}」に復元しました" + (" (新しいブランチを作成)" if created_new_branch else " (既存ブランチに切り替え)")
+            }
+
+        except Exception as e:
+            logger.error(f"❌ Failed to restore from snapshot {snapshot_id}: {e}")
+            logger.exception(e)
+            raise
+
+    def _get_step_category(self, step_name: str) -> str:
+        """Get the category for a given step name"""
+        # Import step categories from flow manager
+        from app.domains.seo_article.services._generation_flow_manager import (
+            AUTONOMOUS_STEPS, USER_INPUT_STEPS, TRANSITION_STEPS, TERMINAL_STEPS, INITIAL_STEPS
+        )
+
+        if step_name in AUTONOMOUS_STEPS:
+            return "autonomous"
+        elif step_name in USER_INPUT_STEPS:
+            return "user_input"
+        elif step_name in TRANSITION_STEPS:
+            return "transition"
+        elif step_name in TERMINAL_STEPS:
+            return "terminal"
+        elif step_name in INITIAL_STEPS:
+            return "initial"
+        else:
+            return "unknown"
+
+    def _get_default_step_description(self, step_name: str) -> str:
+        """Get default user-friendly description for a step"""
+        step_descriptions = {
+            "start": "生成開始",
+            "keyword_analyzing": "キーワード分析中",
+            "keyword_analyzed": "キーワード分析完了",
+            "persona_generating": "ペルソナ生成中",
+            "persona_generated": "ペルソナ生成完了（選択待ち）",
+            "persona_selected": "ペルソナ選択完了",
+            "theme_generating": "テーマ生成中",
+            "theme_proposed": "テーマ提案完了（選択待ち）",
+            "theme_selected": "テーマ選択完了",
+            "research_planning": "リサーチ計画策定中",
+            "research_plan_generated": "リサーチ計画完了（承認待ち）",
+            "research_plan_approved": "リサーチ計画承認済み",
+            "researching": "リサーチ実行中",
+            "research_synthesizing": "リサーチ統合中",
+            "research_report_generated": "リサーチ完了",
+            "outline_generating": "アウトライン生成中",
+            "outline_generated": "アウトライン生成完了（承認待ち）",
+            "outline_approved": "アウトライン承認済み",
+            "writing_sections": "記事執筆中",
+            "editing": "編集・校正中",
+            "completed": "生成完了",
+            "error": "エラーが発生しました"
+        }
+        return step_descriptions.get(step_name, f"ステップ: {step_name}")

@@ -132,16 +132,19 @@ class GenerationFlowManager:
         try:
             while context.current_step not in ["completed", "error"]:
                 console.print(f"[green]生成ループ開始: {context.current_step} (process_id: {process_id})[/green]")
-                
+
                 # 非同期yield pointを追加してWebSocketループに制御を戻す
                 await asyncio.sleep(0.1)
-                
+
+                # Store previous step for snapshot detection
+                previous_step = context.current_step
+
                 # データベースに現在の状態を保存
                 if process_id and user_id:
                     await self.service.persistence_service.save_context_to_db(context, process_id=process_id, user_id=user_id)
-                
+
                 await self.service.utils.send_server_event(context, StatusUpdatePayload(
-                    step=context.current_step, 
+                    step=context.current_step,
                     message=f"Starting step: {context.current_step}",
                     image_mode=getattr(context, 'image_mode', False)
                 ))
@@ -149,6 +152,13 @@ class GenerationFlowManager:
 
                 # ステップ実行
                 await self.execute_step(context, run_config, process_id, user_id)
+
+                # Save snapshot after step execution if step changed
+                if process_id and user_id and context.current_step != previous_step:
+                    logger.info(f"🔍 Step changed from '{previous_step}' to '{context.current_step}', saving snapshot for '{previous_step}'")
+                    await self.save_step_snapshot_if_applicable(context, previous_step, process_id, user_id)
+                else:
+                    logger.debug(f"⏭️ No snapshot: process_id={process_id}, user_id={user_id}, prev={previous_step}, curr={context.current_step}")
 
         except asyncio.CancelledError:
             console.print("[yellow]Generation loop cancelled.[/yellow]")
@@ -3372,3 +3382,82 @@ class GenerationFlowManager:
             context.current_step = "error"
             context.error_message = str(e)
             raise
+
+    # ============================================================================
+    # STEP SNAPSHOT MANAGEMENT
+    # ============================================================================
+
+    async def save_step_snapshot_if_applicable(
+        self,
+        context: ArticleContext,
+        completed_step: str,
+        process_id: str,
+        user_id: str
+    ) -> None:
+        """
+        Save a snapshot of the completed step if applicable.
+
+        Snapshots are saved for steps that represent significant milestones
+        or user interaction points, allowing users to return to these steps later.
+
+        Args:
+            context: Current ArticleContext
+            completed_step: The step that was just completed
+            process_id: Process ID
+            user_id: User ID
+        """
+        try:
+            # Only save snapshots for 3 key decision points where users can branch
+            SNAPSHOTABLE_STEPS = {
+                'persona_generated',  # After persona generation (before user selects)
+                'theme_proposed',     # After theme generation (before user selects)
+                'outline_generated'   # After outline generation (before user approves)
+            }
+
+            if completed_step not in SNAPSHOTABLE_STEPS:
+                logger.debug(f"⏭️ Skipping snapshot for non-snapshotable step: {completed_step}")
+                return
+
+            # Determine step description based on completed step
+            step_description = self._get_snapshot_description(completed_step)
+
+            # Save snapshot
+            snapshot_id = await self.service.persistence_service.save_step_snapshot(
+                process_id=process_id,
+                step_name=completed_step,
+                article_context=context,
+                step_description=step_description
+            )
+
+            if snapshot_id:
+                logger.info(f"📸 Snapshot saved for step '{completed_step}' (snapshot_id: {snapshot_id})")
+            else:
+                logger.warning(f"⚠️ Failed to save snapshot for step '{completed_step}'")
+
+        except Exception as e:
+            # Snapshot saving is non-critical, so we just log and continue
+            logger.warning(f"⚠️ Error saving snapshot for step '{completed_step}': {e}")
+
+    def _get_snapshot_description(self, step_name: str) -> str:
+        """Get user-friendly snapshot description for a step"""
+        snapshot_descriptions = {
+            "keyword_analyzed": "キーワード分析完了",
+            "persona_generating": "ペルソナ生成中",
+            "persona_generated": "ペルソナ生成完了（選択待ち）",
+            "persona_selected": "ペルソナ選択完了",
+            "theme_generating": "テーマ生成中",
+            "theme_proposed": "テーマ提案完了（選択待ち）",
+            "theme_selected": "テーマ選択完了",
+            "research_planning": "リサーチ計画策定中",
+            "research_plan_generated": "リサーチ計画完了（承認待ち）",
+            "research_plan_approved": "リサーチ計画承認済み",
+            "researching": "リサーチ実行中",
+            "research_synthesizing": "リサーチ統合中",
+            "research_report_generated": "リサーチ完了",
+            "outline_generating": "アウトライン生成中",
+            "outline_generated": "アウトライン生成完了（承認待ち）",
+            "outline_approved": "アウトライン承認済み",
+            "writing_sections": "記事執筆中",
+            "editing": "編集・校正中"
+        }
+        return snapshot_descriptions.get(step_name, f"ステップ完了: {step_name}")
