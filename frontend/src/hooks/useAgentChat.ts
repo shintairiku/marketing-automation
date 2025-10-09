@@ -21,6 +21,7 @@ interface UseAgentChatReturn {
   saveChanges: () => Promise<void>;
   discardChanges: () => Promise<void>;
   closeSession: () => Promise<void>;
+  applyApprovedChanges: () => Promise<{ content: string; applied_count: number; applied_change_ids: string[] }>;
 }
 
 export function useAgentChat(articleId: string): UseAgentChatReturn {
@@ -206,6 +207,147 @@ export function useAgentChat(articleId: string): UseAgentChatReturn {
     setMessages([]);
   }, [sessionId, articleId, getHeaders]);
 
+  // === Change Approval Flow ===
+
+  const extractPendingChanges = useCallback(async () => {
+    if (!sessionId) {
+      throw new Error('Session not initialized');
+    }
+
+    const headers = await getHeaders();
+
+    const response = await fetch(`/api/proxy/articles/${articleId}/agent/session/${sessionId}/extract-changes`, {
+      method: 'POST',
+      headers,
+    });
+
+    if (!response.ok) {
+      throw new Error('Failed to extract pending changes');
+    }
+
+    const data = await response.json();
+    return data.changes;
+  }, [sessionId, articleId, getHeaders]);
+
+  const getPendingChanges = useCallback(async () => {
+    if (!sessionId) {
+      throw new Error('Session not initialized');
+    }
+
+    const headers = await getHeaders();
+
+    const response = await fetch(`/api/proxy/articles/${articleId}/agent/session/${sessionId}/pending-changes`, {
+      headers,
+    });
+
+    if (!response.ok) {
+      throw new Error('Failed to get pending changes');
+    }
+
+    const data = await response.json();
+    return data.changes;
+  }, [sessionId, articleId, getHeaders]);
+
+  const approveChange = useCallback(async (changeId: string) => {
+    if (!sessionId) {
+      throw new Error('Session not initialized');
+    }
+
+    const headers = await getHeaders();
+
+    const response = await fetch(`/api/proxy/articles/${articleId}/agent/session/${sessionId}/changes/${changeId}/approve`, {
+      method: 'POST',
+      headers,
+    });
+
+    if (!response.ok) {
+      throw new Error('Failed to approve change');
+    }
+
+    const data = await response.json();
+    return data.success;
+  }, [sessionId, articleId, getHeaders]);
+
+  const rejectChange = useCallback(async (changeId: string) => {
+    if (!sessionId) {
+      throw new Error('Session not initialized');
+    }
+
+    const headers = await getHeaders();
+
+    const response = await fetch(`/api/proxy/articles/${articleId}/agent/session/${sessionId}/changes/${changeId}/reject`, {
+      method: 'POST',
+      headers,
+    });
+
+    if (!response.ok) {
+      throw new Error('Failed to reject change');
+    }
+
+    const data = await response.json();
+    return data.success;
+  }, [sessionId, articleId, getHeaders]);
+
+  const applyApprovedChanges = useCallback(async () => {
+    if (!sessionId) {
+      throw new Error('Session not initialized');
+    }
+
+    const headers = await getHeaders();
+
+    const response = await fetch(`/api/proxy/articles/${articleId}/agent/session/${sessionId}/apply-approved`, {
+      method: 'POST',
+      headers,
+    });
+
+    if (!response.ok) {
+      throw new Error('Failed to apply approved changes');
+    }
+
+    const data = await response.json();
+    return {
+      content: data.content as string,
+      applied_count: Number(data.applied_count ?? 0),
+      applied_change_ids: (data.applied_change_ids as string[]) || [],
+    };
+  }, [sessionId, articleId, getHeaders]);
+
+  const clearPendingChanges = useCallback(async () => {
+    if (!sessionId) {
+      throw new Error('Session not initialized');
+    }
+
+    const headers = await getHeaders();
+
+    const response = await fetch(`/api/proxy/articles/${articleId}/agent/session/${sessionId}/clear-changes`, {
+      method: 'POST',
+      headers,
+    });
+
+    if (!response.ok) {
+      throw new Error('Failed to clear pending changes');
+    }
+  }, [sessionId, articleId, getHeaders]);
+
+  const getUnifiedDiffView = useCallback(async () => {
+    if (!sessionId) {
+      throw new Error('Session not initialized');
+    }
+
+    const headers = await getHeaders();
+
+    const response = await fetch(`/api/proxy/articles/${articleId}/agent/session/${sessionId}/unified-diff`, {
+      headers,
+    });
+
+    if (!response.ok) {
+      throw new Error('Failed to get unified diff view');
+    }
+
+    const data = await response.json();
+    return data;
+  }, [sessionId, articleId, getHeaders]);
+
   return {
     messages,
     loading,
@@ -218,5 +360,13 @@ export function useAgentChat(articleId: string): UseAgentChatReturn {
     saveChanges,
     discardChanges,
     closeSession,
+    // Change approval methods
+    extractPendingChanges,
+    getPendingChanges,
+    approveChange,
+    rejectChange,
+    applyApprovedChanges,
+    clearPendingChanges,
+    getUnifiedDiffView,
   };
 }

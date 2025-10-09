@@ -2404,3 +2404,223 @@ async def close_agent_session(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"セッションのクローズに失敗しました: {str(e)}"
         )
+
+
+# === Agent Change Approval Endpoints ===
+
+@router.post("/{article_id}/agent/session/{session_id}/extract-changes")
+async def extract_pending_changes(
+    article_id: str,
+    session_id: str,
+    user_id: str = Depends(get_current_user_id_from_token)
+):
+    """
+    apply_patchによる変更を抽出して承認待ちリストに追加します。
+
+    - **article_id**: 記事のUUID
+    - **session_id**: セッションID
+
+    Returns:
+        承認待ちの変更リスト
+    """
+    try:
+        agent_service = get_article_agent_service()
+
+        changes = await agent_service.extract_pending_changes(session_id)
+
+        return {"changes": changes}
+
+    except Exception as e:
+        logger.error(f"Error extracting pending changes: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"変更の抽出に失敗しました: {str(e)}"
+        )
+
+
+@router.get("/{article_id}/agent/session/{session_id}/pending-changes")
+async def get_pending_changes(
+    article_id: str,
+    session_id: str,
+    user_id: str = Depends(get_current_user_id_from_token)
+):
+    """
+    承認待ちの変更を取得します。
+
+    - **article_id**: 記事のUUID
+    - **session_id**: セッションID
+
+    Returns:
+        承認待ちの変更リスト
+    """
+    try:
+        agent_service = get_article_agent_service()
+
+        changes = await agent_service.get_pending_changes(session_id)
+
+        return {"changes": changes}
+
+    except Exception as e:
+        logger.error(f"Error getting pending changes: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"変更の取得に失敗しました: {str(e)}"
+        )
+
+
+@router.get("/{article_id}/agent/session/{session_id}/unified-diff")
+async def get_unified_diff_view(
+    article_id: str,
+    session_id: str,
+    user_id: str = Depends(get_current_user_id_from_token)
+):
+    """
+    統合差分ビューを取得します（VSCode風）。
+
+    - **article_id**: 記事のUUID
+    - **session_id**: セッションID
+
+    Returns:
+        統合差分ビュー
+    """
+    try:
+        agent_service = get_article_agent_service()
+
+        diff_view = await agent_service.get_unified_diff_view(session_id)
+
+        return diff_view
+
+    except Exception as e:
+        logger.error(f"Error getting unified diff view: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"統合差分ビューの取得に失敗しました: {str(e)}"
+        )
+
+
+@router.post("/{article_id}/agent/session/{session_id}/changes/{change_id}/approve")
+async def approve_change(
+    article_id: str,
+    session_id: str,
+    change_id: str,
+    user_id: str = Depends(get_current_user_id_from_token)
+):
+    """
+    特定の変更を承認します。
+
+    - **article_id**: 記事のUUID
+    - **session_id**: セッションID
+    - **change_id**: 変更ID
+
+    Returns:
+        承認結果
+    """
+    try:
+        agent_service = get_article_agent_service()
+
+        success = await agent_service.approve_change(session_id, change_id)
+
+        return {"success": success, "change_id": change_id}
+
+    except Exception as e:
+        logger.error(f"Error approving change: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"変更の承認に失敗しました: {str(e)}"
+        )
+
+
+@router.post("/{article_id}/agent/session/{session_id}/changes/{change_id}/reject")
+async def reject_change(
+    article_id: str,
+    session_id: str,
+    change_id: str,
+    user_id: str = Depends(get_current_user_id_from_token)
+):
+    """
+    特定の変更を拒否します。
+
+    - **article_id**: 記事のUUID
+    - **session_id**: セッションID
+    - **change_id**: 変更ID
+
+    Returns:
+        拒否結果
+    """
+    try:
+        agent_service = get_article_agent_service()
+
+        success = await agent_service.reject_change(session_id, change_id)
+
+        return {"success": success, "change_id": change_id}
+
+    except Exception as e:
+        logger.error(f"Error rejecting change: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"変更の拒否に失敗しました: {str(e)}"
+        )
+
+
+@router.post("/{article_id}/agent/session/{session_id}/apply-approved")
+async def apply_approved_changes(
+    article_id: str,
+    session_id: str,
+    user_id: str = Depends(get_current_user_id_from_token)
+):
+    """
+    承認された変更のみを適用します。
+
+    - **article_id**: 記事のUUID
+    - **session_id**: セッションID
+
+    Returns:
+        適用後のコンテンツ
+    """
+    try:
+        agent_service = get_article_agent_service()
+
+        result = await agent_service.apply_approved_changes(session_id)
+
+        return {
+            "content": result.get("content"),
+            "applied_count": result.get("applied_count", 0),
+            "applied_change_ids": result.get("applied_change_ids", []),
+        }
+
+    except Exception as e:
+        logger.error(f"Error applying approved changes: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"変更の適用に失敗しました: {str(e)}"
+        )
+
+
+@router.post("/{article_id}/agent/session/{session_id}/clear-changes")
+async def clear_pending_changes(
+    article_id: str,
+    session_id: str,
+    user_id: str = Depends(get_current_user_id_from_token)
+):
+    """
+    承認待ち変更をすべてクリアします。
+
+    - **article_id**: 記事のUUID
+    - **session_id**: セッションID
+
+    Returns:
+        成功メッセージ
+    """
+    try:
+        agent_service = get_article_agent_service()
+
+        await agent_service.clear_pending_changes(session_id)
+
+        return {"message": "Pending changes cleared successfully"}
+
+    except Exception as e:
+        logger.error(f"Error clearing pending changes: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"変更のクリアに失敗しました: {str(e)}"
+        )

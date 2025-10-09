@@ -818,11 +818,12 @@ CODEX_STYLE_INSTRUCTIONS = """
 def build_text_edit_agent(model: str,
                           *,
                           tool_choice: str = "auto",
-                          temperature: Optional[float] = None) -> Agent[AppContext]:
+                          temperature: Optional[float] = None,
+                          instructions: Optional[str] = None) -> Agent[AppContext]:
     settings = build_model_settings(tool_choice=tool_choice, temperature=temperature)
     return Agent[AppContext](
         name="Codex-like Patch Agent",
-        instructions=CODEX_STYLE_INSTRUCTIONS,
+        instructions=instructions or CODEX_STYLE_INSTRUCTIONS,
         model=model,
         model_settings=settings,
         tools=[read_file, apply_patch],

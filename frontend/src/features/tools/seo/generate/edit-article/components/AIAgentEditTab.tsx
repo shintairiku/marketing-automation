@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { AlertCircle,Bot, Check, Loader2, RotateCcw, Save, Send, X } from 'lucide-react';
+import { AlertCircle, Bot, Check, Loader2, Send, X } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -10,11 +10,21 @@ import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/hooks/use-toast';
 import { useAgentChat } from '@/hooks/useAgentChat';
 
-import ArticlePreviewStyles from '../../new-article/component/ArticlePreviewStyles';
+import UnifiedDiffViewer from './UnifiedDiffViewer';
 
 interface AIAgentEditTabProps {
   articleId: string;
   onSave?: () => void;
+}
+
+interface UnifiedDiffLine {
+  type: 'unchanged' | 'change';
+  content?: string;
+  line_number?: number;
+  change_id?: string;
+  old_lines?: string[];
+  new_lines?: string[];
+  approved?: boolean;
 }
 
 export default function AIAgentEditTab({ articleId, onSave }: AIAgentEditTabProps) {
@@ -25,16 +35,18 @@ export default function AIAgentEditTab({ articleId, onSave }: AIAgentEditTabProp
     sessionId,
     createSession,
     sendMessage,
-    getCurrentContent,
-    getDiff,
-    saveChanges,
-    discardChanges,
+    extractPendingChanges,
+    approveChange,
+    rejectChange,
+    applyApprovedChanges,
+    clearPendingChanges,
+    getUnifiedDiffView,
     closeSession,
   } = useAgentChat(articleId);
 
   const { toast } = useToast();
   const [userInput, setUserInput] = useState('');
-  const [previewContent, setPreviewContent] = useState('');
+  const [diffLines, setDiffLines] = useState<UnifiedDiffLine[]>([]);
   const [hasChanges, setHasChanges] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -76,54 +88,67 @@ export default function AIAgentEditTab({ articleId, onSave }: AIAgentEditTabProp
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // セッション作成後の初期プレビュー読み込み
+  // セッション作成後に記事全体を初期表示
   useEffect(() => {
-    const loadInitialPreview = async () => {
-      if (sessionId && messages.length === 0) {
+    const loadInitialArticle = async () => {
+      if (sessionId && diffLines.length === 0 && !hasChanges) {
         try {
-          const content = await getCurrentContent();
-          setPreviewContent(content);
+          const diffView = await getUnifiedDiffView();
+          if (diffView.lines) {
+            setDiffLines(diffView.lines);
+          }
         } catch (err) {
-          console.error('Failed to load initial preview:', err);
+          console.error('Failed to load initial article:', err);
         }
       }
     };
 
-    loadInitialPreview();
-  }, [sessionId, getCurrentContent, messages.length]);
+    loadInitialArticle();
+  }, [sessionId, diffLines.length, hasChanges, getUnifiedDiffView]);
 
   // メッセージ自動スクロール
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  // コンテンツ更新
-  const refreshPreview = useCallback(async () => {
+  // 統合差分ビューを更新
+  const updateDiffView = useCallback(async () => {
     if (!sessionId) return;
 
     try {
-      const content = await getCurrentContent();
-      setPreviewContent(content);
-
-      // getDiffは編集後のみ有効なので、エラーは無視
-      try {
-        const diff = await getDiff();
-        setHasChanges(diff.has_changes);
-      } catch (diffErr) {
-        // 初期状態やまだ編集がない場合はdiffエラーを無視
-        setHasChanges(false);
+      const diffView = await getUnifiedDiffView();
+      if (diffView.lines) {
+        setDiffLines(diffView.lines);
+        setHasChanges(diffView.has_changes || false);
       }
     } catch (err) {
-      console.error('Failed to refresh preview:', err);
+      console.error('Failed to get unified diff view:', err);
     }
-  }, [sessionId, getCurrentContent, getDiff]);
+  }, [sessionId, getUnifiedDiffView]);
 
-  // メッセージ送信後にプレビュー更新
+  // メッセージ送信後に変更を抽出して差分ビュー更新
   useEffect(() => {
-    if (sessionId && messages.length > 0) {
-      refreshPreview();
-    }
-  }, [messages, sessionId, refreshPreview]);
+    const extractChanges = async () => {
+      if (sessionId && messages.length > 0 && messages[messages.length - 1].role === 'assistant') {
+        try {
+          const changes = await extractPendingChanges();
+          if (changes && changes.length > 0) {
+            // 統合差分ビューを更新
+            await updateDiffView();
+            toast({
+              title: '変更が検出されました',
+              description: `${changes.length}件の変更があります。各変更を確認して承認してください。`,
+            });
+          }
+        } catch (err) {
+          console.error('Failed to extract changes:', err);
+        }
+      }
+    };
+
+    extractChanges();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [messages]);
 
   const handleSendMessage = async () => {
     if (!userInput.trim() || loading) return;
@@ -142,66 +167,151 @@ export default function AIAgentEditTab({ articleId, onSave }: AIAgentEditTabProp
     }
   };
 
-  const handleSave = async () => {
+  const handleApprove = useCallback(async (changeId: string) => {
     try {
-      await saveChanges();
+      await approveChange(changeId);
+      await updateDiffView();
       toast({
         title: '成功',
-        description: '変更を保存しました',
+        description: '変更を承認しました',
       });
+    } catch (err) {
+      toast({
+        title: 'エラー',
+        description: '変更の承認に失敗しました',
+        variant: 'destructive',
+      });
+    }
+  }, [approveChange, updateDiffView, toast]);
+
+  const handleReject = useCallback(async (changeId: string) => {
+    try {
+      await rejectChange(changeId);
+      await updateDiffView();
+      toast({
+        title: '成功',
+        description: '変更を拒否しました',
+      });
+    } catch (err) {
+      toast({
+        title: 'エラー',
+        description: '変更の拒否に失敗しました',
+        variant: 'destructive',
+      });
+    }
+  }, [rejectChange, updateDiffView, toast]);
+
+  const handleApproveAll = useCallback(async () => {
+    try {
+      const changesToApprove = diffLines.filter((line) => line.type === 'change' && !line.approved && line.change_id);
+      await Promise.all(changesToApprove.map((line) => approveChange(line.change_id!)));
+      await updateDiffView();
+      toast({
+        title: '成功',
+        description: 'すべての変更を承認しました',
+      });
+    } catch (err) {
+      toast({
+        title: 'エラー',
+        description: 'すべての変更の承認に失敗しました',
+        variant: 'destructive',
+      });
+    }
+  }, [diffLines, approveChange, updateDiffView, toast]);
+
+  const handleRejectAll = useCallback(async () => {
+    try {
+      await clearPendingChanges();
+      setDiffLines([]);
       setHasChanges(false);
+      toast({
+        title: '成功',
+        description: 'すべての変更を拒否しました',
+      });
+    } catch (err) {
+      toast({
+        title: 'エラー',
+        description: 'すべての変更の拒否に失敗しました',
+        variant: 'destructive',
+      });
+    }
+  }, [clearPendingChanges, toast]);
+
+  const handleApplyChanges = useCallback(async () => {
+    try {
+      const result = await applyApprovedChanges();
+      await updateDiffView();
+      toast({
+        title: '成功',
+        description:
+          result.applied_count > 0
+            ? `${result.applied_count}件の変更を保存しました`
+            : '適用する承認済みの変更はありませんでした',
+      });
       onSave?.();
     } catch (err) {
       toast({
         title: 'エラー',
-        description: '保存に失敗しました',
+        description: '変更の適用に失敗しました',
         variant: 'destructive',
       });
     }
-  };
+  }, [applyApprovedChanges, toast, onSave]);
 
-  const handleDiscard = async () => {
-    try {
-      await discardChanges();
-      await refreshPreview();
-      toast({
-        title: '成功',
-        description: '変更を破棄しました',
-      });
-      setHasChanges(false);
-    } catch (err) {
-      toast({
-        title: 'エラー',
-        description: '破棄に失敗しました',
-        variant: 'destructive',
-      });
-    }
-  };
+  const hasApprovedChanges = diffLines.some((line) => line.type === 'change' && line.approved);
+  const allApproved = diffLines.filter((line) => line.type === 'change').every((line) => line.approved);
 
   return (
     <div className="flex h-[calc(100vh-200px)] gap-4">
-      {/* 左側: 記事プレビュー */}
+      {/* 左側: 統合差分ビュー */}
       <div className="flex-1 flex flex-col">
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="text-lg font-semibold">記事プレビュー</h3>
-          {hasChanges && (
+        {/* ヘッダー */}
+        {hasChanges && (
+          <div className="flex items-center justify-between mb-4 pb-4 border-b">
+            <div>
+              <h3 className="text-lg font-semibold">記事プレビュー（変更確認）</h3>
+              <p className="text-sm text-gray-600">
+                変更箇所が赤/緑でハイライトされています。各変更を承認または拒否してください。
+              </p>
+            </div>
+
             <div className="flex gap-2">
-              <Button variant="outline" size="sm" onClick={handleDiscard}>
-                <RotateCcw className="h-4 w-4 mr-1" />
-                変更を破棄
+              <Button variant="outline" size="sm" onClick={handleRejectAll}>
+                <X className="h-4 w-4 mr-1" />
+                すべて拒否
               </Button>
-              <Button size="sm" onClick={handleSave}>
-                <Save className="h-4 w-4 mr-1" />
-                変更を保存
+              <Button variant="outline" size="sm" onClick={handleApproveAll} disabled={allApproved}>
+                <Check className="h-4 w-4 mr-1" />
+                すべて承認
+              </Button>
+              <Button size="sm" onClick={handleApplyChanges} disabled={!hasApprovedChanges}>
+                変更を適用
               </Button>
             </div>
-          )}
-        </div>
+          </div>
+        )}
 
-        <Card className="flex-1 p-6 overflow-auto">
-          <ArticlePreviewStyles>
-            <div dangerouslySetInnerHTML={{ __html: previewContent }} />
-          </ArticlePreviewStyles>
+        {/* 差分ビュー */}
+        <Card className="flex-1 overflow-hidden">
+          {diffLines.length > 0 ? (
+            <UnifiedDiffViewer
+              lines={diffLines}
+              onApprove={handleApprove}
+              onReject={handleReject}
+            />
+          ) : (
+            <div className="h-full flex items-center justify-center text-center text-gray-500 p-8">
+              <div>
+                <Bot className="h-16 w-16 mx-auto mb-4 text-gray-400" />
+                <p className="text-lg font-medium mb-2">AIエージェント編集</p>
+                <p className="text-sm">
+                  右側のチャットで編集指示を送信してください。
+                  <br />
+                  変更が提案されると、ここに記事全体と差分が表示されます。
+                </p>
+              </div>
+            </div>
+          )}
         </Card>
       </div>
 
