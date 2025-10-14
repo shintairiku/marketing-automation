@@ -196,11 +196,10 @@ class ArticleGenerationService:
                 style_template_id=request_dict.get("style_template_id"),
                 advanced_outline_mode=request_dict.get("advanced_outline_mode", False),
                 outline_top_level_heading=outline_top_level,
+                flow_type=request_dict.get("flow_type", "research_first"),  # フロー設定を追加
                 websocket=None,  # Background mode
                 user_response_event=None,  # Background mode
-                user_id=user_id,
-                # フロー設定を追加
-                flow_mode="reordered" if settings.use_reordered_flow else "classic"
+                user_id=user_id
             )
             logger.info(f"✅ [CREATE_PROCESS] ArticleContext created, current_step: {context.current_step}")
 

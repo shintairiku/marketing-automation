@@ -29,7 +29,7 @@ class ArticleContext:
     num_persona_examples: int = 3 # 追加: 生成する具体的なペルソナの数
     
     # フロー設定
-    flow_mode: Optional[str] = None  # "reordered"（新フロー） or "classic"（旧フロー）
+    flow_type: Optional[Literal["research_first", "outline_first"]] = None  # "research_first"（リサーチ先行） or "outline_first"（構成先行）
     
     # 会社情報 - 基本情報
     company_name: Optional[str] = None
@@ -149,5 +149,28 @@ class ArticleContext:
             "content": [{"type": content_type, "text": content}]
         }
         self.section_writer_history.append(message)
+
+    def reset_after_theme_selection(self) -> None:
+        """テーマを変更した際に、リサーチ・アウトライン以降の状態を初期化する。"""
+        self.research_plan = None
+        self.research_progress = None
+        self.research_query_results = []
+        self.current_research_query_index = 0
+        self.research_report = None
+
+        self.generated_outline = None
+        self.outline = None
+        self.generated_sections = []
+        self.generated_sections_html = []
+        self.current_section_index = 0
+        self.sections_progress = None
+
+        self.executing_step = None
+        self.full_draft_html = None
+        self.final_article = None
+        self.final_article_html = None
+        self.final_article_id = None
+        self.last_agent_output = None
+        self.section_writer_history = []
 
     # yield_sse_event は article_service 内のヘルパー関数 _send_server_event に置き換え

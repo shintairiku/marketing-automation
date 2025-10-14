@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 from pydantic import BaseModel, Field, ConfigDict
-from typing import List, Optional, Dict, Any, Union
+from typing import List, Optional, Dict, Any, Union, Literal
 from enum import Enum
 from app.common.schemas import BasePayload
 
@@ -54,6 +54,12 @@ class GenerateArticleRequest(BaseModel):
         le=6,
     )
 
+    # --- フロー設定 ---
+    flow_type: Optional[Literal["research_first", "outline_first"]] = Field(
+        default="research_first", 
+        description="記事生成フロータイプ (outline_first: 構成先行, research_first: リサーチ先行)"
+    )
+
     class Config:
         json_schema_extra = {
             "example": {
@@ -72,6 +78,7 @@ class GenerateArticleRequest(BaseModel):
                 "company_style_guide": "専門用語を避け、温かみのある丁寧語（ですます調）で。子育て世代の読者に寄り添い、安心感を与えるようなトーンを心がける。",
                 "advanced_outline_mode": False,
                 "outline_top_level_heading": 2,
+                "flow_type": "research_first",
             }
         }
 

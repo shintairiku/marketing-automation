@@ -1024,7 +1024,8 @@ def create_editor_instructions(base_prompt: str) -> Callable[[RunContextWrapper[
     - 人間らしい自然な文章表現、独創性
     - HTML構造の妥当性
 - 必要な修正を直接HTMLに加えてください。
-- あなたの応答は必ず `RevisedArticle` 型のJSON形式で、`final_html_content` に編集後の完全なHTML文字列を入れて出力してください。
+- あなたの応答は必ず `RevisedArticle` 型のJSON形式で出力してください。
+- **重要**: `content` フィールドには編集後の完全なHTML文字列（タイトルから結論まで全てを含む統合された単一のHTML）を入れてください。
 
 """
         return full_prompt

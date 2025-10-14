@@ -866,15 +866,16 @@ class BackgroundTaskManager:
                 selected_index = payload.get("selected_index")
                 if selected_index is not None and hasattr(context, 'generated_themes') and context.generated_themes:
                     context.selected_theme = context.generated_themes[selected_index]
+                    context.reset_after_theme_selection()
                     
                     # フロー設定に応じて次のステップを決定
-                    from app.core.config import settings
-                    if settings.use_reordered_flow:
+                    is_outline_first = context.flow_type == "outline_first"
+                    if is_outline_first:
                         context.current_step = "outline_generating"
-                        logger.info("Reordered flow: Moving from theme selection to outline_generating")
+                        logger.info("Outline-first flow: Moving from theme selection to outline_generating")
                     else:
                         context.current_step = "researching"
-                        logger.info("Classic flow: Moving from theme selection to researching")
+                        logger.info("Research-first flow: Moving from theme selection to researching")
                     
             elif response_type == "approve_plan":
                 approved = payload.get("approved", False)
@@ -887,13 +888,13 @@ class BackgroundTaskManager:
                 approved = payload.get("approved", False)
                 if approved:
                     # フロー設定に応じて次のステップを決定
-                    from app.core.config import settings
-                    if settings.use_reordered_flow:
+                    is_outline_first = context.flow_type == "outline_first"
+                    if is_outline_first:
                         context.current_step = "researching"
-                        logger.info("Reordered flow: Moving from outline approval to researching")
+                        logger.info("Outline-first flow: Moving from outline approval to researching")
                     else:
                         context.current_step = "writing_sections"
-                        logger.info("Classic flow: Moving from outline approval to writing_sections")
+                        logger.info("Research-first flow: Moving from outline approval to writing_sections")
                 else:
                     context.current_step = "outline_generating"  # Regenerate
             
@@ -947,8 +948,15 @@ class BackgroundTaskManager:
                             # Import ThemeProposalData from schemas
                             from app.domains.seo_article.schemas import ThemeProposalData
                             context.selected_theme = ThemeProposalData(**edited_content)
-                            context.current_step = "researching"
-                            logger.info("✅ [EDIT_THEME] Applied theme edit and proceeding to research")
+                            context.reset_after_theme_selection()
+
+                            is_outline_first = context.flow_type == "outline_first"
+                            if is_outline_first:
+                                context.current_step = "outline_generating"
+                                logger.info("✅ [EDIT_THEME] Applied theme edit and proceeding to outline generation (outline-first flow)")
+                            else:
+                                context.current_step = "researching"
+                                logger.info("✅ [EDIT_THEME] Applied theme edit and proceeding to research (research-first flow)")
                         except Exception as theme_error:
                             logger.error(f"💥 [EDIT_THEME] Error creating ThemeProposalData: {theme_error}")
                             raise
@@ -1025,13 +1033,13 @@ class BackgroundTaskManager:
                             context.outline = context.generated_outline
                             
                             # フロー設定に応じて次のステップを決定
-                            from app.core.config import settings
-                            if settings.use_reordered_flow:
+                            is_outline_first = context.flow_type == "outline_first"
+                            if is_outline_first:
                                 context.current_step = "researching"
-                                logger.info("✅ [EDIT_OUTLINE] Applied outline edit and proceeding to research (reordered flow)")
+                                logger.info("✅ [EDIT_OUTLINE] Applied outline edit and proceeding to research (outline-first flow)")
                             else:
                                 context.current_step = "writing_sections"
-                                logger.info("✅ [EDIT_OUTLINE] Applied outline edit and proceeding to section writing (classic flow)")
+                                logger.info("✅ [EDIT_OUTLINE] Applied outline edit and proceeding to section writing (research-first flow)")
                         except Exception as outline_error:
                             logger.error(f"💥 [EDIT_OUTLINE] Error creating OutlineData: {outline_error}")
                             raise

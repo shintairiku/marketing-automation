@@ -578,6 +578,7 @@ class GenerationFlowManager:
                 isinstance(edited_theme_data.get("keywords"), list)):
                 
                 context.selected_theme = ThemeIdea(**edited_theme_data)
+                context.reset_after_theme_selection()
                 context.current_step = "theme_selected"
                 console.print(f"[green]クライアントがテーマを編集し、選択しました: {context.selected_theme.title}[/green]")
                 await self.service.utils.send_server_event(context, StatusUpdatePayload(
@@ -608,14 +609,24 @@ class GenerationFlowManager:
     async def handle_theme_selected_step(self, context: ArticleContext, process_id: Optional[str] = None):
         """テーマ選択完了ステップの処理"""
         console.print(f"[blue]theme_selectedステップを処理中... (process_id: {process_id})[/blue]")
-        context.current_step = "research_planning"
-        console.print("[blue]theme_selectedからresearch_planningに遷移します...[/blue]")
+        
+        # フロータイプに基づいて次のステップを決定
+        is_outline_first = context.flow_type == "outline_first"
+        if is_outline_first:
+            context.current_step = "outline_generating"
+            message = "Moving to outline generation."
+            console.print("[blue]theme_selectedからoutline_generatingに遷移します...[/blue]")
+        else:
+            context.current_step = "researching"
+            message = "Moving to research."
+            console.print("[blue]theme_selectedからresearchingに遷移します...[/blue]")
+        
         await self.service.utils.send_server_event(context, StatusUpdatePayload(
             step=context.current_step, 
-            message="Moving to research planning.", 
+            message=message, 
             image_mode=getattr(context, 'image_mode', False)
         ))
-        console.print(f"[blue]research_planningステップに移行完了。継続中... (process_id: {process_id})[/blue]")
+        console.print(f"[blue]{context.current_step}ステップに移行完了。継続中... (process_id: {process_id})[/blue]")
 
     async def handle_research_planning_step(self, context: ArticleContext, run_config: RunConfig, process_id: Optional[str] = None, user_id: Optional[str] = None):
         """リサーチ計画ステップの処理"""
@@ -1702,13 +1713,13 @@ class GenerationFlowManager:
                         logger.error(f"Failed to save context after research completion: {save_err}")
                 
                 # フロー設定に応じて次のステップを決定
-                from app.core.config import settings
-                if settings.use_reordered_flow:
+                is_outline_first = context.flow_type == "outline_first"
+                if is_outline_first:
                     context.current_step = "writing_sections"
-                    logger.info("Reordered flow: Moving from research completion to writing_sections")
+                    logger.info("Outline-first flow: Moving from research completion to writing_sections")
                 else:
                     context.current_step = "outline_generating"
-                    logger.info("Classic flow: Moving from research completion to outline_generating")
+                    logger.info("Research-first flow: Moving from research completion to outline_generating")
                 
                 # WebSocket経由でレポートを送信
                 if context.websocket:
@@ -1748,15 +1759,15 @@ class GenerationFlowManager:
 
     async def execute_outline_generating_background(self, context: "ArticleContext", run_config: RunConfig):
         """アウトライン生成のバックグラウンド実行"""
-        from app.core.config import settings
         
-        # 旧フロー時はリサーチ報告書をチェック
-        if not settings.use_reordered_flow and not context.research_report:
+        # フロー設定に応じてリサーチ報告書の必要性をチェック
+        is_outline_first = context.flow_type == "outline_first"
+        if not is_outline_first and not context.research_report:
             console.print("[red]リサーチ報告書がありません。アウトライン生成をスキップします。[/red]")
             context.current_step = "error"
             return
-        elif settings.use_reordered_flow and not context.research_report:
-            logger.info("Reordered flow: Generating outline without research report")
+        elif is_outline_first and not context.research_report:
+            logger.info("Outline-first flow: Generating outline without research report")
 
         # Publish outline generation start event for Supabase Realtime
         try:
@@ -1786,12 +1797,13 @@ class GenerationFlowManager:
         current_agent = outline_agent
         
         # フロー設定に応じてエージェント入力を構築
-        if settings.use_reordered_flow and context.research_report is None:
-            # 新フローではリサーチ前にアウトライン生成
+        is_outline_first = context.flow_type == "outline_first"
+        if is_outline_first and context.research_report is None:
+            # 構成先行フローではリサーチ前にアウトライン生成
             agent_input = f"テーマ: {context.selected_theme.title}\nペルソナ: {context.selected_detailed_persona}\n目標文字数: {context.target_length}"
             console.print(f"🤖 {current_agent.name} にアウトライン生成を依頼します (リサーチ前)...")
         else:
-            # 旧フローではリサーチ後にアウトライン生成
+            # リサーチ先行フローではリサーチ後にアウトライン生成
             if context.research_report is None:
                 raise ValueError("Classic flow requires research_report before outline generation")
             agent_input = f"テーマ: {context.selected_theme.title}\nペルソナ: {context.selected_detailed_persona}\nリサーチ報告書: {context.research_report.model_dump_json(indent=2)}\n目標文字数: {context.target_length}"
@@ -2194,26 +2206,41 @@ class GenerationFlowManager:
     async def handle_outline_generating_step(self, context: ArticleContext, run_config: RunConfig, process_id: Optional[str] = None, user_id: Optional[str] = None):
         """アウトライン生成ステップの処理"""
         current_agent = outline_agent
-        if not context.research_report:
-            await self.service.utils.send_error(context, "リサーチレポートがありません。アウトライン作成をスキップします。", "outline_generating")
-            context.current_step = "error"
-            return
         
-        instruction_text = f"詳細リサーチレポートに基づいてアウトラインを作成してください。テーマ: {context.selected_theme.title if context.selected_theme else '未選択'}, 目標文字数 {context.target_length or '指定なし'}"
-        research_report_json_str = json.dumps(context.research_report.model_dump(), indent=2)
+        # フロー設定に応じてリサーチ報告書の必要性をチェック
+        is_outline_first = context.flow_type == "outline_first"
+        if is_outline_first and context.research_report is None:
+            agent_input = (
+                f"テーマ: {context.selected_theme.title if context.selected_theme else '未選択'}\n"
+                f"ペルソナ: {context.selected_detailed_persona or '未設定'}\n"
+                f"目標文字数: {context.target_length or '指定なし'}"
+            )
+            console.print(f"🤖 {current_agent.name} にアウトライン作成を依頼します (リサーチ前)...")
+        else:
+            if context.research_report is None:
+                await self.service.utils.send_error(context, "リサーチレポートがありません。アウトライン作成をスキップします。", "outline_generating")
+                context.current_step = "error"
+                return
+            instruction_text = (
+                f"詳細リサーチレポートに基づいてアウトラインを作成してください。"
+                f"テーマ: {context.selected_theme.title if context.selected_theme else '未選択'}, "
+                f"目標文字数 {context.target_length or '指定なし'}"
+            )
+            research_report_json_str = json.dumps(context.research_report.model_dump(), indent=2)
 
-        # 会話履歴形式のリストを作成
-        agent_input_list_for_outline = [
-            {
-                "role": "user",
-                "content": [
-                    {"type": "input_text", "text": instruction_text},
-                    {"type": "input_text", "text": f"\n\n---参照リサーチレポート開始---\n{research_report_json_str}\n---参照リサーチレポート終了---"}
-                ]
-            }
-        ]
-        console.print(f"🤖 {current_agent.name} にアウトライン作成を依頼します...")
-        agent_output = await self.run_agent(current_agent, agent_input_list_for_outline, context, run_config)
+            # 会話履歴形式のリストを作成
+            agent_input = [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "input_text", "text": instruction_text},
+                        {"type": "input_text", "text": f"\n\n---参照リサーチレポート開始---\n{research_report_json_str}\n---参照リサーチレポート終了---"}
+                    ]
+                }
+            ]
+            console.print(f"🤖 {current_agent.name} にアウトライン作成を依頼します (リサーチ後)...")
+        
+        agent_output = await self.run_agent(current_agent, agent_input, context, run_config)
 
         if isinstance(agent_output, Outline):
             context.generated_outline = agent_output
@@ -2464,14 +2491,14 @@ class GenerationFlowManager:
 
     async def handle_outline_approved_step(self, context: ArticleContext, process_id: Optional[str] = None, user_id: Optional[str] = None):
         """アウトライン承認ステップの処理"""
-        from app.core.config import settings
+        is_outline_first = context.flow_type == "outline_first"
         
-        if settings.use_reordered_flow:
-            # 新フローではアウトライン承認後にリサーチ実行
+        if is_outline_first:
+            # 構成先行フローではアウトライン承認後にリサーチ実行
             console.print("リサーチ実行ステップに進みます...")
             context.current_step = "researching"
         else:
-            # 旧フローではアウトライン承認に記事執筆
+            # リサーチ先行フローではアウトライン承認後に記事執筆
             console.print("記事執筆ステップに進みます...")
             
             # セクションライティングの初期化（重要：current_section_indexを0にリセット）
@@ -2492,7 +2519,8 @@ class GenerationFlowManager:
                 logger.error(f"Failed to save context after outline approval step: {save_err}")
         
         # フローに応じたメッセージを送信
-        if settings.use_reordered_flow:
+        is_outline_first = context.flow_type == "outline_first"
+        if is_outline_first:
             message = "Outline approved, starting research."
         else:
             message = "Outline approved, starting section writing."
