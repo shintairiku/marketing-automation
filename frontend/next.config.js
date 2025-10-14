@@ -1,8 +1,5 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  env: {
-    NEXT_PUBLIC_USE_REORDERED_FLOW: process.env.NEXT_PUBLIC_USE_REORDERED_FLOW || 'true',
-  },
   images: {
     remotePatterns: [
       {
