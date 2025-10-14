@@ -255,6 +255,7 @@ export default function IndexPage() {
                                         themes={state.themes}
                                         researchPlan={state.researchPlan}
                                         outline={state.outline}
+                                        flowType={state.flowType}
                                         onSelect={(index) => {
                                             if (state.inputType === 'select_persona') {
                                                 selectPersona(index);

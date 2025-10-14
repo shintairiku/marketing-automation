@@ -13,7 +13,12 @@ import {
   SectionsProgress,
   StepStatus,
   ThemeData} from '@/types/article-generation';
-import { getNextStepAfterOutline,getNextStepAfterResearch, getNextStepAfterTheme } from '@/utils/flow-config';
+import { 
+  getNextStepAfterOutline,
+  getNextStepAfterResearch, 
+  getNextStepAfterTheme,
+  FlowType
+} from '@/utils/flow-config';
 import { useAuth } from '@clerk/nextjs';
 
 import { ProcessEvent,useSupabaseRealtime } from './useSupabaseRealtime';
@@ -55,30 +60,37 @@ export const useArticleGenerationRealtime = ({
   const { getToken } = useAuth();
   
   // Generation state - with debouncing for stable UI
-  // フラグに応じてフローを切り替え
-  const isReorderedFlow = process.env.NEXT_PUBLIC_USE_REORDERED_FLOW === 'true' || 
-                          process.env.NEXT_PUBLIC_USE_REORDERED_FLOW === undefined; // デフォルトは新フロー
-  const initialSteps = isReorderedFlow ? [
-    { id: 'keyword_analyzing', name: 'キーワード分析', status: 'pending' },
-    { id: 'persona_generating', name: 'ペルソナ生成', status: 'pending' },
-    { id: 'theme_generating', name: 'テーマ提案', status: 'pending' },
-    { id: 'outline_generating', name: 'アウトライン作成', status: 'pending' },
-    { id: 'researching', name: 'リサーチ実行', status: 'pending' },
-    { id: 'writing_sections', name: '執筆', status: 'pending' },
-    { id: 'editing', name: '編集・校正', status: 'pending' },
-  ] : [
-    { id: 'keyword_analyzing', name: 'キーワード分析', status: 'pending' },
-    { id: 'persona_generating', name: 'ペルソナ生成', status: 'pending' },
-    { id: 'theme_generating', name: 'テーマ提案', status: 'pending' },
-    { id: 'researching', name: 'リサーチ実行', status: 'pending' },
-    { id: 'outline_generating', name: 'アウトライン作成', status: 'pending' },
-    { id: 'writing_sections', name: '執筆', status: 'pending' },
-    { id: 'editing', name: '編集・校正', status: 'pending' },
-  ];
+  // ステップ順序は動的に更新されるため、初期値はresearch_firstを使用
+  const getInitialSteps = useCallback((flowType: string = 'research_first'): GenerationStep[] => {
+    const isOutlineFirst = flowType === 'outline_first';
+    
+    return isOutlineFirst ? [
+      { id: 'keyword_analyzing', name: 'キーワード分析', status: 'pending' },
+      { id: 'persona_generating', name: 'ペルソナ生成', status: 'pending' },
+      { id: 'theme_generating', name: 'テーマ提案', status: 'pending' },
+      { id: 'outline_generating', name: 'アウトライン作成', status: 'pending' },
+      { id: 'researching', name: 'リサーチ実行', status: 'pending' },
+      { id: 'writing_sections', name: '執筆', status: 'pending' },
+      { id: 'editing', name: '編集・校正', status: 'pending' },
+    ] : [
+      { id: 'keyword_analyzing', name: 'キーワード分析', status: 'pending' },
+      { id: 'persona_generating', name: 'ペルソナ生成', status: 'pending' },
+      { id: 'theme_generating', name: 'テーマ提案', status: 'pending' },
+      { id: 'researching', name: 'リサーチ実行', status: 'pending' },
+      { id: 'outline_generating', name: 'アウトライン作成', status: 'pending' },
+      { id: 'writing_sections', name: '執筆', status: 'pending' },
+      { id: 'editing', name: '編集・校正', status: 'pending' },
+    ];
+  }, []);
+  
+  // フック初期化時はデフォルトのresearch_firstで初期化
+  // 実際のflowTypeはバックエンドから受信時やユーザー操作時に動的更新される
+  const initialSteps = getInitialSteps('research_first');
   
   const [state, setState] = useState<GenerationState>({
     currentStep: 'keyword_analyzing',
     status: 'pending', // Initialize with pending status
+    flowType: 'research_first', // Initialize with default flow type
     steps: initialSteps,
     isWaitingForInput: false,
     personas: undefined,
@@ -223,11 +235,11 @@ export const useArticleGenerationRealtime = ({
       // Theme Generation Phase  
       'theme_generating': 'theme_generating',
       'theme_proposed': 'theme_generating', // Keep as generating until selected
-      'theme_selected': getNextStepAfterTheme(), // 新フローではフラグに応じて動的に次ステップを決定
+      'theme_selected': 'theme_generating', // Keep as generating, actual transition handled in ingestProcessData
       
       // Research Execution Phase (Integrated)
       'researching': 'researching', // Unified research step
-      'research_completed': getNextStepAfterResearch(), // 新フローではフラグに応じて動的に次ステップを決定
+      'research_completed': 'researching', // Keep as researching, actual transition handled in ingestProcessData
       
       // Outline Generation Phase
       'outline_generating': 'outline_generating',
@@ -284,25 +296,21 @@ export const useArticleGenerationRealtime = ({
 
         // Progressive step completion: mark current step AND all previous steps as completed
         // フローを決定するロジックを追加
-        const stepOrderClassic = ['keyword_analyzing', 'persona_generating', 'theme_generating', 'researching', 'outline_generating', 'writing_sections', 'editing'];
-        const stepOrderReordered = ['keyword_analyzing', 'persona_generating', 'theme_generating', 'outline_generating', 'researching', 'writing_sections', 'editing'];
+        const stepOrderResearchFirst = ['keyword_analyzing', 'persona_generating', 'theme_generating', 'researching', 'outline_generating', 'writing_sections', 'editing'];
+        const stepOrderOutlineFirst = ['keyword_analyzing', 'persona_generating', 'theme_generating', 'outline_generating', 'researching', 'writing_sections', 'editing'];
         
         // Determine which flow we're using based on current context
-        // Priority: 1. Backend context, 2. Environment variable, 3. Default to reordered
-        const backendFlow = data.article_context?.flow_mode === 'reordered';
-        const envFlow = process.env.NEXT_PUBLIC_USE_REORDERED_FLOW === 'true';
-        const defaultFlow = process.env.NEXT_PUBLIC_USE_REORDERED_FLOW === undefined; // Default to reordered if undefined
-        const isReorderedFlow = backendFlow || envFlow || defaultFlow;
+        // Use flow_type from backend context, default to research_first
+        const flowType = data.article_context?.flow_type || 'research_first';
+        const isOutlineFirst = flowType === 'outline_first';
         
         console.log('🔍 Flow determination:', {
-          backendFlow,
-          envFlow,
-          defaultFlow,
-          envValue: process.env.NEXT_PUBLIC_USE_REORDERED_FLOW,
-          finalResult: isReorderedFlow
+          flowType,
+          isOutlineFirst,
+          source: data.article_context?.flow_type ? 'backend_context' : 'default'
         });
         
-        const stepOrder = isReorderedFlow ? stepOrderReordered : stepOrderClassic;
+        const stepOrder = isOutlineFirst ? stepOrderOutlineFirst : stepOrderResearchFirst;
         const currentStepIndex = stepOrder.indexOf(uiStep);
         
         console.log(`🎯 Progressive step completion: current="${uiStep}" (index=${currentStepIndex}), waiting=${next.isWaitingForInput}`);
@@ -359,6 +367,20 @@ export const useArticleGenerationRealtime = ({
       if (!next.outline && outline) {
         console.log('📝 Setting outline from context:', outline);
         next.outline = outline;
+      }
+      
+      // CRITICAL: Flow type handling - always update from backend context
+      if (ctx.flow_type) {
+        next.flowType = ctx.flow_type;
+        
+        // Regenerate steps with correct order while preserving current statuses
+        const newSteps = getInitialSteps(ctx.flow_type);
+        next.steps = newSteps.map(newStep => {
+          const existingStep = next.steps.find(s => s.id === newStep.id);
+          return existingStep ? { ...newStep, status: existingStep.status } : newStep;
+        });
+        
+        console.log('🔀 Setting flow type and regenerating steps:', ctx.flow_type);
       }
       
       return next;
@@ -512,7 +534,10 @@ export const useArticleGenerationRealtime = ({
                 });
                 break;
               case 'select_theme':
-                const nextStepAfterTheme = getNextStepAfterTheme();
+                // 現在の状態からflowTypeを取得
+                const currentFlowType = newState.flowType || 'research_first';
+                const nextStepAfterTheme = getNextStepAfterTheme(currentFlowType);
+                console.log(`🔀 Theme selection: using flow type ${currentFlowType}, next step: ${nextStepAfterTheme}`);
                 newState.currentStep = nextStepAfterTheme;
                 newState.steps = newState.steps.map((step: GenerationStep) => {
                   if (step.id === 'theme_generating') return { ...step, status: 'completed' as StepStatus };
@@ -522,7 +547,10 @@ export const useArticleGenerationRealtime = ({
                 break;
               // approve_plan case removed: integrated research no longer requires plan approval
               case 'approve_outline':
-                const nextStepAfterOutline = getNextStepAfterOutline();
+                // 現在の状態からflowTypeを取得
+                const currentFlowTypeOutline = newState.flowType || 'research_first';
+                const nextStepAfterOutline = getNextStepAfterOutline(currentFlowTypeOutline);
+                console.log(`🔀 Outline approval: using flow type ${currentFlowTypeOutline}, next step: ${nextStepAfterOutline}`);
                 newState.currentStep = nextStepAfterOutline;
                 newState.steps = newState.steps.map((step: GenerationStep) => {
                   if (step.id === 'outline_generating') return { ...step, status: 'completed' as StepStatus };
@@ -784,8 +812,10 @@ export const useArticleGenerationRealtime = ({
           break;
           
         case 'theme_selection_completed':
-          const nextAfterTheme = getNextStepAfterTheme();
-          console.log(`💡 Theme selected - auto-progressing to ${nextAfterTheme}`);
+          // 現在の状態からflowTypeを取得
+          const flowTypeTheme = newState.flowType || 'research_first';
+          const nextAfterTheme = getNextStepAfterTheme(flowTypeTheme);
+          console.log(`💡 Theme selected - auto-progressing to ${nextAfterTheme} (flow: ${flowTypeTheme})`);
           newState.steps = newState.steps.map((step: GenerationStep) => {
             if (step.id === 'theme_generating') return { ...step, status: 'completed' as StepStatus };
             if (step.id === nextAfterTheme) return { ...step, status: 'in_progress' as StepStatus };
@@ -800,8 +830,10 @@ export const useArticleGenerationRealtime = ({
         // research_plan_approval_completed removed: integrated research no longer requires plan approval
           
         case 'outline_approval_completed':
-          const nextAfterOutline = getNextStepAfterOutline();
-          console.log(`📝 Outline approved - auto-progressing to ${nextAfterOutline}`);
+          // 現在の状態からflowTypeを取得
+          const flowTypeOutline = newState.flowType || 'research_first';
+          const nextAfterOutline = getNextStepAfterOutline(flowTypeOutline);
+          console.log(`📝 Outline approved - auto-progressing to ${nextAfterOutline} (flow: ${flowTypeOutline})`);
           newState.steps = newState.steps.map((step: GenerationStep) => {
             if (step.id === 'outline_generating') return { ...step, status: 'completed' as StepStatus };
             if (step.id === nextAfterOutline) return { ...step, status: 'in_progress' as StepStatus };
@@ -903,12 +935,16 @@ export const useArticleGenerationRealtime = ({
 
       const result = await response.json();
       
-      // Reset state for new generation
+      // Reset state for new generation with correct flow type
+      const flowType = requestData.flow_type || 'research_first';
+      const newSteps = getInitialSteps(flowType);
+      
       setValidatedState((prev: GenerationState) => ({
         ...prev,
         currentStep: 'keyword_analyzing',
         status: 'pending', // Reset status for new generation
-        steps: prev.steps.map((step: GenerationStep) => ({ ...step, status: 'pending' as StepStatus, message: undefined })),
+        flowType: flowType, // Set flow type from request
+        steps: newSteps.map((step: GenerationStep) => ({ ...step, status: 'pending' as StepStatus, message: undefined })),
         personas: undefined,
         themes: undefined,
         researchPlan: undefined,

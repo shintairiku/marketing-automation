@@ -42,6 +42,7 @@ interface CompactUserInteractionProps {
   onRegenerate?: () => void;
   onEditAndProceed?: (editedContent: any) => void;
   isWaiting?: boolean;
+  flowType?: 'outline_first' | 'research_first';
 }
 
 export default function CompactUserInteraction({
@@ -54,7 +55,8 @@ export default function CompactUserInteraction({
   onApprove,
   onRegenerate,
   onEditAndProceed,
-  isWaiting = false
+  isWaiting = false,
+  flowType = 'research_first'
 }: CompactUserInteractionProps) {
   
   // Debug props
@@ -558,7 +560,7 @@ export default function CompactUserInteraction({
                 </Button>
                 
                 <div className="text-sm text-muted-foreground">
-                  {getThemeSelectionMessage()}
+                  {getThemeSelectionMessage(flowType)}
                 </div>
               </div>
             )}
@@ -841,7 +843,7 @@ export default function CompactUserInteraction({
                   disabled={isWaiting}
                 >
                   <Check className="w-4 h-4" />
-                  {getOutlineApprovalMessage()}
+                  {getOutlineApprovalMessage(flowType)}
                   <ChevronRight className="w-4 h-4" />
                 </Button>
               </div>

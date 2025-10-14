@@ -56,6 +56,7 @@ export interface GenerationState {
   currentStep: string;
   steps: GenerationStep[];
   status?: string; // Process status from backend (e.g., 'running', 'user_input_required', 'completed')
+  flowType?: 'research_first' | 'outline_first'; // Flow type for step order determination
   personas?: PersonaOption[];
   themes?: ThemeOption[];
   researchPlan?: any;
