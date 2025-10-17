@@ -2,26 +2,26 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-// Import types from the new types file
-import { 
+import {
   CompletedSection,
-  GenerationState, 
-  GenerationStep, 
-  PersonaData, 
+  GenerationState,
+  GenerationStep,
+  PersonaData,
   ProcessData,
-  ResearchProgress, 
+  ResearchProgress,
   SectionsProgress,
   StepStatus,
-  ThemeData} from '@/types/article-generation';
-import { 
+  ThemeData,
+} from '@/types/article-generation';
+import {
+  FlowType,
   getNextStepAfterOutline,
-  getNextStepAfterResearch, 
+  getNextStepAfterResearch,
   getNextStepAfterTheme,
-  FlowType
 } from '@/utils/flow-config';
 import { useAuth } from '@clerk/nextjs';
 
-import { ProcessEvent,useSupabaseRealtime } from './useSupabaseRealtime';
+import { ProcessEvent, useSupabaseRealtime } from './useSupabaseRealtime';
 
 interface UseArticleGenerationRealtimeOptions {
   processId?: string;
@@ -385,7 +385,7 @@ export const useArticleGenerationRealtime = ({
       
       return next;
     });
-  }, [setValidatedState, mapBackendStepToUIStep]);
+  }, [setValidatedState, mapBackendStepToUIStep, getInitialSteps]);
 
   // Connection state
   const [connectionState, setConnectionState] = useState({
@@ -972,7 +972,7 @@ export const useArticleGenerationRealtime = ({
       }));
       throw error;
     }
-  }, [getToken, setValidatedState]);
+  }, [getToken, setValidatedState, getInitialSteps]);
 
   const submitUserInput = useCallback(async (inputData: any) => {
     if (!processId) {

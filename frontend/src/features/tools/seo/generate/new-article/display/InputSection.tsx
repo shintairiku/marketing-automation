@@ -1,22 +1,23 @@
 "use client";
-import { useEffect,useState } from 'react';
-import Link from 'next/link';
-import { ChevronDown, ChevronUp, Image, ListTree, Palette, Plus, Settings, X, Zap } from "lucide-react";
-import { IoRefresh, IoSparkles } from "react-icons/io5";
 
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Slider } from "@/components/ui/slider";
-import { Switch } from "@/components/ui/switch";
-import { Textarea } from "@/components/ui/textarea";
+import { useEffect, useState } from 'react';
+import Link from 'next/link';
+import { ChevronDown, ChevronUp, Image, ListTree, Palette, Plus, Settings, X, Zap } from 'lucide-react';
+import { IoRefresh, IoSparkles } from 'react-icons/io5';
+
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Slider } from '@/components/ui/slider';
+import { Switch } from '@/components/ui/switch';
+import { Textarea } from '@/components/ui/textarea';
 import { useDefaultCompany } from '@/hooks/useDefaultCompany';
+import { FLOW_METADATA, FlowType } from '@/utils/flow-config';
 import { useAuth } from '@clerk/nextjs';
-import { FlowType, FLOW_METADATA } from '@/utils/flow-config';
 
 interface InputSectionProps {
   onStartGeneration: (data: any) => void;
