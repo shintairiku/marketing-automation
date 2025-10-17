@@ -116,6 +116,8 @@ export const useArticleGenerationRealtime = ({
     const validStepInputTypes: Record<string, string[]> = {
       'persona_generating': ['select_persona'],
       'theme_generating': ['select_theme'],
+      // 注意(legacy-flow): 統合前のリサーチ計画承認待ちに対応
+      'researching': ['approve_plan'],
       'outline_generating': ['approve_outline'],
     };
     
@@ -159,8 +161,18 @@ export const useArticleGenerationRealtime = ({
             sanitizedState.inputType = undefined;
           }
           break;
-          
-        // approve_plan removed: integrated research no longer requires plan approval
+        
+        case 'approve_plan':
+          // 注意(legacy-flow): リサーチ計画が存在しない、またはステップが一致しない場合は待機状態を解除
+          if (!sanitizedState.researchPlan || sanitizedState.currentStep !== 'researching') {
+            console.log('🔒 Clearing invalid plan approval state:', {
+              hasResearchPlan: !!sanitizedState.researchPlan,
+              currentStep: sanitizedState.currentStep
+            });
+            sanitizedState.isWaitingForInput = false;
+            sanitizedState.inputType = undefined;
+          }
+          break;
           
         case 'approve_outline':
           // More lenient check: only clear if we're clearly not in outline phase
@@ -187,9 +199,12 @@ export const useArticleGenerationRealtime = ({
     // Note: outline_generating is removed as it requires user approval for the generated outline
     const nonInteractiveSteps = ['keyword_analyzing', 'researching', 'research_completed', 'writing_sections', 'editing', 'completed', 'error'];
     if (nonInteractiveSteps.includes(sanitizedState.currentStep) && sanitizedState.isWaitingForInput) {
-      console.log('🔒 Clearing input state for non-interactive step:', sanitizedState.currentStep);
-      sanitizedState.isWaitingForInput = false;
-      sanitizedState.inputType = undefined;
+      // 注意(legacy-flow): リサーチ計画承認待ちの場合は待機状態を維持する
+      if (!(sanitizedState.currentStep === 'researching' && sanitizedState.inputType === 'approve_plan')) {
+        console.log('🔒 Clearing input state for non-interactive step:', sanitizedState.currentStep);
+        sanitizedState.isWaitingForInput = false;
+        sanitizedState.inputType = undefined;
+      }
     }
     
     return sanitizedState;
@@ -236,6 +251,8 @@ export const useArticleGenerationRealtime = ({
       'theme_generating': 'theme_generating',
       'theme_proposed': 'theme_generating', // Keep as generating until selected
       'theme_selected': 'theme_generating', // Keep as generating, actual transition handled in ingestProcessData
+      // 注意(legacy-flow): 旧リサーチ計画承認待ちステップは研究フェーズの一部として扱う
+      'research_plan_generated': 'researching',
       
       // Research Execution Phase (Integrated)
       'researching': 'researching', // Unified research step
@@ -264,7 +281,7 @@ export const useArticleGenerationRealtime = ({
     // Handle special cases based on status
     if (status === 'user_input_required') {
       // Keep current step when waiting for user input
-      const inputSteps = ['persona_generated', 'theme_proposed', 'outline_generated'];
+      const inputSteps = ['persona_generated', 'theme_proposed', 'research_plan_generated', 'outline_generated'];
       if (inputSteps.includes(backendStep)) {
         return stepMapping[backendStep] || 'keyword_analyzing';
       }
@@ -545,7 +562,14 @@ export const useArticleGenerationRealtime = ({
                   return step;
                 });
                 break;
-              // approve_plan case removed: integrated research no longer requires plan approval
+              case 'approve_plan':
+                // 注意(legacy-flow): 計画承認後は研究ステップを開始（もしくは再開）する
+                newState.currentStep = 'researching';
+                newState.steps = newState.steps.map((step: GenerationStep) => {
+                  if (step.id === 'researching') return { ...step, status: 'in_progress' as StepStatus };
+                  return step;
+                });
+                break;
               case 'approve_outline':
                 // 現在の状態からflowTypeを取得
                 const currentFlowTypeOutline = newState.flowType || 'research_first';
