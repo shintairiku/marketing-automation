@@ -97,6 +97,8 @@ class ArticleContext:
         "error"
     ] = "start"
     selected_theme: Optional[ThemeIdea] = None
+    # 注意(legacy-flow): 旧リサーチフロー（複数ステップ）で保存されたプロセスを復元するために残しています。
+    # 現行フローでは `research_report` を直接利用します。
     research_plan: Optional[ResearchPlan] = None
     current_research_query_index: int = 0
     research_query_results: List[ResearchQueryResult] = field(default_factory=list)
@@ -118,6 +120,8 @@ class ArticleContext:
     last_response_id: Optional[str] = None
 
     # --- 進捗追跡関連 ---
+    # 注意(legacy-flow): 廃止されたプランナー／リサーチャーステージの進捗管理を
+    # 後方互換のために保持しています。
     research_progress: Optional[Dict[str, Any]] = None # リサーチ進捗状況
     executing_step: Optional[str] = None  # 現在実行中のステップ（重複実行防止用）
     sections_progress: Optional[Dict[str, Any]] = None # セクション執筆進捗状況
@@ -152,6 +156,8 @@ class ArticleContext:
 
     def reset_after_theme_selection(self) -> None:
         """テーマを変更した際に、リサーチ・アウトライン以降の状態を初期化する。"""
+        # 注意(legacy-flow): 旧プランナー／リサーチャーフローで作成されたスナップショットを
+        # 現行フローでも安全に復元できるよう、当時のフィールドをクリアします。
         self.research_plan = None
         self.research_progress = None
         self.research_query_results = []

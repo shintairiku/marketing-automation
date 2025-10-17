@@ -386,6 +386,7 @@ class BackgroundTaskManager:
                     # Check if current step requires user input
                     # IMPORTANT: Save snapshot BEFORE breaking the loop for user input steps!
                     if context.current_step in ['persona_generated', 'theme_proposed', 'research_plan_generated', 'outline_generated']:
+                        # 注意(legacy-flow): `research_plan_generated` は統合前に作成されたセッションに対応するため残しています。
                         logger.info(f"👤 [TASK {task_id}] Step {current_step} requires user input")
 
                         # Save snapshot for this decision point BEFORE waiting for user input
@@ -538,6 +539,8 @@ class BackgroundTaskManager:
     
     async def _execute_research_with_progress(self, context: ArticleContext, process_id: str):
         """Execute research with progress events (parallel execution)"""
+        # 注意(legacy-flow): 進捗通知付きの実行経路は `research_plan` の存在を前提としており、
+        # これは旧来のプロセスに限定されます。
         
         if not context.research_plan or not hasattr(context.research_plan, 'queries'):
             raise Exception("No research plan available")
@@ -641,7 +644,7 @@ class BackgroundTaskManager:
             }
         )
         
-        # Move to synthesis
+        
         context.current_step = "research_synthesizing"
         
         # Publish synthesis start event
@@ -735,6 +738,7 @@ class BackgroundTaskManager:
                     }
             elif context.current_step == "research_plan_generated":
                 input_type = "approve_plan"
+                # 注意(legacy-flow): 承認 UI は統合前に作成されたセッションに対してのみ必要です。
                 if hasattr(context, 'research_plan') and context.research_plan:
                     input_data = {"plan": context.research_plan.dict() if hasattr(context.research_plan, 'dict') else str(context.research_plan)}
             elif context.current_step == "outline_generated":
@@ -912,6 +916,7 @@ class BackgroundTaskManager:
                 elif context.current_step == "research_plan_generated":
                     context.current_step = "researching"
                     context.research_plan = None
+                    # 注意(legacy-flow): リサーチ計画の再生成は統合前セッションに対してのみ適用されます。
                     logger.info("Regenerating research from research_plan_generated step")
                 elif context.current_step == "outline_generated":
                     context.current_step = "outline_generating"

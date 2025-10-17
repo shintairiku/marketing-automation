@@ -168,6 +168,8 @@ def create_theme_instructions(base_prompt: str) -> Callable[[RunContextWrapper[A
         return full_prompt
     return dynamic_instructions_func
 
+# 注意(legacy-flow): 過去のマルチステップリサーチフロー
+# （プランナー→リサーチャー→シンセサイザー）との後方互換性のために保持しています。
 def create_research_planner_instructions(base_prompt: str) -> Callable[[RunContextWrapper[ArticleContext], Agent[ArticleContext]], Awaitable[str]]:
     async def dynamic_instructions_func(ctx: RunContextWrapper[ArticleContext], agent: Agent[ArticleContext]) -> str:
         if not ctx.context.selected_theme:
@@ -228,6 +230,8 @@ def create_research_planner_instructions(base_prompt: str) -> Callable[[RunConte
         return full_prompt
     return dynamic_instructions_func
 
+# 注意(legacy-flow): 過去のマルチステップリサーチフロー
+# （プランナー→リサーチャー→シンセサイザー）との後方互換性のために保持しています。
 def create_researcher_instructions(base_prompt: str) -> Callable[[RunContextWrapper[ArticleContext], Agent[ArticleContext]], Awaitable[str]]:
     async def dynamic_instructions_func(ctx: RunContextWrapper[ArticleContext], agent: Agent[ArticleContext]) -> str:
         if not ctx.context.research_plan or ctx.context.current_research_query_index >= len(ctx.context.research_plan.queries):
@@ -268,6 +272,8 @@ def create_researcher_instructions(base_prompt: str) -> Callable[[RunContextWrap
         return full_prompt
     return dynamic_instructions_func
 
+# 注意(legacy-flow): 過去のマルチステップリサーチフロー
+# （プランナー→リサーチャー→シンセサイザー）との後方互換性のために保持しています。
 def create_research_synthesizer_instructions(base_prompt: str) -> Callable[[RunContextWrapper[ArticleContext], Agent[ArticleContext]], Awaitable[str]]:
     async def dynamic_instructions_func(ctx: RunContextWrapper[ArticleContext], agent: Agent[ArticleContext]) -> str:
         if not ctx.context.research_query_results:
@@ -1257,6 +1263,8 @@ RESEARCH_PLANNER_AGENT_BASE_PROMPT = """
 あなたは優秀なリサーチプランナーです。
 与えられた記事テーマに基づき、そのテーマを深く掘り下げ、読者が知りたいであろう情報を網羅するための効果的なWeb検索クエリプランを作成します。
 """
+# 注意(legacy-flow): 旧来のフローで専用プランニングステップを呼び出すケースに対応するため、
+# 現行の `research_agent` が推奨であっても公開インターフェースとして残しています。
 research_planner_agent = Agent[ArticleContext](
     name="ResearchPlannerAgent",
     instructions=create_research_planner_instructions(RESEARCH_PLANNER_AGENT_BASE_PROMPT),
@@ -1272,6 +1280,8 @@ RESEARCHER_AGENT_BASE_PROMPT = """
 記事テーマに関連する具体的で信頼できる情報、データ、主張、引用を詳細に抽出し、最も適切な出典元URLとタイトルを特定して、指定された形式で返します。
 必ず web_search ツールを使用してください。
 """
+# 注意(legacy-flow): 旧来のフローで専用リサーチステップを呼び出すケースに対応するため、
+# 現行の `research_agent` が推奨であっても公開インターフェースとして残しています。
 researcher_agent = Agent[ArticleContext](
     name="ResearcherAgent",
     instructions=create_researcher_instructions(RESEARCHER_AGENT_BASE_PROMPT),
@@ -1287,6 +1297,8 @@ RESEARCH_SYNTHESIZER_AGENT_BASE_PROMPT = """
 各キーポイントについて、記事作成者がすぐに活用できる実用的で詳細なリサーチレポートを作成します。
 ※ 出典情報は不要です。URLを含めないでください。
 """
+# 注意(legacy-flow): 旧来のフローで専用統合ステップを呼び出すケースに対応するため、
+# 現行の `research_agent` が推奨であっても公開インターフェースとして残しています。
 research_synthesizer_agent = Agent[ArticleContext](
     name="ResearchSynthesizerAgent",
     instructions=create_research_synthesizer_instructions(RESEARCH_SYNTHESIZER_AGENT_BASE_PROMPT),
@@ -1311,6 +1323,10 @@ OUTLINE_AGENT_BASE_PROMPT = """
 - ターゲットキーワードが自然に組み込まれた見出し
 - 読者の疑問や関心に直接的に答える見出し設定
 
+**必須ルール:**
+- 必ず `web_search` ツールを用いて、競合記事や最新の関連情報を調査してください。
+- 既存のリサーチ結果があっても、補足情報を探す目的で Web 検索を一度は実行してください。
+
 **記事全体のトーン設定:**
 企業のスタイルガイドが設定されている場合はそれに従い、未設定の場合は読者ペルソナに最適なトーンを提案します。
 """
@@ -1318,6 +1334,7 @@ outline_agent = Agent[ArticleContext](
     name="OutlineAgent",
     instructions=create_outline_instructions(OUTLINE_AGENT_BASE_PROMPT),
     model=settings.writing_model,
+    model_settings=ModelSettings(tool_choice="web_search_preview"),
     tools=[web_search_tool],
     output_type=Union[Outline, ClarificationNeeded],
 )

@@ -66,6 +66,10 @@ except ImportError as e:
     NOTION_SYNC_ENABLED = False
 
 # ステップ分類定数 - 完全なステップカバレッジ
+# 注意(legacy-flow): 旧リサーチステップ（`research_planning` / `research_plan_generated` /
+# `research_plan_approved` / `research_synthesizing` / `research_report_generated`）に対応するための定義です。
+# Supabase 上の既存データが参照する可能性があるため、現在のフローが `researching` ↔ `research_completed`
+# のみを利用していても削除せずに残しています。
 AUTONOMOUS_STEPS = {
     'keyword_analyzing', 'keyword_analyzed', 'persona_generating', 'theme_generating',
     'research_planning', 'researching', 'research_completed', 'research_synthesizing', 'research_report_generated',
@@ -630,6 +634,8 @@ class GenerationFlowManager:
 
     async def handle_research_planning_step(self, context: ArticleContext, run_config: RunConfig, process_id: Optional[str] = None, user_id: Optional[str] = None):
         """リサーチ計画ステップの処理"""
+        # 注意(legacy-flow): 実行と計画を分離していた旧フローを再開した場合のみ呼び出されます。
+        # 現行フローではこの処理を通りません。
         console.print(f"[blue]research_planningステップを開始します。selected_theme: {context.selected_theme.title if context.selected_theme else 'None'}[/blue]")
         if not context.selected_theme:
             console.print("[red]テーマが選択されていません。リサーチ計画作成をスキップします。[/red]")
@@ -721,6 +727,8 @@ class GenerationFlowManager:
 
     async def execute_research_planning_background(self, context: "ArticleContext", run_config: RunConfig):
         """リサーチ計画のバックグラウンド実行"""
+        # 注意(legacy-flow): 旧フローとの互換性のために残している処理です。
+        # 統合後のリサーチでは `execute_research_background` を利用します。
         if not context.selected_theme:
             console.print("[red]テーマが選択されていません。リサーチ計画作成をスキップします。[/red]")
             context.current_step = "error"
@@ -741,6 +749,8 @@ class GenerationFlowManager:
 
     async def execute_researching_background(self, context: "ArticleContext", run_config: RunConfig):
         """リサーチのバックグラウンド実行（並列処理）"""
+        # 注意(legacy-flow): 明示的なリサーチ計画とクエリごとのエージェントに依存する旧フロー向けの実装です。
+        # 現行の統合リサーチでは `research_agent` を使用するため、この関数は経由しません。
         if not context.research_plan:
             console.print("[red]承認されたリサーチ計画がありません。リサーチをスキップします。[/red]")
             context.current_step = "error"
@@ -1409,11 +1419,14 @@ class GenerationFlowManager:
     # 追加のステップ処理メソッド（簡略化された実装）
     async def handle_research_plan_generated_step(self, context: ArticleContext, process_id: Optional[str] = None, user_id: Optional[str] = None):
         """リサーチ計画生成完了ステップの処理"""
+        # 注意(legacy-flow): プラン生成と承認の間で停止していた旧セッション向けに残しています。
+        # 統合後のフローではこの状態を通りません。
         # ユーザー入力処理の実装（簡略化）
         console.print("[cyan]リサーチ計画承認待ち[/cyan]")
 
     async def handle_research_plan_approved_step(self, context: ArticleContext, process_id: Optional[str] = None, user_id: Optional[str] = None):
         """リサーチ計画承認ステップの処理"""
+        # 注意(legacy-flow): ユーザーが明示的に計画を承認していた旧パイプラインを再開した場合のみ実行されます。
         context.current_step = "researching"
         console.print("リサーチ実行ステップに進みます...")
         
@@ -1433,6 +1446,8 @@ class GenerationFlowManager:
 
     async def handle_researching_step(self, context: ArticleContext, run_config: RunConfig, process_id: Optional[str] = None, user_id: Optional[str] = None):
         """リサーチ実行ステップの処理"""
+        # 注意(legacy-flow): 旧セッションを再開した際に通る可能性がある処理です。
+        # 統合リサーチでは計画を前提としない `execute_research_background` を使用します。
         if not context.research_plan or not hasattr(context.research_plan, 'queries'):
             await self.service.utils.send_error(context, "リサーチ計画がありません。リサーチをスキップします。")
             context.current_step = "error"
@@ -1555,6 +1570,8 @@ class GenerationFlowManager:
 
     async def execute_research_synthesizing_background(self, context: "ArticleContext", run_config: RunConfig):
         """リサーチ統合のバックグラウンド実行"""
+        # 注意(legacy-flow): 独立した統合ステージへ進む旧データに対応するための処理です。
+        # 統合リサーチでは `research_agent` が直接レポートを返します。
         if not context.research_query_results:
             console.print("[red]リサーチ結果がありません。合成をスキップします。[/red]")
             context.current_step = "error"
@@ -2150,6 +2167,8 @@ class GenerationFlowManager:
 
     async def handle_research_synthesizing_step(self, context: ArticleContext, run_config: RunConfig, process_id: Optional[str] = None, user_id: Optional[str] = None):
         """リサーチ統合ステップの処理"""
+        # 注意(legacy-flow): このステップを明示的に呼び出す旧セッションに対応するために存在します。
+        # 現行フローではすでに `research_report` が用意されている前提です。
         current_agent = research_synthesizer_agent
         agent_input = "収集された詳細なリサーチ結果を分析し、記事執筆のための詳細な要約レポートを作成してください。"
         console.print(f"🤖 {current_agent.name} に詳細リサーチ結果の要約を依頼します...")
@@ -3412,6 +3431,7 @@ class GenerationFlowManager:
                     "current_step": "research_planning"
                 }
             )
+            # 注意(legacy-flow): バックグラウンドでの計画ステップは旧フロー互換のために残しています。
             await self.execute_research_planning_background(context, run_config)
         except Exception as e:
             logger.error(f"Error in research planning step: {e}")

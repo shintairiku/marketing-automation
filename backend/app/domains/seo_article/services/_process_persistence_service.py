@@ -449,6 +449,8 @@ class ProcessPersistenceService:
                 "generated_content": state.get("generated_content", {}),
                 "article_id": state.get("article_id"),
                 "error_message": state.get("error_message"),
+                # 注意(legacy-flow): 旧スナップショットを正しく再開できるよう
+                # `research_plan_generated` も待機状態として扱います。
                 "is_waiting_for_input": context_dict.get("current_step") in ["persona_generated", "theme_proposed", "research_plan_generated", "outline_generated"],
                 "input_type": self.get_input_type_for_step(context_dict.get("current_step")),
                 # 画像モード関連情報を含める
@@ -465,6 +467,7 @@ class ProcessPersistenceService:
 
     def get_input_type_for_step(self, step: str) -> Optional[str]:
         """Get expected input type for a given step"""
+        # 注意(legacy-flow): 旧プロセスが正しい UI を表示できるよう承認ステップをマッピングに残しています。
         step_input_map = {
             "persona_generated": "select_persona",
             "theme_proposed": "select_theme", 
