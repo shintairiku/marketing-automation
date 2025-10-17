@@ -40,6 +40,7 @@ class Settings(BaseSettings):
     default_model: str = os.getenv("DEFAULT_MODEL", "gpt-4o-mini")
     research_model: str = os.getenv("RESEARCH_MODEL", "gpt-5-mini")
     writing_model: str = os.getenv("WRITING_MODEL", "gpt-4o-mini")
+    outline_model: str = os.getenv("OUTLINE_MODEL") or writing_model  # 未指定時は執筆モデルを利用
     editing_model: str = os.getenv("EDITING_MODEL", "gpt-4o-mini")
     
     # Agents SDK specific settings
@@ -170,4 +171,3 @@ def setup_agents_sdk():
 
 # 初期化実行
 setup_agents_sdk()
-

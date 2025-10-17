@@ -1333,7 +1333,7 @@ OUTLINE_AGENT_BASE_PROMPT = """
 outline_agent = Agent[ArticleContext](
     name="OutlineAgent",
     instructions=create_outline_instructions(OUTLINE_AGENT_BASE_PROMPT),
-    model=settings.writing_model,
+    model=settings.outline_model,
     model_settings=ModelSettings(tool_choice="web_search_preview"),
     tools=[web_search_tool],
     output_type=Union[Outline, ClarificationNeeded],
