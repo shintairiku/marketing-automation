@@ -1,8 +1,8 @@
 'use client';
 
 import React from 'react';
-import ReactDiffViewer, { DiffMethod } from 'react-diff-viewer-continued';
 import { Check, X } from 'lucide-react';
+import ReactDiffViewer, { DiffMethod } from 'react-diff-viewer-continued';
 
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';

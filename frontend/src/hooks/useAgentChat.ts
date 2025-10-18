@@ -22,6 +22,12 @@ interface UseAgentChatReturn {
   discardChanges: () => Promise<void>;
   closeSession: () => Promise<void>;
   applyApprovedChanges: () => Promise<{ content: string; applied_count: number; applied_change_ids: string[] }>;
+  extractPendingChanges: () => Promise<any[]>;
+  getPendingChanges: () => Promise<any[]>;
+  approveChange: (changeId: string) => Promise<boolean>;
+  rejectChange: (changeId: string) => Promise<boolean>;
+  clearPendingChanges: () => Promise<void>;
+  getUnifiedDiffView: () => Promise<any>;
 }
 
 export function useAgentChat(articleId: string): UseAgentChatReturn {

@@ -256,7 +256,7 @@ export default function AIAgentEditTab({ articleId, onSave }: AIAgentEditTabProp
         variant: 'destructive',
       });
     }
-  }, [applyApprovedChanges, toast, onSave]);
+  }, [applyApprovedChanges, updateDiffView, toast, onSave]);
 
   const hasApprovedChanges = diffLines.some((line) => line.type === 'change' && line.approved);
   const allApproved = diffLines.filter((line) => line.type === 'change').every((line) => line.approved);
