@@ -51,7 +51,7 @@ export default function InputSection({ onStartGeneration, isConnected, isGenerat
     const [selectedStyleTemplate, setSelectedStyleTemplate] = useState('');
     
     // フロー設定関連の状態
-    const [selectedFlowType, setSelectedFlowType] = useState<FlowType>('research_first');
+    const [selectedFlowType, setSelectedFlowType] = useState<FlowType>('outline_first');
     
     // デフォルト会社情報を取得
     const { company, loading: companyLoading, hasCompany } = useDefaultCompany();
