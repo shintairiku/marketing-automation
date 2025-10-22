@@ -14,6 +14,10 @@ const nextConfig = {
       },
     ],
   },
+  experimental: {
+    // Extend proxy timeout so long-running agent edits don't get reset by Next.js dev/prod proxy.
+    proxyTimeout: 120_000,
+  },
   async rewrites() {
     return [
       {

@@ -819,14 +819,20 @@ def build_text_edit_agent(model: str,
                           *,
                           tool_choice: str = "auto",
                           temperature: Optional[float] = None,
-                          instructions: Optional[str] = None) -> Agent[AppContext]:
+                          instructions: Optional[str] = None,
+                          include_web_search: bool = False,
+                          web_search_tool: Optional[WebSearchTool] = None) -> Agent[AppContext]:
     settings = build_model_settings(tool_choice=tool_choice, temperature=temperature)
+    tools = [read_file, apply_patch]
+    if include_web_search:
+        search_tool = web_search_tool or create_web_search_tool()
+        tools.insert(0, search_tool)
     return Agent[AppContext](
         name="Codex-like Patch Agent",
         instructions=instructions or CODEX_STYLE_INSTRUCTIONS,
         model=model,
         model_settings=settings,
-        tools=[read_file, apply_patch],
+        tools=tools,
     )
 
 

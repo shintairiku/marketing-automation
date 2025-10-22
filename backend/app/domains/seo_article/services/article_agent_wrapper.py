@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 
 SEO_CODEX_INSTRUCTIONS = """
 あなたはSEO記事のHTML編集を専門とする編集エージェントです。
-必ず以下に従ってください。
+必ず以下に従ってください。もし編集指示がない場合は、ツールを呼び出さず、通常会話を続けてください。
 
 # 目的
 - ユーザーの編集指示に基づき、SEO記事（HTMLファイル）の必要箇所のみを編集します。
@@ -32,8 +32,9 @@ SEO_CODEX_INSTRUCTIONS = """
 - HTML構造とタグの整合性を保ちながら内容を改善します。
 
 # 使えるツール
-- read_file(offset, limit_lines, with_line_numbers): 記事の必要箇所を参照するための閲覧ツールです。最初に記事全体を把握してください。
+- read_file(offset, limit_lines, with_line_numbers): 記事の必要箇所を参照するための閲覧ツールです。編集が必要になった際に活用してください。
 - apply_patch(patch): Codex互換の差分パッチを適用します（*** Begin Patch〜*** End Patch）。
+- web_search(query, recency_days=None): 追加情報のリサーチや事実確認が必要な場合にのみ使用してください。
 
 # パッチ仕様（厳守）
 - 全体を `*** Begin Patch` と `*** End Patch` で囲む。
@@ -46,6 +47,8 @@ SEO_CODEX_INSTRUCTIONS = """
 - 「いい感じに」: 冗長な表現を削り、リズム良く読みやすく整える。
 - HTMLタグ（<h1>, <h2>, <p>, <ul>, <li> など）の整合性を保ち、閉じ忘れを避ける。
 - 既存の構造や順序を尊重しつつ、必要な範囲でのみ編集する。
+- 会話のみのリクエストや挨拶にはツールを使わず、通常の対話で応答する。
+- ファクトチェックや根拠が必要な場合は web_search ツールで調査し、結果を簡潔に説明する。
 
 # 出力
 - apply_patch で編集内容を提示し、ファイル全体の生テキストを直接出力しない。
@@ -113,10 +116,13 @@ class ArticleAgentSession:
         self.session_store = agent_module.SQLiteSession(self.session_id)
 
         # エージェントを作成（SEO記事編集用）
+        web_tool = agent_module.create_web_search_tool()
         self.agent = agent_module.build_text_edit_agent(
             model="gpt-5-mini",
             tool_choice="auto",
             instructions=SEO_CODEX_INSTRUCTIONS,
+            include_web_search=True,
+            web_search_tool=web_tool,
         )
 
         # トレースを初期化（セッション全体で1つのトレースを使用）
@@ -149,14 +155,23 @@ class ArticleAgentSession:
                 enhanced_message = user_message
                 if len(self.conversation_history) == 0:
                     file_name = self.article_file.name
-                    enhanced_message = f"""対象ファイル: {file_name}
+                    context_lines = [f"対象ファイル: {file_name}"]
+                    if self.article_title:
+                        context_lines.append(f"記事タイトル: {self.article_title}")
+                    if self.article_metadata:
+                        metadata_json = json.dumps(self.article_metadata, ensure_ascii=False, indent=2)
+                        context_lines.append("記事メタデータ:")
+                        context_lines.append(metadata_json)
 
-まず read_file ツールを使って記事全体を読み込んでください。
-その後、以下のユーザーの編集指示に従ってください：
+                    guidance = (
+                        "補足: 編集や修正が必要な場合のみ read_file と apply_patch を使用してください。"
+                        " 単なる挨拶や雑談には通常の会話で応答し、必要に応じて web_search ツールでリサーチできます。"
+                    )
 
-{user_message}
-
-必ず apply_patch を使って編集を行ってください。"""
+                    context_block = "\n".join(context_lines)
+                    enhanced_message = (
+                        f"{context_block}\n\n{guidance}\n\nユーザーからのメッセージ:\n{user_message}"
+                    )
 
                 self.conversation_history.append({
                     "role": "user",
@@ -172,7 +187,7 @@ class ArticleAgentSession:
                         "article_id": self.article_id,
                         "user_id": self.user_id,
                         "mode": "web-edit",
-                        "message_count": len(self.conversation_history)
+                        "message_count": str(len(self.conversation_history))
                     },
                     tracing_disabled=(self.session_trace is None),
                     model_settings=agent_module.build_model_settings(

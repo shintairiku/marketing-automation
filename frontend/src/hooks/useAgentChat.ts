@@ -4,6 +4,15 @@ import { useCallback, useState } from 'react';
 
 import { useAuth } from '@clerk/nextjs';
 
+const RAW_API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? 'http://localhost:8000';
+const API_BASE_URL = RAW_API_BASE_URL.replace(/\/+$/, '');
+const USE_PROXY = process.env.NEXT_PUBLIC_USE_PROXY === 'true' || process.env.NODE_ENV === 'production';
+
+const buildApiUrl = (path: string) => {
+  const normalizedPath = path.startsWith('/') ? path : `/${path}`;
+  return USE_PROXY ? `/api/proxy${normalizedPath}` : `${API_BASE_URL}${normalizedPath}`;
+};
+
 export interface ChatMessage {
   role: 'user' | 'assistant';
   content: string;
@@ -52,7 +61,7 @@ export function useAgentChat(articleId: string): UseAgentChatReturn {
 
       const headers = await getHeaders();
 
-      const response = await fetch(`/api/proxy/articles/${aid}/agent/session`, {
+      const response = await fetch(buildApiUrl(`/articles/${aid}/agent/session`), {
         method: 'POST',
         headers,
         body: JSON.stringify({}),
@@ -96,7 +105,7 @@ export function useAgentChat(articleId: string): UseAgentChatReturn {
 
         const headers = await getHeaders();
 
-        const response = await fetch(`/api/proxy/articles/${articleId}/agent/session/${sessionId}/chat`, {
+        const response = await fetch(buildApiUrl(`/articles/${articleId}/agent/session/${sessionId}/chat`), {
           method: 'POST',
           headers,
           body: JSON.stringify({ message }),
@@ -128,7 +137,7 @@ export function useAgentChat(articleId: string): UseAgentChatReturn {
 
     const headers = await getHeaders();
 
-    const response = await fetch(`/api/proxy/articles/${articleId}/agent/session/${sessionId}/content`, {
+    const response = await fetch(buildApiUrl(`/articles/${articleId}/agent/session/${sessionId}/content`), {
       headers,
     });
 
@@ -147,7 +156,7 @@ export function useAgentChat(articleId: string): UseAgentChatReturn {
 
     const headers = await getHeaders();
 
-    const response = await fetch(`/api/proxy/articles/${articleId}/agent/session/${sessionId}/diff`, {
+    const response = await fetch(buildApiUrl(`/articles/${articleId}/agent/session/${sessionId}/diff`), {
       headers,
     });
 
@@ -170,7 +179,7 @@ export function useAgentChat(articleId: string): UseAgentChatReturn {
 
     const headers = await getHeaders();
 
-    const response = await fetch(`/api/proxy/articles/${articleId}/agent/session/${sessionId}/save`, {
+    const response = await fetch(buildApiUrl(`/articles/${articleId}/agent/session/${sessionId}/save`), {
       method: 'POST',
       headers,
     });
@@ -187,7 +196,7 @@ export function useAgentChat(articleId: string): UseAgentChatReturn {
 
     const headers = await getHeaders();
 
-    const response = await fetch(`/api/proxy/articles/${articleId}/agent/session/${sessionId}/discard`, {
+    const response = await fetch(buildApiUrl(`/articles/${articleId}/agent/session/${sessionId}/discard`), {
       method: 'POST',
       headers,
     });
@@ -204,7 +213,7 @@ export function useAgentChat(articleId: string): UseAgentChatReturn {
 
     const headers = await getHeaders();
 
-    await fetch(`/api/proxy/articles/${articleId}/agent/session/${sessionId}`, {
+    await fetch(buildApiUrl(`/articles/${articleId}/agent/session/${sessionId}`), {
       method: 'DELETE',
       headers,
     });
@@ -222,7 +231,7 @@ export function useAgentChat(articleId: string): UseAgentChatReturn {
 
     const headers = await getHeaders();
 
-    const response = await fetch(`/api/proxy/articles/${articleId}/agent/session/${sessionId}/extract-changes`, {
+    const response = await fetch(buildApiUrl(`/articles/${articleId}/agent/session/${sessionId}/extract-changes`), {
       method: 'POST',
       headers,
     });
@@ -242,7 +251,7 @@ export function useAgentChat(articleId: string): UseAgentChatReturn {
 
     const headers = await getHeaders();
 
-    const response = await fetch(`/api/proxy/articles/${articleId}/agent/session/${sessionId}/pending-changes`, {
+    const response = await fetch(buildApiUrl(`/articles/${articleId}/agent/session/${sessionId}/pending-changes`), {
       headers,
     });
 
@@ -261,7 +270,7 @@ export function useAgentChat(articleId: string): UseAgentChatReturn {
 
     const headers = await getHeaders();
 
-    const response = await fetch(`/api/proxy/articles/${articleId}/agent/session/${sessionId}/changes/${changeId}/approve`, {
+    const response = await fetch(buildApiUrl(`/articles/${articleId}/agent/session/${sessionId}/changes/${changeId}/approve`), {
       method: 'POST',
       headers,
     });
@@ -281,7 +290,7 @@ export function useAgentChat(articleId: string): UseAgentChatReturn {
 
     const headers = await getHeaders();
 
-    const response = await fetch(`/api/proxy/articles/${articleId}/agent/session/${sessionId}/changes/${changeId}/reject`, {
+    const response = await fetch(buildApiUrl(`/articles/${articleId}/agent/session/${sessionId}/changes/${changeId}/reject`), {
       method: 'POST',
       headers,
     });
@@ -301,7 +310,7 @@ export function useAgentChat(articleId: string): UseAgentChatReturn {
 
     const headers = await getHeaders();
 
-    const response = await fetch(`/api/proxy/articles/${articleId}/agent/session/${sessionId}/apply-approved`, {
+    const response = await fetch(buildApiUrl(`/articles/${articleId}/agent/session/${sessionId}/apply-approved`), {
       method: 'POST',
       headers,
     });
@@ -325,7 +334,7 @@ export function useAgentChat(articleId: string): UseAgentChatReturn {
 
     const headers = await getHeaders();
 
-    const response = await fetch(`/api/proxy/articles/${articleId}/agent/session/${sessionId}/clear-changes`, {
+    const response = await fetch(buildApiUrl(`/articles/${articleId}/agent/session/${sessionId}/clear-changes`), {
       method: 'POST',
       headers,
     });
@@ -342,7 +351,7 @@ export function useAgentChat(articleId: string): UseAgentChatReturn {
 
     const headers = await getHeaders();
 
-    const response = await fetch(`/api/proxy/articles/${articleId}/agent/session/${sessionId}/unified-diff`, {
+    const response = await fetch(buildApiUrl(`/articles/${articleId}/agent/session/${sessionId}/unified-diff`), {
       headers,
     });
 
