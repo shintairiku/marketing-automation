@@ -2199,24 +2199,26 @@ export default function EditArticlePage({ articleId }: EditArticlePageProps) {
         </TabsContent>
       </Tabs>
       
-      {/* 記事メタ情報 */}
-      <Card className="p-6">
-        <h2 className="text-lg font-semibold mb-4">記事情報</h2>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
-          <div>
-            <span className="font-medium text-gray-600">作成日:</span>
-            <p className="text-gray-800">{new Date(article.created_at || '').toLocaleDateString('ja-JP')}</p>
+      {/* 記事メタ情報（AIエージェント編集タブでは非表示） */}
+      {editorView !== 'agent' && (
+        <Card className="p-6">
+          <h2 className="text-lg font-semibold mb-4">記事情報</h2>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+            <div>
+              <span className="font-medium text-gray-600">作成日:</span>
+              <p className="text-gray-800">{new Date(article.created_at || '').toLocaleDateString('ja-JP')}</p>
+            </div>
+            <div>
+              <span className="font-medium text-gray-600">ステータス:</span>
+              <p className="text-gray-800">{article.status}</p>
+            </div>
+            <div>
+              <span className="font-medium text-gray-600">ターゲット:</span>
+              <p className="text-gray-800">{article.target_audience || '未設定'}</p>
+            </div>
           </div>
-          <div>
-            <span className="font-medium text-gray-600">ステータス:</span>
-            <p className="text-gray-800">{article.status}</p>
-          </div>
-          <div>
-            <span className="font-medium text-gray-600">ターゲット:</span>
-            <p className="text-gray-800">{article.target_audience || '未設定'}</p>
-          </div>
-        </div>
-      </Card>
+        </Card>
+      )}
 
       {/* AI Confirmation Toolbar */}
       {editorView === 'blocks' && aiConfirmations.length > 0 && (

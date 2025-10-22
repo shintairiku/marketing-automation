@@ -262,20 +262,19 @@ export default function AIAgentEditTab({ articleId, onSave }: AIAgentEditTabProp
   const allApproved = diffLines.filter((line) => line.type === 'change').every((line) => line.approved);
 
   return (
-    <div className="flex h-[calc(100vh-200px)] gap-4">
+    <div className="flex w-full flex-col gap-6 lg:flex-row lg:gap-8 min-h-[calc(100vh-260px)] lg:h-[calc(100vh-260px)]">
       {/* 左側: 統合差分ビュー */}
-      <div className="flex-1 flex flex-col">
-        {/* ヘッダー */}
-        {hasChanges && (
-          <div className="flex items-center justify-between mb-4 pb-4 border-b">
-            <div>
-              <h3 className="text-lg font-semibold">記事プレビュー（変更確認）</h3>
-              <p className="text-sm text-gray-600">
-                変更箇所が赤/緑でハイライトされています。各変更を承認または拒否してください。
-              </p>
-            </div>
+      <Card className="flex-1 min-h-0 flex flex-col border border-slate-200/70 bg-white/95 p-6 shadow-xl backdrop-blur-sm">
+        <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <h3 className="text-lg font-semibold text-slate-900">記事プレビュー（変更確認）</h3>
+            <p className="text-sm text-slate-500">
+              変更箇所は赤/緑でハイライトされます。必要に応じて承認または拒否を選択してください。
+            </p>
+          </div>
 
-            <div className="flex gap-2">
+          {hasChanges && (
+            <div className="flex flex-wrap items-center gap-2">
               <Button variant="outline" size="sm" onClick={handleRejectAll}>
                 <X className="h-4 w-4 mr-1" />
                 すべて拒否
@@ -288,11 +287,10 @@ export default function AIAgentEditTab({ articleId, onSave }: AIAgentEditTabProp
                 変更を適用
               </Button>
             </div>
-          </div>
-        )}
+          )}
+        </div>
 
-        {/* 差分ビュー */}
-        <Card className="flex-1 overflow-hidden">
+        <div className="flex-1 min-h-0 overflow-hidden rounded-xl border border-slate-100 bg-white/90">
           {diffLines.length > 0 ? (
             <UnifiedDiffViewer
               lines={diffLines}
@@ -300,53 +298,53 @@ export default function AIAgentEditTab({ articleId, onSave }: AIAgentEditTabProp
               onReject={handleReject}
             />
           ) : (
-            <div className="h-full flex items-center justify-center text-center text-gray-500 p-8">
-              <div>
-                <Bot className="h-16 w-16 mx-auto mb-4 text-gray-400" />
-                <p className="text-lg font-medium mb-2">AIエージェント編集</p>
-                <p className="text-sm">
-                  右側のチャットで編集指示を送信してください。
+            <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center text-slate-500">
+              <Bot className="h-16 w-16 text-slate-300" />
+              <div className="space-y-1">
+                <p className="text-base font-medium text-slate-700">AIエージェント編集</p>
+                <p className="text-sm leading-relaxed">
+                  右側のチャットから編集内容を指示してください。
                   <br />
-                  変更が提案されると、ここに記事全体と差分が表示されます。
+                  変更が提案されると、ここにプレビューと差分が表示されます。
                 </p>
               </div>
             </div>
           )}
-        </Card>
-      </div>
+        </div>
+      </Card>
 
       {/* 右側: チャット */}
-      <div className="w-[500px] flex flex-col">
-        <div className="flex items-center gap-2 mb-4">
+      <Card className="flex w-full min-h-[420px] flex-col border border-slate-200/70 bg-white/95 p-6 shadow-xl backdrop-blur-sm lg:w-[420px] xl:w-[480px]">
+        <div className="mb-4 flex items-center gap-2 text-slate-800">
           <Bot className="h-6 w-6 text-blue-600" />
-          <h3 className="text-lg font-semibold">AIエージェント編集</h3>
+          <h3 className="text-lg font-semibold">AIエージェントチャット</h3>
         </div>
 
-        <Card className="flex-1 flex flex-col">
-          {/* メッセージエリア */}
-          <ScrollArea className="flex-1 p-4">
-            <div className="space-y-4">
+        <div className="flex-1 min-h-0 overflow-hidden rounded-xl border border-slate-100 bg-white">
+          <ScrollArea className="h-full">
+            <div className="space-y-4 px-4 py-5">
               {messages.map((msg, idx) => (
                 <div
                   key={idx}
                   className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
                 >
                   <div
-                    className={`max-w-[80%] rounded-lg p-3 ${
+                    className={`max-w-[82%] rounded-2xl px-4 py-3 text-sm leading-relaxed shadow-sm ${
                       msg.role === 'user'
                         ? 'bg-blue-600 text-white'
-                        : 'bg-gray-100 text-gray-900'
+                        : 'bg-slate-100 text-slate-900'
                     }`}
                   >
-                    <div className="text-sm whitespace-pre-wrap">{msg.content}</div>
+                    <div className="whitespace-pre-wrap">{msg.content}</div>
                   </div>
                 </div>
               ))}
 
               {loading && (
-                <div className="flex justify-start">
-                  <div className="bg-gray-100 rounded-lg p-3">
-                    <Loader2 className="h-5 w-5 animate-spin text-gray-600" />
+                <div className="flex justify-start text-slate-500">
+                  <div className="flex items-center gap-2 rounded-2xl bg-slate-100 px-4 py-3 text-sm">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    処理中...
                   </div>
                 </div>
               )}
@@ -354,45 +352,44 @@ export default function AIAgentEditTab({ articleId, onSave }: AIAgentEditTabProp
               <div ref={messagesEndRef} />
             </div>
           </ScrollArea>
+        </div>
 
-          {/* 入力エリア */}
-          <div className="border-t p-4">
-            {error && (
-              <div className="flex items-center gap-2 text-sm text-red-600 mb-2">
-                <AlertCircle className="h-4 w-4" />
-                <span>{error}</span>
-              </div>
-            )}
+        <div className="mt-4 border-t border-slate-100 pt-4">
+          {error && (
+            <div className="mb-3 flex items-center gap-2 rounded-lg border border-red-100 bg-red-50 px-3 py-2 text-sm text-red-600">
+              <AlertCircle className="h-4 w-4" />
+              <span>{error}</span>
+            </div>
+          )}
 
-            <div className="flex gap-2">
-              <Textarea
-                value={userInput}
-                onChange={(e) => setUserInput(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && !e.shiftKey) {
-                    e.preventDefault();
-                    handleSendMessage();
-                  }
-                }}
-                placeholder="例: 「この見出しをもっと分かりやすくして」「誤字脱字をチェックして」"
-                className="flex-1 min-h-[60px] resize-none"
-                disabled={loading || !sessionId}
-              />
+          <div className="flex flex-col gap-2">
+            <Textarea
+              value={userInput}
+              onChange={(e) => setUserInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault();
+                  handleSendMessage();
+                }
+              }}
+              placeholder="例: 「この見出しをもっと分かりやすくして」「誤字脱字をチェックして」"
+              className="min-h-[80px] flex-1 resize-none border-slate-200 focus-visible:ring-blue-500"
+              disabled={loading || !sessionId}
+            />
+            <div className="flex items-center justify-between text-xs text-slate-500">
+              <span>Shift+Enter で改行、Enter で送信</span>
               <Button
                 onClick={handleSendMessage}
                 disabled={loading || !userInput.trim() || !sessionId}
-                className="self-end"
+                className="px-4"
               >
                 <Send className="h-4 w-4" />
+                <span className="ml-2">送信</span>
               </Button>
             </div>
-
-            <div className="text-xs text-gray-500 mt-2">
-              Shift+Enter で改行、Enter で送信
-            </div>
           </div>
-        </Card>
-      </div>
+        </div>
+      </Card>
     </div>
   );
 }
