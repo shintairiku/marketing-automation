@@ -262,10 +262,10 @@ export default function AIAgentEditTab({ articleId, onSave }: AIAgentEditTabProp
   const allApproved = diffLines.filter((line) => line.type === 'change').every((line) => line.approved);
 
   return (
-    <div className="flex w-full flex-col gap-6 lg:flex-row lg:gap-8 min-h-[calc(100vh-260px)] lg:h-[calc(100vh-260px)]">
+    <div className="flex w-full flex-col gap-5 lg:flex-row lg:gap-6 min-h-[calc(100vh-220px)] lg:h-[calc(100vh-220px)]">
       {/* 左側: 統合差分ビュー */}
-      <Card className="flex-1 min-h-0 flex flex-col border border-slate-200/70 bg-white/95 p-6 shadow-xl backdrop-blur-sm">
-        <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+      <Card className="flex-1 min-h-0 flex flex-col border border-slate-200/70 bg-white/95 p-4 md:p-5 shadow-xl backdrop-blur-sm">
+        <div className="mb-5 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
           <div>
             <h3 className="text-lg font-semibold text-slate-900">記事プレビュー（変更確認）</h3>
             <p className="text-sm text-slate-500">
@@ -290,7 +290,7 @@ export default function AIAgentEditTab({ articleId, onSave }: AIAgentEditTabProp
           )}
         </div>
 
-        <div className="flex-1 min-h-0 overflow-hidden rounded-xl border border-slate-100 bg-white/90">
+        <div className="flex-1 min-h-0 overflow-hidden rounded-xl border border-slate-100 bg-white/95">
           {diffLines.length > 0 ? (
             <UnifiedDiffViewer
               lines={diffLines}
@@ -314,15 +314,15 @@ export default function AIAgentEditTab({ articleId, onSave }: AIAgentEditTabProp
       </Card>
 
       {/* 右側: チャット */}
-      <Card className="flex w-full min-h-[420px] flex-col border border-slate-200/70 bg-white/95 p-6 shadow-xl backdrop-blur-sm lg:w-[420px] xl:w-[480px]">
-        <div className="mb-4 flex items-center gap-2 text-slate-800">
+      <Card className="flex w-full min-h-[420px] max-w-full flex-col border border-slate-200/70 bg-white/95 p-4 md:p-6 shadow-xl backdrop-blur-sm lg:w-[460px] lg:max-w-[520px] xl:w-[520px]">
+        <div className="mb-3 flex items-center gap-2 text-slate-800 md:mb-4">
           <Bot className="h-6 w-6 text-blue-600" />
           <h3 className="text-lg font-semibold">AIエージェントチャット</h3>
         </div>
 
         <div className="flex-1 min-h-0 overflow-hidden rounded-xl border border-slate-100 bg-white">
           <ScrollArea className="h-full">
-            <div className="space-y-4 px-4 py-5">
+            <div className="space-y-4 px-4 py-4 md:py-5">
               {messages.map((msg, idx) => (
                 <div
                   key={idx}
