@@ -457,7 +457,7 @@ def ensure_session_trace(
     return trace_obj, True
 
 
-@function_tool
+@function_tool(strict_mode=False)
 def read_file(context: RunContextWrapper[AppContext],
               offset: int = 1,
               limit_lines: int = 400,
@@ -479,11 +479,11 @@ def read_file(context: RunContextWrapper[AppContext],
     end = min(len(lines), start - 1 + max(1, int(limit_lines)))
     view = lines[start-1:end]
     if with_line_numbers:
-        view = [f"{i+start:>6}: {ln}" for i, ln in enumerate(view)]
+        view = [f"{i+start}: {ln}" for i, ln in enumerate(view)]
     header = f"# File: {rel_to(app.root, target)}\n# Showing lines {start}..{end} of {len(lines)}\n"
     return header + "\n".join(view)
 
-@function_tool
+@function_tool(strict_mode=False)
 def apply_patch(context: RunContextWrapper[AppContext], patch: str) -> str:
     """
     Codex 互換 apply_patch を適用します（Add/Update/Delete/Move, @@ 対応）。

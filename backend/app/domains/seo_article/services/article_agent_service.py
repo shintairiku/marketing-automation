@@ -738,17 +738,39 @@ def make_run_config(*,
     )
 
 
-@function_tool
+@function_tool(strict_mode=False)
 def read_file(context: RunContextWrapper[AppContext],
-              offset: int = 1,
-              limit_lines: int = 400,
-              with_line_numbers: bool = True) -> str:
+              offset: int | str = 1,
+              limit_lines: int | str = 400,
+              with_line_numbers: bool | str = True,
+              *extra_args,
+              **extra_kwargs) -> str:
     """
     単一ファイルの内容を読み出します（1始まり）。
     - offset: 開始行（1-based）
     - limit_lines: 取得行数
     - with_line_numbers: 行番号付き
     """
+    def _parse_int(value, default):
+        if isinstance(value, int):
+            return value
+        if isinstance(value, str):
+            stripped = value.strip()
+            if stripped.isdigit():
+                return int(stripped)
+        return default
+
+    def _parse_bool(value, default):
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, str):
+            lowered = value.strip().lower()
+            if lowered in {"true", "t", "yes", "1"}:
+                return True
+            if lowered in {"false", "f", "no", "0"}:
+                return False
+        return default
+
     app: AppContext = context.context
     target = app.target_path
     lines = read_text_lines(target)
@@ -756,15 +778,15 @@ def read_file(context: RunContextWrapper[AppContext],
         header = f"# File: {rel_to(app.root, target)} (empty or missing)\n"
         return header
 
-    start = max(1, int(offset))
-    end = min(len(lines), start - 1 + max(1, int(limit_lines)))
+    start = max(1, _parse_int(offset, 1))
+    end = min(len(lines), start - 1 + max(1, _parse_int(limit_lines, 400)))
     view = lines[start-1:end]
-    if with_line_numbers:
-        view = [f"{i+start:>6}: {ln}" for i, ln in enumerate(view)]
+    if _parse_bool(with_line_numbers, True):
+        view = [f"{i+start}: {ln}" for i, ln in enumerate(view)]
     header = f"# File: {rel_to(app.root, target)}\n# Showing lines {start}..{end} of {len(lines)}\n"
     return header + "\n".join(view)
 
-@function_tool
+@function_tool(strict_mode=False)
 def apply_patch(context: RunContextWrapper[AppContext], patch: str) -> str:
     """
     Codex 互換 apply_patch を適用します（Add/Update/Delete/Move, @@ 対応）。
