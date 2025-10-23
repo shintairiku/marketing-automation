@@ -1,14 +1,21 @@
 'use client';
 
-import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { AlertCircle, Bot, Check, Loader2, Send, X } from 'lucide-react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { AlertCircle, Bot, Check, Loader2, Plus, Send, X } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/hooks/use-toast';
-import { useAgentChat } from '@/hooks/useAgentChat';
+import { useAgentChat, type AgentSessionSummary } from '@/hooks/useAgentChat';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 
 import UnifiedDiffViewer from './UnifiedDiffViewer';
 
@@ -33,7 +40,10 @@ export default function AIAgentEditTab({ articleId, onSave }: AIAgentEditTabProp
     loading,
     error,
     sessionId,
-    createSession,
+    initializeSession,
+    startNewSession,
+    activateSession,
+    sessions,
     sendMessage,
     extractPendingChanges,
     approveChange,
@@ -41,7 +51,6 @@ export default function AIAgentEditTab({ articleId, onSave }: AIAgentEditTabProp
     applyApprovedChanges,
     clearPendingChanges,
     getUnifiedDiffView,
-    closeSession,
   } = useAgentChat(articleId);
 
   const { toast } = useToast();
@@ -50,6 +59,57 @@ export default function AIAgentEditTab({ articleId, onSave }: AIAgentEditTabProp
   const [hasChanges, setHasChanges] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
+  const activeSession = useMemo(
+    () => sessions.find((session) => session.session_id === sessionId),
+    [sessions, sessionId]
+  );
+
+  const formatSessionLabel = useCallback((session: AgentSessionSummary) => {
+      const timestamp = session.last_activity_at
+        ? new Date(session.last_activity_at).toLocaleString('ja-JP', {
+            month: '2-digit',
+            day: '2-digit',
+            hour: '2-digit',
+            minute: '2-digit',
+          })
+        : '';
+      const prefix = session.status === 'active' ? 'アクティブ' : '履歴';
+      const summary = session.summary ? session.summary : '（メッセージなし）';
+      return `${prefix}${timestamp ? `・${timestamp}` : ''}｜${summary}`;
+  }, []);
+
+  const handleSessionSelect = useCallback(
+    async (value: string) => {
+      if (!value || value === sessionId) return;
+      try {
+        setDiffLines([]);
+        setHasChanges(false);
+        await activateSession(value);
+      } catch (err) {
+        toast({
+          title: 'エラー',
+          description: 'セッションの切り替えに失敗しました',
+          variant: 'destructive',
+        });
+      }
+    },
+    [activateSession, sessionId, toast]
+  );
+
+  const handleStartNewSession = useCallback(async () => {
+    try {
+      setDiffLines([]);
+      setHasChanges(false);
+      await startNewSession();
+    } catch (err) {
+      toast({
+        title: 'エラー',
+        description: '新しい会話の開始に失敗しました',
+        variant: 'destructive',
+      });
+    }
+  }, [startNewSession, toast]);
+
   // セッション作成（マウント時のみ）
   useEffect(() => {
     let mounted = true;
@@ -57,7 +117,7 @@ export default function AIAgentEditTab({ articleId, onSave }: AIAgentEditTabProp
     const initSession = async () => {
       if (!sessionId && mounted) {
         try {
-          await createSession(articleId);
+          await initializeSession();
         } catch (err: any) {
           if (mounted) {
             toast({
@@ -74,16 +134,6 @@ export default function AIAgentEditTab({ articleId, onSave }: AIAgentEditTabProp
 
     return () => {
       mounted = false;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // アンマウント時のクリーンアップ
-  useEffect(() => {
-    return () => {
-      if (sessionId) {
-        closeSession();
-      }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -319,6 +369,48 @@ export default function AIAgentEditTab({ articleId, onSave }: AIAgentEditTabProp
           <Bot className="h-6 w-6 text-blue-600" />
           <h3 className="text-lg font-semibold">AIエージェントチャット</h3>
         </div>
+
+        <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <Select
+            value={sessionId ?? undefined}
+            onValueChange={handleSessionSelect}
+            disabled={loading || sessions.length === 0}
+          >
+            <SelectTrigger className="w-full md:w-72">
+              <SelectValue placeholder="会話を選択" />
+            </SelectTrigger>
+            <SelectContent>
+              {sessions.length > 0 ? (
+                sessions.map((session) => (
+                  <SelectItem key={session.session_id} value={session.session_id}>
+                    {formatSessionLabel(session)}
+                  </SelectItem>
+                ))
+              ) : (
+                <SelectItem value="__empty" disabled>
+                  会話履歴はまだありません
+                </SelectItem>
+              )}
+            </SelectContent>
+          </Select>
+
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleStartNewSession}
+            disabled={loading}
+            className="md:w-auto"
+          >
+            <Plus className="h-4 w-4 mr-2" />
+            新しい会話
+          </Button>
+        </div>
+
+        {activeSession && (
+          <p className="mb-3 text-xs text-slate-500 line-clamp-2 md:mb-4">
+            {activeSession.summary || '（メッセージなし）'}
+          </p>
+        )}
 
         <div className="flex-1 min-h-0 overflow-hidden rounded-xl border border-slate-100 bg-white">
           <ScrollArea className="h-full">

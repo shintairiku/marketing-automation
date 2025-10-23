@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 import os
 from pathlib import Path
+import tempfile
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import Field
 from dotenv import load_dotenv
@@ -94,6 +95,14 @@ class Settings(BaseSettings):
     enable_tracing: bool = os.getenv("OPENAI_AGENTS_ENABLE_TRACING", "true").lower() == "true"
     trace_include_sensitive_data: bool = os.getenv("OPENAI_AGENTS_TRACE_INCLUDE_SENSITIVE_DATA", "false").lower() == "true"
 
+    # Agent session persistence settings
+    agent_session_storage_dir: str = Field(
+        default_factory=lambda: os.getenv(
+            "AGENT_SESSION_STORAGE_DIR",
+            str(Path(tempfile.gettempdir()) / "openai-agent-sessions")
+        )
+    )
+
     model_config = SettingsConfigDict(
         env_file=[
             '.env',
@@ -167,4 +176,3 @@ def setup_agents_sdk():
 
 # 初期化実行
 setup_agents_sdk()
-

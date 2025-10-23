@@ -2158,14 +2158,25 @@ async def delete_version(
 
 class AgentSessionCreateRequest(BaseModel):
     """エージェントセッション作成リクエスト"""
-    pass
+    resume_existing: bool = True
+
+
+class AgentChatMessage(BaseModel):
+    """エージェントとのメッセージ"""
+    role: str
+    content: str
+    created_at: Optional[str] = None
 
 
 class AgentSessionResponse(BaseModel):
     """エージェントセッションレスポンス"""
     session_id: str
     article_id: str
+    status: str
+    summary: Optional[str] = None
+    last_activity_at: Optional[str] = None
     created_at: str = Field(default_factory=lambda: datetime.utcnow().isoformat())
+    messages: List[AgentChatMessage] = Field(default_factory=list)
 
 
 class AgentChatRequest(BaseModel):
@@ -2176,7 +2187,26 @@ class AgentChatRequest(BaseModel):
 class AgentChatResponse(BaseModel):
     """エージェントチャットレスポンス"""
     message: str
-    conversation_history: List[Dict[str, Any]]
+    conversation_history: List[AgentChatMessage]
+
+
+class AgentSessionDetailResponse(BaseModel):
+    """既存セッションの詳細"""
+    session_id: str
+    article_id: str
+    status: str
+    summary: Optional[str] = None
+    last_activity_at: Optional[str]
+    messages: List[AgentChatMessage]
+
+
+class AgentSessionSummary(BaseModel):
+    """セッション一覧のサマリー"""
+    session_id: str
+    status: str
+    summary: Optional[str] = None
+    created_at: Optional[str] = None
+    last_activity_at: Optional[str] = None
 
 
 @router.post("/{article_id}/agent/session", response_model=AgentSessionResponse, status_code=status.HTTP_201_CREATED)
@@ -2197,12 +2227,27 @@ async def create_agent_session(
 
         session_id = await agent_service.create_session(
             article_id=article_id,
-            user_id=user_id
+            user_id=user_id,
+            resume_existing=request.resume_existing
         )
+
+        detail = await agent_service.get_active_session_detail(article_id, user_id)
+        detail_messages = detail.get("messages", []) if detail else await agent_service.get_conversation_history(session_id)
+        status_value = detail.get("status") if detail else "active"
+        summary_value = detail.get("summary") if detail else None
+        last_activity_value = detail.get("last_activity_at") if detail else None
+        messages = [
+            AgentChatMessage(role=item.get("role", ""), content=item.get("content", ""))
+            for item in detail_messages
+        ]
 
         return AgentSessionResponse(
             session_id=session_id,
-            article_id=article_id
+            article_id=article_id,
+            status=status_value,
+            summary=summary_value,
+            last_activity_at=last_activity_value,
+            messages=messages
         )
 
     except Exception as e:
@@ -2210,6 +2255,116 @@ async def create_agent_session(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"エージェントセッションの作成に失敗しました: {str(e)}"
+        )
+
+
+@router.get("/{article_id}/agent/sessions", response_model=List[AgentSessionSummary])
+async def list_agent_sessions(
+    article_id: str,
+    user_id: str = Depends(get_current_user_id_from_token)
+):
+    """
+    指定記事に紐づくAIエージェントセッションの一覧を取得します。
+    """
+    try:
+        agent_service = get_article_agent_service()
+        session_list = agent_service.list_sessions(article_id, user_id)
+        return [
+            AgentSessionSummary(
+                session_id=item["session_id"],
+                status=item["status"],
+                summary=item.get("summary"),
+                created_at=item.get("created_at"),
+                last_activity_at=item.get("last_activity_at"),
+            )
+            for item in session_list
+        ]
+    except Exception as e:
+        logger.error(f"Error listing agent sessions for article {article_id}: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"セッション一覧の取得に失敗しました: {str(e)}"
+        )
+
+
+@router.post("/{article_id}/agent/session/{session_id}/activate", response_model=AgentSessionResponse)
+async def activate_agent_session(
+    article_id: str,
+    session_id: str,
+    user_id: str = Depends(get_current_user_id_from_token)
+):
+    """
+    選択したエージェントセッションをアクティブ化し、会話を再開できるようにします。
+    """
+    try:
+        agent_service = get_article_agent_service()
+        detail = await agent_service.activate_session(article_id, user_id, session_id)
+        messages = [
+            AgentChatMessage(role=item.get("role", ""), content=item.get("content", ""))
+            for item in detail.get("messages", [])
+        ]
+        return AgentSessionResponse(
+            session_id=detail["session_id"],
+            article_id=detail["article_id"],
+            status=detail["status"],
+            summary=detail.get("summary"),
+            last_activity_at=detail.get("last_activity_at"),
+            messages=messages
+        )
+    except Exception as e:
+        logger.error(f"Error activating agent session {session_id} for article {article_id}: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"セッションのアクティブ化に失敗しました: {str(e)}"
+        )
+
+
+
+@router.get("/{article_id}/agent/session", response_model=AgentSessionDetailResponse)
+async def get_agent_session_detail(
+    article_id: str,
+    user_id: str = Depends(get_current_user_id_from_token)
+):
+    """
+    アクティブなAIエージェント編集セッション情報を取得します。
+
+    セッションが存在しない場合は 404 を返します。
+    """
+    try:
+        agent_service = get_article_agent_service()
+        detail = await agent_service.get_active_session_detail(article_id, user_id)
+
+        if not detail:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="アクティブなエージェントセッションが見つかりませんでした"
+            )
+
+        messages = [
+            AgentChatMessage(
+                role=msg.get("role", ""),
+                content=msg.get("content", ""),
+                created_at=msg.get("created_at"),
+            )
+            for msg in detail.get("messages", [])
+        ]
+
+        return AgentSessionDetailResponse(
+            session_id=detail["session_id"],
+            article_id=detail["article_id"],
+            status=detail["status"],
+            summary=detail.get("summary"),
+            last_activity_at=detail.get("last_activity_at"),
+            messages=messages,
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error retrieving agent session for article {article_id}: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"エージェントセッション情報の取得に失敗しました: {str(e)}"
         )
 
 
@@ -2239,10 +2394,14 @@ async def chat_with_agent(
 
         # 会話履歴を取得
         history = await agent_service.get_conversation_history(session_id)
+        history_messages = [
+            AgentChatMessage(role=item.get("role", ""), content=item.get("content", ""))
+            for item in history
+        ]
 
         return AgentChatResponse(
             message=response_text,
-            conversation_history=history
+            conversation_history=history_messages
         )
 
     except Exception as e:

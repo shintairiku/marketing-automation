@@ -10,11 +10,12 @@ import asyncio
 import json
 import logging
 import tempfile
-from dataclasses import replace
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, AsyncGenerator, Dict, List, Optional
 from uuid import uuid4
 
+from app.core.config import settings
 from app.domains.seo_article.services.flow_service import get_supabase_client
 from app.domains.seo_article.services.version_service import get_version_service
 from app.domains.seo_article.services import article_agent_service as agent_module
@@ -75,6 +76,7 @@ class ArticleAgentSession:
         article_id: str,
         user_id: str,
         temp_dir: Path,
+        session_store_path: Path,
     ):
         self.session_id = session_id
         self.article_id = article_id
@@ -85,6 +87,7 @@ class ArticleAgentSession:
         self.context: Optional[agent_module.AppContext] = None
         self.agent: Optional[agent_module.Agent] = None
         self.session_store: Optional[agent_module.SQLiteSession] = None
+        self.session_store_path = session_store_path
         self.conversation_history: List[Dict[str, Any]] = []
         self.pending_changes: List[PendingChange] = []
         self.original_content: str = ""
@@ -93,16 +96,31 @@ class ArticleAgentSession:
         self.article_metadata: Dict[str, Any] = {}
         self._lock = asyncio.Lock()
 
-    async def initialize(self, article_content: str, article_title: str = "", metadata: Optional[Dict[str, Any]] = None) -> None:
+    async def initialize(
+        self,
+        article_content: str,
+        article_title: str = "",
+        metadata: Optional[Dict[str, Any]] = None,
+        *,
+        original_content: Optional[str] = None,
+        conversation_history: Optional[List[Dict[str, Any]]] = None,
+    ) -> None:
         """セッションを初期化"""
         # オリジナルコンテンツを保存
-        self.original_content = article_content
+        if not self.temp_dir.exists():
+            self.temp_dir.mkdir(parents=True, exist_ok=True)
+
+        if not self.session_store_path.parent.exists():
+            self.session_store_path.parent.mkdir(parents=True, exist_ok=True)
+
+        base_original_content = original_content if original_content is not None else article_content
+        self.original_content = base_original_content
         self.article_title = article_title or "Untitled"
         self.article_metadata = metadata or {}
 
         # 記事ファイルを作成
         self.article_file.write_text(article_content, encoding="utf-8")
-        self.original_file.write_text(article_content, encoding="utf-8")
+        self.original_file.write_text(base_original_content, encoding="utf-8")
 
         # コンテキストを作成
         self.context = agent_module.AppContext(
@@ -113,7 +131,12 @@ class ArticleAgentSession:
         )
 
         # セッションストアを作成
-        self.session_store = agent_module.SQLiteSession(self.session_id)
+        self.session_store = agent_module.SQLiteSession(self.session_id, db_path=str(self.session_store_path))
+
+        if conversation_history is not None:
+            self.conversation_history = conversation_history
+        elif not self.conversation_history:
+            self.conversation_history = []
 
         # エージェントを作成（SEO記事編集用）
         web_tool = agent_module.create_web_search_tool()
@@ -426,7 +449,7 @@ class ArticleAgentSession:
         self.article_file.write_text(self.original_content, encoding="utf-8")
         self.original_file.write_text(self.original_content, encoding="utf-8")
 
-    async def cleanup(self) -> None:
+    async def cleanup(self, *, remove_session_store: bool = False) -> None:
         """セッションをクリーンアップ"""
         try:
             # トレースを終了
@@ -442,6 +465,11 @@ class ArticleAgentSession:
                 self.article_file.unlink()
             if self.original_file.exists():
                 self.original_file.unlink()
+            if remove_session_store and self.session_store_path.exists():
+                try:
+                    self.session_store_path.unlink()
+                except Exception as e:
+                    logger.warning(f"Failed to remove session store: {e}")
             logger.info(f"Cleaned up session {self.session_id}")
         except Exception as e:
             logger.error(f"Cleanup error: {e}")
@@ -455,7 +483,270 @@ class ArticleAgentService:
         self.sessions: Dict[str, ArticleAgentSession] = {}
         self.temp_base = Path(tempfile.gettempdir()) / "article-agent-sessions"
         self.temp_base.mkdir(exist_ok=True, parents=True)
+        self.session_store_base = Path(settings.agent_session_storage_dir)
+        self.session_store_base.mkdir(exist_ok=True, parents=True)
         self.version_service = get_version_service()
+        self.initial_assistant_message = (
+            "こんにちは！記事の編集をお手伝いします。どのような編集をご希望ですか？"
+        )
+
+    def _now_iso(self) -> str:
+        return datetime.now(timezone.utc).isoformat()
+
+    def _session_temp_dir(self, session_id: str) -> Path:
+        path = self.temp_base / session_id
+        path.mkdir(exist_ok=True, parents=True)
+        return path
+
+    def _default_session_store_key(self, session_id: str) -> str:
+        return f"{session_id}.sqlite3"
+
+    def _session_store_path_from_key(self, key: str) -> Path:
+        return self.session_store_base / key
+
+    def _fetch_article_record(self, article_id: str, user_id: str) -> Dict[str, Any]:
+        result = (
+            self.supabase.table("articles")
+            .select("*")
+            .eq("id", article_id)
+            .eq("user_id", user_id)
+            .execute()
+        )
+        if not result.data:
+            raise Exception(f"Article {article_id} not found or access denied")
+        return result.data[0]
+
+    def _pause_other_sessions(
+        self,
+        article_id: str,
+        user_id: str,
+        *,
+        except_session_id: Optional[str] = None,
+    ) -> None:
+        builder = (
+            self.supabase.table("article_agent_sessions")
+            .update({"status": "paused", "updated_at": self._now_iso()})
+            .eq("article_id", article_id)
+            .eq("user_id", user_id)
+            .neq("status", "closed")
+        )
+        if except_session_id:
+            builder = builder.neq("id", except_session_id)
+        try:
+            builder.execute()
+        except Exception as exc:
+            logger.warning("Failed to pause sessions for article %s: %s", article_id, exc)
+
+    def _preview_text(self, text: str, limit: int = 120) -> str:
+        sanitized = text.strip().replace("\n", " ")
+        if len(sanitized) <= limit:
+            return sanitized
+        return sanitized[: limit - 1] + "…"
+
+    def _get_last_message_preview(self, session_id: str) -> Optional[str]:
+        try:
+            result = (
+                self.supabase.table("article_agent_messages")
+                .select("content")
+                .eq("session_id", session_id)
+                .order("sequence", desc=True)
+                .limit(1)
+                .execute()
+            )
+            if result.data:
+                content = result.data[0].get("content", "")
+                if content:
+                    return self._preview_text(content)
+        except Exception as exc:
+            logger.warning("Failed to load last message preview for %s: %s", session_id, exc)
+        return None
+
+    def _fetch_session_record(self, session_id: str) -> Optional[Dict[str, Any]]:
+        result = (
+            self.supabase.table("article_agent_sessions")
+            .select("*")
+            .eq("id", session_id)
+            .execute()
+        )
+        if result.data:
+            return result.data[0]
+        return None
+
+    def _fetch_active_session_record(self, article_id: str, user_id: str) -> Optional[Dict[str, Any]]:
+        result = (
+            self.supabase.table("article_agent_sessions")
+            .select("*")
+            .eq("article_id", article_id)
+            .eq("user_id", user_id)
+            .eq("status", "active")
+            .limit(1)
+            .execute()
+        )
+        if result.data:
+            return result.data[0]
+        return None
+
+    def _load_session_messages(self, session_id: str) -> List[Dict[str, Any]]:
+        result = (
+            self.supabase.table("article_agent_messages")
+            .select("role, content, created_at, sequence")
+            .eq("session_id", session_id)
+            .order("sequence", desc=False)
+            .execute()
+        )
+        rows = result.data or []
+        return [
+            {
+                "role": row.get("role", "assistant"),
+                "content": row.get("content") or "",
+                "created_at": row.get("created_at"),
+            }
+            for row in rows
+        ]
+
+    def _append_message(
+        self,
+        session_id: str,
+        role: str,
+        content: str,
+        user_id: str,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        payload = {
+            "session_id": session_id,
+            "user_id": user_id,
+            "role": role,
+            "content": content,
+            "metadata": metadata or {},
+        }
+        try:
+            self.supabase.table("article_agent_messages").insert(payload).execute()
+            if content and role in ("assistant", "user"):
+                preview = self._preview_text(content)
+                self._update_session_record(
+                    session_id,
+                    {"conversation_summary": preview},
+                )
+        except Exception as exc:
+            logger.error("Failed to append agent message for session %s: %s", session_id, exc)
+
+    def _update_session_record(self, session_id: str, updates: Dict[str, Any]) -> None:
+        payload = {**updates}
+        payload.setdefault("updated_at", self._now_iso())
+        try:
+            self.supabase.table("article_agent_sessions").update(payload).eq("id", session_id).execute()
+        except Exception as exc:
+            logger.error("Failed to update agent session %s: %s", session_id, exc)
+
+    async def _hydrate_session(self, record: Dict[str, Any]) -> ArticleAgentSession:
+        session_id = record["id"]
+        temp_dir = self._session_temp_dir(session_id)
+        store_path = self._session_store_path_from_key(record["session_store_key"])
+
+        article_content = record.get("working_content")
+        original_content = record.get("original_content")
+        article_title = record.get("article_title") or ""
+        metadata = record.get("metadata") or {}
+
+        article_record: Optional[Dict[str, Any]] = None
+        if article_content is None or original_content is None or not article_title:
+            article_record = self._fetch_article_record(record["article_id"], record["user_id"])
+            article_content = article_content or article_record.get("content", "")
+            original_content = original_content or article_record.get("content", "")
+            article_title = article_title or article_record.get("title", "")
+            if not metadata:
+                metadata = article_record
+
+        if article_content is None:
+            article_record = article_record or self._fetch_article_record(record["article_id"], record["user_id"])
+            article_content = article_record.get("content", "")
+
+        history_full = self._load_session_messages(session_id)
+        history_for_session = [{"role": msg["role"], "content": msg["content"]} for msg in history_full]
+
+        session = ArticleAgentSession(
+            session_id=session_id,
+            article_id=record["article_id"],
+            user_id=record["user_id"],
+            temp_dir=temp_dir,
+            session_store_path=store_path,
+        )
+        await session.initialize(
+            article_content,
+            article_title=article_title,
+            metadata=metadata,
+            original_content=original_content,
+            conversation_history=history_for_session,
+        )
+        self.sessions[session_id] = session
+        return session
+
+    async def _ensure_session_loaded(
+        self,
+        session_id: str,
+        *,
+        expected_user_id: Optional[str] = None,
+        expected_article_id: Optional[str] = None,
+    ) -> ArticleAgentSession:
+        if session_id in self.sessions:
+            session = self.sessions[session_id]
+            if expected_user_id and session.user_id != expected_user_id:
+                raise Exception("Access denied to session")
+            if expected_article_id and session.article_id != expected_article_id:
+                raise Exception("Session does not belong to specified article")
+            return session
+
+        record = self._fetch_session_record(session_id)
+        if not record:
+            raise Exception(f"Session {session_id} not found")
+
+        if expected_user_id and record["user_id"] != expected_user_id:
+            raise Exception("Access denied to session")
+        if expected_article_id and record["article_id"] != expected_article_id:
+            raise Exception("Session does not belong to specified article")
+
+        return await self._hydrate_session(record)
+
+    def _build_session_detail(self, record: Dict[str, Any]) -> Dict[str, Any]:
+        messages = self._load_session_messages(record["id"])
+        return {
+            "session_id": record["id"],
+            "article_id": record["article_id"],
+            "status": record["status"],
+             "summary": record.get("conversation_summary") or self._get_last_message_preview(record["id"]),
+            "messages": messages,
+            "last_activity_at": record.get("last_activity_at"),
+        }
+
+    def list_sessions(self, article_id: str, user_id: str) -> List[Dict[str, Any]]:
+        result = (
+            self.supabase.table("article_agent_sessions")
+            .select(
+                "id",
+                "status",
+                "created_at",
+                "updated_at",
+                "last_activity_at",
+                "conversation_summary",
+            )
+            .eq("article_id", article_id)
+            .eq("user_id", user_id)
+            .order("last_activity_at", desc=True)
+            .execute()
+        )
+        sessions: List[Dict[str, Any]] = []
+        for record in result.data or []:
+            summary = record.get("conversation_summary") or self._get_last_message_preview(record["id"])
+            sessions.append(
+                {
+                    "session_id": record["id"],
+                    "status": record.get("status", "paused"),
+                    "created_at": record.get("created_at"),
+                    "last_activity_at": record.get("last_activity_at"),
+                    "summary": summary or "",
+                }
+            )
+        return sessions
 
     async def _save_article_and_version(
         self,
@@ -489,75 +780,134 @@ class ArticleAgentService:
         )
 
         session.article_metadata.update({"title": title, "content": content})
+        self._update_session_record(
+            session.session_id,
+            {
+                "original_content": content,
+                "working_content": content,
+                "last_activity_at": self._now_iso(),
+            },
+        )
 
-    async def create_session(self, article_id: str, user_id: str) -> str:
-        """新しいセッションを作成"""
+    async def create_session(self, article_id: str, user_id: str, *, resume_existing: bool = True) -> str:
+        """セッションを作成 or 既存を再利用"""
         try:
-            # 記事を取得
-            result = self.supabase.table("articles").select("*").eq("id", article_id).eq("user_id",
-                                                                                         user_id).execute()
+            if resume_existing:
+                existing = self._fetch_active_session_record(article_id, user_id)
+                if existing:
+                    await self._ensure_session_loaded(
+                        existing["id"],
+                        expected_user_id=user_id,
+                        expected_article_id=article_id,
+                    )
+                    logger.info("Resuming agent session %s for article %s", existing["id"], article_id)
+                    return existing["id"]
 
-            if not result.data or len(result.data) == 0:
-                raise Exception(f"Article {article_id} not found or access denied")
-
-            article = result.data[0]
+            article = self._fetch_article_record(article_id, user_id)
             article_content = article.get("content", "")
             article_title = article.get("title", "")
 
-            # セッションIDを生成
+            # pause other sessions before creating a new active one
+            self._pause_other_sessions(article_id, user_id)
+
             session_id = str(uuid4())
+            session_store_key = self._default_session_store_key(session_id)
+            temp_dir = self._session_temp_dir(session_id)
+            store_path = self._session_store_path_from_key(session_store_key)
 
-            # 一時ディレクトリを作成
-            temp_dir = self.temp_base / session_id
-            temp_dir.mkdir(exist_ok=True, parents=True)
+            initial_history = [{"role": "assistant", "content": self.initial_assistant_message}]
 
-            # セッションオブジェクトを作成
             session = ArticleAgentSession(
                 session_id=session_id,
                 article_id=article_id,
                 user_id=user_id,
                 temp_dir=temp_dir,
+                session_store_path=store_path,
             )
 
-            # 初期化
-            await session.initialize(article_content, article_title=article_title, metadata=article)
+            await session.initialize(
+                article_content,
+                article_title=article_title,
+                metadata=article,
+                original_content=article_content,
+                conversation_history=initial_history,
+            )
 
-            # セッションを保存
             self.sessions[session_id] = session
 
-            logger.info(f"Created agent session {session_id} for article {article_id}")
+            session_record = {
+                "id": session_id,
+                "article_id": article_id,
+                "user_id": user_id,
+                "organization_id": article.get("organization_id"),
+                "status": "active",
+                "session_store_key": session_store_key,
+                "original_content": article_content,
+                "working_content": article_content,
+                "article_title": article_title,
+                "metadata": article,
+                "last_activity_at": self._now_iso(),
+                "conversation_summary": self._preview_text(self.initial_assistant_message),
+            }
+            self.supabase.table("article_agent_sessions").insert(session_record).execute()
+            self._append_message(session_id, "assistant", self.initial_assistant_message, user_id)
 
+            logger.info("Created agent session %s for article %s", session_id, article_id)
             return session_id
 
         except Exception as e:
             logger.error(f"Error creating session: {e}", exc_info=True)
             raise
 
+    async def activate_session(self, article_id: str, user_id: str, session_id: str) -> Dict[str, Any]:
+        record = self._fetch_session_record(session_id)
+        if not record:
+            raise Exception(f"Session {session_id} not found")
+        if record["user_id"] != user_id or record["article_id"] != article_id:
+            raise Exception("Access denied to session")
+        if record.get("status") == "closed":
+            raise Exception("Cannot activate a closed session")
+
+        self._pause_other_sessions(article_id, user_id, except_session_id=session_id)
+        self._update_session_record(
+            session_id,
+            {"status": "active", "last_activity_at": self._now_iso()},
+        )
+
+        await self._ensure_session_loaded(
+            session_id,
+            expected_user_id=user_id,
+            expected_article_id=article_id,
+        )
+        updated_record = self._fetch_session_record(session_id)
+        return self._build_session_detail(updated_record)
+
     async def chat(self, session_id: str, user_message: str) -> AsyncGenerator[str, None]:
         """エージェントとチャット"""
-        if session_id not in self.sessions:
-            raise Exception(f"Session {session_id} not found")
-
-        session = self.sessions[session_id]
-
+        session = await self._ensure_session_loaded(session_id)
+        self._append_message(session_id, "user", user_message, session.user_id)
+        response_accumulator = ""
         async for chunk in session.chat(user_message):
+            response_accumulator += chunk
             yield chunk
+        self._append_message(session_id, "assistant", response_accumulator, session.user_id)
+        self._update_session_record(
+            session_id,
+            {
+                "working_content": session.get_current_content(),
+                "last_activity_at": self._now_iso(),
+            },
+        )
 
     async def get_current_content(self, session_id: str) -> str:
         """現在のコンテンツを取得"""
-        if session_id not in self.sessions:
-            raise Exception(f"Session {session_id} not found")
-
-        session = self.sessions[session_id]
+        session = await self._ensure_session_loaded(session_id)
         async with session._lock:
             return session.get_current_content()
 
     async def get_diff(self, session_id: str) -> Dict[str, Any]:
         """差分を取得"""
-        if session_id not in self.sessions:
-            raise Exception(f"Session {session_id} not found")
-
-        session = self.sessions[session_id]
+        session = await self._ensure_session_loaded(session_id)
         async with session._lock:
             result = self.supabase.table("articles").select("content").eq("id", session.article_id).execute()
 
@@ -569,10 +919,7 @@ class ArticleAgentService:
 
     async def save_changes(self, session_id: str) -> None:
         """変更を保存"""
-        if session_id not in self.sessions:
-            raise Exception(f"Session {session_id} not found")
-
-        session = self.sessions[session_id]
+        session = await self._ensure_session_loaded(session_id)
         async with session._lock:
             current_content = session.get_current_content()
             await self._save_article_and_version(
@@ -585,15 +932,11 @@ class ArticleAgentService:
             session.pending_changes = []
             session.article_file.write_text(current_content, encoding="utf-8")
             session.original_file.write_text(current_content, encoding="utf-8")
-
             logger.info("Saved changes for article %s", session.article_id)
 
     async def discard_changes(self, session_id: str) -> None:
         """変更を破棄"""
-        if session_id not in self.sessions:
-            raise Exception(f"Session {session_id} not found")
-
-        session = self.sessions[session_id]
+        session = await self._ensure_session_loaded(session_id)
         async with session._lock:
             result = self.supabase.table("articles").select("content").eq("id", session.article_id).execute()
 
@@ -605,83 +948,96 @@ class ArticleAgentService:
             session.original_file.write_text(original_content, encoding="utf-8")
             session.original_content = original_content
             session.pending_changes = []
+            self._update_session_record(
+                session_id,
+                {
+                    "working_content": original_content,
+                    "last_activity_at": self._now_iso(),
+                },
+            )
 
             logger.info("Discarded changes for article %s", session.article_id)
 
     async def close_session(self, session_id: str) -> None:
         """セッションを閉じる"""
-        if session_id in self.sessions:
-            session = self.sessions[session_id]
-            async with session._lock:
-                await session.cleanup()
-                del self.sessions[session_id]
+        record = self._fetch_session_record(session_id)
+        if not record:
+            return
 
+        session = self.sessions.get(session_id)
+        if session:
+            async with session._lock:
+                await session.cleanup(remove_session_store=True)
+                self.sessions.pop(session_id, None)
                 try:
                     session.temp_dir.rmdir()
                 except Exception as e:
                     logger.warning("Failed to remove temp dir: %s", e)
+        else:
+            temp_dir = self.temp_base / session_id
+            if temp_dir.exists():
+                for file in temp_dir.glob("*"):
+                    try:
+                        file.unlink()
+                    except Exception:
+                        pass
+                try:
+                    temp_dir.rmdir()
+                except Exception:
+                    pass
+            store_path = self._session_store_path_from_key(record["session_store_key"])
+            if store_path.exists():
+                try:
+                    store_path.unlink()
+                except Exception as e:
+                    logger.warning("Failed to remove session store file: %s", e)
 
-                logger.info("Closed session %s", session_id)
+        self._update_session_record(
+            session_id,
+            {"status": "closed", "closed_at": self._now_iso(), "last_activity_at": self._now_iso()},
+        )
+        logger.info("Closed session %s", session_id)
 
     async def get_conversation_history(self, session_id: str) -> List[Dict[str, Any]]:
         """会話履歴を取得"""
-        if session_id not in self.sessions:
-            raise Exception(f"Session {session_id} not found")
-
-        session = self.sessions[session_id]
+        session = await self._ensure_session_loaded(session_id)
+        history = self._load_session_messages(session_id)
+        session.conversation_history = [{"role": msg["role"], "content": msg["content"]} for msg in history]
         return session.conversation_history
 
     async def extract_pending_changes(self, session_id: str) -> List[Dict[str, Any]]:
         """apply_patchによる変更を抽出"""
-        if session_id not in self.sessions:
-            raise Exception(f"Session {session_id} not found")
-
-        session = self.sessions[session_id]
+        session = await self._ensure_session_loaded(session_id)
         async with session._lock:
             return session.extract_pending_changes()
 
     async def get_pending_changes(self, session_id: str) -> List[Dict[str, Any]]:
         """承認待ちの変更を取得"""
-        if session_id not in self.sessions:
-            raise Exception(f"Session {session_id} not found")
-
-        session = self.sessions[session_id]
+        session = await self._ensure_session_loaded(session_id)
         async with session._lock:
             return session.get_pending_changes()
 
     async def get_unified_diff_view(self, session_id: str) -> Dict[str, Any]:
         """統合差分ビューを取得（VSCode風）"""
-        if session_id not in self.sessions:
-            raise Exception(f"Session {session_id} not found")
-
-        session = self.sessions[session_id]
+        session = await self._ensure_session_loaded(session_id)
         async with session._lock:
             return session.get_unified_diff_view()
 
     async def approve_change(self, session_id: str, change_id: str) -> bool:
         """変更を承認"""
-        if session_id not in self.sessions:
-            raise Exception(f"Session {session_id} not found")
-
-        session = self.sessions[session_id]
+        session = await self._ensure_session_loaded(session_id)
         async with session._lock:
             return session.approve_change(change_id)
 
     async def reject_change(self, session_id: str, change_id: str) -> bool:
         """変更を拒否"""
-        if session_id not in self.sessions:
-            raise Exception(f"Session {session_id} not found")
-
-        session = self.sessions[session_id]
+        session = await self._ensure_session_loaded(session_id)
         async with session._lock:
             return session.reject_change(change_id)
 
     async def apply_approved_changes(self, session_id: str) -> Dict[str, Any]:
         """承認された変更を適用し、保存・バージョン管理も実行する。"""
-        if session_id not in self.sessions:
-            raise Exception(f"Session {session_id} not found")
-
-        session = self.sessions[session_id]
+        session = await self._ensure_session_loaded(session_id)
         async with session._lock:
             apply_result = session.apply_approved_changes()
             applied_count = apply_result.get("applied_count", 0)
@@ -694,17 +1050,41 @@ class ArticleAgentService:
                     change_description=f"AI agent auto-applied {applied_count} change(s)",
                     metadata={"applied_change_ids": apply_result.get("applied_change_ids", [])},
                 )
+            else:
+                self._update_session_record(
+                    session_id,
+                    {
+                        "working_content": session.get_current_content(),
+                        "last_activity_at": self._now_iso(),
+                    },
+                )
 
             return apply_result
 
     async def clear_pending_changes(self, session_id: str) -> None:
         """承認待ち変更をクリア"""
-        if session_id not in self.sessions:
-            raise Exception(f"Session {session_id} not found")
-
-        session = self.sessions[session_id]
+        session = await self._ensure_session_loaded(session_id)
         async with session._lock:
             session.clear_pending_changes()
+            self._update_session_record(
+                session_id,
+                {
+                    "working_content": session.original_content,
+                    "last_activity_at": self._now_iso(),
+                },
+            )
+
+    async def get_active_session_detail(self, article_id: str, user_id: str) -> Optional[Dict[str, Any]]:
+        """アクティブなセッションの詳細を取得（存在しない場合はNone）"""
+        record = self._fetch_active_session_record(article_id, user_id)
+        if not record:
+            return None
+        await self._ensure_session_loaded(
+            record["id"],
+            expected_user_id=user_id,
+            expected_article_id=article_id,
+        )
+        return self._build_session_detail(record)
 
 
 # Singleton instance

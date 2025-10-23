@@ -18,12 +18,24 @@ export interface ChatMessage {
   content: string;
 }
 
+export interface AgentSessionSummary {
+  session_id: string;
+  status: 'active' | 'paused' | 'closed';
+  summary?: string;
+  created_at?: string;
+  last_activity_at?: string;
+}
+
 interface UseAgentChatReturn {
   messages: ChatMessage[];
   loading: boolean;
   error: string | null;
   sessionId: string | null;
-  createSession: (articleId: string) => Promise<void>;
+  initializeSession: () => Promise<void>;
+  createSession: (articleId: string, resumeExisting?: boolean) => Promise<void>;
+  startNewSession: () => Promise<void>;
+  activateSession: (targetSessionId: string) => Promise<void>;
+  sessions: AgentSessionSummary[];
   sendMessage: (message: string) => Promise<void>;
   getCurrentContent: () => Promise<string>;
   getDiff: () => Promise<{ original: string; current: string; has_changes: boolean }>;
@@ -45,6 +57,7 @@ export function useAgentChat(articleId: string): UseAgentChatReturn {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [sessionId, setSessionId] = useState<string | null>(null);
+  const [sessions, setSessions] = useState<AgentSessionSummary[]>([]);
 
   const getHeaders = useCallback(async () => {
     const token = await getToken();
@@ -54,7 +67,47 @@ export function useAgentChat(articleId: string): UseAgentChatReturn {
     };
   }, [getToken]);
 
-  const createSession = useCallback(async (aid: string) => {
+  const normalizeMessages = useCallback((rawMessages?: any[]): ChatMessage[] => {
+    if (!rawMessages || !Array.isArray(rawMessages)) {
+      return [];
+    }
+
+    return rawMessages
+      .map((msg) => {
+        const role = msg?.role === 'assistant' ? 'assistant' : msg?.role === 'user' ? 'user' : null;
+        if (!role) {
+          return null;
+        }
+        return {
+          role,
+          content: typeof msg?.content === 'string' ? msg.content : '',
+        } as ChatMessage;
+      })
+      .filter((msg): msg is ChatMessage => msg !== null);
+  }, []);
+
+  const loadSessions = useCallback(async (): Promise<AgentSessionSummary[]> => {
+    try {
+      const headers = await getHeaders();
+      const response = await fetch(buildApiUrl(`/articles/${articleId}/agent/sessions`), {
+        headers,
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to load agent sessions');
+      }
+
+      const data = (await response.json()) as AgentSessionSummary[];
+      setSessions(data);
+      return data;
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'エラーが発生しました';
+      setError(errorMessage);
+      throw err;
+    }
+  }, [articleId, getHeaders]);
+
+  const createSession = useCallback(async (aid: string, resumeExisting: boolean = true) => {
     try {
       setLoading(true);
       setError(null);
@@ -64,7 +117,7 @@ export function useAgentChat(articleId: string): UseAgentChatReturn {
       const response = await fetch(buildApiUrl(`/articles/${aid}/agent/session`), {
         method: 'POST',
         headers,
-        body: JSON.stringify({}),
+        body: JSON.stringify({ resume_existing: resumeExisting }),
       });
 
       if (!response.ok) {
@@ -73,14 +126,8 @@ export function useAgentChat(articleId: string): UseAgentChatReturn {
 
       const data = await response.json();
       setSessionId(data.session_id);
-
-      // 初期メッセージ
-      setMessages([
-        {
-          role: 'assistant',
-          content: 'こんにちは！記事の編集をお手伝いします。どのような編集をご希望ですか？',
-        },
-      ]);
+      setMessages(normalizeMessages(data.messages));
+      await loadSessions();
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'エラーが発生しました';
       setError(errorMessage);
@@ -88,7 +135,71 @@ export function useAgentChat(articleId: string): UseAgentChatReturn {
     } finally {
       setLoading(false);
     }
-  }, [getHeaders]);
+  }, [getHeaders, normalizeMessages, loadSessions]);
+
+  const activateSession = useCallback(
+    async (targetSessionId: string) => {
+      if (!targetSessionId) return;
+      try {
+        setLoading(true);
+        setError(null);
+        const headers = await getHeaders();
+        const response = await fetch(
+          buildApiUrl(`/articles/${articleId}/agent/session/${targetSessionId}/activate`),
+          {
+            method: 'POST',
+            headers,
+          }
+        );
+
+        if (!response.ok) {
+          throw new Error('Failed to activate agent session');
+        }
+
+        const data = await response.json();
+        setSessionId(data.session_id);
+        setMessages(normalizeMessages(data.messages));
+        await loadSessions();
+      } catch (err) {
+        const errorMessage = err instanceof Error ? err.message : 'エラーが発生しました';
+        setError(errorMessage);
+        throw err;
+      } finally {
+        setLoading(false);
+      }
+    },
+    [articleId, getHeaders, normalizeMessages, loadSessions]
+  );
+
+  const startNewSession = useCallback(async () => {
+    await createSession(articleId, false);
+  }, [articleId, createSession]);
+
+  const initializeSession = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+
+    try {
+      const list = await loadSessions();
+      const active = list.find((session) => session.status === 'active');
+      if (active) {
+        await activateSession(active.session_id);
+      } else if (list.length > 0) {
+        await activateSession(list[0].session_id);
+      } else {
+        await createSession(articleId, false);
+      }
+    } catch (err) {
+      if (err instanceof Error) {
+        setError(err.message);
+      } else {
+        setError('エラーが発生しました');
+      }
+      throw err;
+    } finally {
+      setLoading(false);
+    }
+  }, [articleId, loadSessions, activateSession, createSession]);
 
   const sendMessage = useCallback(
     async (message: string) => {
@@ -117,8 +228,13 @@ export function useAgentChat(articleId: string): UseAgentChatReturn {
 
         const data = await response.json();
 
-        // アシスタントメッセージを追加
-        setMessages((prev) => [...prev, { role: 'assistant', content: data.message }]);
+        const updatedHistory = normalizeMessages(data.conversation_history);
+        if (updatedHistory.length > 0) {
+          setMessages(updatedHistory);
+        } else {
+          setMessages((prev) => [...prev, { role: 'assistant', content: data.message ?? '' }]);
+        }
+        void loadSessions().catch(() => undefined);
       } catch (err) {
         const errorMessage = err instanceof Error ? err.message : 'エラーが発生しました';
         setError(errorMessage);
@@ -127,7 +243,7 @@ export function useAgentChat(articleId: string): UseAgentChatReturn {
         setLoading(false);
       }
     },
-    [sessionId, articleId, getHeaders]
+    [sessionId, articleId, getHeaders, normalizeMessages]
   );
 
   const getCurrentContent = useCallback(async () => {
@@ -368,7 +484,11 @@ export function useAgentChat(articleId: string): UseAgentChatReturn {
     loading,
     error,
     sessionId,
+    initializeSession,
     createSession,
+    startNewSession,
+    activateSession,
+    sessions,
     sendMessage,
     getCurrentContent,
     getDiff,
