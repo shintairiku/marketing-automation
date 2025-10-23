@@ -34,7 +34,7 @@ export default function UnifiedDiffViewer({ lines, onApprove, onReject }: Unifie
                   {line.line_number}
                 </div>
                 <div className="flex-1 px-4 py-1 whitespace-pre-wrap break-words">
-                  <div dangerouslySetInnerHTML={{ __html: line.content || '' }} />
+                  <div className="diff-html" dangerouslySetInnerHTML={{ __html: line.content || '' }} />
                 </div>
               </div>
             );
@@ -86,7 +86,7 @@ export default function UnifiedDiffViewer({ lines, onApprove, onReject }: Unifie
                           -
                         </div>
                         <div className="flex-1 px-4 py-1 bg-red-50 text-red-800 whitespace-pre-wrap break-words">
-                          <div dangerouslySetInnerHTML={{ __html: oldLine }} />
+                          <div className="diff-html" dangerouslySetInnerHTML={{ __html: oldLine }} />
                         </div>
                       </div>
                     ))}
@@ -102,7 +102,7 @@ export default function UnifiedDiffViewer({ lines, onApprove, onReject }: Unifie
                           +
                         </div>
                         <div className="flex-1 px-4 py-1 bg-green-50 text-green-800 whitespace-pre-wrap break-words">
-                          <div dangerouslySetInnerHTML={{ __html: newLine }} />
+                          <div className="diff-html" dangerouslySetInnerHTML={{ __html: newLine }} />
                         </div>
                       </div>
                     ))}
@@ -115,6 +115,43 @@ export default function UnifiedDiffViewer({ lines, onApprove, onReject }: Unifie
           return null;
         })}
       </div>
+      <style jsx global>{`
+        .diff-html figure {
+          margin: 0.75rem auto;
+          max-width: 340px !important;
+          width: 100%;
+          text-align: center;
+        }
+
+        .diff-html figure > img,
+        .diff-html img {
+          display: block;
+          width: 100% !important;
+          max-width: 320px !important;
+          height: auto !important;
+          margin: 0.75rem auto;
+          border-radius: 1rem;
+          box-shadow: 0 12px 26px -14px rgba(15, 23, 42, 0.5);
+        }
+
+        @media (max-width: 768px) {
+          .diff-html figure {
+            max-width: min(92vw, 300px) !important;
+          }
+
+          .diff-html figure > img,
+          .diff-html img {
+            max-width: min(90vw, 280px) !important;
+            margin: 0.75rem auto;
+          }
+        }
+
+        .diff-html figcaption {
+          margin-top: 0.75rem;
+          font-size: 0.85rem;
+          color: #475569;
+        }
+      `}</style>
     </ScrollArea>
   );
 }
