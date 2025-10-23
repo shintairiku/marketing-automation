@@ -65,6 +65,13 @@ class PendingChange:
         self.new_text = new_text
         self.description = description
         self.approved = False
+        self.line_start: int = 0
+        self.line_end: int = 0
+        self.change_type: str = "replace"
+        self.old_lines: List[str] = []
+        self.new_lines: List[str] = []
+        self.context_before: str = ""
+        self.context_after: str = ""
 
 
 class ArticleAgentSession:
@@ -95,6 +102,7 @@ class ArticleAgentSession:
         self.article_title: str = ""
         self.article_metadata: Dict[str, Any] = {}
         self._lock = asyncio.Lock()
+        self._change_counter = 0
 
     async def initialize(
         self,
@@ -267,62 +275,93 @@ class ArticleAgentSession:
         }
 
     def extract_pending_changes(self) -> List[Dict[str, Any]]:
-        """apply_patchによる変更を検出して承認待ちリストに追加（統合差分形式）"""
+        """apply_patchによる変更を検出し、既存の変更に追加する。"""
         current_content = self.get_current_content()
 
         if current_content == self.original_content:
             return []
 
-        # 行ごとに差分検出
         original_lines = self.original_content.splitlines()
         current_lines = current_content.splitlines()
 
-        # 最新の変更のみを保持するためにリストを初期化
-        self.pending_changes = []
-
-        # 変更されたセクションを検出
         import difflib
+
+        existing_keys = {
+            (change.line_start, change.line_end, '\n'.join(change.new_lines))
+            for change in self.pending_changes
+        }
+
         differ = difflib.SequenceMatcher(None, original_lines, current_lines)
 
-        changes = []
+        new_changes: List[Dict[str, Any]] = []
+        updated_pending: List[PendingChange] = list(self.pending_changes)
+
         for tag, i1, i2, j1, j2 in differ.get_opcodes():
-            if tag in ['replace', 'delete', 'insert']:
-                change_id = f"change_{len(self.pending_changes)}_{i1}_{i2}"
-                old_text = '\n'.join(original_lines[i1:i2])
-                new_text = '\n'.join(current_lines[j1:j2])
+            if tag not in ['replace', 'delete', 'insert']:
+                continue
 
-                # コンテキスト（前後3行）を追加
-                context_before_start = max(0, i1 - 3)
-                context_before = '\n'.join(original_lines[context_before_start:i1])
+            old_lines = original_lines[i1:i2]
+            new_lines = current_lines[j1:j2]
+            key = (i1, i2, '\n'.join(new_lines))
 
-                context_after_end = min(len(original_lines), i2 + 3)
-                context_after = '\n'.join(original_lines[i2:context_after_end])
+            if key in existing_keys:
+                continue
 
-                pending_change = PendingChange(
-                    change_id=change_id,
-                    old_text=old_text,
-                    new_text=new_text,
-                    description=f"{tag.capitalize()} at lines {i1+1}-{i2}"
-                )
-                self.pending_changes.append(pending_change)
+            old_text = '\n'.join(old_lines)
+            new_text = '\n'.join(new_lines)
 
-                changes.append({
-                    "change_id": change_id,
-                    "old_text": old_text,
-                    "new_text": new_text,
-                    "description": pending_change.description,
-                    "approved": False,
-                    "line_start": i1,
-                    "line_end": i2,
-                    "context_before": context_before,
-                    "context_after": context_after,
-                    "change_type": tag
-                })
+            context_before_start = max(0, i1 - 3)
+            context_before = '\n'.join(original_lines[context_before_start:i1])
+
+            context_after_end = min(len(original_lines), i2 + 3)
+            context_after = '\n'.join(original_lines[i2:context_after_end])
+
+            change_id = f"change_{self._change_counter}"
+            self._change_counter += 1
+
+            pending_change = PendingChange(
+                change_id=change_id,
+                old_text=old_text,
+                new_text=new_text,
+                description=f"{tag.capitalize()} at lines {i1 + 1}-{i2}"
+            )
+            pending_change.line_start = i1
+            pending_change.line_end = i2
+            pending_change.change_type = tag
+            pending_change.old_lines = old_lines
+            pending_change.new_lines = new_lines
+            pending_change.context_before = context_before
+            pending_change.context_after = context_after
+
+            updated_pending.append(pending_change)
+            existing_keys.add(key)
+
+            new_changes.append({
+                "change_id": change_id,
+                "old_text": old_text,
+                "new_text": new_text,
+                "description": pending_change.description,
+                "approved": False,
+                "line_start": i1,
+                "line_end": i2,
+                "context_before": context_before,
+                "context_after": context_after,
+                "change_type": tag
+            })
+
+        if not new_changes:
+            # 既存の pending_changes を維持したまま早期リターン
+            self.article_file.write_text(self.original_content, encoding="utf-8")
+            return []
+
+        # 変更位置でソート
+        updated_pending.sort(key=lambda c: (c.line_start, c.line_end, c.change_id))
+        self.pending_changes = updated_pending
 
         # ファイルをオリジナルに戻す（承認されるまで適用しない）
         self.article_file.write_text(self.original_content, encoding="utf-8")
 
-        return changes
+        return new_changes
 
     def get_unified_diff_view(self) -> Dict[str, Any]:
         """VSCode風の統合差分ビューを生成（変更がない場合でも記事全体を返す）"""
@@ -342,47 +381,48 @@ class ArticleAgentSession:
                 "has_changes": False
             }
 
-        # 変更箇所のマップを作成
-        change_map = {}
-        for change in self.pending_changes:
-            # change_idから行番号を抽出
-            parts = change.change_id.split('_')
-            if len(parts) >= 4:
-                start_line = int(parts[2])
-                end_line = int(parts[3])
-                change_map[(start_line, end_line)] = change
+        lines: List[Dict[str, Any]] = []
+        sorted_changes = sorted(self.pending_changes, key=lambda c: (c.line_start, c.line_end, c.change_id))
 
-        # 統合差分を生成
-        lines = []
-        i = 0
-        while i < len(original_lines):
-            # この行が変更箇所かチェック
-            change_found = None
-            for (start, end), change in change_map.items():
-                if start <= i < end:
-                    change_found = (start, end, change)
-                    break
+        cursor = 0
+        for change in sorted_changes:
+            start = change.line_start
+            end = change.line_end
 
-            if change_found:
-                start, end, change = change_found
-                # 変更箇所を追加
-                lines.append({
-                    "type": "change",
-                    "change_id": change.change_id,
-                    "old_lines": original_lines[start:end],
-                    "new_lines": change.new_text.splitlines() if change.new_text else [],
-                    "line_number": start + 1,
-                    "approved": change.approved
-                })
-                i = end
-            else:
-                # 通常の行を追加
+            # 追加される行を挿入する前に、未変更部分を追加
+            while cursor < start and cursor < len(original_lines):
                 lines.append({
                     "type": "unchanged",
-                    "content": original_lines[i],
-                    "line_number": i + 1
+                    "content": original_lines[cursor],
+                    "line_number": cursor + 1
                 })
-                i += 1
+                cursor += 1
+
+            old_lines = change.old_lines if change.old_lines else []
+            new_lines = change.new_lines if change.new_lines else []
+
+            lines.append({
+                "type": "change",
+                "change_id": change.change_id,
+                "old_lines": old_lines,
+                "new_lines": new_lines,
+                "line_number": (start + 1) if start < len(original_lines) else len(original_lines) + 1,
+                "approved": change.approved,
+                "change_type": change.change_type,
+                "context_before": change.context_before,
+                "context_after": change.context_after,
+            })
+
+            cursor = max(cursor, end)
+
+        # 末尾の未変更部分
+        while cursor < len(original_lines):
+            lines.append({
+                "type": "unchanged",
+                "content": original_lines[cursor],
+                "line_number": cursor + 1
+            })
+            cursor += 1
 
         return {
             "lines": lines,
@@ -396,7 +436,12 @@ class ArticleAgentSession:
             "old_text": change.old_text,
             "new_text": change.new_text,
             "description": change.description,
-            "approved": change.approved
+            "approved": change.approved,
+            "line_start": change.line_start,
+            "line_end": change.line_end,
+            "change_type": change.change_type,
+            "context_before": change.context_before,
+            "context_after": change.context_after
         } for change in self.pending_changes]
 
     def approve_change(self, change_id: str) -> bool:
@@ -436,6 +481,7 @@ class ArticleAgentSession:
         self.original_file.write_text(content, encoding="utf-8")
         self.original_content = content
         self.pending_changes = []
+        self._change_counter = 0
 
         return {
             "content": content,
@@ -448,6 +494,7 @@ class ArticleAgentSession:
         self.pending_changes = []
         self.article_file.write_text(self.original_content, encoding="utf-8")
         self.original_file.write_text(self.original_content, encoding="utf-8")
+        self._change_counter = 0
 
     async def cleanup(self, *, remove_session_store: bool = False) -> None:
         """セッションをクリーンアップ"""
@@ -948,6 +995,7 @@ class ArticleAgentService:
             session.original_file.write_text(original_content, encoding="utf-8")
             session.original_content = original_content
             session.pending_changes = []
+            session._change_counter = 0
             self._update_session_record(
                 session_id,
                 {
