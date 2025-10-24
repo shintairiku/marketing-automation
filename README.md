@@ -1,6 +1,6 @@
 # Shintairiku Marketing‑Automation Monorepo
 
-FastAPI バックエンド（Python 3.12）／Next.js **15**（Bun）フロントエンド／Supabase（Postgres + Auth + RLS）のモノレポです。**uv** で Python 依存を管理し、開発時は `uv run uvicorn main:app --reload --host 0.0.0.0 --port 8080` 等で起動できます。フロントは Bun で `bun run dev`、DB は Supabase CLI の `link`→`db push` で反映します。
+FastAPI バックエンド（Python 3.12）／Next.js **15**（Bun）フロントエンド／Supabase（Postgres + Auth + RLS）のモノレポです。**uv** で Python 依存を管理し、開発時は `uv run uvicorn main:app --reload --host 0.0.0.0 --port 8080` 等で起動できます。フロントは Bun で `bun run dev`、DB は Supabase CLI の `link`→`db push` で反映します
 
 ---
 
