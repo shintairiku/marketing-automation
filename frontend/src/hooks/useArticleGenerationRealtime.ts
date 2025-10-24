@@ -85,13 +85,12 @@ export const useArticleGenerationRealtime = ({
   
   // フック初期化時はデフォルトのresearch_firstで初期化
   // 実際のflowTypeはバックエンドから受信時やユーザー操作時に動的更新される
-  const initialSteps = getInitialSteps('research_first');
-  
   const [state, setState] = useState<GenerationState>({
-    currentStep: 'keyword_analyzing',
+    currentStep: 'start',
     status: 'pending', // Initialize with pending status
-    flowType: 'research_first', // Initialize with default flow type
-    steps: initialSteps,
+    flowType: undefined,
+    steps: [],
+    isInitialized: false,
     isWaitingForInput: false,
     personas: undefined,
     themes: undefined,
@@ -296,6 +295,24 @@ export const useArticleGenerationRealtime = ({
     
     setValidatedState(prev => {
       const next = { ...prev };
+      const ctx = data.article_context || {};
+      const previousFlowType = next.flowType;
+      const flowTypeFromData = ctx.flow_type || previousFlowType || 'research_first';
+      const flowTypeChanged = flowTypeFromData !== previousFlowType;
+      const previousSteps = next.steps;
+
+      next.flowType = flowTypeFromData;
+
+      if (!previousSteps || previousSteps.length === 0) {
+        next.steps = getInitialSteps(flowTypeFromData);
+      } else if (flowTypeChanged) {
+        const reorderedSteps = getInitialSteps(flowTypeFromData);
+        next.steps = reorderedSteps.map(newStep => {
+          const existingStep = previousSteps.find(s => s.id === newStep.id);
+          return existingStep ? { ...newStep, status: existingStep.status } : newStep;
+        });
+        console.log('🔀 Flow type changed. Reordered steps for:', flowTypeFromData);
+      }
 
       // Status & waiting state - CRITICAL for UI display
       next.status = data.status;
@@ -315,23 +332,22 @@ export const useArticleGenerationRealtime = ({
         // フローを決定するロジックを追加
         const stepOrderResearchFirst = ['keyword_analyzing', 'persona_generating', 'theme_generating', 'researching', 'outline_generating', 'writing_sections', 'editing'];
         const stepOrderOutlineFirst = ['keyword_analyzing', 'persona_generating', 'theme_generating', 'outline_generating', 'researching', 'writing_sections', 'editing'];
-        
+
         // Determine which flow we're using based on current context
-        // Use flow_type from backend context, default to research_first
-        const flowType = data.article_context?.flow_type || 'research_first';
+        const flowType = next.flowType || flowTypeFromData;
         const isOutlineFirst = flowType === 'outline_first';
-        
+
         console.log('🔍 Flow determination:', {
           flowType,
           isOutlineFirst,
-          source: data.article_context?.flow_type ? 'backend_context' : 'default'
+          source: ctx.flow_type ? 'backend_context' : 'fallback'
         });
-        
+
         const stepOrder = isOutlineFirst ? stepOrderOutlineFirst : stepOrderResearchFirst;
         const currentStepIndex = stepOrder.indexOf(uiStep);
-        
+
         console.log(`🎯 Progressive step completion: current="${uiStep}" (index=${currentStepIndex}), waiting=${next.isWaitingForInput}`);
-        
+
         next.steps = next.steps.map((s, index) => {
           const prevStatus = s.status;
           let newStatus: StepStatus;
@@ -359,8 +375,6 @@ export const useArticleGenerationRealtime = ({
       }
 
       // Context data (preserve existing, don't overwrite)
-      const ctx = data.article_context || {};
-      
       if (!next.personas && ctx.generated_detailed_personas) {
         console.log('👥 Setting personas from context:', ctx.generated_detailed_personas);
         next.personas = ctx.generated_detailed_personas.map((p: any, i: number) => ({
@@ -386,20 +400,10 @@ export const useArticleGenerationRealtime = ({
         next.outline = outline;
       }
       
-      // CRITICAL: Flow type handling - always update from backend context
-      if (ctx.flow_type) {
-        next.flowType = ctx.flow_type;
-        
-        // Regenerate steps with correct order while preserving current statuses
-        const newSteps = getInitialSteps(ctx.flow_type);
-        next.steps = newSteps.map(newStep => {
-          const existingStep = next.steps.find(s => s.id === newStep.id);
-          return existingStep ? { ...newStep, status: existingStep.status } : newStep;
-        });
-        
-        console.log('🔀 Setting flow type and regenerating steps:', ctx.flow_type);
+      if (!next.isInitialized && next.steps.length > 0) {
+        next.isInitialized = true;
       }
-      
+
       return next;
     });
   }, [setValidatedState, mapBackendStepToUIStep, getInitialSteps]);
@@ -969,6 +973,7 @@ export const useArticleGenerationRealtime = ({
         status: 'pending', // Reset status for new generation
         flowType: flowType, // Set flow type from request
         steps: newSteps.map((step: GenerationStep) => ({ ...step, status: 'pending' as StepStatus, message: undefined })),
+        isInitialized: true,
         personas: undefined,
         themes: undefined,
         researchPlan: undefined,
