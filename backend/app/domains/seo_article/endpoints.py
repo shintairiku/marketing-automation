@@ -36,7 +36,11 @@ from app.domains.company.service import CompanyService
 from app.domains.seo_article.services.flow_service import get_supabase_client
 from app.infrastructure.logging.service import LoggingService
 from app.domains.seo_article.services.version_service import get_version_service
-from app.domains.seo_article.services.article_agent_wrapper import get_article_agent_service
+from app.domains.seo_article.services.article_agent_wrapper import (
+    get_article_agent_service,
+    AgentSessionAccessError,
+    AgentSessionNotFoundError,
+)
 
 # 静的: 1タグHTMLの出力検疫用設定
 SAFE_URL_SCHEMES = {"http", "https", "mailto", "tel"}
@@ -2384,16 +2388,25 @@ async def chat_with_agent(
 
     エージェントが記事の編集を提案・実行します。
     """
+    agent_service = get_article_agent_service()
     try:
-        agent_service = get_article_agent_service()
 
         # チャット実行（非ストリーミング版）
         response_text = ""
-        async for chunk in agent_service.chat(session_id, request.message):
+        async for chunk in agent_service.chat(
+            session_id,
+            request.message,
+            expected_user_id=user_id,
+            expected_article_id=article_id,
+        ):
             response_text += chunk
 
         # 会話履歴を取得
-        history = await agent_service.get_conversation_history(session_id)
+        history = await agent_service.get_conversation_history(
+            session_id,
+            expected_user_id=user_id,
+            expected_article_id=article_id,
+        )
         history_messages = [
             AgentChatMessage(role=item.get("role", ""), content=item.get("content", ""))
             for item in history
@@ -2404,6 +2417,30 @@ async def chat_with_agent(
             conversation_history=history_messages
         )
 
+    except AgentSessionAccessError as e:
+        logger.warning(
+            "Access denied for agent chat session_id=%s article_id=%s user_id=%s: %s",
+            session_id,
+            article_id,
+            user_id,
+            str(e),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="指定されたセッションにアクセスする権限がありません。"
+        )
+    except AgentSessionNotFoundError as e:
+        logger.warning(
+            "Agent session not found for chat session_id=%s article_id=%s user_id=%s: %s",
+            session_id,
+            article_id,
+            user_id,
+            str(e),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="指定されたエージェントセッションが見つかりません。"
+        )
     except Exception as e:
         logger.error(f"Error in agent chat: {str(e)}")
         raise HTTPException(
@@ -2426,10 +2463,13 @@ async def get_agent_session_content(
 
     エージェントによる編集後の記事内容を返します。
     """
+    agent_service = get_article_agent_service()
     try:
-        agent_service = get_article_agent_service()
-
-        current_content = await agent_service.get_current_content(session_id)
+        current_content = await agent_service.get_current_content(
+            session_id,
+            expected_user_id=user_id,
+            expected_article_id=article_id,
+        )
 
         return {
             "session_id": session_id,
@@ -2437,6 +2477,30 @@ async def get_agent_session_content(
             "content": current_content
         }
 
+    except AgentSessionAccessError as e:
+        logger.warning(
+            "Access denied for session content session_id=%s article_id=%s user_id=%s: %s",
+            session_id,
+            article_id,
+            user_id,
+            str(e),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="指定されたセッションにアクセスする権限がありません。"
+        )
+    except AgentSessionNotFoundError as e:
+        logger.warning(
+            "Agent session not found for content session_id=%s article_id=%s user_id=%s: %s",
+            session_id,
+            article_id,
+            user_id,
+            str(e),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="指定されたエージェントセッションが見つかりません。"
+        )
     except Exception as e:
         logger.error(f"Error getting agent session content: {str(e)}")
         raise HTTPException(
@@ -2459,10 +2523,13 @@ async def get_agent_session_diff(
 
     元の記事と編集後の記事の差分を返します。
     """
+    agent_service = get_article_agent_service()
     try:
-        agent_service = get_article_agent_service()
-
-        diff = await agent_service.get_diff(session_id)
+        diff = await agent_service.get_diff(
+            session_id,
+            expected_user_id=user_id,
+            expected_article_id=article_id,
+        )
 
         return {
             "session_id": session_id,
@@ -2470,6 +2537,30 @@ async def get_agent_session_diff(
             **diff
         }
 
+    except AgentSessionAccessError as e:
+        logger.warning(
+            "Access denied for session diff session_id=%s article_id=%s user_id=%s: %s",
+            session_id,
+            article_id,
+            user_id,
+            str(e),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="指定されたセッションにアクセスする権限がありません。"
+        )
+    except AgentSessionNotFoundError as e:
+        logger.warning(
+            "Agent session not found for diff session_id=%s article_id=%s user_id=%s: %s",
+            session_id,
+            article_id,
+            user_id,
+            str(e),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="指定されたエージェントセッションが見つかりません。"
+        )
     except Exception as e:
         logger.error(f"Error getting agent session diff: {str(e)}")
         raise HTTPException(
@@ -2492,13 +2583,40 @@ async def save_agent_session_changes(
 
     エージェントによる編集をデータベースに保存します。
     """
+    agent_service = get_article_agent_service()
     try:
-        agent_service = get_article_agent_service()
-
-        await agent_service.save_changes(session_id)
+        await agent_service.save_changes(
+            session_id,
+            expected_user_id=user_id,
+            expected_article_id=article_id,
+        )
 
         return None
 
+    except AgentSessionAccessError as e:
+        logger.warning(
+            "Access denied for save session_id=%s article_id=%s user_id=%s: %s",
+            session_id,
+            article_id,
+            user_id,
+            str(e),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="指定されたセッションにアクセスする権限がありません。"
+        )
+    except AgentSessionNotFoundError as e:
+        logger.warning(
+            "Agent session not found for save session_id=%s article_id=%s user_id=%s: %s",
+            session_id,
+            article_id,
+            user_id,
+            str(e),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="指定されたエージェントセッションが見つかりません。"
+        )
     except Exception as e:
         logger.error(f"Error saving agent session changes: {str(e)}")
         raise HTTPException(
@@ -2521,13 +2639,40 @@ async def discard_agent_session_changes(
 
     エージェントによる編集を破棄し、元の記事に戻します。
     """
+    agent_service = get_article_agent_service()
     try:
-        agent_service = get_article_agent_service()
-
-        await agent_service.discard_changes(session_id)
+        await agent_service.discard_changes(
+            session_id,
+            expected_user_id=user_id,
+            expected_article_id=article_id,
+        )
 
         return None
 
+    except AgentSessionAccessError as e:
+        logger.warning(
+            "Access denied for discard session_id=%s article_id=%s user_id=%s: %s",
+            session_id,
+            article_id,
+            user_id,
+            str(e),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="指定されたセッションにアクセスする権限がありません。"
+        )
+    except AgentSessionNotFoundError as e:
+        logger.warning(
+            "Agent session not found for discard session_id=%s article_id=%s user_id=%s: %s",
+            session_id,
+            article_id,
+            user_id,
+            str(e),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="指定されたエージェントセッションが見つかりません。"
+        )
     except Exception as e:
         logger.error(f"Error discarding agent session changes: {str(e)}")
         raise HTTPException(
@@ -2550,13 +2695,40 @@ async def close_agent_session(
 
     セッションをクリーンアップし、リソースを解放します。
     """
+    agent_service = get_article_agent_service()
     try:
-        agent_service = get_article_agent_service()
-
-        await agent_service.close_session(session_id)
+        await agent_service.close_session(
+            session_id,
+            expected_user_id=user_id,
+            expected_article_id=article_id,
+        )
 
         return None
 
+    except AgentSessionAccessError as e:
+        logger.warning(
+            "Access denied for close session_id=%s article_id=%s user_id=%s: %s",
+            session_id,
+            article_id,
+            user_id,
+            str(e),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="指定されたセッションにアクセスする権限がありません。"
+        )
+    except AgentSessionNotFoundError as e:
+        logger.warning(
+            "Agent session not found for close session_id=%s article_id=%s user_id=%s: %s",
+            session_id,
+            article_id,
+            user_id,
+            str(e),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="指定されたエージェントセッションが見つかりません。"
+        )
     except Exception as e:
         logger.error(f"Error closing agent session: {str(e)}")
         raise HTTPException(
@@ -2582,13 +2754,40 @@ async def extract_pending_changes(
     Returns:
         承認待ちの変更リスト
     """
+    agent_service = get_article_agent_service()
     try:
-        agent_service = get_article_agent_service()
-
-        changes = await agent_service.extract_pending_changes(session_id)
+        changes = await agent_service.extract_pending_changes(
+            session_id,
+            expected_user_id=user_id,
+            expected_article_id=article_id,
+        )
 
         return {"changes": changes}
 
+    except AgentSessionAccessError as e:
+        logger.warning(
+            "Access denied for extract-changes session_id=%s article_id=%s user_id=%s: %s",
+            session_id,
+            article_id,
+            user_id,
+            str(e),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="指定されたセッションにアクセスする権限がありません。"
+        )
+    except AgentSessionNotFoundError as e:
+        logger.warning(
+            "Agent session not found for extract-changes session_id=%s article_id=%s user_id=%s: %s",
+            session_id,
+            article_id,
+            user_id,
+            str(e),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="指定されたエージェントセッションが見つかりません。"
+        )
     except Exception as e:
         logger.error(f"Error extracting pending changes: {str(e)}")
         raise HTTPException(
@@ -2612,13 +2811,40 @@ async def get_pending_changes(
     Returns:
         承認待ちの変更リスト
     """
+    agent_service = get_article_agent_service()
     try:
-        agent_service = get_article_agent_service()
-
-        changes = await agent_service.get_pending_changes(session_id)
+        changes = await agent_service.get_pending_changes(
+            session_id,
+            expected_user_id=user_id,
+            expected_article_id=article_id,
+        )
 
         return {"changes": changes}
 
+    except AgentSessionAccessError as e:
+        logger.warning(
+            "Access denied for pending-changes session_id=%s article_id=%s user_id=%s: %s",
+            session_id,
+            article_id,
+            user_id,
+            str(e),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="指定されたセッションにアクセスする権限がありません。"
+        )
+    except AgentSessionNotFoundError as e:
+        logger.warning(
+            "Agent session not found for pending-changes session_id=%s article_id=%s user_id=%s: %s",
+            session_id,
+            article_id,
+            user_id,
+            str(e),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="指定されたエージェントセッションが見つかりません。"
+        )
     except Exception as e:
         logger.error(f"Error getting pending changes: {str(e)}")
         raise HTTPException(
@@ -2642,12 +2868,40 @@ async def get_unified_diff_view(
     Returns:
         統合差分ビュー
     """
+    agent_service = get_article_agent_service()
     try:
-        agent_service = get_article_agent_service()
-
-        diff_view = await agent_service.get_unified_diff_view(session_id)
+        diff_view = await agent_service.get_unified_diff_view(
+            session_id,
+            expected_user_id=user_id,
+            expected_article_id=article_id,
+        )
 
         return diff_view
+
+    except AgentSessionAccessError as e:
+        logger.warning(
+            "Access denied for unified-diff session_id=%s article_id=%s user_id=%s: %s",
+            session_id,
+            article_id,
+            user_id,
+            str(e),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="指定されたセッションにアクセスする権限がありません。"
+        )
+    except AgentSessionNotFoundError as e:
+        logger.warning(
+            "Agent session not found for unified-diff session_id=%s article_id=%s user_id=%s: %s",
+            session_id,
+            article_id,
+            user_id,
+            str(e),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="指定されたエージェントセッションが見つかりません。"
+        )
 
     except Exception as e:
         logger.error(f"Error getting unified diff view: {str(e)}")
@@ -2674,13 +2928,43 @@ async def approve_change(
     Returns:
         承認結果
     """
+    agent_service = get_article_agent_service()
     try:
-        agent_service = get_article_agent_service()
-
-        success = await agent_service.approve_change(session_id, change_id)
+        success = await agent_service.approve_change(
+            session_id,
+            change_id,
+            expected_user_id=user_id,
+            expected_article_id=article_id,
+        )
 
         return {"success": success, "change_id": change_id}
 
+    except AgentSessionAccessError as e:
+        logger.warning(
+            "Access denied for approve change session_id=%s change_id=%s article_id=%s user_id=%s: %s",
+            session_id,
+            change_id,
+            article_id,
+            user_id,
+            str(e),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="指定されたセッションにアクセスする権限がありません。"
+        )
+    except AgentSessionNotFoundError as e:
+        logger.warning(
+            "Agent session not found for approve change session_id=%s change_id=%s article_id=%s user_id=%s: %s",
+            session_id,
+            change_id,
+            article_id,
+            user_id,
+            str(e),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="指定されたエージェントセッションが見つかりません。"
+        )
     except Exception as e:
         logger.error(f"Error approving change: {str(e)}")
         raise HTTPException(
@@ -2706,13 +2990,43 @@ async def reject_change(
     Returns:
         拒否結果
     """
+    agent_service = get_article_agent_service()
     try:
-        agent_service = get_article_agent_service()
-
-        success = await agent_service.reject_change(session_id, change_id)
+        success = await agent_service.reject_change(
+            session_id,
+            change_id,
+            expected_user_id=user_id,
+            expected_article_id=article_id,
+        )
 
         return {"success": success, "change_id": change_id}
 
+    except AgentSessionAccessError as e:
+        logger.warning(
+            "Access denied for reject change session_id=%s change_id=%s article_id=%s user_id=%s: %s",
+            session_id,
+            change_id,
+            article_id,
+            user_id,
+            str(e),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="指定されたセッションにアクセスする権限がありません。"
+        )
+    except AgentSessionNotFoundError as e:
+        logger.warning(
+            "Agent session not found for reject change session_id=%s change_id=%s article_id=%s user_id=%s: %s",
+            session_id,
+            change_id,
+            article_id,
+            user_id,
+            str(e),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="指定されたエージェントセッションが見つかりません。"
+        )
     except Exception as e:
         logger.error(f"Error rejecting change: {str(e)}")
         raise HTTPException(
@@ -2736,10 +3050,13 @@ async def apply_approved_changes(
     Returns:
         適用後のコンテンツ
     """
+    agent_service = get_article_agent_service()
     try:
-        agent_service = get_article_agent_service()
-
-        result = await agent_service.apply_approved_changes(session_id)
+        result = await agent_service.apply_approved_changes(
+            session_id,
+            expected_user_id=user_id,
+            expected_article_id=article_id,
+        )
 
         return {
             "content": result.get("content"),
@@ -2747,6 +3064,30 @@ async def apply_approved_changes(
             "applied_change_ids": result.get("applied_change_ids", []),
         }
 
+    except AgentSessionAccessError as e:
+        logger.warning(
+            "Access denied for apply-approved session_id=%s article_id=%s user_id=%s: %s",
+            session_id,
+            article_id,
+            user_id,
+            str(e),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="指定されたセッションにアクセスする権限がありません。"
+        )
+    except AgentSessionNotFoundError as e:
+        logger.warning(
+            "Agent session not found for apply-approved session_id=%s article_id=%s user_id=%s: %s",
+            session_id,
+            article_id,
+            user_id,
+            str(e),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="指定されたエージェントセッションが見つかりません。"
+        )
     except Exception as e:
         logger.error(f"Error applying approved changes: {str(e)}")
         raise HTTPException(
@@ -2770,13 +3111,40 @@ async def clear_pending_changes(
     Returns:
         成功メッセージ
     """
+    agent_service = get_article_agent_service()
     try:
-        agent_service = get_article_agent_service()
-
-        await agent_service.clear_pending_changes(session_id)
+        await agent_service.clear_pending_changes(
+            session_id,
+            expected_user_id=user_id,
+            expected_article_id=article_id,
+        )
 
         return {"message": "Pending changes cleared successfully"}
 
+    except AgentSessionAccessError as e:
+        logger.warning(
+            "Access denied for clear-changes session_id=%s article_id=%s user_id=%s: %s",
+            session_id,
+            article_id,
+            user_id,
+            str(e),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="指定されたセッションにアクセスする権限がありません。"
+        )
+    except AgentSessionNotFoundError as e:
+        logger.warning(
+            "Agent session not found for clear-changes session_id=%s article_id=%s user_id=%s: %s",
+            session_id,
+            article_id,
+            user_id,
+            str(e),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="指定されたエージェントセッションが見つかりません。"
+        )
     except Exception as e:
         logger.error(f"Error clearing pending changes: {str(e)}")
         raise HTTPException(

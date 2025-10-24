@@ -57,6 +57,18 @@ SEO_CODEX_INSTRUCTIONS = """
 """
 
 
+class AgentSessionError(Exception):
+    """Base exception for agent session errors."""
+
+
+class AgentSessionNotFoundError(AgentSessionError):
+    """Raised when an agent session does not exist."""
+
+
+class AgentSessionAccessError(AgentSessionError):
+    """Raised when the current user cannot access the agent session."""
+
+
 class PendingChange:
     """承認待ちの変更"""
     def __init__(self, change_id: str, old_text: str, new_text: str, description: str = ""):
@@ -738,19 +750,19 @@ class ArticleAgentService:
         if session_id in self.sessions:
             session = self.sessions[session_id]
             if expected_user_id and session.user_id != expected_user_id:
-                raise Exception("Access denied to session")
+                raise AgentSessionAccessError("Access denied to agent session")
             if expected_article_id and session.article_id != expected_article_id:
-                raise Exception("Session does not belong to specified article")
+                raise AgentSessionAccessError("Agent session does not belong to specified article")
             return session
 
         record = self._fetch_session_record(session_id)
         if not record:
-            raise Exception(f"Session {session_id} not found")
+            raise AgentSessionNotFoundError(f"Session {session_id} not found")
 
         if expected_user_id and record["user_id"] != expected_user_id:
-            raise Exception("Access denied to session")
+            raise AgentSessionAccessError("Access denied to agent session")
         if expected_article_id and record["article_id"] != expected_article_id:
-            raise Exception("Session does not belong to specified article")
+            raise AgentSessionAccessError("Agent session does not belong to specified article")
 
         return await self._hydrate_session(record)
 
@@ -929,9 +941,20 @@ class ArticleAgentService:
         updated_record = self._fetch_session_record(session_id)
         return self._build_session_detail(updated_record)
 
-    async def chat(self, session_id: str, user_message: str) -> AsyncGenerator[str, None]:
+    async def chat(
+        self,
+        session_id: str,
+        user_message: str,
+        *,
+        expected_user_id: Optional[str] = None,
+        expected_article_id: Optional[str] = None,
+    ) -> AsyncGenerator[str, None]:
         """エージェントとチャット"""
-        session = await self._ensure_session_loaded(session_id)
+        session = await self._ensure_session_loaded(
+            session_id,
+            expected_user_id=expected_user_id,
+            expected_article_id=expected_article_id,
+        )
         self._append_message(session_id, "user", user_message, session.user_id)
         response_accumulator = ""
         async for chunk in session.chat(user_message):
@@ -946,15 +969,35 @@ class ArticleAgentService:
             },
         )
 
-    async def get_current_content(self, session_id: str) -> str:
+    async def get_current_content(
+        self,
+        session_id: str,
+        *,
+        expected_user_id: Optional[str] = None,
+        expected_article_id: Optional[str] = None,
+    ) -> str:
         """現在のコンテンツを取得"""
-        session = await self._ensure_session_loaded(session_id)
+        session = await self._ensure_session_loaded(
+            session_id,
+            expected_user_id=expected_user_id,
+            expected_article_id=expected_article_id,
+        )
         async with session._lock:
             return session.get_current_content()
 
-    async def get_diff(self, session_id: str) -> Dict[str, Any]:
+    async def get_diff(
+        self,
+        session_id: str,
+        *,
+        expected_user_id: Optional[str] = None,
+        expected_article_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
         """差分を取得"""
-        session = await self._ensure_session_loaded(session_id)
+        session = await self._ensure_session_loaded(
+            session_id,
+            expected_user_id=expected_user_id,
+            expected_article_id=expected_article_id,
+        )
         async with session._lock:
             result = self.supabase.table("articles").select("content").eq("id", session.article_id).execute()
 
@@ -964,9 +1007,19 @@ class ArticleAgentService:
             original_content = result.data[0].get("content", "")
             return session.get_diff(original_content)
 
-    async def save_changes(self, session_id: str) -> None:
+    async def save_changes(
+        self,
+        session_id: str,
+        *,
+        expected_user_id: Optional[str] = None,
+        expected_article_id: Optional[str] = None,
+    ) -> None:
         """変更を保存"""
-        session = await self._ensure_session_loaded(session_id)
+        session = await self._ensure_session_loaded(
+            session_id,
+            expected_user_id=expected_user_id,
+            expected_article_id=expected_article_id,
+        )
         async with session._lock:
             current_content = session.get_current_content()
             await self._save_article_and_version(
@@ -981,9 +1034,19 @@ class ArticleAgentService:
             session.original_file.write_text(current_content, encoding="utf-8")
             logger.info("Saved changes for article %s", session.article_id)
 
-    async def discard_changes(self, session_id: str) -> None:
+    async def discard_changes(
+        self,
+        session_id: str,
+        *,
+        expected_user_id: Optional[str] = None,
+        expected_article_id: Optional[str] = None,
+    ) -> None:
         """変更を破棄"""
-        session = await self._ensure_session_loaded(session_id)
+        session = await self._ensure_session_loaded(
+            session_id,
+            expected_user_id=expected_user_id,
+            expected_article_id=expected_article_id,
+        )
         async with session._lock:
             result = self.supabase.table("articles").select("content").eq("id", session.article_id).execute()
 
@@ -1006,11 +1069,22 @@ class ArticleAgentService:
 
             logger.info("Discarded changes for article %s", session.article_id)
 
-    async def close_session(self, session_id: str) -> None:
+    async def close_session(
+        self,
+        session_id: str,
+        *,
+        expected_user_id: Optional[str] = None,
+        expected_article_id: Optional[str] = None,
+    ) -> None:
         """セッションを閉じる"""
         record = self._fetch_session_record(session_id)
         if not record:
             return
+
+        if expected_user_id and record["user_id"] != expected_user_id:
+            raise AgentSessionAccessError("Access denied to agent session")
+        if expected_article_id and record["article_id"] != expected_article_id:
+            raise AgentSessionAccessError("Agent session does not belong to specified article")
 
         session = self.sessions.get(session_id)
         if session:
@@ -1046,46 +1120,118 @@ class ArticleAgentService:
         )
         logger.info("Closed session %s", session_id)
 
-    async def get_conversation_history(self, session_id: str) -> List[Dict[str, Any]]:
+    async def get_conversation_history(
+        self,
+        session_id: str,
+        *,
+        expected_user_id: Optional[str] = None,
+        expected_article_id: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
         """会話履歴を取得"""
-        session = await self._ensure_session_loaded(session_id)
+        session = await self._ensure_session_loaded(
+            session_id,
+            expected_user_id=expected_user_id,
+            expected_article_id=expected_article_id,
+        )
         history = self._load_session_messages(session_id)
         session.conversation_history = [{"role": msg["role"], "content": msg["content"]} for msg in history]
         return session.conversation_history
 
-    async def extract_pending_changes(self, session_id: str) -> List[Dict[str, Any]]:
+    async def extract_pending_changes(
+        self,
+        session_id: str,
+        *,
+        expected_user_id: Optional[str] = None,
+        expected_article_id: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
         """apply_patchによる変更を抽出"""
-        session = await self._ensure_session_loaded(session_id)
+        session = await self._ensure_session_loaded(
+            session_id,
+            expected_user_id=expected_user_id,
+            expected_article_id=expected_article_id,
+        )
         async with session._lock:
             return session.extract_pending_changes()
 
-    async def get_pending_changes(self, session_id: str) -> List[Dict[str, Any]]:
+    async def get_pending_changes(
+        self,
+        session_id: str,
+        *,
+        expected_user_id: Optional[str] = None,
+        expected_article_id: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
         """承認待ちの変更を取得"""
-        session = await self._ensure_session_loaded(session_id)
+        session = await self._ensure_session_loaded(
+            session_id,
+            expected_user_id=expected_user_id,
+            expected_article_id=expected_article_id,
+        )
         async with session._lock:
             return session.get_pending_changes()
 
-    async def get_unified_diff_view(self, session_id: str) -> Dict[str, Any]:
+    async def get_unified_diff_view(
+        self,
+        session_id: str,
+        *,
+        expected_user_id: Optional[str] = None,
+        expected_article_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
         """統合差分ビューを取得（VSCode風）"""
-        session = await self._ensure_session_loaded(session_id)
+        session = await self._ensure_session_loaded(
+            session_id,
+            expected_user_id=expected_user_id,
+            expected_article_id=expected_article_id,
+        )
         async with session._lock:
             return session.get_unified_diff_view()
 
-    async def approve_change(self, session_id: str, change_id: str) -> bool:
+    async def approve_change(
+        self,
+        session_id: str,
+        change_id: str,
+        *,
+        expected_user_id: Optional[str] = None,
+        expected_article_id: Optional[str] = None,
+    ) -> bool:
         """変更を承認"""
-        session = await self._ensure_session_loaded(session_id)
+        session = await self._ensure_session_loaded(
+            session_id,
+            expected_user_id=expected_user_id,
+            expected_article_id=expected_article_id,
+        )
         async with session._lock:
             return session.approve_change(change_id)
 
-    async def reject_change(self, session_id: str, change_id: str) -> bool:
+    async def reject_change(
+        self,
+        session_id: str,
+        change_id: str,
+        *,
+        expected_user_id: Optional[str] = None,
+        expected_article_id: Optional[str] = None,
+    ) -> bool:
         """変更を拒否"""
-        session = await self._ensure_session_loaded(session_id)
+        session = await self._ensure_session_loaded(
+            session_id,
+            expected_user_id=expected_user_id,
+            expected_article_id=expected_article_id,
+        )
         async with session._lock:
             return session.reject_change(change_id)
 
-    async def apply_approved_changes(self, session_id: str) -> Dict[str, Any]:
+    async def apply_approved_changes(
+        self,
+        session_id: str,
+        *,
+        expected_user_id: Optional[str] = None,
+        expected_article_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
         """承認された変更を適用し、保存・バージョン管理も実行する。"""
-        session = await self._ensure_session_loaded(session_id)
+        session = await self._ensure_session_loaded(
+            session_id,
+            expected_user_id=expected_user_id,
+            expected_article_id=expected_article_id,
+        )
         async with session._lock:
             apply_result = session.apply_approved_changes()
             applied_count = apply_result.get("applied_count", 0)
@@ -1109,9 +1255,19 @@ class ArticleAgentService:
 
             return apply_result
 
-    async def clear_pending_changes(self, session_id: str) -> None:
+    async def clear_pending_changes(
+        self,
+        session_id: str,
+        *,
+        expected_user_id: Optional[str] = None,
+        expected_article_id: Optional[str] = None,
+    ) -> None:
         """承認待ち変更をクリア"""
-        session = await self._ensure_session_loaded(session_id)
+        session = await self._ensure_session_loaded(
+            session_id,
+            expected_user_id=expected_user_id,
+            expected_article_id=expected_article_id,
+        )
         async with session._lock:
             session.clear_pending_changes()
             self._update_session_record(
