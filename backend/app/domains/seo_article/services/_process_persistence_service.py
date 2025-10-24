@@ -299,8 +299,7 @@ class ProcessPersistenceService:
                 # アウトラインモード設定
                 advanced_outline_mode=context_dict.get("advanced_outline_mode", False),
                 outline_top_level_heading=outline_top_level,
-                # フロー設定の復元（後方互換性のためflow_modeもチェック）
-                flow_type=context_dict.get("flow_type", context_dict.get("flow_mode", "research_first")),
+                flow_type=context_dict.get("flow_type", "research_first"),
                 websocket=None,  # Will be set when WebSocket connects
                 user_response_event=None,  # Will be set when WebSocket connects
                 user_id=user_id  # Set user_id from method parameter
