@@ -6,9 +6,6 @@ import { AlertCircle, Bot, Check, Loader2, Plus, Send, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Textarea } from '@/components/ui/textarea';
-import { useToast } from '@/hooks/use-toast';
-import { useAgentChat, type AgentSessionSummary } from '@/hooks/useAgentChat';
 import {
   Select,
   SelectContent,
@@ -16,7 +13,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { Textarea } from '@/components/ui/textarea';
+import { useToast } from '@/hooks/use-toast';
+import { type AgentSessionSummary, useAgentChat } from '@/hooks/useAgentChat';
 
+import AIAgentChatMessage from './AIAgentChatMessage';
 import UnifiedDiffViewer from './UnifiedDiffViewer';
 
 interface AIAgentEditTabProps {
@@ -412,31 +413,34 @@ export default function AIAgentEditTab({ articleId, onSave }: AIAgentEditTabProp
           </p>
         )}
 
-        <div className="flex-1 min-h-0 overflow-hidden rounded-xl border border-slate-100 bg-white">
-          <ScrollArea className="h-full">
-            <div className="space-y-4 px-4 py-4 md:py-5">
-              {messages.map((msg, idx) => (
-                <div
-                  key={idx}
-                  className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
-                >
-                  <div
-                    className={`max-w-[82%] rounded-2xl px-4 py-3 text-sm leading-relaxed shadow-sm ${
-                      msg.role === 'user'
-                        ? 'bg-blue-600 text-white'
-                        : 'bg-slate-100 text-slate-900'
-                    }`}
-                  >
-                    <div className="whitespace-pre-wrap">{msg.content}</div>
+        <div className="flex-1 min-h-0 overflow-hidden rounded-2xl border border-slate-100 bg-gradient-to-b from-white via-white to-slate-50">
+          <ScrollArea className="h-full pr-1">
+            <div className="flex flex-col gap-4 px-4 py-5">
+              {messages.length === 0 && !loading && (
+                <div className="flex flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-slate-200 bg-white/90 px-6 py-10 text-center text-sm text-slate-500">
+                  <Bot className="h-8 w-8 text-slate-300" />
+                  <div className="space-y-1">
+                    <p className="font-semibold text-slate-700">AIエージェントと会話を始めましょう</p>
+                    <p className="text-xs leading-relaxed text-slate-500">
+                      指示を送ると、提案内容がこちらにチャット形式で表示されます。
+                    </p>
                   </div>
                 </div>
+              )}
+
+              {messages.map((msg, idx) => (
+                <AIAgentChatMessage
+                  key={`${msg.role}-${idx}-${msg.content.length}`}
+                  role={msg.role}
+                  content={msg.content}
+                />
               ))}
 
               {loading && (
-                <div className="flex justify-start text-slate-500">
-                  <div className="flex items-center gap-2 rounded-2xl bg-slate-100 px-4 py-3 text-sm">
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    処理中...
+                <div className="flex justify-start">
+                  <div className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-white/90 px-4 py-3 text-sm text-slate-600 shadow-sm">
+                    <Loader2 className="h-4 w-4 animate-spin text-blue-600" />
+                    <span>AIが考え中です…</span>
                   </div>
                 </div>
               )}

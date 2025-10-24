@@ -243,7 +243,7 @@ export function useAgentChat(articleId: string): UseAgentChatReturn {
         setLoading(false);
       }
     },
-    [sessionId, articleId, getHeaders, normalizeMessages]
+    [sessionId, articleId, getHeaders, normalizeMessages, loadSessions]
   );
 
   const getCurrentContent = useCallback(async () => {
