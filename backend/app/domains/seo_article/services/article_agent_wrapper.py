@@ -489,11 +489,15 @@ class ArticleAgentSession:
                 applied_ids.append(change.change_id)
 
         # ファイルとセッション状態を更新
-        self.article_file.write_text(content, encoding="utf-8")
-        self.original_file.write_text(content, encoding="utf-8")
-        self.original_content = content
-        self.pending_changes = []
-        self._change_counter = 0
+        if applied_ids:
+            self.article_file.write_text(content, encoding="utf-8")
+            self.original_file.write_text(content, encoding="utf-8")
+            self.original_content = content
+            # 承認済みで適用された変更のみ除去し、未承認のものは残す
+            self.pending_changes = [
+                change for change in self.pending_changes if change.change_id not in applied_ids
+            ]
+            # 適用成功後は残った変更の承認状態を維持（ユーザーが再確認できるようにする）
 
         return {
             "content": content,
