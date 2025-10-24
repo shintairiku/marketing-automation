@@ -286,14 +286,14 @@ create table invitations (
   role organization_role not null default 'member',
   status invitation_status not null default 'pending',
   invited_by_user_id uuid references auth.users not null,
-  token text unique not null default encode(gen_random_bytes(32), 'hex'),
+  token text unique not null default replace(gen_random_uuid()::text || gen_random_uuid()::text, '-', ''),
   expires_at timestamp with time zone default (timezone('utc'::text, now()) + interval '7 days') not null,
   created_at timestamp with time zone default timezone('utc'::text, now()) not null
 );
 ```
 
 **セキュリティ機能**:
-- **一意トークン**: 32バイトランダム生成
+- **一意トークン**: UUID v4 を2つ連結した 64 文字のランダム値
 - **自動有効期限**: デフォルト7日間
 - **ステータス管理**: pending → accepted/declined/expired
 
@@ -648,7 +648,7 @@ create table style_guide_templates (
 
 ```sql
 create table agent_log_sessions (
-  id uuid primary key default uuid_generate_v4(),
+  id uuid primary key default gen_random_uuid(),
   article_uuid uuid not null references articles(id) on delete cascade,
   user_id text not null,  -- Clerk対応
   organization_id uuid references organizations(id) on delete cascade,
@@ -688,7 +688,7 @@ create table agent_log_sessions (
 
 ```sql
 create table agent_execution_logs (
-  id uuid primary key default uuid_generate_v4(),
+  id uuid primary key default gen_random_uuid(),
   session_id uuid not null references agent_log_sessions(id) on delete cascade,
   
   -- エージェント識別
@@ -736,7 +736,7 @@ create table agent_execution_logs (
 
 ```sql
 create table llm_call_logs (
-  id uuid primary key default uuid_generate_v4(),
+  id uuid primary key default gen_random_uuid(),
   execution_id uuid not null references agent_execution_logs(id) on delete cascade,
   
   -- 呼び出し情報
@@ -790,7 +790,7 @@ create table llm_call_logs (
 
 ```sql
 create table tool_call_logs (
-  id uuid primary key default uuid_generate_v4(),
+  id uuid primary key default gen_random_uuid(),
   execution_id uuid not null references agent_execution_logs(id) on delete cascade,
   
   -- ツール情報
@@ -828,7 +828,7 @@ create table tool_call_logs (
 
 ```sql
 create table workflow_step_logs (
-  id uuid primary key default uuid_generate_v4(),
+  id uuid primary key default gen_random_uuid(),
   session_id uuid not null references agent_log_sessions(id) on delete cascade,
   
   -- ステップ情報

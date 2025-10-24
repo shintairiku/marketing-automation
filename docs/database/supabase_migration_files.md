@@ -21,7 +21,7 @@ YYYYMMDDHHMMSS_migration_name.sql
 
 例:
 20240115041359_init.sql                    # 初期セットアップ
-20250105000000_fix_user_id_for_clerk.sql   # Clerk対応
+20250605152628_fix_user_id_for_clerk.sql   # Clerk対応
 20250727000000_supabase_realtime_migration.sql # Realtime機能
 ```
 
@@ -89,7 +89,7 @@ create table subscriptions (
 );
 ```
 
-### 2. Clerk認証対応 (`20250105000000_fix_user_id_for_clerk.sql`)
+### 2. Clerk認証対応 (`20250605152628_fix_user_id_for_clerk.sql`)
 
 #### ユーザーID型変更
 ```sql
@@ -344,7 +344,7 @@ $$ LANGUAGE plpgsql;
 ```sql
 -- ログセッション（記事生成セッション全体）
 CREATE TABLE agent_log_sessions (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     article_uuid UUID NOT NULL REFERENCES articles(id) ON DELETE CASCADE,
     user_id TEXT NOT NULL,
     organization_id UUID REFERENCES organizations(id) ON DELETE CASCADE,
@@ -373,7 +373,7 @@ CREATE TABLE agent_log_sessions (
 
 -- エージェント実行ログ
 CREATE TABLE agent_execution_logs (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     session_id UUID NOT NULL REFERENCES agent_log_sessions(id) ON DELETE CASCADE,
     
     -- エージェント識別

@@ -1,12 +1,12 @@
 -- マルチエージェントシステム用包括的ログシステム
 -- 2025-07-16: SEO記事作成におけるエージェントワークフローの完全なログ記録
 
--- 拡張機能の有効化
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
 -- ログセッション（記事生成セッション全体を管理）
 CREATE TABLE agent_log_sessions (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     article_uuid UUID NOT NULL REFERENCES articles(id) ON DELETE CASCADE,
     user_id TEXT NOT NULL,
     organization_id UUID REFERENCES organizations(id) ON DELETE CASCADE,
@@ -39,7 +39,7 @@ CREATE TABLE agent_log_sessions (
 
 -- エージェント実行ログ（各エージェントの個別実行記録）
 CREATE TABLE agent_execution_logs (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     session_id UUID NOT NULL REFERENCES agent_log_sessions(id) ON DELETE CASCADE,
     
     -- エージェント識別情報
@@ -88,7 +88,7 @@ CREATE TABLE agent_execution_logs (
 
 -- LLM呼び出しログ（個別のLLM API呼び出し詳細）
 CREATE TABLE llm_call_logs (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     execution_id UUID NOT NULL REFERENCES agent_execution_logs(id) ON DELETE CASCADE,
     
     -- 呼び出し情報
@@ -143,7 +143,7 @@ CREATE TABLE llm_call_logs (
 
 -- ツール呼び出しログ（WebSearch、SerpAPIなど外部ツール呼び出し）
 CREATE TABLE tool_call_logs (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     execution_id UUID NOT NULL REFERENCES agent_execution_logs(id) ON DELETE CASCADE,
     
     -- ツール情報
@@ -181,7 +181,7 @@ CREATE TABLE tool_call_logs (
 
 -- ワークフローステップログ（各ステップの詳細記録）
 CREATE TABLE workflow_step_logs (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     session_id UUID NOT NULL REFERENCES agent_log_sessions(id) ON DELETE CASCADE,
     
     -- ステップ情報

@@ -94,7 +94,7 @@ User <─> Next.js App Router (Edge/API) ──> Cloud Run API │
 - `public.subscriptions` … `user_id uuid references auth.users` に結び付いた個人サブスク。RLS で `auth.uid()` と一致する行のみ参照可。
 - `public.organization_subscriptions` … チーム/組織課金用。`organization_id uuid references organizations`。
 
-`20250105000000_fix_user_id_for_clerk.sql` では複数テーブルの `user_id` を text 化済みだが、`customers` と `subscriptions` は未移行のため、Clerk ユーザー ID (`user_...`) を直接格納するにはスキーマ修正が必要になる。
+`20250605152628_fix_user_id_for_clerk.sql` では複数テーブルの `user_id` を text 化済みだが、`customers` と `subscriptions` は未移行のため、Clerk ユーザー ID (`user_...`) を直接格納するにはスキーマ修正が必要になる。
 
 ### 1. Clerk 互換化のためのスキーマ調整
 

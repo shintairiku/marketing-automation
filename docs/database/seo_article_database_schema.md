@@ -380,7 +380,7 @@ CREATE TABLE style_guide_templates (
 
 ```sql
 CREATE TABLE agent_log_sessions (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     article_uuid UUID NOT NULL REFERENCES articles(id) ON DELETE CASCADE,
     user_id TEXT NOT NULL,
     organization_id UUID REFERENCES organizations(id) ON DELETE CASCADE,
@@ -411,7 +411,7 @@ CREATE TABLE agent_log_sessions (
 
 ```sql
 CREATE TABLE agent_execution_logs (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     session_id UUID NOT NULL REFERENCES agent_log_sessions(id) ON DELETE CASCADE,
     
     -- エージェント情報
@@ -452,7 +452,7 @@ CREATE TABLE agent_execution_logs (
 
 ```sql
 CREATE TABLE llm_call_logs (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     execution_id UUID NOT NULL REFERENCES agent_execution_logs(id) ON DELETE CASCADE,
     
     -- 呼び出し情報
@@ -497,7 +497,7 @@ CREATE TABLE llm_call_logs (
 
 ```sql
 CREATE TABLE tool_call_logs (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     execution_id UUID NOT NULL REFERENCES agent_execution_logs(id) ON DELETE CASCADE,
     
     -- ツール情報

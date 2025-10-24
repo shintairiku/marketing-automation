@@ -318,7 +318,7 @@ async def create_article(
 
 #### マイグレーション例
 
-**ファイル**: `/frontend/supabase/migrations/20250105000000_fix_user_id_for_clerk.sql`
+**ファイル**: `/frontend/supabase/migrations/20250605152628_fix_user_id_for_clerk.sql`
 
 ```sql
 -- ClerkのユーザーID形式に対応するためuser_idカラムをTEXT型に変更

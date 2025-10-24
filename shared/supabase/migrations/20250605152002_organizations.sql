@@ -3,6 +3,8 @@
  * Note: This table contains organization data for team-based functionality.
  * Organizations can have multiple members and manage their own subscriptions.
  */
+create extension if not exists pgcrypto;
+
 create table organizations (
   -- UUID primary key
   id uuid default gen_random_uuid() primary key,
@@ -98,7 +100,7 @@ create table invitations (
   -- User who sent the invitation
   invited_by_user_id uuid references auth.users not null,
   -- Unique token for accepting the invitation
-  token text unique not null default encode(gen_random_bytes(32), 'hex'),
+  token text unique not null default replace(gen_random_uuid()::text || gen_random_uuid()::text, '-', ''),
   -- When the invitation expires
   expires_at timestamp with time zone default (timezone('utc'::text, now()) + interval '7 days') not null,
   -- Timestamps
