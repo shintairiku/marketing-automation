@@ -20,6 +20,7 @@ from agents import function_tool
 from agents.run_context import RunContextWrapper
 from pydantic import BaseModel
 
+from app.core.config import settings
 from app.domains.seo_article.services.codex_patch import (
     ApplyPatch,
     HunkApplyError,
@@ -182,9 +183,10 @@ class AgentEditService:
         self.supabase = get_supabase_client()
         self.sessions: Dict[str, EditContext] = {}
 
-    def _create_agent(self, model: str = "gpt-4o") -> Agent[EditContext]:
+    def _create_agent(self, model: Optional[str] = None) -> Agent[EditContext]:
         """エージェントを作成"""
-        settings = ModelSettings(
+        selected_model = model or settings.article_edit_service_model
+        model_settings = ModelSettings(
             tool_choice="auto",
             temperature=0.3,
         )
@@ -192,8 +194,8 @@ class AgentEditService:
         return Agent[EditContext](
             name="Article Edit Agent",
             instructions=CODEX_STYLE_INSTRUCTIONS,
-            model=model,
-            model_settings=settings,
+            model=selected_model,
+            model_settings=model_settings,
             tools=[read_article, apply_patch_tool],
         )
 
@@ -255,7 +257,7 @@ class AgentEditService:
 
         return session_id
 
-    async def chat(self, session_id: str, user_message: str, model: str = "gpt-4o"):
+    async def chat(self, session_id: str, user_message: str, model: Optional[str] = None):
         """エージェントとチャット（ストリーミング）"""
         if session_id not in self.sessions:
             raise Exception(f"Session {session_id} not found")

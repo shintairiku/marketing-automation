@@ -163,7 +163,7 @@ class ArticleAgentSession:
         # エージェントを作成（SEO記事編集用）
         web_tool = agent_module.create_web_search_tool()
         self.agent = agent_module.build_text_edit_agent(
-            model="gpt-5-mini",
+            model=settings.article_edit_agent_model,
             tool_choice="auto",
             instructions=SEO_CODEX_INSTRUCTIONS,
             include_web_search=True,
