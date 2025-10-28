@@ -42,6 +42,18 @@ class Settings(BaseSettings):
     research_model: str = os.getenv("RESEARCH_MODEL", "gpt-4o-mini")
     writing_model: str = os.getenv("WRITING_MODEL", "gpt-4o-mini")
     editing_model: str = os.getenv("EDITING_MODEL", "gpt-4o-mini")
+
+    # LLM backend selection
+    default_llm_backend: str = os.getenv("DEFAULT_LLM_BACKEND", "openai")
+    writing_llm_backend: str = os.getenv("WRITING_LLM_BACKEND", "")
+    editing_llm_backend: str = os.getenv("EDITING_LLM_BACKEND", "")
+
+    # LiteLLM specific configuration
+    default_litellm_provider: str = os.getenv("DEFAULT_LITELLM_PROVIDER", "")
+    writing_litellm_provider: str = os.getenv("WRITING_LITELLM_PROVIDER", "")
+    editing_litellm_provider: str = os.getenv("EDITING_LITELLM_PROVIDER", "")
+    litellm_base_url: str = os.getenv("LITELLM_BASE_URL", "")
+    litellm_api_key: str = os.getenv("LITELLM_API_KEY", "")
     
     # Agents SDK specific settings
     model_for_agents: str = os.getenv("MODEL_FOR_AGENTS", "gpt-4o-mini")
@@ -128,15 +140,34 @@ def setup_agents_sdk():
             return
 
         from agents import (
-            set_default_openai_key, 
+            set_default_openai_key,
+            set_default_openai_client,
             set_tracing_disabled,
             set_tracing_export_api_key,
-            enable_verbose_stdout_logging
+            enable_verbose_stdout_logging,
         )
+        from openai import AsyncOpenAI
         
         # OpenAI APIキーを設定
         set_default_openai_key(settings.openai_api_key)
         print(f"OpenAI API キーを設定しました: {settings.openai_api_key[:8]}...")
+
+        # Optional: route SDK calls through LiteLLM proxy when指定
+        proxy_backends = {
+            (settings.default_llm_backend or "").lower(),
+            (settings.writing_llm_backend or "").lower(),
+            (settings.editing_llm_backend or "").lower(),
+        }
+        if "litellm_proxy" in proxy_backends:
+            if not settings.litellm_base_url:
+                print("LiteLLM proxyモードが選択されていますが、LITELLM_BASE_URL が未設定です。")
+            else:
+                proxy_client = AsyncOpenAI(
+                    api_key=settings.litellm_api_key or settings.openai_api_key or "litellm-proxy",
+                    base_url=settings.litellm_base_url.rstrip("/"),
+                )
+                set_default_openai_client(proxy_client)
+                print(f"OpenAIクライアントを LiteLLM proxy ({settings.litellm_base_url}) に切り替えました。")
         
         # トレーシング設定
         if settings.enable_tracing:

@@ -15,7 +15,8 @@ from app.domains.seo_article.schemas import (
 )
 from app.domains.seo_article.agents.tools import web_search_tool
 from app.domains.seo_article.context import ArticleContext
-from app.core.config import settings # 設定をインポート
+from app.core.config import settings  # 設定をインポート
+from app.core.llm_provider import get_editing_model, get_writing_model
 from app.domains.seo_article.schemas import PersonaType
 
 # --- ヘルパー関数 ---
@@ -1203,7 +1204,7 @@ OUTLINE_AGENT_BASE_PROMPT = """
 outline_agent = Agent[ArticleContext](
     name="OutlineAgent",
     instructions=create_outline_instructions(OUTLINE_AGENT_BASE_PROMPT),
-    model=settings.writing_model,
+    model=settings.research_model,
     tools=[web_search_tool],
     output_type=Union[Outline, ClarificationNeeded],
 )
@@ -1228,7 +1229,7 @@ SECTION_WRITER_AGENT_BASE_PROMPT = """
 section_writer_agent = Agent[ArticleContext](
     name="SectionWriterAgent",
     instructions=create_section_writer_instructions(SECTION_WRITER_AGENT_BASE_PROMPT),
-    model=settings.writing_model,
+    model=get_writing_model(),
     model_settings=ModelSettings(max_tokens=32768),  # 最大出力トークン数設定
     # output_type を削除 (構造化出力を強制しない)
 )
@@ -1257,7 +1258,7 @@ SECTION_WRITER_WITH_IMAGES_AGENT_BASE_PROMPT = """
 section_writer_with_images_agent = Agent[ArticleContext](
     name="SectionWriterWithImagesAgent",
     instructions=create_section_writer_with_images_instructions(SECTION_WRITER_WITH_IMAGES_AGENT_BASE_PROMPT),
-    model=settings.writing_model,
+    model=get_writing_model(),
     model_settings=ModelSettings(max_tokens=32768),  # 最大出力トークン数設定
     output_type=ArticleSectionWithImages,
 )
@@ -1280,7 +1281,7 @@ EDITOR_AGENT_BASE_PROMPT = """
 editor_agent = Agent[ArticleContext](
     name="EditorAgent",
     instructions=create_editor_instructions(EDITOR_AGENT_BASE_PROMPT),
-    model=settings.editing_model,
+    model=get_editing_model(),
     model_settings=ModelSettings(max_tokens=32768),  # 最大出力トークン数設定
     tools=[web_search_tool],
     output_type=RevisedArticle, # 修正: RevisedArticleを返す

@@ -22,6 +22,7 @@ from agents.run_context import RunContextWrapper
 from pydantic import BaseModel
 
 from app.domains.seo_article.services.flow_service import get_supabase_client
+from app.core.llm_provider import get_editing_model
 
 logger = logging.getLogger(__name__)
 
@@ -352,18 +353,19 @@ class AgentEditService:
         self.supabase = get_supabase_client()
         self.sessions: Dict[str, EditContext] = {}
 
-    def _create_agent(self, model: str = "gpt-4o") -> Agent[EditContext]:
+    def _create_agent(self, model: Optional[str] = None) -> Agent[EditContext]:
         """エージェントを作成"""
-        settings = ModelSettings(
+        model_settings = ModelSettings(
             tool_choice="auto",
             temperature=0.3,
         )
+        resolved_model = model or get_editing_model()
 
         return Agent[EditContext](
             name="Article Edit Agent",
             instructions=CODEX_STYLE_INSTRUCTIONS,
-            model=model,
-            model_settings=settings,
+            model=resolved_model,
+            model_settings=model_settings,
             tools=[read_article, apply_patch_tool],
         )
 
