@@ -10,7 +10,6 @@ import asyncio
 import dataclasses
 import json
 import logging
-import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, AsyncGenerator, Dict, List, Optional, Tuple
@@ -21,6 +20,13 @@ from agents import function_tool
 from agents.run_context import RunContextWrapper
 from pydantic import BaseModel
 
+from app.domains.seo_article.services.codex_patch import (
+    ApplyPatch,
+    HunkApplyError,
+    PatchError,
+    apply_hunk,
+    parse_apply_patch,
+)
 from app.domains.seo_article.services.flow_service import get_supabase_client
 
 logger = logging.getLogger(__name__)
@@ -29,29 +35,6 @@ logger = logging.getLogger(__name__)
 # ============================================================================
 # Data Structures
 # ============================================================================
-
-@dataclass
-class Hunk:
-    """パッチのハンク（変更ブロック）"""
-    header: str  # @@ ... @@
-    lines: List[str]  # ' ', '+', '-' で始まる行
-
-
-@dataclass
-class FileSection:
-    """パッチのファイルセクション"""
-    action: str  # "Add" | "Update" | "Delete"
-    src_path: str
-    dst_path: Optional[str]
-    hunks: List[Hunk]
-    add_content: List[str]
-
-
-@dataclass
-class ApplyPatch:
-    """パッチ全体"""
-    sections: List[FileSection]
-
 
 @dataclass
 class EditContext:
@@ -63,11 +46,6 @@ class EditContext:
     original_content: List[str] = field(default_factory=list)
 
 
-class PatchError(Exception):
-    """パッチ適用エラー"""
-    pass
-
-
 class AgentMessage(BaseModel):
     """エージェントメッセージ"""
     role: str  # "user" | "assistant" | "system" | "tool"
@@ -77,160 +55,6 @@ class AgentMessage(BaseModel):
     name: Optional[str] = None
 
 
-# ============================================================================
-# Patch Parser (Codex compatible)
-# ============================================================================
-
-_BEGIN = re.compile(r"^\s*\*\*\*\s+Begin\s+Patch\s*$")
-_END = re.compile(r"^\s*\*\*\*\s+End\s+Patch\s*$")
-_ADD = re.compile(r"^\s*\*\*\*\s+Add\s+File:\s*(.+?)\s*$")
-_UPDATE = re.compile(r"^\s*\*\*\*\s+Update\s+File:\s*(.+?)\s*$")
-_DELETE = re.compile(r"^\s*\*\*\*\s+Delete\s+File:\s*(.+?)\s*$")
-_MOVE_TO = re.compile(r"^\s*\*\*\*\s+(?:To|Move\s+to):\s*(.+?)\s*$")
-_HUNK_HDR = re.compile(r"^\s*@@.*$")
-
-
-def parse_apply_patch(text: str) -> ApplyPatch:
-    """Codex形式のパッチをパース"""
-    lines = text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
-
-    try:
-        start = next(i for i, l in enumerate(lines) if _BEGIN.match(l))
-        end = max(i for i, l in enumerate(lines) if _END.match(l))
-    except StopIteration:
-        raise PatchError("Missing *** Begin Patch / *** End Patch")
-
-    cursor = start + 1
-    sections: List[FileSection] = []
-
-    def read_until_next_marker(idx: int) -> Tuple[List[str], int]:
-        buf: List[str] = []
-        while idx < end:
-            l = lines[idx]
-            if l.startswith("*** "):
-                break
-            buf.append(l)
-            idx += 1
-        return buf, idx
-
-    while cursor < end:
-        line = lines[cursor]
-        if not line.strip():
-            cursor += 1
-            continue
-
-        m_add = _ADD.match(line)
-        m_upd = _UPDATE.match(line)
-        m_del = _DELETE.match(line)
-
-        if m_add:
-            path = m_add.group(1).strip()
-            raw, cursor2 = read_until_next_marker(cursor + 1)
-            content: List[str] = []
-            for r in raw:
-                if r.startswith("+"):
-                    content.append(r[1:])
-                else:
-                    content.append(r)
-            sections.append(FileSection("Add", path, None, [], content))
-            cursor = cursor2
-            continue
-
-        if m_upd:
-            path = m_upd.group(1).strip()
-            dst: Optional[str] = None
-            hunks: List[Hunk] = []
-            idx = cursor + 1
-
-            if idx < end and _MOVE_TO.match(lines[idx] or ""):
-                dst = _MOVE_TO.match(lines[idx]).group(1).strip()
-                idx += 1
-
-            while idx < end:
-                if lines[idx].startswith("*** "):
-                    break
-                if not lines[idx].strip():
-                    idx += 1
-                    continue
-                if _HUNK_HDR.match(lines[idx]):
-                    header = lines[idx]
-                    idx += 1
-                    body: List[str] = []
-                    while idx < end:
-                        ln = lines[idx]
-                        if _HUNK_HDR.match(ln) or ln.startswith("*** "):
-                            break
-                        if not ln:
-                            body.append(" ")
-                        elif ln[0] in (" ", "+", "-"):
-                            body.append(ln)
-                        else:
-                            body.append(" " + ln)
-                        idx += 1
-                    hunks.append(Hunk(header=header, lines=body))
-                    continue
-                idx += 1
-            sections.append(FileSection("Update", path, dst, hunks, []))
-            cursor = idx
-            continue
-
-        if m_del:
-            path = m_del.group(1).strip()
-            sections.append(FileSection("Delete", path, None, [], []))
-            cursor += 1
-            continue
-
-        cursor += 1
-
-    return ApplyPatch(sections)
-
-
-# ============================================================================
-# Hunk Application
-# ============================================================================
-
-def _strip_prefix(line: str) -> str:
-    if not line:
-        return ""
-    if line[0] in (" ", "+", "-"):
-        return line[1:]
-    return line
-
-
-def _find_subseq(source: List[str], needle: List[str]) -> int:
-    if not needle:
-        return 0
-    Ls, Ln = len(source), len(needle)
-    if Ln > Ls:
-        return -1
-    for i in range(Ls - Ln + 1):
-        if source[i:i + Ln] == needle:
-            return i
-    return -1
-
-
-def apply_hunk(orig: List[str], hunk: Hunk) -> Tuple[List[str], int, int]:
-    """ハンクを適用"""
-    old_block = [_strip_prefix(l) for l in hunk.lines if (not l) or l[0] in (" ", "-")]
-    new_block = [_strip_prefix(l) for l in hunk.lines if (not l) or l[0] in (" ", "+")]
-
-    pos = _find_subseq(orig, old_block)
-    if pos < 0:
-        # fallback: context-only
-        ctx = [_strip_prefix(l) for l in hunk.lines if l and l[0] == " "]
-        if ctx:
-            pos = _find_subseq(orig, ctx)
-            if pos >= 0:
-                end = pos + len(ctx)
-                new_lines = orig[:pos] + new_block + orig[end:]
-                return new_lines, max(0, len(ctx) - len(new_block)), max(0, len(new_block) - len(ctx))
-        raise PatchError(f"Hunk context not found: {hunk.header}")
-
-    end = pos + len(old_block)
-    new_lines = orig[:pos] + new_block + orig[end:]
-    del_cnt = max(0, len(old_block) - len(new_block))
-    add_cnt = max(0, len(new_block) - len(old_block))
-    return new_lines, add_cnt, del_cnt
 
 
 # ============================================================================
@@ -293,11 +117,15 @@ def apply_patch_tool(context: RunContextWrapper[EditContext], patch: str) -> str
 
         elif sec.action == "Update":
             acc = ctx.current_content[:]
-            added, deleted = 0, 0
             for h in sec.hunks:
-                acc, a, d = apply_hunk(acc, h)
-                added += a
-                deleted += d
+                try:
+                    acc, a, d = apply_hunk(acc, h, file_path=sec.src_path)
+                except HunkApplyError as err:
+                    context = "\n".join(err.context_lines[:6])
+                    message = f"apply_patch verification failed: Failed to find expected lines in {err.file_path or sec.src_path}"
+                    if context:
+                        message += ":\n" + context
+                    raise PatchError(message) from err
             ctx.current_content = acc
             result["updated"].append(sec.src_path)
 
@@ -329,8 +157,10 @@ CODEX_STYLE_INSTRUCTIONS = """
 - ファイルごとに1セクション：
   - 追加:    `*** Add File: <path>` の後に内容。
   - 更新:    `*** Update File: <path>`。
-             1個以上のハンクを `@@` 行で開始し、変更行を続ける：
+             1個以上のハンクを `@@ -<旧行番号>,<旧行数> +<新行番号>,<新行数> @@` 形式で開始し、変更行を続ける
+               * 例：`@@ -12,5 +12,7 @@`
                * 先頭` `（空白）= 文脈、`-`=削除、`+`=追加
+               * `@@` のみのヘッダーは無効（必ず行番号と行数を指定する）
   - 削除:    `*** Delete File: <path>`
 - 曖昧さ回避のため、十分な文脈行を付与すること。
 
