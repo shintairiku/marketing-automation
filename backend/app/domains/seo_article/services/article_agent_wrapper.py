@@ -12,7 +12,7 @@ import logging
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, AsyncGenerator, Dict, List, Optional
+from typing import Any, AsyncGenerator, Dict, List, Optional, Set
 from uuid import uuid4
 
 from app.core.config import settings
@@ -483,26 +483,84 @@ class ArticleAgentSession:
         if not approved:
             return {"content": self.original_content, "applied_count": 0, "applied_change_ids": []}
 
-        content = self.original_content
-        applied_ids: List[str] = []
-        for change in approved:
-            if change.old_text in content:
-                content = content.replace(change.old_text, change.new_text, 1)
-                applied_ids.append(change.change_id)
+        original_had_trailing_newline = self.original_content.endswith("\n")
+        content_lines = self.original_content.splitlines()
+        applied_change_ids: Set[str] = set()
+
+        # line_start の大きいものから処理すると、後続のインデックスがずれない
+        sorted_changes = sorted(
+            approved,
+            key=lambda c: (c.line_start, c.line_end, c.change_id),
+            reverse=True,
+        )
+
+        for change in sorted_changes:
+            start = max(0, change.line_start)
+            end = max(0, change.line_end)
+
+            # 行数が現在のコンテンツを超えている場合は末尾に丸める
+            start = min(start, len(content_lines))
+            end = min(end, len(content_lines))
+
+            change_applied = False
+
+            if change.change_type == "insert":
+                new_lines = change.new_lines or []
+                if new_lines:
+                    content_lines[start:start] = new_lines
+                    change_applied = True
+
+            elif change.change_type == "delete":
+                expected_old = change.old_lines or []
+                current_slice = content_lines[start:end]
+                if not expected_old or current_slice == expected_old:
+                    del content_lines[start:end]
+                    change_applied = True
+
+            else:  # "replace" などその他は基本的に置換として扱う
+                new_lines = change.new_lines or []
+                expected_old = change.old_lines or []
+
+                if start == end and not expected_old:
+                    # 差分情報が replace だが実質挿入のケース
+                    if new_lines:
+                        content_lines[start:start] = new_lines
+                        change_applied = True
+                else:
+                    current_slice = content_lines[start:end]
+                    if not expected_old or current_slice == expected_old:
+                        content_lines[start:end] = new_lines
+                        change_applied = True
+
+            if change_applied:
+                applied_change_ids.add(change.change_id)
+            else:
+                logger.warning(
+                    "Skipping approved change %s because target lines no longer match (line_start=%s, line_end=%s)",
+                    change.change_id,
+                    change.line_start,
+                    change.line_end,
+                )
 
         # ファイルとセッション状態を更新
-        if applied_ids:
+        if applied_change_ids:
+            content = "\n".join(content_lines)
+            if original_had_trailing_newline and not content.endswith("\n"):
+                content += "\n"
+
             self.article_file.write_text(content, encoding="utf-8")
             self.original_file.write_text(content, encoding="utf-8")
             self.original_content = content
             # 承認済みで適用された変更のみ除去し、未承認のものは残す
             self.pending_changes = [
-                change for change in self.pending_changes if change.change_id not in applied_ids
+                change for change in self.pending_changes if change.change_id not in applied_change_ids
             ]
             # 適用成功後は残った変更の承認状態を維持（ユーザーが再確認できるようにする）
 
+        applied_ids = [change.change_id for change in approved if change.change_id in applied_change_ids]
+
         return {
-            "content": content,
+            "content": self.original_content,
             "applied_count": len(applied_ids),
             "applied_change_ids": applied_ids,
         }

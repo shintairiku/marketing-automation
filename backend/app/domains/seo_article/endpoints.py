@@ -2059,6 +2059,23 @@ async def restore_version(
     try:
         version_service = get_version_service()
 
+        version = await version_service.get_version(
+            version_id=version_id,
+            user_id=user_id
+        )
+
+        if not version:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="バージョンが見つかりません"
+            )
+
+        if version["article_id"] != article_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="指定された記事にこのバージョンは属していません"
+            )
+
         result = await version_service.restore_version(
             version_id=version_id,
             user_id=user_id,
@@ -2071,6 +2088,8 @@ async def restore_version(
             "data": result
         }
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error restoring version {version_id}: {str(e)}")
         raise HTTPException(
@@ -2141,6 +2160,23 @@ async def delete_version(
     try:
         version_service = get_version_service()
 
+        version = await version_service.get_version(
+            version_id=version_id,
+            user_id=user_id
+        )
+
+        if not version:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="バージョンが見つかりません"
+            )
+
+        if version["article_id"] != article_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="指定された記事にこのバージョンは属していません"
+            )
+
         await version_service.delete_version(
             version_id=version_id,
             user_id=user_id
@@ -2148,6 +2184,8 @@ async def delete_version(
 
         return None
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error deleting version {version_id}: {str(e)}")
         raise HTTPException(
