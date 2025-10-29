@@ -47,6 +47,8 @@ from agents.run_context import RunContextWrapper
 from agents.tool import WebSearchTool
 import dotenv
 
+from app.core.config import settings
+
 from app.domains.seo_article.services.codex_patch import (
     ApplyPatch,
     FileSection,
@@ -525,6 +527,7 @@ def make_run_config(*,
         group_id=group_id,
         trace_metadata=trace_metadata,
         tracing_disabled=tracing_disabled,
+        max_turns=settings.max_turns_for_agents,
         model_settings=model_settings,
     )
 

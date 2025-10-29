@@ -48,7 +48,7 @@ class Settings(BaseSettings):
     # Article editing agents (UI / simple agent) can override their model via env
     article_edit_agent_model: str = os.getenv("ARTICLE_EDIT_AGENT_MODEL", "gpt-5-mini")
     article_edit_service_model: str = os.getenv("ARTICLE_EDIT_SERVICE_MODEL", "gpt-4o")
-    max_turns_for_agents: int = int(os.getenv("MAX_TURNS_FOR_AGENTS", "10"))
+    max_turns_for_agents: int = int(os.getenv("MAX_TURNS_FOR_AGENTS", "20"))
 
     # AI Content Generation settings (using Responses API)
     ai_content_generation_model: str = os.getenv("AI_CONTENT_GENERATION_MODEL", "gpt-5-mini")
