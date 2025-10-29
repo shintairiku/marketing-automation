@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AlertCircle, Bot, Check, Loader2, Plus, Send, X } from 'lucide-react';
+import { AlertCircle, Bot, Check, Plus, Send, X } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -17,6 +17,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/hooks/use-toast';
 import { type AgentSessionSummary, useAgentChat } from '@/hooks/useAgentChat';
 
+import AgentRunProgress from './AgentRunProgress';
 import AIAgentChatMessage from './AIAgentChatMessage';
 import UnifiedDiffViewer from './UnifiedDiffViewer';
 
@@ -41,6 +42,7 @@ export default function AIAgentEditTab({ articleId, onSave }: AIAgentEditTabProp
     loading,
     error,
     sessionId,
+    runState,
     initializeSession,
     startNewSession,
     activateSession,
@@ -312,6 +314,9 @@ export default function AIAgentEditTab({ articleId, onSave }: AIAgentEditTabProp
   const hasApprovedChanges = diffLines.some((line) => line.type === 'change' && line.approved);
   const allApproved = diffLines.filter((line) => line.type === 'change').every((line) => line.approved);
 
+  const shouldShowRunProgress =
+    runState !== null && (loading || runState.status !== 'idle' || (runState.events?.length ?? 0) > 0);
+
   return (
     <div className="flex w-full flex-col gap-5 lg:flex-row lg:gap-6 min-h-[calc(100vh-220px)] lg:h-[calc(100vh-220px)]">
       {/* 左側: 統合差分ビュー */}
@@ -436,13 +441,8 @@ export default function AIAgentEditTab({ articleId, onSave }: AIAgentEditTabProp
                 />
               ))}
 
-              {loading && (
-                <div className="flex justify-start">
-                  <div className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-white/90 px-4 py-3 text-sm text-slate-600 shadow-sm">
-                    <Loader2 className="h-4 w-4 animate-spin text-blue-600" />
-                    <span>AIが考え中です…</span>
-                  </div>
-                </div>
+              {shouldShowRunProgress && (
+                <AgentRunProgress runState={runState} isLoading={loading} />
               )}
 
               <div ref={messagesEndRef} />

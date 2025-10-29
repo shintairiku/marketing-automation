@@ -2205,6 +2205,27 @@ class AgentSessionCreateRequest(BaseModel):
     resume_existing: bool = True
 
 
+class AgentStreamEvent(BaseModel):
+    """エージェント実行時のストリームイベント"""
+    event_id: str
+    sequence: int
+    event_type: str
+    message: str
+    created_at: str
+    updated_at: Optional[str] = None
+    payload: Optional[Dict[str, Any]] = None
+
+
+class AgentRunState(BaseModel):
+    """最新のエージェント実行状態"""
+    run_id: Optional[str] = None
+    status: Literal["idle", "running", "completed", "failed"] = "idle"
+    started_at: Optional[str] = None
+    completed_at: Optional[str] = None
+    error: Optional[str] = None
+    events: List[AgentStreamEvent] = Field(default_factory=list)
+
+
 class AgentChatMessage(BaseModel):
     """エージェントとのメッセージ"""
     role: str
@@ -2221,6 +2242,7 @@ class AgentSessionResponse(BaseModel):
     last_activity_at: Optional[str] = None
     created_at: str = Field(default_factory=lambda: datetime.utcnow().isoformat())
     messages: List[AgentChatMessage] = Field(default_factory=list)
+    run_state: Optional[AgentRunState] = None
 
 
 class AgentChatRequest(BaseModel):
@@ -2238,6 +2260,7 @@ class AgentChatQueuedResponse(BaseModel):
     """エージェントチャット処理中レスポンス"""
     status: Literal["processing"]
     session_id: str
+    run_state: Optional[AgentRunState] = None
 
 
 class AgentSessionDetailResponse(BaseModel):
@@ -2248,6 +2271,7 @@ class AgentSessionDetailResponse(BaseModel):
     summary: Optional[str] = None
     last_activity_at: Optional[str]
     messages: List[AgentChatMessage]
+    run_state: Optional[AgentRunState] = None
 
 
 class AgentSessionSummary(BaseModel):
@@ -2286,6 +2310,7 @@ async def create_agent_session(
         status_value = detail.get("status") if detail else "active"
         summary_value = detail.get("summary") if detail else None
         last_activity_value = detail.get("last_activity_at") if detail else None
+        run_state = detail.get("run_state") if detail else None
         messages = [
             AgentChatMessage(role=item.get("role", ""), content=item.get("content", ""))
             for item in detail_messages
@@ -2297,7 +2322,8 @@ async def create_agent_session(
             status=status_value,
             summary=summary_value,
             last_activity_at=last_activity_value,
-            messages=messages
+            messages=messages,
+            run_state=run_state,
         )
 
     except Exception as e:
@@ -2359,7 +2385,8 @@ async def activate_agent_session(
             status=detail["status"],
             summary=detail.get("summary"),
             last_activity_at=detail.get("last_activity_at"),
-            messages=messages
+            messages=messages,
+            run_state=detail.get("run_state"),
         )
     except Exception as e:
         logger.error(f"Error activating agent session {session_id} for article {article_id}: {str(e)}")
@@ -2406,6 +2433,7 @@ async def get_agent_session_detail(
             summary=detail.get("summary"),
             last_activity_at=detail.get("last_activity_at"),
             messages=messages,
+            run_state=detail.get("run_state"),
         )
 
     except HTTPException:
@@ -2469,7 +2497,10 @@ async def chat_with_agent(
 
         asyncio.create_task(_run_agent_chat())
 
-        return AgentChatQueuedResponse(status="processing", session_id=session_id)
+        session_obj = agent_service.sessions.get(session_id)
+        run_state = session_obj.get_run_state_snapshot() if session_obj else None
+
+        return AgentChatQueuedResponse(status="processing", session_id=session_id, run_state=run_state)
 
     except AgentSessionAccessError as e:
         logger.warning(

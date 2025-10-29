@@ -7,15 +7,34 @@ DDDアーキテクチャに統合し、REST API / WebSocket経由で使用可能
 """
 
 import asyncio
+import copy
 import json
 import logging
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, AsyncGenerator, Dict, List, Optional, Set
+from typing import Any, AsyncGenerator, Dict, List, Optional, Set, Tuple
 from uuid import uuid4
 
 from app.core.config import settings
+from openai.types.responses import (
+    ResponseCompletedEvent,
+    ResponseCreatedEvent,
+    ResponseErrorEvent,
+    ResponseFailedEvent,
+    ResponseFunctionCallArgumentsDeltaEvent,
+    ResponseFunctionCallArgumentsDoneEvent,
+    ResponseInProgressEvent,
+    ResponseTextDeltaEvent,
+    ResponseTextDoneEvent,
+    ResponseWebSearchCallCompletedEvent,
+    ResponseWebSearchCallInProgressEvent,
+    ResponseWebSearchCallSearchingEvent,
+)
+
+from agents.items import ItemHelpers, MessageOutputItem, ReasoningItem, ToolCallItem, ToolCallOutputItem
+from agents.stream_events import AgentUpdatedStreamEvent, RawResponsesStreamEvent, RunItemStreamEvent
+
 from app.domains.seo_article.services.flow_service import get_supabase_client
 from app.domains.seo_article.services.version_service import get_version_service
 from app.domains.seo_article.services import article_agent_service as agent_module
@@ -117,6 +136,16 @@ class ArticleAgentSession:
         self.article_metadata: Dict[str, Any] = {}
         self._lock = asyncio.Lock()
         self._change_counter = 0
+        self.current_run_id: Optional[str] = None
+        self.current_run_status: str = "idle"
+        self.current_run_started_at: Optional[str] = None
+        self.current_run_completed_at: Optional[str] = None
+        self.current_run_error: Optional[str] = None
+        self.current_run_events: List[Dict[str, Any]] = []
+        self._stream_event_seq: int = 0
+        self._event_index_by_key: Dict[str, int] = {}
+        self._text_delta_buffers: Dict[Tuple[int, int], str] = {}
+        self._assistant_outputs: List[str] = []
 
     async def initialize(
         self,
@@ -190,12 +219,285 @@ class ArticleAgentSession:
             logger.warning(f"Failed to initialize trace: {e}, continuing without tracing")
             logger.info(f"Initialized agent session {self.session_id}")
 
+    def _reset_run_tracking(self) -> None:
+        self.current_run_events = []
+        self._stream_event_seq = 0
+        self._event_index_by_key = {}
+        self._text_delta_buffers = {}
+        self._assistant_outputs = []
+
+    def _start_run(self, user_message: str) -> None:
+        self.current_run_id = str(uuid4())
+        self.current_run_status = "running"
+        now = datetime.now(timezone.utc).isoformat()
+        self.current_run_started_at = now
+        self.current_run_completed_at = None
+        self.current_run_error = None
+        self._reset_run_tracking()
+        self._append_run_event(
+            "run_started",
+            "エージェント処理を開始しました",
+            payload={"user_message": user_message},
+        )
+
+    def _append_run_event(
+        self,
+        event_type: str,
+        message: str,
+        *,
+        payload: Optional[Dict[str, Any]] = None,
+        key: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        timestamp = datetime.now(timezone.utc).isoformat()
+        event = {
+            "event_id": f"{self.current_run_id or 'run'}:{self._stream_event_seq}",
+            "sequence": self._stream_event_seq,
+            "event_type": event_type,
+            "message": message,
+            "created_at": timestamp,
+            "updated_at": timestamp,
+            "payload": payload,
+        }
+        self.current_run_events.append(event)
+        if key:
+            self._event_index_by_key[key] = event["sequence"]
+        self._stream_event_seq += 1
+        return event
+
+    def _update_run_event(
+        self,
+        key: str,
+        *,
+        event_type: Optional[str] = None,
+        message: Optional[str] = None,
+        payload: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        if key not in self._event_index_by_key:
+            # Fallback: create a new event if no key is registered
+            return self._append_run_event(
+                event_type or "event",
+                message or "",
+                payload=payload,
+                key=key,
+            )
+
+        idx = self._event_index_by_key[key]
+        if idx < 0 or idx >= len(self.current_run_events):
+            return self._append_run_event(
+                event_type or "event",
+                message or "",
+                payload=payload,
+                key=key,
+            )
+
+        event = self.current_run_events[idx]
+        if event_type:
+            event["event_type"] = event_type
+        if message is not None:
+            event["message"] = message
+        if payload is not None:
+            event["payload"] = payload
+        event["updated_at"] = datetime.now(timezone.utc).isoformat()
+        return event
+
+    def _complete_run(self, output_preview: Optional[str]) -> None:
+        self.current_run_status = "completed"
+        self.current_run_completed_at = datetime.now(timezone.utc).isoformat()
+        preview = (output_preview or "").strip()
+        payload = {"output_preview": preview[:400]} if preview else None
+        self._append_run_event("run_completed", "エージェントの応答が完了しました", payload=payload)
+
+    def _fail_run(self, error_message: str) -> None:
+        self.current_run_status = "failed"
+        self.current_run_completed_at = datetime.now(timezone.utc).isoformat()
+        sanitized = error_message.strip()
+        self.current_run_error = sanitized
+        self._append_run_event(
+            "run_failed",
+            f"エージェント処理でエラーが発生しました: {sanitized}",
+            payload={"error": sanitized},
+        )
+
+    def get_run_state_snapshot(self) -> Dict[str, Any]:
+        return {
+            "run_id": self.current_run_id,
+            "status": self.current_run_status,
+            "started_at": self.current_run_started_at,
+            "completed_at": self.current_run_completed_at,
+            "error": self.current_run_error,
+            "events": copy.deepcopy(self.current_run_events),
+        }
+
+    def _handle_raw_stream_event(self, event: RawResponsesStreamEvent) -> None:
+        data = event.data
+        if isinstance(data, ResponseTextDeltaEvent):
+            key = f"text:{data.item_id}:{data.output_index}:{data.content_index}"
+            buffer_key = (data.output_index, data.content_index)
+            accumulated = self._text_delta_buffers.get(buffer_key, "") + data.delta
+            self._text_delta_buffers[buffer_key] = accumulated
+            snippet = accumulated[-160:].strip() or "テキストを生成しています…"
+            payload = {
+                "item_id": data.item_id,
+                "output_index": data.output_index,
+                "content_index": data.content_index,
+                "delta": data.delta,
+                "text": accumulated,
+            }
+            self._update_run_event(key, event_type="text_delta", message=snippet, payload=payload)
+        elif isinstance(data, ResponseTextDoneEvent):
+            key = f"text:{data.item_id}:{data.output_index}:{data.content_index}"
+            buffer_key = (data.output_index, data.content_index)
+            accumulated = self._text_delta_buffers.get(buffer_key, "").strip()
+            message = accumulated or "テキスト生成が完了しました"
+            payload = {
+                "item_id": data.item_id,
+                "output_index": data.output_index,
+                "content_index": data.content_index,
+                "text": accumulated,
+            }
+            self._update_run_event(key, event_type="text_delta_done", message=message, payload=payload)
+        elif isinstance(data, ResponseCreatedEvent):
+            self._append_run_event("response_created", "OpenAI レスポンスを初期化しました")
+        elif isinstance(data, ResponseInProgressEvent):
+            response_id = getattr(data.response, "id", None)
+            key = f"response:{response_id}" if response_id else "response:progress"
+            self._update_run_event(key, event_type="in_progress", message="応答を生成しています…")
+        elif isinstance(data, ResponseCompletedEvent):
+            usage = getattr(data.response, "usage", None)
+            payload = None
+            if usage:
+                payload = {
+                    "input_tokens": getattr(usage, "input_tokens", None),
+                    "output_tokens": getattr(usage, "output_tokens", None),
+                    "total_tokens": getattr(usage, "total_tokens", None),
+                }
+            self._append_run_event("response_completed", "モデルのレスポンスが確定しました", payload=payload)
+        elif isinstance(data, ResponseFailedEvent):
+            reason = getattr(data.error, "message", "モデルが失敗しました")
+            self._fail_run(reason)
+        elif isinstance(data, ResponseErrorEvent):
+            message = getattr(data.error, "message", "モデルエラーが発生しました")
+            self._fail_run(message)
+        elif isinstance(data, ResponseWebSearchCallSearchingEvent):
+            key = f"web_search:{data.item_id}"
+            self._update_run_event(
+                key,
+                event_type="tool_web_search_searching",
+                message="Web検索を開始しました",
+                payload={"item_id": data.item_id},
+            )
+        elif isinstance(data, ResponseWebSearchCallInProgressEvent):
+            key = f"web_search:{data.item_id}"
+            self._update_run_event(
+                key,
+                event_type="tool_web_search_in_progress",
+                message="Web検索の結果を取得しています…",
+                payload={"item_id": data.item_id},
+            )
+        elif isinstance(data, ResponseWebSearchCallCompletedEvent):
+            key = f"web_search:{data.item_id}"
+            self._update_run_event(
+                key,
+                event_type="tool_web_search_completed",
+                message="Web検索が完了しました",
+                payload={"item_id": data.item_id},
+            )
+        elif isinstance(data, ResponseFunctionCallArgumentsDeltaEvent):
+            item_key = getattr(data, "item_id", None) or "unknown"
+            key = f"function_args:{item_key}"
+            snippet = getattr(data, "delta", "").strip() or "ツール引数を生成中…"
+            payload = {
+                "item_id": getattr(data, "item_id", None),
+                "output_index": getattr(data, "output_index", None),
+                "sequence_number": getattr(data, "sequence_number", None),
+                "arguments_delta": getattr(data, "delta", ""),
+            }
+            self._update_run_event(
+                key,
+                event_type="tool_arguments_delta",
+                message=snippet[-160:],
+                payload=payload,
+            )
+        elif isinstance(data, ResponseFunctionCallArgumentsDoneEvent):
+            item_key = getattr(data, "item_id", None) or "unknown"
+            key = f"function_args:{item_key}"
+            payload = {
+                "item_id": getattr(data, "item_id", None),
+                "output_index": getattr(data, "output_index", None),
+                "sequence_number": getattr(data, "sequence_number", None),
+                "arguments": getattr(data, "arguments", ""),
+            }
+            snippet = getattr(data, "arguments", "").strip()[:160]
+            self._update_run_event(
+                key,
+                event_type="tool_arguments_ready",
+                message=snippet or "ツール引数が確定しました",
+                payload=payload,
+            )
+
+    def _handle_run_item_stream_event(self, event: RunItemStreamEvent) -> None:
+        item = event.item
+        if event.name == "tool_called" and isinstance(item, ToolCallItem):
+            raw_name = getattr(item.raw_item, "name", None) or getattr(item.raw_item, "type", "tool")
+            tool_name = str(raw_name)
+            payload = {
+                "tool_type": getattr(item.raw_item, "type", None),
+                "tool_name": tool_name,
+                "arguments": getattr(item.raw_item, "arguments", None),
+            }
+            key = f"tool:{getattr(item.raw_item, 'id', getattr(item.raw_item, 'call_id', tool_name))}"
+            self._append_run_event("tool_called", f"ツール {tool_name} を呼び出しました", payload=payload, key=key)
+        elif event.name == "tool_output" and isinstance(item, ToolCallOutputItem):
+            output_preview = item.output[:200]
+            payload = {
+                "output": item.output,
+            }
+            call_id = getattr(item.raw_item, "call_id", None)
+            key = f"tool_output:{call_id}" if call_id else None
+            message = output_preview if output_preview else "ツールから出力を受信しました"
+            self._append_run_event("tool_output", message, payload=payload, key=key)
+        elif event.name == "reasoning_item_created" and isinstance(item, ReasoningItem):
+            summaries = [summary.text for summary in getattr(item.raw_item, "summary", [])]
+            text = " ".join(summaries).strip()
+            payload = {"reasoning_id": getattr(item.raw_item, "id", None), "summary": summaries}
+            key = f"reasoning:{getattr(item.raw_item, 'id', '')}"
+            self._append_run_event("reasoning", text or "推論プロセスを更新しました", payload=payload, key=key)
+        elif event.name == "message_output_created" and isinstance(item, MessageOutputItem):
+            text = ItemHelpers.extract_last_text(item.raw_item) or ""
+            if text.strip():
+                self._assistant_outputs.append(text)
+            payload = {
+                "content": text,
+            }
+            key = f"assistant_message:{len(self._assistant_outputs)}"
+            snippet = text.strip()[:180] or "アシスタントからの応答を受信しました"
+            self._append_run_event("assistant_message", snippet, payload=payload, key=key)
+
+    def _handle_agent_updated_stream_event(self, event: AgentUpdatedStreamEvent) -> None:
+        agent_name = getattr(event.new_agent, "name", "agent")
+        self._append_run_event("agent_updated", f"エージェントが {agent_name} に切り替わりました")
+
+    def _build_final_output_text(self) -> str:
+        if self._assistant_outputs:
+            joined = "\n\n".join(chunk.strip() for chunk in self._assistant_outputs if chunk.strip())
+            if joined.strip():
+                return joined.strip()
+        if self._text_delta_buffers:
+            ordered_keys = sorted(self._text_delta_buffers.keys())
+            combined = "".join(self._text_delta_buffers[key] for key in ordered_keys)
+            if combined.strip():
+                return combined.strip()
+        return ""
+
+
     async def chat(self, user_message: str) -> AsyncGenerator[str, None]:
         """エージェントとチャット"""
         if not self.agent or not self.context or not self.session_store:
             raise Exception("Session not initialized")
 
         async with self._lock:
+            self._start_run(user_message)
+
             try:
                 enhanced_message = user_message
                 if len(self.conversation_history) == 0:
@@ -247,7 +549,7 @@ class ArticleAgentSession:
                         len(self.conversation_history),
                     )
 
-                result = await agent_module.Runner.run(
+                stream_result = agent_module.Runner.run_streamed(
                     self.agent,
                     input=enhanced_message,
                     context=self.context,
@@ -255,23 +557,48 @@ class ArticleAgentSession:
                     run_config=run_config,
                 )
 
-                output_text = ""
-                if result.final_output:
-                    output_text = result.final_output if isinstance(result.final_output, str) else str(
-                        result.final_output
+                try:
+                    async for stream_event in stream_result.stream_events():
+                        if isinstance(stream_event, RawResponsesStreamEvent):
+                            self._handle_raw_stream_event(stream_event)
+                        elif isinstance(stream_event, RunItemStreamEvent):
+                            self._handle_run_item_stream_event(stream_event)
+                        elif isinstance(stream_event, AgentUpdatedStreamEvent):
+                            self._handle_agent_updated_stream_event(stream_event)
+                except Exception as stream_exc:  # noqa: BLE001
+                    logger.error(
+                        "Streaming error in session %s: %s",
+                        self.session_id,
+                        stream_exc,
+                        exc_info=True,
                     )
+                    self._fail_run(str(stream_exc))
+                    raise
+
+                output_text = self._build_final_output_text()
+                if not output_text:
+                    final_output = getattr(stream_result, "final_output", None)
+                    if isinstance(final_output, str):
+                        output_text = final_output
+                    elif final_output is not None:
+                        output_text = str(final_output)
+
+                output_text = output_text or "エージェントからの応答が生成されませんでした。"
 
                 self.conversation_history.append({
                     "role": "assistant",
                     "content": output_text,
                 })
 
+                self._complete_run(output_text)
+
                 yield output_text
 
-            except Exception as e:
-                error_msg = f"エラーが発生しました: {str(e)}"
+            except Exception as e:  # noqa: BLE001
                 logger.error(f"Chat error: {e}", exc_info=True)
-                yield error_msg
+                if self.current_run_status != "failed":
+                    self._fail_run(str(e))
+                raise
 
     def get_current_content(self) -> str:
         """現在の記事内容を取得"""
@@ -832,6 +1159,10 @@ class ArticleAgentService:
 
     def _build_session_detail(self, record: Dict[str, Any]) -> Dict[str, Any]:
         messages = self._load_session_messages(record["id"])
+        run_state: Optional[Dict[str, Any]] = None
+        session_obj = self.sessions.get(record["id"])
+        if session_obj:
+            run_state = session_obj.get_run_state_snapshot()
         return {
             "session_id": record["id"],
             "article_id": record["article_id"],
@@ -839,6 +1170,7 @@ class ArticleAgentService:
              "summary": record.get("conversation_summary") or self._get_last_message_preview(record["id"]),
             "messages": messages,
             "last_activity_at": record.get("last_activity_at"),
+            "run_state": run_state,
         }
 
     def list_sessions(self, article_id: str, user_id: str) -> List[Dict[str, Any]]:
@@ -1021,9 +1353,19 @@ class ArticleAgentService:
         )
         self._append_message(session_id, "user", user_message, session.user_id)
         response_accumulator = ""
-        async for chunk in session.chat(user_message):
-            response_accumulator += chunk
-            yield chunk
+        try:
+            async for chunk in session.chat(user_message):
+                response_accumulator += chunk
+                yield chunk
+        except Exception:
+            self._update_session_record(
+                session_id,
+                {
+                    "last_activity_at": self._now_iso(),
+                },
+            )
+            raise
+
         self._append_message(session_id, "assistant", response_accumulator, session.user_id)
         self._update_session_record(
             session_id,

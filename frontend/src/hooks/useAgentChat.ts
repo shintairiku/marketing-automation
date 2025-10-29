@@ -26,11 +26,31 @@ export interface AgentSessionSummary {
   last_activity_at?: string;
 }
 
+export interface AgentStreamEvent {
+  eventId: string;
+  sequence: number;
+  eventType: string;
+  message: string;
+  createdAt: string | null;
+  updatedAt?: string | null;
+  payload?: Record<string, unknown>;
+}
+
+export interface AgentRunState {
+  runId: string | null;
+  status: 'idle' | 'running' | 'completed' | 'failed';
+  startedAt: string | null;
+  completedAt: string | null;
+  error: string | null;
+  events: AgentStreamEvent[];
+}
+
 interface UseAgentChatReturn {
   messages: ChatMessage[];
   loading: boolean;
   error: string | null;
   sessionId: string | null;
+  runState: AgentRunState | null;
   initializeSession: () => Promise<void>;
   createSession: (articleId: string, resumeExisting?: boolean) => Promise<void>;
   startNewSession: () => Promise<void>;
@@ -58,6 +78,7 @@ export function useAgentChat(articleId: string): UseAgentChatReturn {
   const [error, setError] = useState<string | null>(null);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [sessions, setSessions] = useState<AgentSessionSummary[]>([]);
+  const [runState, setRunState] = useState<AgentRunState | null>(null);
   const messagesRef = useRef<ChatMessage[]>([]);
 
   useEffect(() => {
@@ -89,6 +110,51 @@ export function useAgentChat(articleId: string): UseAgentChatReturn {
         } as ChatMessage;
       })
       .filter((msg): msg is ChatMessage => msg !== null);
+  }, []);
+
+  const normalizeRunState = useCallback((rawState: any): AgentRunState | null => {
+    if (!rawState || typeof rawState !== 'object') {
+      return null;
+    }
+
+    const events: AgentStreamEvent[] = Array.isArray(rawState.events)
+      ? rawState.events
+          .map((event: any) => {
+            if (!event || typeof event !== 'object') {
+              return null;
+            }
+            const sequence = typeof event.sequence === 'number' ? event.sequence : Number(event.sequence ?? 0);
+            const eventType = typeof event.event_type === 'string' ? event.event_type : '';
+            const fallbackId = `${eventType || 'event'}-${sequence}`;
+            const eventId = typeof event.event_id === 'string' && event.event_id.length > 0 ? event.event_id : fallbackId;
+            return {
+              eventId,
+              sequence,
+              eventType,
+              message: typeof event.message === 'string' ? event.message : '',
+              createdAt: typeof event.created_at === 'string' ? event.created_at : null,
+              updatedAt: typeof event.updated_at === 'string' ? event.updated_at : null,
+              payload: event.payload && typeof event.payload === 'object' ? event.payload : undefined,
+            } as AgentStreamEvent;
+          })
+          .filter((evt: AgentStreamEvent | null): evt is AgentStreamEvent => evt !== null)
+          .sort((a, b) => a.sequence - b.sequence)
+      : [];
+
+    const status = rawState.status;
+    const normalizedStatus: AgentRunState['status'] =
+      status === 'running' || status === 'completed' || status === 'failed' || status === 'idle'
+        ? status
+        : 'idle';
+
+    return {
+      runId: rawState.run_id ?? null,
+      status: normalizedStatus,
+      startedAt: rawState.started_at ?? null,
+      completedAt: rawState.completed_at ?? null,
+      error: rawState.error ?? null,
+      events,
+    };
   }, []);
 
   const getLastAssistantContent = useCallback((chat: ChatMessage[]): string | null => {
@@ -126,6 +192,12 @@ export function useAgentChat(articleId: string): UseAgentChatReturn {
         }
 
         const detailData = await detailResponse.json();
+        const updatedRunState = normalizeRunState(detailData?.run_state);
+        setRunState(updatedRunState);
+        if (updatedRunState?.status === 'failed') {
+          const reason = updatedRunState.error || 'エージェント処理でエラーが発生しました';
+          throw new Error(reason);
+        }
         const normalized = normalizeMessages(detailData?.messages);
         if (normalized.length === 0) {
           continue;
@@ -146,7 +218,7 @@ export function useAgentChat(articleId: string): UseAgentChatReturn {
 
       throw new Error('Agent response timeout');
     },
-    [articleId, getLastAssistantContent, normalizeMessages]
+    [articleId, getLastAssistantContent, normalizeMessages, normalizeRunState]
   );
 
   const loadSessions = useCallback(async (): Promise<AgentSessionSummary[]> => {
@@ -190,6 +262,7 @@ export function useAgentChat(articleId: string): UseAgentChatReturn {
       const data = await response.json();
       setSessionId(data.session_id);
       setMessages(normalizeMessages(data.messages));
+      setRunState(normalizeRunState(data.run_state));
       await loadSessions();
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'エラーが発生しました';
@@ -198,7 +271,7 @@ export function useAgentChat(articleId: string): UseAgentChatReturn {
     } finally {
       setLoading(false);
     }
-  }, [getHeaders, normalizeMessages, loadSessions]);
+  }, [getHeaders, normalizeMessages, normalizeRunState, loadSessions]);
 
   const activateSession = useCallback(
     async (targetSessionId: string) => {
@@ -222,6 +295,7 @@ export function useAgentChat(articleId: string): UseAgentChatReturn {
         const data = await response.json();
         setSessionId(data.session_id);
         setMessages(normalizeMessages(data.messages));
+        setRunState(normalizeRunState(data.run_state));
         await loadSessions();
       } catch (err) {
         const errorMessage = err instanceof Error ? err.message : 'エラーが発生しました';
@@ -231,7 +305,7 @@ export function useAgentChat(articleId: string): UseAgentChatReturn {
         setLoading(false);
       }
     },
-    [articleId, getHeaders, normalizeMessages, loadSessions]
+    [articleId, getHeaders, normalizeMessages, normalizeRunState, loadSessions]
   );
 
   const startNewSession = useCallback(async () => {
@@ -298,6 +372,10 @@ export function useAgentChat(articleId: string): UseAgentChatReturn {
           }
         }
 
+        if (data?.run_state) {
+          setRunState(normalizeRunState(data.run_state));
+        }
+
         if (response.status === 202) {
           const updatedHistory = await pollForAssistantResponse(
             headers,
@@ -333,6 +411,7 @@ export function useAgentChat(articleId: string): UseAgentChatReturn {
       loadSessions,
       pollForAssistantResponse,
       getLastAssistantContent,
+      normalizeRunState,
     ]
   );
 
@@ -426,6 +505,7 @@ export function useAgentChat(articleId: string): UseAgentChatReturn {
 
     setSessionId(null);
     setMessages([]);
+    setRunState(null);
   }, [sessionId, articleId, getHeaders]);
 
   // === Change Approval Flow ===
@@ -574,6 +654,7 @@ export function useAgentChat(articleId: string): UseAgentChatReturn {
     loading,
     error,
     sessionId,
+    runState,
     initializeSession,
     createSession,
     startNewSession,
