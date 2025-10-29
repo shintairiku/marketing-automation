@@ -29,8 +29,13 @@ yarn-error.log*
 # local env files
 .env*.local
 .env
+.env.test
 # vercel
 .vercel
+
+# test-result(playwright)
+test-results
+playwright-report
 
 # typescript
 *.tsbuildinfo
