@@ -527,7 +527,6 @@ def make_run_config(*,
         group_id=group_id,
         trace_metadata=trace_metadata,
         tracing_disabled=tracing_disabled,
-        max_turns=settings.max_turns_for_agents,
         model_settings=model_settings,
     )
 

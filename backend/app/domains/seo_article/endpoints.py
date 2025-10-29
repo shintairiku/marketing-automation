@@ -9,8 +9,10 @@ This module provides:
 - AI editing capabilities
 """
 
+import asyncio
 from fastapi import APIRouter, status, Depends, HTTPException, Query, BackgroundTasks, Request
-from typing import List, Optional, Dict, Any
+from fastapi.responses import JSONResponse
+from typing import List, Optional, Dict, Any, Literal
 import logging
 from datetime import datetime
 from pydantic import BaseModel, Field
@@ -2232,6 +2234,12 @@ class AgentChatResponse(BaseModel):
     conversation_history: List[AgentChatMessage]
 
 
+class AgentChatQueuedResponse(BaseModel):
+    """エージェントチャット処理中レスポンス"""
+    status: Literal["processing"]
+    session_id: str
+
+
 class AgentSessionDetailResponse(BaseModel):
     """既存セッションの詳細"""
     session_id: str
@@ -2410,7 +2418,11 @@ async def get_agent_session_detail(
         )
 
 
-@router.post("/{article_id}/agent/session/{session_id}/chat", response_model=AgentChatResponse)
+@router.post(
+    "/{article_id}/agent/session/{session_id}/chat",
+    response_model=AgentChatQueuedResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+)
 async def chat_with_agent(
     article_id: str,
     session_id: str,
@@ -2428,32 +2440,36 @@ async def chat_with_agent(
     """
     agent_service = get_article_agent_service()
     try:
-
-        # チャット実行（非ストリーミング版）
-        response_text = ""
-        async for chunk in agent_service.chat(
-            session_id,
-            request.message,
-            expected_user_id=user_id,
-            expected_article_id=article_id,
-        ):
-            response_text += chunk
-
-        # 会話履歴を取得
-        history = await agent_service.get_conversation_history(
+        # セッションアクセス検証（存在チェック兼用）
+        await agent_service.get_conversation_history(
             session_id,
             expected_user_id=user_id,
             expected_article_id=article_id,
         )
-        history_messages = [
-            AgentChatMessage(role=item.get("role", ""), content=item.get("content", ""))
-            for item in history
-        ]
 
-        return AgentChatResponse(
-            message=response_text,
-            conversation_history=history_messages
-        )
+        async def _run_agent_chat() -> None:
+            try:
+                async for _chunk in agent_service.chat(
+                    session_id,
+                    request.message,
+                    expected_user_id=user_id,
+                    expected_article_id=article_id,
+                ):
+                    # 返却レスポンスは非同期ポーリングで取得するためチャンクは破棄
+                    continue
+            except Exception as e:  # noqa: BLE001
+                logger.error(
+                    "Background agent chat execution failed for session_id=%s article_id=%s user_id=%s: %s",
+                    session_id,
+                    article_id,
+                    user_id,
+                    str(e),
+                    exc_info=True,
+                )
+
+        asyncio.create_task(_run_agent_chat())
+
+        return AgentChatQueuedResponse(status="processing", session_id=session_id)
 
     except AgentSessionAccessError as e:
         logger.warning(

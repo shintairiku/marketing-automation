@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { useAuth } from '@clerk/nextjs';
 
@@ -58,6 +58,11 @@ export function useAgentChat(articleId: string): UseAgentChatReturn {
   const [error, setError] = useState<string | null>(null);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [sessions, setSessions] = useState<AgentSessionSummary[]>([]);
+  const messagesRef = useRef<ChatMessage[]>([]);
+
+  useEffect(() => {
+    messagesRef.current = messages;
+  }, [messages]);
 
   const getHeaders = useCallback(async () => {
     const token = await getToken();
@@ -85,6 +90,64 @@ export function useAgentChat(articleId: string): UseAgentChatReturn {
       })
       .filter((msg): msg is ChatMessage => msg !== null);
   }, []);
+
+  const getLastAssistantContent = useCallback((chat: ChatMessage[]): string | null => {
+    for (let i = chat.length - 1; i >= 0; i -= 1) {
+      if (chat[i].role === 'assistant') {
+        return chat[i].content ?? '';
+      }
+    }
+    return null;
+  }, []);
+
+  const pollForAssistantResponse = useCallback(
+    async (
+      headers: Record<string, string>,
+      previousMessagesSnapshot: ChatMessage[],
+      previousAssistantContent: string | null
+    ): Promise<ChatMessage[]> => {
+      const pollIntervalMs = Number(process.env.NEXT_PUBLIC_AGENT_POLL_INTERVAL_MS ?? '1500');
+      const maxWaitMs = Number(process.env.NEXT_PUBLIC_AGENT_MAX_WAIT_MS ?? '1200000');
+      const deadline = Date.now() + maxWaitMs;
+
+      while (Date.now() < deadline) {
+        await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
+
+        const detailResponse = await fetch(buildApiUrl(`/articles/${articleId}/agent/session`), {
+          headers,
+        });
+
+        if (!detailResponse.ok) {
+          // セッションがまだ準備されていない場合や一時的なエラーはリトライ
+          if (detailResponse.status === 404 || detailResponse.status >= 500) {
+            continue;
+          }
+          throw new Error('Failed to fetch agent session detail');
+        }
+
+        const detailData = await detailResponse.json();
+        const normalized = normalizeMessages(detailData?.messages);
+        if (normalized.length === 0) {
+          continue;
+        }
+
+        const latestAssistantContent = getLastAssistantContent(normalized);
+        const lastMessage = normalized[normalized.length - 1];
+        const hasNewAssistant =
+          lastMessage.role === 'assistant' &&
+          latestAssistantContent !== null &&
+          (latestAssistantContent !== previousAssistantContent ||
+            normalized.length > previousMessagesSnapshot.length);
+
+        if (hasNewAssistant) {
+          return normalized;
+        }
+      }
+
+      throw new Error('Agent response timeout');
+    },
+    [articleId, getLastAssistantContent, normalizeMessages]
+  );
 
   const loadSessions = useCallback(async (): Promise<AgentSessionSummary[]> => {
     try {
@@ -207,6 +270,9 @@ export function useAgentChat(articleId: string): UseAgentChatReturn {
         throw new Error('Session not initialized');
       }
 
+      const previousMessagesSnapshot = [...messagesRef.current];
+      const previousAssistantContent = getLastAssistantContent(previousMessagesSnapshot);
+
       try {
         setLoading(true);
         setError(null);
@@ -222,20 +288,36 @@ export function useAgentChat(articleId: string): UseAgentChatReturn {
           body: JSON.stringify({ message }),
         });
 
-        if (!response.ok) {
-          throw new Error('Failed to send message');
+        let data: any = null;
+        const isJson = response.headers.get('content-type')?.includes('application/json');
+        if (isJson) {
+          try {
+            data = await response.json();
+          } catch {
+            data = null;
+          }
         }
 
-        const data = await response.json();
-
-        const updatedHistory = normalizeMessages(data.conversation_history);
-        if (updatedHistory.length > 0) {
+        if (response.status === 202) {
+          const updatedHistory = await pollForAssistantResponse(
+            headers,
+            previousMessagesSnapshot,
+            previousAssistantContent
+          );
           setMessages(updatedHistory);
+        } else if (!response.ok) {
+          throw new Error('Failed to send message');
         } else {
-          setMessages((prev) => [...prev, { role: 'assistant', content: data.message ?? '' }]);
+          const updatedHistory = normalizeMessages(data?.conversation_history);
+          if (updatedHistory.length > 0) {
+            setMessages(updatedHistory);
+          } else {
+            setMessages((prev) => [...prev, { role: 'assistant', content: data?.message ?? '' }]);
+          }
         }
         void loadSessions().catch(() => undefined);
       } catch (err) {
+        setMessages(previousMessagesSnapshot);
         const errorMessage = err instanceof Error ? err.message : 'エラーが発生しました';
         setError(errorMessage);
         throw err;
@@ -243,7 +325,15 @@ export function useAgentChat(articleId: string): UseAgentChatReturn {
         setLoading(false);
       }
     },
-    [sessionId, articleId, getHeaders, normalizeMessages, loadSessions]
+    [
+      sessionId,
+      articleId,
+      getHeaders,
+      normalizeMessages,
+      loadSessions,
+      pollForAssistantResponse,
+      getLastAssistantContent,
+    ]
   );
 
   const getCurrentContent = useCallback(async () => {
