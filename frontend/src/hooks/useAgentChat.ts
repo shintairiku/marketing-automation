@@ -138,7 +138,7 @@ export function useAgentChat(articleId: string): UseAgentChatReturn {
             } as AgentStreamEvent;
           })
           .filter((evt: AgentStreamEvent | null): evt is AgentStreamEvent => evt !== null)
-          .sort((a, b) => a.sequence - b.sequence)
+          .sort((a: AgentStreamEvent, b: AgentStreamEvent) => a.sequence - b.sequence)
       : [];
 
     const status = rawState.status;
