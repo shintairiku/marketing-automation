@@ -328,24 +328,65 @@ def create_research_instructions(base_prompt: str) -> Callable[[RunContextWrappe
         company_info_str = build_enhanced_company_context(ctx.context)
 
         # アウトライン情報がある場合は指示に含める
-        outline_str = ""
-        if ctx.context.generated_outline:
+        outline_block = ""
+        outline_focus_block = ""
+        is_outline_first = getattr(ctx.context, "flow_type", None) == "outline_first"
+
+        def _get_section_attr(section: Any, name: str, default: Any = None) -> Any:
+            if hasattr(section, name):
+                return getattr(section, name, default)
+            if isinstance(section, dict):
+                return section.get(name, default)
+            return default
+
+        if getattr(ctx.context, "generated_outline", None):
             outline = ctx.context.generated_outline
-            outline_str = f"記事アウトライン: {outline.title if hasattr(outline, 'title') else 'N/A'}\n"
-            if hasattr(outline, 'sections') and outline.sections:
-                def format_section(section, indent="  "):
-                    heading = section.heading if hasattr(section, 'heading') else str(section.get('heading', ''))
-                    level = section.level if hasattr(section, 'level') else section.get('level', 2)
-                    formatted = f"{indent}H{level}: {heading}\n"
-                    # サブセクションがある場合は再帰的に処理
-                    if hasattr(section, 'subsections') and section.subsections:
-                        for subsection in section.subsections:
-                            formatted += format_section(subsection, indent + "  ")
-                    
-                    return formatted
-                
-                for section in outline.sections:
-                    outline_str += format_section(section)
+            sections = getattr(outline, "sections", None) or []
+            if sections:
+                def format_section(section: Any, numbering: str, depth: int = 0) -> List[str]:
+                    heading = (_get_section_attr(section, "heading", "") or "").strip()
+                    level = _get_section_attr(section, "level", getattr(outline, "top_level_heading", 2) or 2)
+                    try:
+                        level = int(level)
+                    except (TypeError, ValueError):
+                        level = getattr(outline, "top_level_heading", 2) or 2
+                    description = (_get_section_attr(section, "description", "") or "").strip()
+                    estimated_chars = _get_section_attr(section, "estimated_chars", None)
+                    indent = "  " * depth
+                    details: List[str] = []
+                    if description:
+                        details.append(description)
+                    if isinstance(estimated_chars, int) and estimated_chars > 0:
+                        details.append(f"目安{estimated_chars}文字")
+                    detail_suffix = f" — {' / '.join(details)}" if details else ""
+                    lines = [f"{indent}{numbering}. H{level} {heading}{detail_suffix}"]
+                    subsections = _get_section_attr(section, "subsections", []) or []
+                    for idx, child in enumerate(subsections):
+                        child_numbering = f"{numbering}.{idx + 1}"
+                        lines.extend(format_section(child, child_numbering, depth + 1))
+                    return lines
+
+                formatted_lines: List[str] = []
+                for idx, section in enumerate(sections):
+                    formatted_lines.extend(format_section(section, str(idx + 1)))
+
+                top_level = getattr(outline, "top_level_heading", 2) or 2
+                title = getattr(outline, "title", None) or "N/A"
+                outline_block = (
+                    "=== 承認済みアウトライン ===\n"
+                    f"タイトル: {title}\n"
+                    f"トップレベル見出し: H{top_level}\n"
+                    + "\n".join(formatted_lines)
+                    + "\n"
+                )
+
+                if is_outline_first:
+                    outline_focus_block = (
+                        "\n**アウトライン先行フロー専用指示（必ず遵守）**\n"
+                        "- 上記アウトラインの各セクションを補強する情報を最優先で集め、内部で設計する検索クエリと収集するkey_pointsには対応する見出し名を明記してください。\n"
+                        "- アウトラインに存在しないトピックや推測情報を追加しないでください。必要な情報が見つからない場合は、レポート内で不足理由と代替の調査方針を説明してください。\n"
+                        "- `interesting_angles` は既存アウトラインと矛盾せず、差別化に役立つ視点のみを抽出してください。\n"
+                    )
 
         # SerpAPI分析結果を含める
         seo_guidance_str = ""
@@ -368,7 +409,7 @@ def create_research_instructions(base_prompt: str) -> Callable[[RunContextWrappe
 説明: {ctx.context.selected_theme.description}
 キーワード: {', '.join(ctx.context.selected_theme.keywords)}
 想定読者の詳細:\n{persona_description}
-{outline_str}
+{outline_block}{outline_focus_block}
 
 {seo_guidance_str}
 
