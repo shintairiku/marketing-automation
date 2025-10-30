@@ -494,11 +494,12 @@ export const useArticleGenerationRealtime = ({
           );
           
           // Auto-progression: trigger next step loading state if applicable
+          const flowTypeForProgression = (newState.flowType || 'research_first') as FlowType;
           const progressionMap: Record<string, string | null> = {
             'keyword_analyzing': 'persona_generating',
             'persona_generating': null, // Waits for user selection
             'theme_generating': null, // Waits for user selection  
-            'researching': 'outline_generating',
+            'researching': getNextStepAfterResearch(flowTypeForProgression),
             'outline_generating': null, // Waits for user approval
             'writing_sections': 'editing',
             'editing': null, // Final step
@@ -506,7 +507,7 @@ export const useArticleGenerationRealtime = ({
           
           const nextStep = progressionMap[completedStep] || null;
           if (nextStep && !newState.isWaitingForInput) {
-            console.log('🔄 Auto-progressing from completed step:', { completedStep, nextStep });
+            console.log('🔄 Auto-progressing from completed step:', { completedStep, nextStep, flowType: flowTypeForProgression });
             newState.currentStep = nextStep;
             newState.steps = newState.steps.map((step: GenerationStep) => 
               step.id === nextStep ? { ...step, status: 'in_progress' as StepStatus } : step
