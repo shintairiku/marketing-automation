@@ -13,6 +13,14 @@ const buildApiUrl = (path: string) => {
   return USE_PROXY ? `/api/proxy${normalizedPath}` : `${API_BASE_URL}${normalizedPath}`;
 };
 
+const createTimelineId = (): string => {
+  const globalCrypto = typeof globalThis !== 'undefined' ? (globalThis.crypto as Crypto | undefined) : undefined;
+  if (globalCrypto && typeof globalCrypto.randomUUID === 'function') {
+    return globalCrypto.randomUUID();
+  }
+  return `run-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+};
+
 export interface ChatMessage {
   role: 'user' | 'assistant';
   content: string;
@@ -45,12 +53,22 @@ export interface AgentRunState {
   events: AgentStreamEvent[];
 }
 
+export interface AgentRunTimelineEntry {
+  id: string;
+  triggerMessageIndex: number;
+  userMessage: string;
+  runId: string | null;
+  runState: AgentRunState | null;
+  createdAt: string;
+}
+
 interface UseAgentChatReturn {
   messages: ChatMessage[];
   loading: boolean;
   error: string | null;
   sessionId: string | null;
   runState: AgentRunState | null;
+  runTimeline: AgentRunTimelineEntry[];
   initializeSession: () => Promise<void>;
   createSession: (articleId: string, resumeExisting?: boolean) => Promise<void>;
   startNewSession: () => Promise<void>;
@@ -79,7 +97,81 @@ export function useAgentChat(articleId: string): UseAgentChatReturn {
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [sessions, setSessions] = useState<AgentSessionSummary[]>([]);
   const [runState, setRunState] = useState<AgentRunState | null>(null);
+  const [runTimeline, setRunTimeline] = useState<AgentRunTimelineEntry[]>([]);
   const messagesRef = useRef<ChatMessage[]>([]);
+  const activeRunEntryIdRef = useRef<string | null>(null);
+  const runEntryIdByRunIdRef = useRef<Map<string, string>>(new Map());
+
+  const cloneRunState = useCallback((state: AgentRunState | null): AgentRunState | null => {
+    if (!state) return null;
+    return {
+      ...state,
+      events: state.events.map((event) => ({
+        ...event,
+        payload: event.payload ? { ...event.payload } : undefined,
+      })),
+    };
+  }, []);
+
+  const setRunStateForEntry = useCallback(
+    (entryId: string | null, clonedState: AgentRunState | null) => {
+      if (!entryId) {
+        return;
+      }
+
+      setRunTimeline((prev) => {
+        let updated = false;
+        const next = prev.map((entry) => {
+          if (entry.id !== entryId) {
+            return entry;
+          }
+          updated = true;
+          const prevRunId = entry.runId;
+          const nextRunId = clonedState?.runId ?? entry.runId ?? null;
+          if (prevRunId && prevRunId !== nextRunId) {
+            runEntryIdByRunIdRef.current.delete(prevRunId);
+          }
+          if (nextRunId) {
+            runEntryIdByRunIdRef.current.set(nextRunId, entryId);
+          }
+          return {
+            ...entry,
+            runId: nextRunId,
+            runState: clonedState,
+          };
+        });
+        return updated ? next : prev;
+      });
+    },
+    []
+  );
+
+  const applyRunStateUpdate = useCallback(
+    (nextState: AgentRunState | null, options?: { resetActive?: boolean }) => {
+      const clonedState = cloneRunState(nextState);
+      setRunState(clonedState);
+
+      let targetEntryId: string | null = null;
+      const runId = nextState?.runId ?? null;
+      if (runId) {
+        targetEntryId = runEntryIdByRunIdRef.current.get(runId) ?? null;
+      }
+      if (!targetEntryId) {
+        targetEntryId = activeRunEntryIdRef.current;
+      }
+
+      if (targetEntryId) {
+        setRunStateForEntry(targetEntryId, clonedState);
+      }
+
+      const shouldResetActive =
+        options?.resetActive ?? (!nextState || nextState.status === 'completed' || nextState.status === 'failed');
+      if (shouldResetActive && targetEntryId && targetEntryId === activeRunEntryIdRef.current) {
+        activeRunEntryIdRef.current = null;
+      }
+    },
+    [cloneRunState, setRunStateForEntry]
+  );
 
   useEffect(() => {
     messagesRef.current = messages;
@@ -193,7 +285,7 @@ export function useAgentChat(articleId: string): UseAgentChatReturn {
 
         const detailData = await detailResponse.json();
         const updatedRunState = normalizeRunState(detailData?.run_state);
-        setRunState(updatedRunState);
+        applyRunStateUpdate(updatedRunState);
         if (updatedRunState?.status === 'failed') {
           const reason = updatedRunState.error || 'エージェント処理でエラーが発生しました';
           throw new Error(reason);
@@ -218,7 +310,7 @@ export function useAgentChat(articleId: string): UseAgentChatReturn {
 
       throw new Error('Agent response timeout');
     },
-    [articleId, getLastAssistantContent, normalizeMessages, normalizeRunState]
+    [articleId, getLastAssistantContent, normalizeMessages, normalizeRunState, applyRunStateUpdate]
   );
 
   const loadSessions = useCallback(async (): Promise<AgentSessionSummary[]> => {
@@ -261,8 +353,49 @@ export function useAgentChat(articleId: string): UseAgentChatReturn {
 
       const data = await response.json();
       setSessionId(data.session_id);
-      setMessages(normalizeMessages(data.messages));
-      setRunState(normalizeRunState(data.run_state));
+      const normalizedMessages = normalizeMessages(data.messages);
+      setMessages(normalizedMessages);
+
+      const normalizedRunState = normalizeRunState(data.run_state);
+      let seededEntries: AgentRunTimelineEntry[] = [];
+      let seededActiveId: string | null = null;
+
+      if (normalizedRunState && normalizedRunState.status !== 'idle') {
+        let lastUserIndex = -1;
+        for (let idx = normalizedMessages.length - 1; idx >= 0; idx -= 1) {
+          if (normalizedMessages[idx].role === 'user') {
+            lastUserIndex = idx;
+            break;
+          }
+        }
+
+          if (lastUserIndex >= 0) {
+            const entryId = createTimelineId();
+            seededEntries = [
+              {
+                id: entryId,
+                triggerMessageIndex: lastUserIndex,
+                userMessage: normalizedMessages[lastUserIndex]?.content ?? '',
+                runId: normalizedRunState.runId,
+                runState: cloneRunState(normalizedRunState),
+                createdAt: new Date().toISOString(),
+              },
+            ];
+            if (normalizedRunState.status === 'running') {
+              seededActiveId = entryId;
+            }
+          }
+      }
+
+      runEntryIdByRunIdRef.current.clear();
+      seededEntries.forEach((entry) => {
+        if (entry.runId) {
+          runEntryIdByRunIdRef.current.set(entry.runId, entry.id);
+        }
+      });
+      setRunTimeline(seededEntries);
+      activeRunEntryIdRef.current = seededActiveId;
+      applyRunStateUpdate(normalizedRunState);
       await loadSessions();
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'エラーが発生しました';
@@ -271,7 +404,7 @@ export function useAgentChat(articleId: string): UseAgentChatReturn {
     } finally {
       setLoading(false);
     }
-  }, [getHeaders, normalizeMessages, normalizeRunState, loadSessions]);
+  }, [getHeaders, normalizeMessages, normalizeRunState, cloneRunState, applyRunStateUpdate, loadSessions]);
 
   const activateSession = useCallback(
     async (targetSessionId: string) => {
@@ -294,8 +427,49 @@ export function useAgentChat(articleId: string): UseAgentChatReturn {
 
         const data = await response.json();
         setSessionId(data.session_id);
-        setMessages(normalizeMessages(data.messages));
-        setRunState(normalizeRunState(data.run_state));
+        const normalizedMessages = normalizeMessages(data.messages);
+        setMessages(normalizedMessages);
+
+        const normalizedRunState = normalizeRunState(data.run_state);
+        let seededEntries: AgentRunTimelineEntry[] = [];
+        let seededActiveId: string | null = null;
+
+        if (normalizedRunState && normalizedRunState.status !== 'idle') {
+          let lastUserIndex = -1;
+          for (let idx = normalizedMessages.length - 1; idx >= 0; idx -= 1) {
+            if (normalizedMessages[idx].role === 'user') {
+              lastUserIndex = idx;
+              break;
+            }
+          }
+
+          if (lastUserIndex >= 0) {
+            const entryId = createTimelineId();
+            seededEntries = [
+              {
+                id: entryId,
+                triggerMessageIndex: lastUserIndex,
+                userMessage: normalizedMessages[lastUserIndex]?.content ?? '',
+                runId: normalizedRunState.runId,
+                runState: cloneRunState(normalizedRunState),
+                createdAt: new Date().toISOString(),
+              },
+            ];
+            if (normalizedRunState.status === 'running') {
+              seededActiveId = entryId;
+            }
+          }
+        }
+
+        runEntryIdByRunIdRef.current.clear();
+        seededEntries.forEach((entry) => {
+          if (entry.runId) {
+            runEntryIdByRunIdRef.current.set(entry.runId, entry.id);
+          }
+        });
+        setRunTimeline(seededEntries);
+        activeRunEntryIdRef.current = seededActiveId;
+        applyRunStateUpdate(normalizedRunState);
         await loadSessions();
       } catch (err) {
         const errorMessage = err instanceof Error ? err.message : 'エラーが発生しました';
@@ -305,7 +479,7 @@ export function useAgentChat(articleId: string): UseAgentChatReturn {
         setLoading(false);
       }
     },
-    [articleId, getHeaders, normalizeMessages, normalizeRunState, loadSessions]
+    [articleId, getHeaders, normalizeMessages, normalizeRunState, cloneRunState, applyRunStateUpdate, loadSessions]
   );
 
   const startNewSession = useCallback(async () => {
@@ -354,6 +528,22 @@ export function useAgentChat(articleId: string): UseAgentChatReturn {
         // ユーザーメッセージを追加
         setMessages((prev) => [...prev, { role: 'user', content: message }]);
 
+        const triggerIndex = previousMessagesSnapshot.length;
+        const timelineId = createTimelineId();
+        activeRunEntryIdRef.current = timelineId;
+        setRunTimeline((prev) => [
+          ...prev,
+          {
+            id: timelineId,
+            triggerMessageIndex: triggerIndex,
+            userMessage: message,
+            runId: null,
+            runState: null,
+            createdAt: new Date().toISOString(),
+          },
+        ]);
+        applyRunStateUpdate(null, { resetActive: false });
+
         const headers = await getHeaders();
 
         const response = await fetch(buildApiUrl(`/articles/${articleId}/agent/session/${sessionId}/chat`), {
@@ -373,7 +563,7 @@ export function useAgentChat(articleId: string): UseAgentChatReturn {
         }
 
         if (data?.run_state) {
-          setRunState(normalizeRunState(data.run_state));
+          applyRunStateUpdate(normalizeRunState(data.run_state));
         }
 
         if (response.status === 202) {
@@ -396,6 +586,16 @@ export function useAgentChat(articleId: string): UseAgentChatReturn {
         void loadSessions().catch(() => undefined);
       } catch (err) {
         setMessages(previousMessagesSnapshot);
+        setRunTimeline((prev) => {
+          const removed = prev.find((entry) => entry.id === timelineId);
+          if (removed?.runId) {
+            runEntryIdByRunIdRef.current.delete(removed.runId);
+          }
+          return prev.filter((entry) => entry.id !== timelineId);
+        });
+        if (activeRunEntryIdRef.current === timelineId) {
+          activeRunEntryIdRef.current = null;
+        }
         const errorMessage = err instanceof Error ? err.message : 'エラーが発生しました';
         setError(errorMessage);
         throw err;
@@ -412,6 +612,7 @@ export function useAgentChat(articleId: string): UseAgentChatReturn {
       pollForAssistantResponse,
       getLastAssistantContent,
       normalizeRunState,
+      applyRunStateUpdate,
     ]
   );
 
@@ -505,8 +706,11 @@ export function useAgentChat(articleId: string): UseAgentChatReturn {
 
     setSessionId(null);
     setMessages([]);
-    setRunState(null);
-  }, [sessionId, articleId, getHeaders]);
+    setRunTimeline([]);
+    runEntryIdByRunIdRef.current.clear();
+    activeRunEntryIdRef.current = null;
+    applyRunStateUpdate(null);
+  }, [sessionId, articleId, getHeaders, applyRunStateUpdate]);
 
   // === Change Approval Flow ===
 
@@ -655,6 +859,7 @@ export function useAgentChat(articleId: string): UseAgentChatReturn {
     error,
     sessionId,
     runState,
+    runTimeline,
     initializeSession,
     createSession,
     startNewSession,
