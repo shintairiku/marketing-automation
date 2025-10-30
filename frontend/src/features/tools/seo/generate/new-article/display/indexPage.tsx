@@ -9,6 +9,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { useArticleGenerationRealtime } from '@/hooks/useArticleGenerationRealtime';
+import { getStepProgressMap } from '@/utils/flow-config';
 import { useUser } from '@clerk/nextjs';
 
 import CompactGenerationFlow from "../component/CompactGenerationFlow";
@@ -118,18 +119,8 @@ export default function IndexPage() {
     };
 
     const getProgressPercentage = () => {
-        // 8つのステップに基づく進捗計算
-        const stepProgressMap = {
-            'keyword_analyzing': 12.5,      // キーワード分析: 12.5%
-            'persona_generating': 25,       // ペルソナ生成: 25%
-            'theme_generating': 37.5,       // テーマ提案: 37.5%
-            'research_planning': 50,        // リサーチ計画: 50%
-            'researching': 62.5,            // リサーチ実行（リサーチ要約）: 62.5%
-            'outline_generating': 75,       // アウトライン作成: 75%
-            'writing_sections': 87.5,       // 執筆: 87.5%
-            'editing': 100,                 // 編集・校正: 100%
-        };
-        
+        const stepProgressMap = getStepProgressMap(state.flowType);
+
         // ユーザー入力待ちの場合は、現在のステップの進捗を返す
         const progress = stepProgressMap[state.currentStep as keyof typeof stepProgressMap];
         if (progress !== undefined) {
@@ -137,6 +128,9 @@ export default function IndexPage() {
         }
         
         // フォールバック: ステップ配列から計算
+        if (!state.steps || state.steps.length === 0) {
+            return 0;
+        }
         const currentStepIndex = state.steps.findIndex((step: any) => step.id === state.currentStep);
         if (currentStepIndex === -1) return 0;
         
@@ -255,6 +249,7 @@ export default function IndexPage() {
                                         themes={state.themes}
                                         researchPlan={state.researchPlan}
                                         outline={state.outline}
+                                        flowType={state.flowType}
                                         onSelect={(index) => {
                                             if (state.inputType === 'select_persona') {
                                                 selectPersona(index);

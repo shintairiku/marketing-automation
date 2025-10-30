@@ -27,6 +27,10 @@ class ArticleContext:
     vector_store_id: Optional[str] = None # File Search用
     num_research_queries: int = 5 # リサーチクエリ数の上限
     num_persona_examples: int = 3 # 追加: 生成する具体的なペルソナの数
+    
+    # フロー設定
+    flow_type: Optional[Literal["research_first", "outline_first"]] = None  # "research_first"（リサーチ先行） or "outline_first"（構成先行）
+    
     # 会社情報 - 基本情報
     company_name: Optional[str] = None
     company_description: Optional[str] = None
@@ -83,12 +87,8 @@ class ArticleContext:
         "theme_generating",   # テーマ生成中
         "theme_proposed",     # ユーザー選択待ち
         "theme_selected",
-        "research_planning",
-        "research_plan_generated", # ユーザー承認待ち
-        "research_plan_approved",  # 計画承認済み
-        "researching",
-        "research_synthesizing",
-        "research_report_generated", # 承認は任意
+        "researching",        # 統合リサーチ実行中（計画・実行・要約を含む）
+        "research_completed", # リサーチ完了処理中（アウトライン遷移前の一時ステップ）
         "outline_generating",
         "outline_generated", # ユーザー承認待ち
         "writing_sections",
@@ -97,6 +97,8 @@ class ArticleContext:
         "error"
     ] = "start"
     selected_theme: Optional[ThemeIdea] = None
+    # 注意(legacy-flow): 旧リサーチフロー（複数ステップ）で保存されたプロセスを復元するために残しています。
+    # 現行フローでは `research_report` を直接利用します。
     research_plan: Optional[ResearchPlan] = None
     current_research_query_index: int = 0
     research_query_results: List[ResearchQueryResult] = field(default_factory=list)
@@ -118,6 +120,8 @@ class ArticleContext:
     last_response_id: Optional[str] = None
 
     # --- 進捗追跡関連 ---
+    # 注意(legacy-flow): 廃止されたプランナー／リサーチャーステージの進捗管理を
+    # 後方互換のために保持しています。
     research_progress: Optional[Dict[str, Any]] = None # リサーチ進捗状況
     executing_step: Optional[str] = None  # 現在実行中のステップ（重複実行防止用）
     sections_progress: Optional[Dict[str, Any]] = None # セクション執筆進捗状況
@@ -149,5 +153,30 @@ class ArticleContext:
             "content": [{"type": content_type, "text": content}]
         }
         self.section_writer_history.append(message)
+
+    def reset_after_theme_selection(self) -> None:
+        """テーマを変更した際に、リサーチ・アウトライン以降の状態を初期化する。"""
+        # 注意(legacy-flow): 旧プランナー／リサーチャーフローで作成されたスナップショットを
+        # 現行フローでも安全に復元できるよう、当時のフィールドをクリアします。
+        self.research_plan = None
+        self.research_progress = None
+        self.research_query_results = []
+        self.current_research_query_index = 0
+        self.research_report = None
+
+        self.generated_outline = None
+        self.outline = None
+        self.generated_sections = []
+        self.generated_sections_html = []
+        self.current_section_index = 0
+        self.sections_progress = None
+
+        self.executing_step = None
+        self.full_draft_html = None
+        self.final_article = None
+        self.final_article_html = None
+        self.final_article_id = None
+        self.last_agent_output = None
+        self.section_writer_history = []
 
     # yield_sse_event は article_service 内のヘルパー関数 _send_server_event に置き換え

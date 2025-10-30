@@ -3,12 +3,13 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { AnimatePresence, motion } from 'framer-motion';
-import { AlertCircle, ArrowLeft, CheckCircle, RefreshCw } from 'lucide-react';
+import { AlertCircle, ArrowLeft, CheckCircle, Loader2, RefreshCw } from 'lucide-react';
 
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { useArticleGenerationRealtime } from '@/hooks/useArticleGenerationRealtime';
+import { getOutlineGenerationMessage,getStepProgressMap } from '@/utils/flow-config';
 import { useAuth,useUser } from '@clerk/nextjs';
 
 import CompactGenerationFlow from "../component/CompactGenerationFlow";
@@ -53,6 +54,8 @@ export default function GenerationProcessPage({ jobId }: GenerationProcessPagePr
         userId: isLoaded && user?.id ? user.id : undefined,
         autoConnect: true, // Let the hook handle connection and data loading automatically
     });
+
+    const flowReady = state.isInitialized && state.steps.length > 0;
 
     // Debug: Check Clerk authentication state
     useEffect(() => {
@@ -168,7 +171,7 @@ export default function GenerationProcessPage({ jobId }: GenerationProcessPagePr
         } else if (state.currentStep === 'research_synthesizing') {
             messages.push('収集した情報を整理し、記事に活用できる形にまとめています...');
         } else if (state.currentStep === 'outline_generating') {
-            messages.push('読者に価値を提供する記事構成を設計しています...');
+            messages.push(getOutlineGenerationMessage());
         } else if (state.currentStep === 'writing_sections') {
             if (state.sectionsProgress) {
                 messages.push(`専門性と読みやすさを両立した記事を執筆しています... (${state.sectionsProgress.currentSection}/${state.sectionsProgress.totalSections})`);
@@ -197,18 +200,12 @@ export default function GenerationProcessPage({ jobId }: GenerationProcessPagePr
     }, [state.currentStep, state.articleId, state.error, state.steps, router]);
 
     const getProgressPercentage = () => {
-        // 8つのステップに基づく進捗計算
-        const stepProgressMap = {
-            'keyword_analyzing': 12.5,      // キーワード分析: 12.5%
-            'persona_generating': 25,       // ペルソナ生成: 25%
-            'theme_generating': 37.5,       // テーマ提案: 37.5%
-            'research_planning': 50,        // リサーチ計画: 50%
-            'researching': 62.5,            // リサーチ実行（リサーチ要約）: 62.5%
-            'outline_generating': 75,       // アウトライン作成: 75%
-            'writing_sections': 87.5,       // 執筆: 87.5%
-            'editing': 100,                 // 編集・校正: 100%
-        };
-        
+        if (!flowReady) {
+            return 0;
+        }
+        // フロー設定に応じた動的進捗計算
+        const stepProgressMap = getStepProgressMap(state.flowType);
+
         // ユーザー入力待ちの場合は、現在のステップの進捗を返す
         const progress = stepProgressMap[state.currentStep as keyof typeof stepProgressMap];
         if (progress !== undefined) {
@@ -216,13 +213,16 @@ export default function GenerationProcessPage({ jobId }: GenerationProcessPagePr
         }
         
         // フォールバック: ステップ配列から計算
+        if (!state.steps || state.steps.length === 0) {
+            return 0;
+        }
         const currentStepIndex = state.steps.findIndex(step => step.id === state.currentStep);
         if (currentStepIndex === -1) return 0;
         
         return ((currentStepIndex + 1) / state.steps.length) * 100;
     };
 
-    const isGenerating = state.currentStep !== 'completed' && state.currentStep !== 'error';
+    const isGenerating = flowReady && state.currentStep !== 'completed' && state.currentStep !== 'error';
 
     // 復帰ダイアログのハンドラー
     const handleResume = async () => {
@@ -347,9 +347,24 @@ export default function GenerationProcessPage({ jobId }: GenerationProcessPagePr
                 )}
             </AnimatePresence>
 
+            {!flowReady && (
+                <motion.div
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    className="flex items-center justify-center py-12"
+                >
+                    <Card className="w-full max-w-3xl">
+                        <CardContent className="flex flex-col items-center gap-3 py-10">
+                            <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
+                            <span className="text-sm text-gray-600">プロセス状態を読み込んでいます...</span>
+                        </CardContent>
+                    </Card>
+                </motion.div>
+            )}
+
             {/* メイン生成フロー */}
             <AnimatePresence>
-                {state.currentStep !== 'start' && (
+                {flowReady && state.currentStep !== 'start' && (
                     <motion.div
                         initial={{ opacity: 0, y: 20 }}
                         animate={{ opacity: 1, y: 0 }}
@@ -413,6 +428,7 @@ export default function GenerationProcessPage({ jobId }: GenerationProcessPagePr
                                         themes={state.themes}
                                         researchPlan={state.researchPlan}
                                         outline={state.outline}
+                                        flowType={state.flowType}
                                         onSelect={(index) => {
                                             if (state.inputType === 'select_persona') {
                                                 selectPersona(index);

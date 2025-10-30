@@ -15,6 +15,8 @@ import logging
 from typing import Dict, Any, Optional, List
 from datetime import datetime, timezone
 
+from app.core.config import settings
+
 # DEPRECATED: WebSocket functionality replaced by Supabase Realtime
 # from ._websocket_handler_deprecated import WebSocketHandler
 from ._generation_flow_manager import GenerationFlowManager
@@ -194,6 +196,7 @@ class ArticleGenerationService:
                 style_template_id=request_dict.get("style_template_id"),
                 advanced_outline_mode=request_dict.get("advanced_outline_mode", False),
                 outline_top_level_heading=outline_top_level,
+                flow_type=request_dict.get("flow_type", "research_first"),  # フロー設定を追加
                 websocket=None,  # Background mode
                 user_response_event=None,  # Background mode
                 user_id=user_id

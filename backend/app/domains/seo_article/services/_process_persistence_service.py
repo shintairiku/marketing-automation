@@ -67,10 +67,10 @@ class ProcessPersistenceService:
             # Map current_step to valid generation_status enum values
             def map_step_to_status(step: str) -> str:
                 """Map context step to valid generation_status enum value"""
+                # 統合リサーチ対応: research_planning, research_plan_approved, research_synthesizing を削除
                 if step in ["start", "keyword_analyzing", "keyword_analyzed", "persona_generating", 
-                           "persona_selected", "theme_generating", "theme_selected", "research_planning", 
-                           "research_plan_approved", "researching", "research_synthesizing", 
-                           "outline_generating", "writing_sections", "editing"]:
+                           "persona_selected", "theme_generating", "theme_selected", "researching", 
+                           "research_completed", "outline_generating", "writing_sections", "editing"]:
                     return "in_progress"
                 elif step == "completed":
                     return "completed"
@@ -299,6 +299,7 @@ class ProcessPersistenceService:
                 # アウトラインモード設定
                 advanced_outline_mode=context_dict.get("advanced_outline_mode", False),
                 outline_top_level_heading=outline_top_level,
+                flow_type=context_dict.get("flow_type", "research_first"),
                 websocket=None,  # Will be set when WebSocket connects
                 user_response_event=None,  # Will be set when WebSocket connects
                 user_id=user_id  # Set user_id from method parameter
@@ -447,6 +448,8 @@ class ProcessPersistenceService:
                 "generated_content": state.get("generated_content", {}),
                 "article_id": state.get("article_id"),
                 "error_message": state.get("error_message"),
+                # 注意(legacy-flow): 旧スナップショットを正しく再開できるよう
+                # `research_plan_generated` も待機状態として扱います。
                 "is_waiting_for_input": context_dict.get("current_step") in ["persona_generated", "theme_proposed", "research_plan_generated", "outline_generated"],
                 "input_type": self.get_input_type_for_step(context_dict.get("current_step")),
                 # 画像モード関連情報を含める
@@ -463,6 +466,7 @@ class ProcessPersistenceService:
 
     def get_input_type_for_step(self, step: str) -> Optional[str]:
         """Get expected input type for a given step"""
+        # 注意(legacy-flow): 旧プロセスが正しい UI を表示できるよう承認ステップをマッピングに残しています。
         step_input_map = {
             "persona_generated": "select_persona",
             "theme_proposed": "select_theme", 
@@ -698,8 +702,6 @@ class ProcessPersistenceService:
                     "persona_generating": "ペルソナ生成中",
                     "theme_generating": "テーマ生成中",
                     "theme_proposed": "テーマ選択待ち",
-                    "research_planning": "リサーチ計画策定中",
-                    "research_plan_generated": "リサーチ計画承認待ち",
                     "researching": "リサーチ実行中",
                     "outline_generating": "アウトライン生成中",
                     "outline_generated": "アウトライン承認待ち",
@@ -808,8 +810,6 @@ class ProcessPersistenceService:
                     "persona_generating": "ペルソナ生成中",
                     "theme_generating": "テーマ生成中",
                     "theme_proposed": "テーマ選択待ち",
-                    "research_planning": "リサーチ計画策定中",
-                    "research_plan_generated": "リサーチ計画承認待ち",
                     "researching": "リサーチ実行中",
                     "outline_generating": "アウトライン生成中",
                     "outline_generated": "アウトライン承認待ち",

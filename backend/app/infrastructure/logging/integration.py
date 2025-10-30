@@ -70,11 +70,13 @@ class MultiAgentWorkflowLogger:
             try:
                 # ステップタイプを決定
                 step_type = "autonomous"
+                # 注意(legacy-flow): 旧リサーチステップも記録対象にすることで、
+                # 過去セッションのデバッグ性を維持しています。
                 if step_name in ["persona_generated", "theme_proposed", "research_plan_generated", "outline_generated"]:
                     step_type = "user_input"
                 elif step_name in ["error", "completed", "cancelled"]:
                     step_type = "terminal"
-                elif step_name in ["keyword_analyzing", "persona_generating", "theme_generating", "research_planning", "researching", "writing_sections", "editing"]:
+                elif step_name in ["keyword_analyzing", "persona_generating", "theme_generating", "research_planning", "researching", "research_completed", "writing_sections", "editing"]:
                     step_type = "processing"
                 
                 step_id = self.logging_service.create_workflow_step_log(
