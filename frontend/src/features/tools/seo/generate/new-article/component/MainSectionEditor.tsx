@@ -9,6 +9,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { getOutlineApprovalMessage } from '@/utils/flow-config';
 
 import type { EditableOutline, EditableOutlineSection } from "../../types/outline";
 
@@ -704,7 +705,7 @@ export default function MainSectionEditor({ value, onChange, onCancel, onSaveAnd
             className="flex items-center gap-1"
           >
             <Save className="h-4 w-4" />
-            この内容で執筆開始
+            {getOutlineApprovalMessage()}
           </Button>
         </div>
       </CardContent>

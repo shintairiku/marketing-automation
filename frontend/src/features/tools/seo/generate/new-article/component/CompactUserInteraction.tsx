@@ -25,6 +25,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { PersonaOption, ThemeOption } from '@/types/article-generation';
+import { getOutlineApprovalMessage,getThemeSelectionMessage } from '@/utils/flow-config';
 
 import type { EditableOutline, EditableOutlineSection } from '../../types/outline';
 
@@ -41,6 +42,7 @@ interface CompactUserInteractionProps {
   onRegenerate?: () => void;
   onEditAndProceed?: (editedContent: any) => void;
   isWaiting?: boolean;
+  flowType?: 'outline_first' | 'research_first';
 }
 
 export default function CompactUserInteraction({
@@ -53,7 +55,8 @@ export default function CompactUserInteraction({
   onApprove,
   onRegenerate,
   onEditAndProceed,
-  isWaiting = false
+  isWaiting = false,
+  flowType = 'research_first'
 }: CompactUserInteractionProps) {
   
   // Debug props
@@ -557,7 +560,7 @@ export default function CompactUserInteraction({
                 </Button>
                 
                 <div className="text-sm text-muted-foreground">
-                  選択後、自動でリサーチを開始します
+                  {getThemeSelectionMessage(flowType)}
                 </div>
               </div>
             )}
@@ -840,7 +843,7 @@ export default function CompactUserInteraction({
                   disabled={isWaiting}
                 >
                   <Check className="w-4 h-4" />
-                  この構成で執筆開始
+                  {getOutlineApprovalMessage(flowType)}
                   <ChevronRight className="w-4 h-4" />
                 </Button>
               </div>

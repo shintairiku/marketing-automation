@@ -1823,6 +1823,8 @@ async def restore_process_from_snapshot(
             'research_planning', 'researching', 'research_synthesizing', 'research_report_generated',
             'outline_generating', 'writing_sections', 'editing'
         }
+        # 注意(legacy-flow): 上記には旧リサーチステップも含めており、
+        # 過去のスナップショットを復元した際に自動処理対象とするために残しています。
 
         if restored_step in autonomous_steps:
             # Optionally auto-continue for autonomous steps

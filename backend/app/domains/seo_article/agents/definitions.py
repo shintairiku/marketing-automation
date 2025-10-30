@@ -1,8 +1,11 @@
 # -*- coding: utf-8 -*-
 # 既存のスクリプトからエージェント定義とプロンプト生成関数をここに移動・整理
+import logging
 from typing import Callable, Awaitable, Union, Any, List, Dict
 from agents import Agent, RunContextWrapper, ModelSettings
 from datetime import datetime, timezone
+
+logger = logging.getLogger(__name__)
 # 循環参照を避けるため、モデル、ツール、コンテキストは直接インポートしない
 # from .models import AgentOutput, ResearchQueryResult, ResearchReport, Outline, RevisedArticle
 # from .tools import web_search_tool, analyze_competitors, get_company_data
@@ -165,6 +168,8 @@ def create_theme_instructions(base_prompt: str) -> Callable[[RunContextWrapper[A
         return full_prompt
     return dynamic_instructions_func
 
+# 注意(legacy-flow): 過去のマルチステップリサーチフロー
+# （プランナー→リサーチャー→シンセサイザー）との後方互換性のために保持しています。
 def create_research_planner_instructions(base_prompt: str) -> Callable[[RunContextWrapper[ArticleContext], Agent[ArticleContext]], Awaitable[str]]:
     async def dynamic_instructions_func(ctx: RunContextWrapper[ArticleContext], agent: Agent[ArticleContext]) -> str:
         if not ctx.context.selected_theme:
@@ -225,6 +230,8 @@ def create_research_planner_instructions(base_prompt: str) -> Callable[[RunConte
         return full_prompt
     return dynamic_instructions_func
 
+# 注意(legacy-flow): 過去のマルチステップリサーチフロー
+# （プランナー→リサーチャー→シンセサイザー）との後方互換性のために保持しています。
 def create_researcher_instructions(base_prompt: str) -> Callable[[RunContextWrapper[ArticleContext], Agent[ArticleContext]], Awaitable[str]]:
     async def dynamic_instructions_func(ctx: RunContextWrapper[ArticleContext], agent: Agent[ArticleContext]) -> str:
         if not ctx.context.research_plan or ctx.context.current_research_query_index >= len(ctx.context.research_plan.queries):
@@ -265,6 +272,8 @@ def create_researcher_instructions(base_prompt: str) -> Callable[[RunContextWrap
         return full_prompt
     return dynamic_instructions_func
 
+# 注意(legacy-flow): 過去のマルチステップリサーチフロー
+# （プランナー→リサーチャー→シンセサイザー）との後方互換性のために保持しています。
 def create_research_synthesizer_instructions(base_prompt: str) -> Callable[[RunContextWrapper[ArticleContext], Agent[ArticleContext]], Awaitable[str]]:
     async def dynamic_instructions_func(ctx: RunContextWrapper[ArticleContext], agent: Agent[ArticleContext]) -> str:
         if not ctx.context.research_query_results:
@@ -307,10 +316,112 @@ def create_research_synthesizer_instructions(base_prompt: str) -> Callable[[RunC
         return full_prompt
     return dynamic_instructions_func
 
+def create_research_instructions(base_prompt: str) -> Callable[[RunContextWrapper[ArticleContext], Agent[ArticleContext]], Awaitable[str]]:
+    async def dynamic_instructions_func(ctx: RunContextWrapper[ArticleContext], agent: Agent[ArticleContext]) -> str:
+        if not ctx.context.selected_theme:
+            raise ValueError("リサーチ計画を作成するためのテーマが選択されていません。")
+        if not ctx.context.selected_detailed_persona:
+            raise ValueError("リサーチ計画のための詳細なペルソナが選択されていません。")
+        persona_description = ctx.context.selected_detailed_persona
+
+        # 企業情報（拡張）
+        company_info_str = build_enhanced_company_context(ctx.context)
+
+        # アウトライン情報がある場合は指示に含める
+        outline_str = ""
+        if ctx.context.generated_outline:
+            outline = ctx.context.generated_outline
+            outline_str = f"記事アウトライン: {outline.title if hasattr(outline, 'title') else 'N/A'}\n"
+            if hasattr(outline, 'sections') and outline.sections:
+                def format_section(section, indent="  "):
+                    heading = section.heading if hasattr(section, 'heading') else str(section.get('heading', ''))
+                    level = section.level if hasattr(section, 'level') else section.get('level', 2)
+                    formatted = f"{indent}H{level}: {heading}\n"
+                    # サブセクションがある場合は再帰的に処理
+                    if hasattr(section, 'subsections') and section.subsections:
+                        for subsection in section.subsections:
+                            formatted += format_section(subsection, indent + "  ")
+                    
+                    return formatted
+                
+                for section in outline.sections:
+                    outline_str += format_section(section)
+
+        # SerpAPI分析結果を含める
+        seo_guidance_str = ""
+        if ctx.context.serp_analysis_report:
+            seo_guidance_str = f"""
+
+=== SerpAPI分析ガイダンス ===
+競合記事の主要テーマ: {', '.join(ctx.context.serp_analysis_report.main_themes)}
+コンテンツギャップ（調査すべき領域）: {', '.join(ctx.context.serp_analysis_report.content_gaps)}
+差別化ポイント: {', '.join(ctx.context.serp_analysis_report.competitive_advantages)}
+検索ユーザーの意図: {ctx.context.serp_analysis_report.user_intent_analysis}
+
+上記の分析結果を踏まえ、競合が扱っていない角度や、より深く掘り下げるべき領域を重点的にリサーチしてください。
+"""
+
+        full_prompt = f"""{base_prompt}
+
+--- リサーチ対象テーマ ---
+タイトル: {ctx.context.selected_theme.title}
+説明: {ctx.context.selected_theme.description}
+キーワード: {', '.join(ctx.context.selected_theme.keywords)}
+想定読者の詳細:\n{persona_description}
+{outline_str}
+
+{seo_guidance_str}
+
+=== 企業情報（参考用・制限的使用） ===
+{company_info_str}
+---
+
+**検索クエリ生成の厳密な基準:**
+1. テーマタイトルとキーワードに直結する基礎情報・定義
+2. 読者がそのキーワードで求める具体的な疑問・悩みへの答え
+3. テーマに完全一致する実践的なノウハウ・手順
+4. テーマキーワードに直接関連する統計データ・事例のみ
+5. テーマ範囲内での比較・選択肢のみ
+
+**重要:**
+- 上記テーマについて深く掘り下げるための、具体的で多様な検索クエリを **{ctx.context.num_research_queries}個** 生成してください。
+- 各クエリには、そのクエリで何を明らかにしたいか（focus）を明確に記述してください。
+
+**重要なリサーチ指針:**
+- 生成した検索クエリを使用して `web_search` ツールを実行してください。
+- **権威ある情報源を最優先で活用してください**：
+  * **Wikipedia（ja.wikipedia.org）**: 基礎情報、定義、概要
+  * **政府機関・自治体サイト（.go.jp）**: 統計データ、公式見解、制度情報
+  * **学術機関（.ac.jp）**: 研究データ、専門知識
+  * **業界団体・公的機関**: 業界統計、ガイドライン
+  * **大手メディア・新聞社**: ニュース、トレンド情報
+  * **企業公式サイト**: 製品情報、サービス詳細
+- 検索結果を**深く分析**し、記事テーマとクエリの焦点に関連する**具体的な情報、データ、主張、引用**などを**詳細に抽出**してください。
+- 個人ブログやまとめサイト、広告的なコンテンツよりも、**公的機関、学術機関、業界の権威、著名メディア**からの情報を優先して選択してください。
+- 検索結果全体の**簡潔な要約 (summary)** も生成してください。
+- **`save_research_snippet` ツールは使用しないでください。**
+
+**重要なリサーチ結果要約指針:**
+- 上記の詳細なリサーチ結果全体を分析し、記事執筆に役立つように情報を統合・要約してください。
+- 以下の要素を含む**実用的で詳細なリサーチレポート**を作成してください:
+    - `overall_summary`: リサーチ全体から得られた主要な洞察やポイントの要約。
+    - `key_points`: 記事に含めるべき重要なポイントや事実をリスト形式で記述し、各ポイントについて**それを裏付ける情報源URL (`supporting_sources`)** を `KeyPoint` 形式で明確に紐付けてください。
+    - `interesting_angles`: 記事を面白くするための切り口や視点のアイデアのリスト形式。
+    - `all_sources`: 参照した全ての情報源URLのリスト（重複削除済み、可能であれば重要度順）。
+- レポートは論文調ではなく、記事作成者がすぐに使えるような分かりやすい言葉で記述してください。
+- あなたの応答は必ず `ResearchReport` 型のJSON形式で出力してください。
+
+検索クエリの作成、リサーチの実行はすべて上記の指針に従って厳格に行い、内部で実行してください。
+出力は必ず `ResearchReport` 型のJSON形式のみで行ってください。
+
+"""
+        return full_prompt
+    return dynamic_instructions_func
+
 def create_outline_instructions(base_prompt: str) -> Callable[[RunContextWrapper[ArticleContext], Agent[ArticleContext]], Awaitable[str]]:
     async def dynamic_instructions_func(ctx: RunContextWrapper[ArticleContext], agent: Agent[ArticleContext]) -> str:
-        if not ctx.context.selected_theme or not ctx.context.research_report:
-            raise ValueError("アウトライン作成に必要なテーマまたはリサーチレポートがありません。")
+        if not ctx.context.selected_theme:
+            raise ValueError("アウトライン作成に必要なテーマがありません。")
         if not ctx.context.selected_detailed_persona:
             raise ValueError("アウトライン作成のための詳細なペルソナが選択されていません。")
         persona_description = ctx.context.selected_detailed_persona
@@ -320,7 +431,15 @@ def create_outline_instructions(base_prompt: str) -> Callable[[RunContextWrapper
         child_heading_level = min(outline_top_level + 1, 6)
         advanced_outline_mode = getattr(ctx.context, 'advanced_outline_mode', False)
 
-        research_summary = ctx.context.research_report.overall_summary
+        # フロー設定に応じてリサーチ結果を処理
+        from app.core.config import settings
+        if hasattr(ctx.context, 'research_report') and ctx.context.research_report:
+            research_summary = ctx.context.research_report.overall_summary
+            sources_count = len(ctx.context.research_report.all_sources)
+        else:
+            # reorderedフローでは研究レポートがまだ存在しない場合
+            research_summary = "まだリサーチが実行されていません。テーマとキーワードに基づいてアウトラインを作成してください。"
+            sources_count = 0
         # 企業情報（拡張）
         company_info_block = f"""
 
@@ -378,7 +497,7 @@ def create_outline_instructions(base_prompt: str) -> Callable[[RunContextWrapper
 {seo_structure_guidance}
 --- 詳細なリサーチ結果 ---
 {research_summary}
-参照した全情報源URL数: {len(ctx.context.research_report.all_sources)}
+参照した全情報源URL数: {sources_count}
 ---
 
 --- アウトライン構造の要件 ---
@@ -410,13 +529,6 @@ def create_outline_instructions(base_prompt: str) -> Callable[[RunContextWrapper
   ]
 }}
 ```
-
-**重要な構成指針:**
-- **リサーチ結果を絶対優先（重要度90%）**: テーマとキーワード、SerpAPI分析、リサーチ結果に厳密に基づく構成
-- **企業情報は最小限の参考（重要度10%）**: テーマに直接的に関連し企業の専門領域に該当する場合のみ軽微に反映
-- **テーマ完全一致原則**: 選択されたテーマのタイトル、説明、キーワードから一切逸脱しない
-- **厳格な制限事項**: テーマ、キーワード、リサーチ結果に含まれないいかなる概念や用語も構成に含めない
-
 **アウトライン作成の厳密な基準:**
 1. テーマキーワードとリサーチ結果の**キーポイント**に完全一致する構成のみ作成
 2. **想定読者「{persona_description}」**がそのキーワードで求める情報のみを構成に含める
@@ -911,7 +1023,8 @@ def create_editor_instructions(base_prompt: str) -> Callable[[RunContextWrapper[
     - 人間らしい自然な文章表現、独創性
     - HTML構造の妥当性
 - 必要な修正を直接HTMLに加えてください。
-- あなたの応答は必ず `RevisedArticle` 型のJSON形式で、`final_html_content` に編集後の完全なHTML文字列を入れて出力してください。
+- あなたの応答は必ず `RevisedArticle` 型のJSON形式で出力してください。
+- **重要**: `content` フィールドには編集後の完全なHTML文字列（タイトルから結論まで全てを含む統合された単一のHTML）を入れてください。
 
 """
         return full_prompt
@@ -1143,6 +1256,8 @@ RESEARCH_PLANNER_AGENT_BASE_PROMPT = """
 あなたは優秀なリサーチプランナーです。
 与えられた記事テーマに基づき、そのテーマを深く掘り下げ、読者が知りたいであろう情報を網羅するための効果的なWeb検索クエリプランを作成します。
 """
+# 注意(legacy-flow): 旧来のフローで専用プランニングステップを呼び出すケースに対応するため、
+# 現行の `research_agent` が推奨であっても公開インターフェースとして残しています。
 research_planner_agent = Agent[ArticleContext](
     name="ResearchPlannerAgent",
     instructions=create_research_planner_instructions(RESEARCH_PLANNER_AGENT_BASE_PROMPT),
@@ -1158,6 +1273,8 @@ RESEARCHER_AGENT_BASE_PROMPT = """
 記事テーマに関連する具体的で信頼できる情報、データ、主張、引用を詳細に抽出し、最も適切な出典元URLとタイトルを特定して、指定された形式で返します。
 必ず web_search ツールを使用してください。
 """
+# 注意(legacy-flow): 旧来のフローで専用リサーチステップを呼び出すケースに対応するため、
+# 現行の `research_agent` が推奨であっても公開インターフェースとして残しています。
 researcher_agent = Agent[ArticleContext](
     name="ResearcherAgent",
     instructions=create_researcher_instructions(RESEARCHER_AGENT_BASE_PROMPT),
@@ -1173,6 +1290,8 @@ RESEARCH_SYNTHESIZER_AGENT_BASE_PROMPT = """
 各キーポイントについて、記事作成者がすぐに活用できる実用的で詳細なリサーチレポートを作成します。
 ※ 出典情報は不要です。URLを含めないでください。
 """
+# 注意(legacy-flow): 旧来のフローで専用統合ステップを呼び出すケースに対応するため、
+# 現行の `research_agent` が推奨であっても公開インターフェースとして残しています。
 research_synthesizer_agent = Agent[ArticleContext](
     name="ResearchSynthesizerAgent",
     instructions=create_research_synthesizer_instructions(RESEARCH_SYNTHESIZER_AGENT_BASE_PROMPT),
@@ -1185,17 +1304,39 @@ research_synthesizer_agent = Agent[ArticleContext](
 OUTLINE_AGENT_BASE_PROMPT = """
 あなたは高品質なSEO記事のアウトライン（構成案）を作成する専門家です。
 
-**アウトライン設計方針:**
-1. **SEO上位表示を意識した構成**: 検索意図を満たし、競合サイトを上回る価値を提供する構造
-2. **読者の知識段階に応じた論理的な流れ**: 基礎→応用→実践の自然な流れ
-3. **各見出しの明確な目的**: 読者が各セクションで何を得られるかが明確
-4. **結論ファースト構造の準備**: 各セクションが「結論→詳細→ポイント再確認」で書けるよう設計
+=== アウトライン設計方針 ===
 
-**見出し構成の品質基準:**
-- 見出しだけで記事の全体像が把握できる
-- 重複や矛盾のない論理的な構成
-- ターゲットキーワードが自然に組み込まれた見出し
-- 読者の疑問や関心に直接的に答える見出し設定
+【1】構成原則（記事全体の流れ）
+- トップレベル見出しは3〜5本を目安に設定し、各章が明確な検索意図（情報／比較／HowTo／失敗回避／費用／実例など）ごとに完結するように構成する。  
+- トップレベルやその次の見出し数は、SERP分析結果やターゲット文字数に応じて柔軟に調整する。  
+- 記事全体の流れは「導入 → 問題提起 → 解決・実例 → まとめ・行動誘導」を基本とするが、テーマやSERP分析に応じて最適化する。
+- headingはSERP分析で頻出する語句を参考にしつつ、読者にとって自然で意味が伝わる文章にする。
+
+【2】SEOと検索意図
+- 各トップレベル見出しには、検索意図のタイプ（情報／比較／HowTo／失敗回避／費用／実例）を反映させる。見出しには含めない。  
+- タイトル・導入・トップレベル見出しには主要キーワードを自然に含める。  
+- 次の階層の小見出しでは副次キーワードや関連語を展開し、検索クエリに一致する自然な語尾（〜とは／〜のコツ／〜比較など）を使う。
+
+【3】差別化と信頼性
+- 各トップレベル見出しまたはサブセクションに、実例・体験談・データ（数字・具体例）を挿入できる構成を確保する。   
+
+【4】品質チェック（自己検証）
+- トップレベル見出しだけで記事全体のストーリーが理解できるか。  
+- 各トップレベル見出しが独立した検索意図を満たしているか。  (それを見出しに含めていないか)
+- 次の階層の小見出しが具体的かつ実践的で、抽象的な見出し語を避けているか。  
+- estimated_chars の合計がターゲット文字数の±15%以内になっているか。  
+
+【5】補足ルール
+- FAQブロックを推奨（3〜5項目程度）。  
+- ペルソナはあくまで「記事を読む読者の一例」であり、その人のみが読むわけではない。
+- 公開記事に出力されるheadingは、読者にとって意味が伝わる自然な文章にする。
+- 見出しに意図やその見出しの説明を明記しない.（「はじめに:」や「導入:」「（情報）」など）
+  例：「導入: 家づくりを始める前に」→「家づくりを始める前に知っておきたいこと」
+
+
+=== 目標 ===
+固定テンプレートに依存せず、テーマ固有の検索意図とSERP上位記事の構造分析に基づいて、  
+最も自然で網羅的なアウトラインを生成すること。
 
 **記事全体のトーン設定:**
 企業のスタイルガイドが設定されている場合はそれに従い、未設定の場合は読者ペルソナに最適なトーンを提案します。
@@ -1203,7 +1344,8 @@ OUTLINE_AGENT_BASE_PROMPT = """
 outline_agent = Agent[ArticleContext](
     name="OutlineAgent",
     instructions=create_outline_instructions(OUTLINE_AGENT_BASE_PROMPT),
-    model=settings.writing_model,
+    model=settings.outline_model,
+    #model_settings=ModelSettings(tool_choice="web_search_preview"),
     tools=[web_search_tool],
     output_type=Union[Outline, ClarificationNeeded],
 )
@@ -1214,7 +1356,7 @@ SECTION_WRITER_AGENT_BASE_PROMPT = """
 指定されたセクション（見出し）について、ターゲット読者にとって価値のある、読みやすく実用的な内容をHTML形式で執筆します。
 
 **重要な執筆方針:**
-- ターゲットペルソナは「記事を読む読者」であり、あなたは「専門知識を持つ執筆者」として読者に向けて書きます
+- ターゲットペルソナは「記事を読む読者」であり、あなたは「専門知識を持つ執筆者」として読者に向けて書きます(ただし、ペルソナは読者の一例であり、全ての読者が同じではないことに注意してください)
 - 記事全体の一貫性を保ち、断片的にならないよう前後のセクションとの繋がりを意識します
 - 各セクションは「結論ファースト→詳細説明→ポイント再確認」の構造で書きます
 - 過度な語りかけや冗長な表現は避け、簡潔で要点が明確な文章を心がけます
@@ -1239,10 +1381,11 @@ SECTION_WRITER_WITH_IMAGES_AGENT_BASE_PROMPT = """
 指定されたセクション（見出し）について、画像プレースホルダーを含む視覚的に魅力的なコンテンツをHTML形式で執筆します。
 
 **重要な執筆方針:**
-- ターゲットペルソナは「記事を読む読者」であり、あなたは「専門知識を持つ執筆者」として読者に向けて書きます
+- ターゲットペルソナは「記事を読む読者」であり、あなたは「専門知識を持つ執筆者」として読者に向けて書きます(ただし、ペルソナは読者の一例であり、全ての読者が同じではないことに注意してください)
 - 記事全体の一貫性を保ち、断片的にならないよう前後のセクションとの繋がりを意識します
 - 各セクションは「結論ファースト→詳細説明→ポイント再確認」の構造で書きます
 - 過度な語りかけや冗長な表現は避け、簡潔で要点が明確な文章を心がけます
+- メモのような記事にならないように、文章でしっかりと説明を加えることを忘れないでください
 
 **画像プレースホルダー要件:**
 - このセクションでは内容に応じて適切に画像プレースホルダーを配置する
@@ -1284,6 +1427,23 @@ editor_agent = Agent[ArticleContext](
     model_settings=ModelSettings(max_tokens=32768),  # 最大出力トークン数設定
     tools=[web_search_tool],
     output_type=RevisedArticle, # 修正: RevisedArticleを返す
+)
+
+# リサーチエージェント（計画、実行、要約を一度に実行するエージェント）
+RESEARCH_AGENT_BASE_PROMPT = """
+あなたはリサーチエージェントです。与えられたテーマに基づいて、計画、実行、要約を一度に行います。
+1. まず、テーマを深く掘り下げ、読者が知りたいであろう情報を網羅するための効果的なWeb検索クエリを作成します。
+2. 次に、その検索クエリでWeb検索を実行し、結果を深く分析します。記事テーマに関連する具体的で信頼できる情報、データ、主張、引用を詳細に抽出し、最も適切な出典元URLとタイトルを特定します。必ずweb_searchツールを使用してください。
+3. 最後に、収集された詳細なリサーチ結果を分析し、記事のテーマに沿って統合・要約します。各キーポイントについて、記事作成者がすぐに活用できる実用的で詳細なリサーチレポートを作成します。
+
+"""
+research_agent = Agent[ArticleContext](
+    name="ResearchAgent",
+    instructions=create_research_instructions(RESEARCH_AGENT_BASE_PROMPT),
+    model=settings.research_model,
+    model_settings=ModelSettings(max_tokens=32768, tool_choice="required"),  # 最大出力トークン数設定 + web検索強制
+    tools=[web_search_tool],
+    output_type=ResearchReport, 
 )
 
 # LiteLLMエージェント生成関数 (APIでは直接使わないかもしれないが、念のため残す)

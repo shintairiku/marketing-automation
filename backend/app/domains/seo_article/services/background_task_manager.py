@@ -386,6 +386,7 @@ class BackgroundTaskManager:
                     # Check if current step requires user input
                     # IMPORTANT: Save snapshot BEFORE breaking the loop for user input steps!
                     if context.current_step in ['persona_generated', 'theme_proposed', 'research_plan_generated', 'outline_generated']:
+                        # 注意(legacy-flow): `research_plan_generated` は統合前に作成されたセッションに対応するため残しています。
                         logger.info(f"👤 [TASK {task_id}] Step {current_step} requires user input")
 
                         # Save snapshot for this decision point BEFORE waiting for user input
@@ -506,20 +507,10 @@ class BackgroundTaskManager:
                 await flow_manager.execute_theme_generation_step(context)
                 logger.info(f"[TASK {task_id}] Theme generation completed, current step: {context.current_step}")
                 
-            elif step_name == "research_planning":
-                logger.info(f"[TASK {task_id}] Executing research planning step")
-                await flow_manager.execute_research_planning_step(context)
-                logger.info(f"[TASK {task_id}] Research planning completed, current step: {context.current_step}")
-                
             elif step_name == "researching":
-                logger.info(f"[TASK {task_id}] Executing research step")
-                await self._execute_research_with_progress(context, process_id)
+                logger.info(f"[TASK {task_id}] Executing comprehensive research")
+                await flow_manager.execute_research_step(context)
                 logger.info(f"[TASK {task_id}] Research completed, current step: {context.current_step}")
-                
-            elif step_name == "research_synthesizing":
-                logger.info(f"[TASK {task_id}] Executing research synthesis step")
-                await flow_manager.execute_research_synthesis_step(context)
-                logger.info(f"[TASK {task_id}] Research synthesis completed, current step: {context.current_step}")
                 
             elif step_name == "outline_generating":
                 logger.info(f"[TASK {task_id}] Executing outline generation step")
@@ -548,6 +539,8 @@ class BackgroundTaskManager:
     
     async def _execute_research_with_progress(self, context: ArticleContext, process_id: str):
         """Execute research with progress events (parallel execution)"""
+        # 注意(legacy-flow): 進捗通知付きの実行経路は `research_plan` の存在を前提としており、
+        # これは旧来のプロセスに限定されます。
         
         if not context.research_plan or not hasattr(context.research_plan, 'queries'):
             raise Exception("No research plan available")
@@ -641,7 +634,7 @@ class BackgroundTaskManager:
         # Publish completion summary
         await self._publish_realtime_event(
             process_id=process_id,
-            event_type="research_completed",
+            event_type="research_synthesis_completed",
             event_data={
                 "message": f"Research execution completed: {successful_queries}/{total_queries} queries successful",
                 "successful_queries": successful_queries,
@@ -651,7 +644,7 @@ class BackgroundTaskManager:
             }
         )
         
-        # Move to synthesis
+        
         context.current_step = "research_synthesizing"
         
         # Publish synthesis start event
@@ -745,6 +738,7 @@ class BackgroundTaskManager:
                     }
             elif context.current_step == "research_plan_generated":
                 input_type = "approve_plan"
+                # 注意(legacy-flow): 承認 UI は統合前に作成されたセッションに対してのみ必要です。
                 if hasattr(context, 'research_plan') and context.research_plan:
                     input_data = {"plan": context.research_plan.dict() if hasattr(context.research_plan, 'dict') else str(context.research_plan)}
             elif context.current_step == "outline_generated":
@@ -876,19 +870,35 @@ class BackgroundTaskManager:
                 selected_index = payload.get("selected_index")
                 if selected_index is not None and hasattr(context, 'generated_themes') and context.generated_themes:
                     context.selected_theme = context.generated_themes[selected_index]
-                    context.current_step = "research_planning"
+                    context.reset_after_theme_selection()
+                    
+                    # フロー設定に応じて次のステップを決定
+                    is_outline_first = context.flow_type == "outline_first"
+                    if is_outline_first:
+                        context.current_step = "outline_generating"
+                        logger.info("Outline-first flow: Moving from theme selection to outline_generating")
+                    else:
+                        context.current_step = "researching"
+                        logger.info("Research-first flow: Moving from theme selection to researching")
                     
             elif response_type == "approve_plan":
                 approved = payload.get("approved", False)
                 if approved:
                     context.current_step = "researching"
                 else:
-                    context.current_step = "research_planning"  # Regenerate
+                    context.current_step = "researching"  # Regenerate
                     
             elif response_type == "approve_outline":
                 approved = payload.get("approved", False)
                 if approved:
-                    context.current_step = "writing_sections"
+                    # フロー設定に応じて次のステップを決定
+                    is_outline_first = context.flow_type == "outline_first"
+                    if is_outline_first:
+                        context.current_step = "researching"
+                        logger.info("Outline-first flow: Moving from outline approval to researching")
+                    else:
+                        context.current_step = "writing_sections"
+                        logger.info("Research-first flow: Moving from outline approval to writing_sections")
                 else:
                     context.current_step = "outline_generating"  # Regenerate
             
@@ -904,9 +914,10 @@ class BackgroundTaskManager:
                     context.generated_themes = []
                     logger.info("Regenerating themes from theme_proposed step")
                 elif context.current_step == "research_plan_generated":
-                    context.current_step = "research_planning"
+                    context.current_step = "researching"
                     context.research_plan = None
-                    logger.info("Regenerating research plan from research_plan_generated step")
+                    # 注意(legacy-flow): リサーチ計画の再生成は統合前セッションに対してのみ適用されます。
+                    logger.info("Regenerating research from research_plan_generated step")
                 elif context.current_step == "outline_generated":
                     context.current_step = "outline_generating"
                     context.generated_outline = None
@@ -942,8 +953,15 @@ class BackgroundTaskManager:
                             # Import ThemeProposalData from schemas
                             from app.domains.seo_article.schemas import ThemeProposalData
                             context.selected_theme = ThemeProposalData(**edited_content)
-                            context.current_step = "research_planning"
-                            logger.info("✅ [EDIT_THEME] Applied theme edit and proceeding to research planning")
+                            context.reset_after_theme_selection()
+
+                            is_outline_first = context.flow_type == "outline_first"
+                            if is_outline_first:
+                                context.current_step = "outline_generating"
+                                logger.info("✅ [EDIT_THEME] Applied theme edit and proceeding to outline generation (outline-first flow)")
+                            else:
+                                context.current_step = "researching"
+                                logger.info("✅ [EDIT_THEME] Applied theme edit and proceeding to research (research-first flow)")
                         except Exception as theme_error:
                             logger.error(f"💥 [EDIT_THEME] Error creating ThemeProposalData: {theme_error}")
                             raise
@@ -1018,8 +1036,15 @@ class BackgroundTaskManager:
                             context.generated_outline = normalized_outline
                             context.outline_top_level_heading = normalized_outline.top_level_heading
                             context.outline = context.generated_outline
-                            context.current_step = "writing_sections"
-                            logger.info("✅ [EDIT_OUTLINE] Applied outline edit and proceeding to section writing")
+                            
+                            # フロー設定に応じて次のステップを決定
+                            is_outline_first = context.flow_type == "outline_first"
+                            if is_outline_first:
+                                context.current_step = "researching"
+                                logger.info("✅ [EDIT_OUTLINE] Applied outline edit and proceeding to research (outline-first flow)")
+                            else:
+                                context.current_step = "writing_sections"
+                                logger.info("✅ [EDIT_OUTLINE] Applied outline edit and proceeding to section writing (research-first flow)")
                         except Exception as outline_error:
                             logger.error(f"💥 [EDIT_OUTLINE] Error creating OutlineData: {outline_error}")
                             raise
