@@ -69,7 +69,7 @@ const computeRunStatusLine = (runState: AgentRunTimelineEntry['runState']): stri
   }
 };
 
-const RunProgressPanel = ({ entry }: { entry: AgentRunTimelineEntry }): JSX.Element | null => {
+const RunProgressPanel = ({ entry }: { entry: AgentRunTimelineEntry }): React.ReactElement | null => {
   const [open, setOpen] = useState(() => true);
 
   useEffect(() => {

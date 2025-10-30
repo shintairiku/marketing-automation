@@ -409,6 +409,7 @@ export function useAgentChat(articleId: string): UseAgentChatReturn {
   const activateSession = useCallback(
     async (targetSessionId: string) => {
       if (!targetSessionId) return;
+
       try {
         setLoading(true);
         setError(null);
@@ -520,6 +521,8 @@ export function useAgentChat(articleId: string): UseAgentChatReturn {
 
       const previousMessagesSnapshot = [...messagesRef.current];
       const previousAssistantContent = getLastAssistantContent(previousMessagesSnapshot);
+      const timelineId = createTimelineId();
+      let timelineEntryAdded = false;
 
       try {
         setLoading(true);
@@ -529,7 +532,6 @@ export function useAgentChat(articleId: string): UseAgentChatReturn {
         setMessages((prev) => [...prev, { role: 'user', content: message }]);
 
         const triggerIndex = previousMessagesSnapshot.length;
-        const timelineId = createTimelineId();
         activeRunEntryIdRef.current = timelineId;
         setRunTimeline((prev) => [
           ...prev,
@@ -542,6 +544,7 @@ export function useAgentChat(articleId: string): UseAgentChatReturn {
             createdAt: new Date().toISOString(),
           },
         ]);
+        timelineEntryAdded = true;
         applyRunStateUpdate(null, { resetActive: false });
 
         const headers = await getHeaders();
@@ -586,15 +589,17 @@ export function useAgentChat(articleId: string): UseAgentChatReturn {
         void loadSessions().catch(() => undefined);
       } catch (err) {
         setMessages(previousMessagesSnapshot);
-        setRunTimeline((prev) => {
-          const removed = prev.find((entry) => entry.id === timelineId);
-          if (removed?.runId) {
-            runEntryIdByRunIdRef.current.delete(removed.runId);
+        if (timelineEntryAdded) {
+          setRunTimeline((prev) => {
+            const removed = prev.find((entry) => entry.id === timelineId);
+            if (removed?.runId) {
+              runEntryIdByRunIdRef.current.delete(removed.runId);
+            }
+            return prev.filter((entry) => entry.id !== timelineId);
+          });
+          if (activeRunEntryIdRef.current === timelineId) {
+            activeRunEntryIdRef.current = null;
           }
-          return prev.filter((entry) => entry.id !== timelineId);
-        });
-        if (activeRunEntryIdRef.current === timelineId) {
-          activeRunEntryIdRef.current = null;
         }
         const errorMessage = err instanceof Error ? err.message : 'エラーが発生しました';
         setError(errorMessage);
