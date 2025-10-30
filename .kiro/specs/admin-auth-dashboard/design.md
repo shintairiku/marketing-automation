@@ -2,9 +2,9 @@
 
 ## Overview
 
-The admin authentication and dashboard system provides secure, Google Workspace SSO-restricted access to platform administrative functions. The system implements a comprehensive authentication layer, centralized authorization middleware, and a monitoring dashboard that serves as the foundation for the broader administrative interface.
+The admin authentication and dashboard system provides secure, Clerk organization-based access to platform administrative functions. The system leverages Clerk's organization membership and verified domain features to restrict access to authorized personnel, implementing centralized authorization middleware and a monitoring dashboard that serves as the foundation for the broader administrative interface.
 
-The design follows a domain-driven architecture pattern, separating authentication concerns, user management, organization management, and system monitoring into distinct but integrated components. The system leverages existing infrastructure including Clerk for authentication, Supabase for data persistence, and integrates with Stripe for subscription management.
+The design follows a domain-driven architecture pattern, separating authentication concerns, user management, organization management, and system monitoring into distinct but integrated components. The system leverages Clerk organization membership (org_31qpu3arGjKdiatiavEP9E7H3LV) with verified domain "shintairiku.jp" for authentication, Supabase for data persistence, and integrates with Stripe for subscription management.
 
 ## Architecture
 
@@ -76,18 +76,17 @@ sequenceDiagram
     
     Admin->>Frontend: Access admin page
     Frontend->>Middleware: Request with JWT token
-    Middleware->>Clerk: Verify JWT signature
-    Clerk-->>Middleware: Token validation result
-    Middleware->>Middleware: Check hosted domain (hd claim)
-    Middleware->>Middleware: Verify against allowed domains
+    Middleware->>Clerk: Verify JWT signature and organization membership
+    Clerk-->>Middleware: Token validation and organization membership result
+    Middleware->>Middleware: Check organization ID (org_31qpu3arGjKdiatiavEP9E7H3LV)
     
-    alt Valid Google Workspace Domain
-        Middleware->>DB: Check admin privileges
+    alt Valid Organization Member
+        Middleware->>DB: Verify admin privileges in database
         DB-->>Middleware: Admin status confirmed
         Middleware->>Audit: Log successful admin access
         Middleware-->>Frontend: Access granted
         Frontend-->>Admin: Admin interface loaded
-    else Invalid Domain or Personal Gmail
+    else Invalid Organization or Not Member
         Middleware->>Audit: Log failed access attempt
         Middleware-->>Frontend: 403 Forbidden
         Frontend-->>Admin: Access denied message
@@ -98,22 +97,22 @@ sequenceDiagram
 
 ### 1. Authentication Components
 
-#### Google Workspace SSO Validator
+#### Clerk Organization Validator
 **Location**: `backend/app/common/auth.py`
 
 **Responsibilities**:
 - Validate JWT tokens from Clerk
-- Extract and verify hosted domain (hd) claim
-- Check against allowed Google Workspace domains
-- Reject personal Gmail accounts (@gmail.com)
+- Extract and verify organization membership claims
+- Check against designated admin organization ID
+- Validate organization membership status
 
 **Interface**:
 ```python
-class GoogleWorkspaceValidator:
-    def __init__(self, allowed_domains: List[str])
+class ClerkOrganizationValidator:
+    def __init__(self, admin_org_id: str)
     async def validate_admin_token(self, token: str) -> AdminUser
-    async def extract_domain_from_token(self, token: str) -> Optional[str]
-    def is_personal_gmail(self, email: str) -> bool
+    async def extract_organization_from_token(self, token: str) -> Optional[str]
+    def is_admin_organization_member(self, org_id: str) -> bool
 ```
 
 #### Admin Authorization Middleware
@@ -254,7 +253,8 @@ class AdminUser:
     user_id: str
     email: str
     full_name: str
-    workspace_domain: str
+    organization_id: str
+    organization_slug: str
     admin_privileges: List[str]
     last_login: datetime
     session_id: str
@@ -307,12 +307,12 @@ class AdminAuthenticationError(Exception):
     """Raised when admin authentication fails"""
     pass
 
-class InvalidWorkspaceDomainError(AdminAuthenticationError):
-    """Raised when user domain is not in allowed list"""
+class InvalidOrganizationError(AdminAuthenticationError):
+    """Raised when user is not member of admin organization"""
     pass
 
-class PersonalGmailNotAllowedError(AdminAuthenticationError):
-    """Raised when personal Gmail account is used"""
+class OrganizationMembershipRequiredError(AdminAuthenticationError):
+    """Raised when organization membership is required but not found"""
     pass
 ```
 
@@ -322,10 +322,10 @@ class PersonalGmailNotAllowedError(AdminAuthenticationError):
 {
   "error": {
     "code": "ADMIN_AUTH_FAILED",
-    "message": "Authentication failed: Invalid workspace domain",
+    "message": "Authentication failed: Not a member of admin organization",
     "details": {
-      "domain": "personal-domain.com",
-      "allowed_domains": ["company.com", "subsidiary.com"]
+      "user_organization": "org_user123",
+      "required_organization": "org_31qpu3arGjKdiatiavEP9E7H3LV"
     },
     "timestamp": "2025-01-20T10:30:00Z",
     "request_id": "req_123456"
