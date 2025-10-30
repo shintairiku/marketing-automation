@@ -1,10 +1,11 @@
 'use client';
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AlertCircle, Bot, Check, Loader2, Plus, Send, X } from 'lucide-react';
+import { AlertCircle, Bot, Check, ChevronDown, Plus, Send, X } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import {
   Select,
@@ -15,8 +16,14 @@ import {
 } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/hooks/use-toast';
-import { type AgentSessionSummary, useAgentChat } from '@/hooks/useAgentChat';
+import {
+  type AgentRunTimelineEntry,
+  type AgentSessionSummary,
+  type ChatMessage,
+  useAgentChat,
+} from '@/hooks/useAgentChat';
 
+import AgentRunProgress from './AgentRunProgress';
 import AIAgentChatMessage from './AIAgentChatMessage';
 import UnifiedDiffViewer from './UnifiedDiffViewer';
 
@@ -35,12 +42,83 @@ interface UnifiedDiffLine {
   approved?: boolean;
 }
 
+interface ConversationBlock {
+  key: string;
+  userMessage: ChatMessage | null;
+  assistantMessages: ChatMessage[];
+  runEntry: AgentRunTimelineEntry | null;
+}
+
+const computeRunStatusLine = (runState: AgentRunTimelineEntry['runState']): string => {
+  if (!runState) {
+    return 'エージェントの進行状況を待機しています…';
+  }
+
+  const events = runState.events ?? [];
+  const latestEvent = events.length > 0 ? events[events.length - 1] : null;
+
+  switch (runState.status) {
+    case 'running':
+      return latestEvent?.message || 'AI が処理を進めています…';
+    case 'completed':
+      return '処理が完了しました';
+    case 'failed':
+      return runState.error ?? 'エージェント処理でエラーが発生しました';
+    default:
+      return latestEvent?.message || '待機中です';
+  }
+};
+
+const RunProgressPanel = ({ entry }: { entry: AgentRunTimelineEntry }): React.ReactElement | null => {
+  const [open, setOpen] = useState(() => true);
+
+  useEffect(() => {
+    if (entry.runState?.status === 'running') {
+      setOpen(true);
+    }
+  }, [entry.runState?.status]);
+
+  const statusLine = useMemo(() => computeRunStatusLine(entry.runState), [entry.runState]);
+  const isError = entry.runState?.status === 'failed';
+  const showDetails = Boolean(entry.runState);
+
+  return (
+    <Collapsible open={open} onOpenChange={setOpen} className="w-full">
+      <div className="rounded-2xl border border-slate-200 bg-white/95 shadow-sm">
+        <div className="flex items-start gap-3 px-4 py-3">
+          <div className="flex-1">
+            <p className="text-xs font-semibold text-slate-700">AIエージェントの進行状況</p>
+            <p className={`mt-0.5 text-[11px] ${isError ? 'text-red-600' : 'text-slate-500'}`}>{statusLine}</p>
+          </div>
+          <CollapsibleTrigger asChild>
+            <button
+              type="button"
+              className="flex h-8 w-8 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-700"
+              aria-label="推論の進行状況を表示"
+            >
+              <ChevronDown className={`h-4 w-4 transition-transform ${open ? 'rotate-180' : ''}`} />
+            </button>
+          </CollapsibleTrigger>
+        </div>
+        {showDetails && (
+          <CollapsibleContent>
+            <div className="border-t border-slate-100 px-4 py-3">
+              <AgentRunProgress runState={entry.runState} isLoading={entry.runState?.status === 'running'} />
+            </div>
+          </CollapsibleContent>
+        )}
+      </div>
+    </Collapsible>
+  );
+};
+
 export default function AIAgentEditTab({ articleId, onSave }: AIAgentEditTabProps) {
   const {
     messages,
     loading,
     error,
     sessionId,
+    runTimeline,
     initializeSession,
     startNewSession,
     activateSession,
@@ -78,6 +156,60 @@ export default function AIAgentEditTab({ articleId, onSave }: AIAgentEditTabProp
       const summary = session.summary ? session.summary : '（メッセージなし）';
       return `${prefix}${timestamp ? `・${timestamp}` : ''}｜${summary}`;
   }, []);
+
+  const timelineByTriggerIndex = useMemo(() => {
+    const map = new Map<number, AgentRunTimelineEntry>();
+    runTimeline.forEach((entry) => {
+      map.set(entry.triggerMessageIndex, entry);
+    });
+    return map;
+  }, [runTimeline]);
+
+  const conversationBlocks = useMemo<ConversationBlock[]>(() => {
+    const blocks: ConversationBlock[] = [];
+    let index = 0;
+
+    while (index < messages.length) {
+      const message = messages[index];
+      if (message.role === 'user') {
+        const runEntry = timelineByTriggerIndex.get(index) ?? null;
+        const assistantMessages: ChatMessage[] = [];
+        let pointer = index + 1;
+        while (pointer < messages.length && messages[pointer].role === 'assistant') {
+          assistantMessages.push(messages[pointer]);
+          pointer += 1;
+        }
+
+        blocks.push({
+          key: runEntry?.id ?? `user-${index}`,
+          userMessage: message,
+          assistantMessages,
+          runEntry,
+        });
+        index = pointer;
+      } else {
+        const assistantMessages: ChatMessage[] = [];
+        let pointer = index;
+        while (pointer < messages.length && messages[pointer].role === 'assistant') {
+          assistantMessages.push(messages[pointer]);
+          pointer += 1;
+        }
+
+        if (assistantMessages.length > 0) {
+          blocks.push({
+            key: `assistant-${index}`,
+            userMessage: null,
+            assistantMessages,
+            runEntry: null,
+          });
+        }
+
+        index = pointer;
+      }
+    }
+
+    return blocks;
+  }, [messages, timelineByTriggerIndex]);
 
   const handleSessionSelect = useCallback(
     async (value: string) => {
@@ -415,8 +547,8 @@ export default function AIAgentEditTab({ articleId, onSave }: AIAgentEditTabProp
 
         <div className="flex-1 min-h-0 overflow-hidden rounded-2xl border border-slate-100 bg-gradient-to-b from-white via-white to-slate-50">
           <ScrollArea className="h-full pr-1">
-            <div className="flex flex-col gap-4 px-4 py-5">
-              {messages.length === 0 && !loading && (
+            <div className="flex flex-col gap-6 px-4 py-5">
+              {conversationBlocks.length === 0 && !loading && (
                 <div className="flex flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-slate-200 bg-white/90 px-6 py-10 text-center text-sm text-slate-500">
                   <Bot className="h-8 w-8 text-slate-300" />
                   <div className="space-y-1">
@@ -428,22 +560,29 @@ export default function AIAgentEditTab({ articleId, onSave }: AIAgentEditTabProp
                 </div>
               )}
 
-              {messages.map((msg, idx) => (
-                <AIAgentChatMessage
-                  key={`${msg.role}-${idx}-${msg.content.length}`}
-                  role={msg.role}
-                  content={msg.content}
-                />
-              ))}
+              {conversationBlocks.map((block, blockIdx) => (
+                <div key={`${block.key}-${blockIdx}`} className="flex flex-col gap-3">
+                  {block.userMessage && (
+                    <AIAgentChatMessage
+                      key={`${block.key}-user`}
+                      role="user"
+                      content={block.userMessage.content}
+                    />
+                  )}
 
-              {loading && (
-                <div className="flex justify-start">
-                  <div className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-white/90 px-4 py-3 text-sm text-slate-600 shadow-sm">
-                    <Loader2 className="h-4 w-4 animate-spin text-blue-600" />
-                    <span>AIが考え中です…</span>
-                  </div>
+                  {block.userMessage && block.runEntry && (
+                    <RunProgressPanel entry={block.runEntry} />
+                  )}
+
+                  {block.assistantMessages.map((msg, msgIdx) => (
+                    <AIAgentChatMessage
+                      key={`${block.key}-assistant-${msgIdx}`}
+                      role="assistant"
+                      content={msg.content}
+                    />
+                  ))}
                 </div>
-              )}
+              ))}
 
               <div ref={messagesEndRef} />
             </div>

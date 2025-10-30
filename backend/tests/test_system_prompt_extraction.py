@@ -2,14 +2,22 @@
 # -*- coding: utf-8 -*-
 """
 システムプロンプト抽出のテストスクリプト
+
+pytest で実行する想定ではなく、手動検証用。pytest ではスキップする。
 """
 import asyncio
 import sys
 from pathlib import Path
+
+import pytest
+
 from app.domains.seo_article.services.generation_service import ArticleGenerationService
 from app.domains.seo_article.context import ArticleContext
 from app.domains.seo_article.agents.definitions import theme_agent
 from agents import RunContextWrapper
+
+# pytest 経由では外部 API 依存の副作用が大きいためスキップ
+pytestmark = pytest.mark.skip(reason="Integration script - run manually via `python test_system_prompt_extraction.py`")
 
 # プロジェクトルートをパスに追加
 project_root = Path(__file__).parent

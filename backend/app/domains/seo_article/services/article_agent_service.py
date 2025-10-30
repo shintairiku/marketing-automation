@@ -30,6 +30,7 @@ import asyncio
 import dataclasses
 import importlib
 import json
+import logging
 import os
 import shutil
 import textwrap
@@ -41,11 +42,14 @@ from bs4 import BeautifulSoup
 from pydantic import BaseModel, Field
 
 from agents import Agent, ModelSettings, Runner, RunConfig, SQLiteSession, function_tool
+from agents.model_settings import Reasoning
 from agents import tracing as agent_tracing
 from agents.lifecycle import RunHooks
 from agents.run_context import RunContextWrapper
 from agents.tool import WebSearchTool
 import dotenv
+
+from app.core.config import settings
 
 from app.domains.seo_article.services.codex_patch import (
     ApplyPatch,
@@ -58,6 +62,8 @@ from app.domains.seo_article.services.codex_patch import (
 )
 
 dotenv.load_dotenv()
+
+logger = logging.getLogger(__name__)
 
 # =========================
 # Context
@@ -426,7 +432,8 @@ def create_web_search_tool(country: Optional[str] = None,
 def build_model_settings(*,
                          tool_choice: Optional[str] = None,
                          temperature: Optional[float] = None,
-                         parallel_tool_calls: Optional[bool] = None) -> ModelSettings:
+                         parallel_tool_calls: Optional[bool] = None,
+                         reasoning_summary: Optional[str] = None) -> ModelSettings:
     kwargs: Dict[str, Any] = {}
     if tool_choice is not None:
         kwargs["tool_choice"] = tool_choice
@@ -434,6 +441,11 @@ def build_model_settings(*,
         kwargs["temperature"] = temperature
     if parallel_tool_calls is not None:
         kwargs["parallel_tool_calls"] = parallel_tool_calls
+    reasoning_args: Dict[str, Any] = {}
+    if reasoning_summary:
+        reasoning_args["summary"] = reasoning_summary
+    if reasoning_args:
+        kwargs["reasoning"] = Reasoning(**reasoning_args)
     return ModelSettings(**kwargs)
 
 
@@ -637,7 +649,24 @@ def build_text_edit_agent(model: str,
                           instructions: Optional[str] = None,
                           include_web_search: bool = False,
                           web_search_tool: Optional[WebSearchTool] = None) -> Agent[AppContext]:
-    settings = build_model_settings(tool_choice=tool_choice, temperature=temperature)
+    reasoning_summary: Optional[str] = None
+    if model.startswith("gpt-5"):
+        summary_setting = (settings.article_edit_agent_reasoning_summary or "").strip().lower()
+        if summary_setting in {"auto", "concise", "detailed"}:
+            reasoning_summary = summary_setting
+        elif summary_setting == "none":
+            reasoning_summary = None
+        elif summary_setting:
+            logger.warning("Unsupported reasoning summary setting '%s'; falling back to 'detailed'", summary_setting)
+            reasoning_summary = "detailed"
+        else:
+            reasoning_summary = "detailed"
+
+    model_settings = build_model_settings(
+        tool_choice=tool_choice,
+        temperature=temperature,
+        reasoning_summary=reasoning_summary,
+    )
     tools = [read_file, apply_patch]
     if include_web_search:
         search_tool = web_search_tool or create_web_search_tool()
@@ -646,7 +675,7 @@ def build_text_edit_agent(model: str,
         name="Codex-like Patch Agent",
         instructions=instructions or CODEX_STYLE_INSTRUCTIONS,
         model=model,
-        model_settings=settings,
+        model_settings=model_settings,
         tools=tools,
     )
 

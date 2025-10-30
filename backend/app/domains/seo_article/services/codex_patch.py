@@ -214,16 +214,17 @@ def parse_apply_patch(text: str, *, strict: bool = True) -> ApplyPatch:
 
             while idx < end:
                 current = lines[idx]
-                if current.startswith("*** "):
-                    break
-                if not current.strip():
-                    idx += 1
-                    continue
 
                 if _EOF_ANCHOR.match(current):
                     if not hunks:
                         raise PatchError("apply_patch verification failed: *** End of File must follow a hunk")
                     hunks[-1].anchor_eof = True
+                    idx += 1
+                    continue
+
+                if current.startswith("*** "):
+                    break
+                if not current.strip():
                     idx += 1
                     continue
 
@@ -402,4 +403,3 @@ def _match_eof(source: List[str], block: List[str], hunk: Hunk, file_path: Optio
             reason="Failed to match *** End of File hunk",
         )
     return pos
-
