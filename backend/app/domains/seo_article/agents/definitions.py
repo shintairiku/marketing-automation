@@ -1441,7 +1441,7 @@ research_agent = Agent[ArticleContext](
     name="ResearchAgent",
     instructions=create_research_instructions(RESEARCH_AGENT_BASE_PROMPT),
     model=settings.research_model,
-    model_settings=ModelSettings(max_tokens=32768),  # 最大出力トークン数設定
+    model_settings=ModelSettings(max_tokens=32768, tool_choice="required"),  # 最大出力トークン数設定 + web検索強制
     tools=[web_search_tool],
     output_type=ResearchReport, 
 )
