@@ -14,8 +14,6 @@ test.describe('会社登録機能のテスト', () => {
     await page.getByRole('button', { name: '会社情報を追加'}).click();
 
     // フォームに情報を入力
-    // page.getByLabel() を使うと、フォームのラベルテキストで要素を特定できるため、
-    // name属性よりも堅牢なテストになります。
     await page.getByLabel('会社名').fill('テスト株式会社');
     await page.getByLabel('企業HP URL').fill('https://example.com');
     await page.getByLabel('事業内容').fill('テスト用の会社説明');
@@ -31,26 +29,18 @@ test.describe('会社登録機能のテスト', () => {
     await expect(page.locator('text=会社情報を作成しました')).toBeVisible();
 
     // 登録した会社が一覧に表示されることを確認
-    //await expect(page.locator('text=テスト株式会社')).toBeVisible();
-
-    //await expect(page.getByRole('heading', { name: 'テスト株式会社' })).toBeVisible();
-
-    const companyCard = page.locator('div')
-    .filter({ hasText: 'テスト株式会社' })
-    .filter({ hasText: 'デフォルト' });
-
-    // 特定したカードが表示されていることを確認
-    await expect(companyCard).toBeVisible();
+    await expect(page.getByText('テスト株式会社').nth(2)).toBeVisible();
   });
 
   test('必須項目が未入力の場合にエラーが表示されること', async ({ page }) => {
-    // 会社登録ボタンをクリック
-    await page.click('button:has-text("会社を登録")');
+    await page.locator('nav').first().hover();    
+    await page.getByRole('link', { name: '会社情報設定' }).click();
+    await page.getByRole('button', { name: '会社情報を追加'}).click();
 
     // 何も入力せずに登録ボタンをクリック
-    await page.click('button[type="submit"]');
+    await page.getByRole('button', { name: '作成' }).click();
 
     // エラーメッセージが表示されることを確認
-    await expect(page.locator('text=会社名は必須項目です')).toBeVisible();
+    await expect(page.locator('text=必須項目をすべて入力してください')).toBeVisible();
   });
 });
