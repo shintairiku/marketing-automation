@@ -34,9 +34,9 @@ yarn-error.log*
 .vercel
 
 # test-result(playwright)
-test-results/
-playwright-report/
-playwright/.auth/
+frontend/test-results/
+frontend/playwright-report/
+frontend/playwright/.auth/
 
 # typescript
 *.tsbuildinfo
