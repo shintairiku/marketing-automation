@@ -62,16 +62,14 @@ def can_continue_autonomously(step: str) -> bool:
     """ステップが自動継続可能かどうかを判定"""
     AUTONOMOUS_STEPS = {
         'keyword_analyzing', 'persona_generating', 'theme_generating',
-        'research_planning', 'researching', 'research_synthesizing', 
-        'writing_sections', 'editing'
+        'researching', 'writing_sections', 'editing'
     }
     return step in AUTONOMOUS_STEPS
 
 def is_disconnection_resilient(step: str) -> bool:
     """WebSocket切断時でも処理継続可能なステップかどうかを判定"""
     DISCONNECTION_RESILIENT_STEPS = {
-        'research_planning', 'researching', 'research_synthesizing',
-        'writing_sections', 'editing'
+        'researching', 'writing_sections', 'editing'
     }
     return step in DISCONNECTION_RESILIENT_STEPS
 
@@ -93,11 +91,7 @@ def calculate_progress_percentage(context: "ArticleContext") -> int:
         'persona_generated': 15,
         'theme_generating': 18,
         'theme_proposed': 25,
-        'research_planning': 30,
-        'research_plan_generated': 35,
-        'research_plan_approved': 38,
         'researching': 40,
-        'research_synthesizing': 60,
         'outline_generating': 65,
         'outline_generated': 70,
         'writing_sections': 75,

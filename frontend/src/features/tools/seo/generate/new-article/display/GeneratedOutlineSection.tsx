@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
+import { getOutlineApprovalMessage } from "@/utils/flow-config";
 
 interface GeneratedOutline {
   id: string;
@@ -264,7 +265,7 @@ export default function GenerateSeoOutline() {
               disabled={selectedOutlines.length === 0}
               className="flex-1"
             >
-              Next... / 本文作成
+              {getOutlineApprovalMessage()}
               <IoChevronForward className="w-4 h-4 ml-2" />
             </Button>
           </div>

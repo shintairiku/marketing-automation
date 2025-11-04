@@ -38,9 +38,7 @@ class FlowStepType:
     KEYWORD_ANALYSIS = "keyword_analysis"
     PERSONA_GENERATION = "persona_generation"
     THEME_PROPOSAL = "theme_proposal"
-    RESEARCH_PLANNING = "research_planning"
-    RESEARCH_EXECUTION = "research_execution"
-    RESEARCH_SYNTHESIS = "research_synthesis"
+    RESEARCH = "research"
     OUTLINE_GENERATION = "outline_generation"
     SECTION_WRITING = "section_writing"
     EDITING = "editing"
@@ -119,6 +117,8 @@ class ArticleFlowService:
     
     def __init__(self):
         self.supabase = get_supabase_client()
+        # 注意(legacy-flow): 統合前にデータベースへ保存されたカスタムフローに対応するため、
+        # 旧リサーチエージェントもレジストリに残しています。新規設定では `research_agent` を利用してください。
         self.agent_registry = {
             'serp_keyword_analysis_agent': serp_keyword_analysis_agent,
             'persona_generator_agent': persona_generator_agent,

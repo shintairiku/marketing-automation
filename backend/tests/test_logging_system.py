@@ -2,9 +2,17 @@
 # -*- coding: utf-8 -*-
 """
 ログシステムの簡単なテストスクリプト
+
+pytest で実行すると外部サービス依存や asyncio ループ管理の問題で失敗するため、
+スクリプトとして直接実行する用途に限定し、pytest 実行時はスキップする。
 """
 import asyncio
 import uuid
+
+import pytest
+
+# pytest 経由では外部 Supabase 接続や副作用の多い統合テストを避ける
+pytestmark = pytest.mark.skip(reason="Integration script - run manually via `python test_logging_system.py`")
 
 # ログシステムのインポート
 try:

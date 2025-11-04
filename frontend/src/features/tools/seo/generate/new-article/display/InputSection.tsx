@@ -1,20 +1,22 @@
 "use client";
-import { useEffect,useState } from 'react';
-import Link from 'next/link';
-import { ChevronDown, ChevronUp, Image, ListTree, Palette,Plus, Settings, X } from "lucide-react";
-import { IoRefresh, IoSparkles } from "react-icons/io5";
 
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Slider } from "@/components/ui/slider";
-import { Switch } from "@/components/ui/switch";
-import { Textarea } from "@/components/ui/textarea";
+import { useEffect, useState } from 'react';
+import Link from 'next/link';
+import { ChevronDown, ChevronUp, Image, ListTree, Palette, Plus, Settings, X, Zap } from 'lucide-react';
+import { IoRefresh, IoSparkles } from 'react-icons/io5';
+
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Slider } from '@/components/ui/slider';
+import { Switch } from '@/components/ui/switch';
+import { Textarea } from '@/components/ui/textarea';
 import { useDefaultCompany } from '@/hooks/useDefaultCompany';
+import { FLOW_METADATA, FlowType } from '@/utils/flow-config';
 import { useAuth } from '@clerk/nextjs';
 
 interface InputSectionProps {
@@ -48,6 +50,9 @@ export default function InputSection({ onStartGeneration, isConnected, isGenerat
     const [styleTemplates, setStyleTemplates] = useState([]);
     const [selectedStyleTemplate, setSelectedStyleTemplate] = useState('');
     
+    // フロー設定関連の状態
+    const [selectedFlowType, setSelectedFlowType] = useState<FlowType>('outline_first');
+    
     // デフォルト会社情報を取得
     const { company, loading: companyLoading, hasCompany } = useDefaultCompany();
 
@@ -57,6 +62,7 @@ export default function InputSection({ onStartGeneration, isConnected, isGenerat
             setPersonaType('会社設定');
         }
     }, [company?.target_persona, personaType]);
+
 
     // スタイルテンプレートを取得
     useEffect(() => {
@@ -163,6 +169,8 @@ export default function InputSection({ onStartGeneration, isConnected, isGenerat
             // 高度アウトライン設定を追加
             advanced_outline_mode: advancedOutlineMode,
             outline_top_level_heading: advancedOutlineMode ? (topLevelHeading === 'h3' ? 3 : 2) : 2,
+            // フロー設定を追加
+            flow_type: selectedFlowType,
         };
 
         console.log('📦 Request data being sent:', requestData);
@@ -626,6 +634,37 @@ export default function InputSection({ onStartGeneration, isConnected, isGenerat
                       <span>8</span>
                     </div>
                   </div>
+                </CardContent>
+              </Card>
+
+              {/* 記事生成フロー設定 */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-lg flex items-center gap-2">
+                    <Zap className="h-5 w-5" />
+                    記事生成フロー
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <Select value={selectedFlowType} onValueChange={(value) => setSelectedFlowType(value as FlowType)}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="生成フローを選択" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {Object.entries(FLOW_METADATA).map(([key, meta]) => (
+                        <SelectItem key={key} value={key}>
+                          {meta.displayName}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  
+                  {selectedFlowType && (
+                    <div className="rounded-md border border-blue-200 bg-blue-50 p-3 text-sm leading-relaxed text-blue-900">
+                      <div className="font-medium">{FLOW_METADATA[selectedFlowType].displayName}</div>
+                      <div className="text-blue-800">{FLOW_METADATA[selectedFlowType].description}</div>
+                    </div>
+                  )}
                 </CardContent>
               </Card>
 

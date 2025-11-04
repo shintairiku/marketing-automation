@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 import os
 from pathlib import Path
+import tempfile
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import Field
 from dotenv import load_dotenv
@@ -38,13 +39,18 @@ class Settings(BaseSettings):
 
     # デフォルトモデル名 (環境変数またはデフォルト値)
     default_model: str = os.getenv("DEFAULT_MODEL", "gpt-4o-mini")
-    research_model: str = os.getenv("RESEARCH_MODEL", "gpt-4o-mini")
+    research_model: str = os.getenv("RESEARCH_MODEL", "gpt-5-mini")
     writing_model: str = os.getenv("WRITING_MODEL", "gpt-4o-mini")
+    outline_model: str = os.getenv("OUTLINE_MODEL") or writing_model  # 未指定時は執筆モデルを利用
     editing_model: str = os.getenv("EDITING_MODEL", "gpt-4o-mini")
     
     # Agents SDK specific settings
     model_for_agents: str = os.getenv("MODEL_FOR_AGENTS", "gpt-4o-mini")
-    max_turns_for_agents: int = int(os.getenv("MAX_TURNS_FOR_AGENTS", "10"))
+    # Article editing agents (UI / simple agent) can override their model via env
+    article_edit_agent_model: str = os.getenv("ARTICLE_EDIT_AGENT_MODEL", "gpt-5-mini")
+    article_edit_agent_reasoning_summary: str = os.getenv("ARTICLE_EDIT_AGENT_REASONING_SUMMARY", "detailed")
+    article_edit_service_model: str = os.getenv("ARTICLE_EDIT_SERVICE_MODEL", "gpt-4o")
+    max_turns_for_agents: int = int(os.getenv("MAX_TURNS_FOR_AGENTS", "20"))
 
     # AI Content Generation settings (using Responses API)
     ai_content_generation_model: str = os.getenv("AI_CONTENT_GENERATION_MODEL", "gpt-5-mini")
@@ -59,6 +65,9 @@ class Settings(BaseSettings):
 
     # デバッグフラグ
     debug: bool = os.getenv("DEBUG", "false").lower() == "true"
+    
+    # 記事生成フロー設定（廃止予定: flow_typeでユーザーごとに制御）
+    # use_reordered_flow: bool = os.getenv("USE_REORDERED_FLOW", "true").lower() == "true"
     
     # Google Cloud設定 (画像生成用)
     google_cloud_project: str = Field(default_factory=lambda: os.getenv("GOOGLE_CLOUD_PROJECT", ""))
@@ -93,6 +102,14 @@ class Settings(BaseSettings):
     # OpenAI Agents SDKトレーシング設定
     enable_tracing: bool = os.getenv("OPENAI_AGENTS_ENABLE_TRACING", "true").lower() == "true"
     trace_include_sensitive_data: bool = os.getenv("OPENAI_AGENTS_TRACE_INCLUDE_SENSITIVE_DATA", "false").lower() == "true"
+
+    # Agent session persistence settings
+    agent_session_storage_dir: str = Field(
+        default_factory=lambda: os.getenv(
+            "AGENT_SESSION_STORAGE_DIR",
+            str(Path(tempfile.gettempdir()) / "openai-agent-sessions")
+        )
+    )
 
     model_config = SettingsConfigDict(
         env_file=[
@@ -167,4 +184,3 @@ def setup_agents_sdk():
 
 # 初期化実行
 setup_agents_sdk()
-

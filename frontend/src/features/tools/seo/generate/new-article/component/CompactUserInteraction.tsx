@@ -24,7 +24,9 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
+import { normalizeOutlineSections } from '@/features/tools/seo/generate/utils/normalize-outline';
 import { PersonaOption, ThemeOption } from '@/types/article-generation';
+import { getOutlineApprovalMessage, getThemeSelectionMessage } from '@/utils/flow-config';
 
 import type { EditableOutline, EditableOutlineSection } from '../../types/outline';
 
@@ -41,6 +43,7 @@ interface CompactUserInteractionProps {
   onRegenerate?: () => void;
   onEditAndProceed?: (editedContent: any) => void;
   isWaiting?: boolean;
+  flowType?: 'outline_first' | 'research_first';
 }
 
 export default function CompactUserInteraction({
@@ -53,7 +56,8 @@ export default function CompactUserInteraction({
   onApprove,
   onRegenerate,
   onEditAndProceed,
-  isWaiting = false
+  isWaiting = false,
+  flowType = 'research_first'
 }: CompactUserInteractionProps) {
   
   // Debug props
@@ -133,35 +137,22 @@ export default function CompactUserInteraction({
 
       const topLevel = determineTopLevel();
 
-      const convertSection = (section: any, fallbackLevel: number): EditableOutlineSection => {
-        const level = typeof section?.level === 'number' ? section.level : fallbackLevel;
-        const normalizedLevel = level >= fallbackLevel ? Math.min(level, 6) : fallbackLevel;
-        const description = typeof section?.description === 'string' ? section.description : '';
-        const estimated = typeof section?.estimated_chars === 'number'
-          ? section.estimated_chars
-          : normalizedLevel > topLevel
-            ? 200
-            : 300;
-        const subsections = Array.isArray(section?.subsections)
-          ? section.subsections.map((child: any) =>
-              convertSection(child, Math.min(normalizedLevel + 1, 6)),
-            )
-          : [];
-        return {
-          heading: typeof section?.heading === 'string' ? section.heading : '',
-          level: normalizedLevel,
-          description,
-          estimated_chars: estimated,
-          subsections,
-        };
-      };
+      const normalizedSections = normalizeOutlineSections(outline.sections, topLevel);
+
+      const toEditableSection = (section: typeof normalizedSections[number]): EditableOutlineSection => ({
+        heading: section.heading,
+        level: section.level,
+        description: section.description ?? '',
+        estimated_chars: section.estimated_chars,
+        subsections: section.subsections.map(toEditableSection),
+      });
 
       const editable: EditableOutline = {
         title: outline.title || '',
         suggested_tone: outline.suggested_tone || '',
         topLevel,
-        sections: Array.isArray(outline.sections)
-          ? outline.sections.map((section: any) => convertSection(section, topLevel))
+        sections: Array.isArray(normalizedSections)
+          ? normalizedSections.map(toEditableSection)
           : [],
       };
       setEditContent(editable);
@@ -557,7 +548,7 @@ export default function CompactUserInteraction({
                 </Button>
                 
                 <div className="text-sm text-muted-foreground">
-                  選択後、自動でリサーチを開始します
+                  {getThemeSelectionMessage(flowType)}
                 </div>
               </div>
             )}
@@ -840,7 +831,7 @@ export default function CompactUserInteraction({
                   disabled={isWaiting}
                 >
                   <Check className="w-4 h-4" />
-                  この構成で執筆開始
+                  {getOutlineApprovalMessage(flowType)}
                   <ChevronRight className="w-4 h-4" />
                 </Button>
               </div>

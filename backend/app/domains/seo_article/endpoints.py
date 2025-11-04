@@ -9,9 +9,12 @@ This module provides:
 - AI editing capabilities
 """
 
+import asyncio
 from fastapi import APIRouter, status, Depends, HTTPException, Query, BackgroundTasks, Request
-from typing import List, Optional, Dict, Any
+from fastapi.responses import JSONResponse
+from typing import List, Optional, Dict, Any, Literal
 import logging
+from datetime import datetime
 from pydantic import BaseModel, Field
 from bs4 import BeautifulSoup
 import re
@@ -34,6 +37,12 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from app.domains.company.service import CompanyService
 from app.domains.seo_article.services.flow_service import get_supabase_client
 from app.infrastructure.logging.service import LoggingService
+from app.domains.seo_article.services.version_service import get_version_service
+from app.domains.seo_article.services.article_agent_wrapper import (
+    get_article_agent_service,
+    AgentSessionAccessError,
+    AgentSessionNotFoundError,
+)
 
 # 静的: 1タグHTMLの出力検疫用設定
 SAFE_URL_SCHEMES = {"http", "https", "mailto", "tel"}
@@ -1814,6 +1823,8 @@ async def restore_process_from_snapshot(
             'research_planning', 'researching', 'research_synthesizing', 'research_report_generated',
             'outline_generating', 'writing_sections', 'editing'
         }
+        # 注意(legacy-flow): 上記には旧リサーチステップも含めており、
+        # 過去のスナップショットを復元した際に自動処理対象とするために残しています。
 
         if restored_step in autonomous_steps:
             # Optionally auto-continue for autonomous steps
@@ -1834,4 +1845,1396 @@ async def restore_process_from_snapshot(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to restore process from snapshot"
+        )
+
+
+# ============================================================================
+# ARTICLE VERSION MANAGEMENT ENDPOINTS
+# ============================================================================
+
+class SaveVersionRequest(BaseModel):
+    """バージョン保存リクエスト"""
+    title: str = Field(..., description="記事タイトル")
+    content: str = Field(..., description="記事コンテンツ (HTML)")
+    change_description: Optional[str] = Field(None, description="変更の説明")
+    metadata: Optional[Dict[str, Any]] = Field(None, description="追加メタデータ")
+    max_versions: int = Field(50, description="保持する最大バージョン数", ge=1, le=200)
+
+
+class VersionResponse(BaseModel):
+    """バージョン情報レスポンス"""
+    version_id: str
+    version_number: int
+    title: str
+    change_description: Optional[str]
+    is_current: bool
+    created_at: str
+    user_id: str
+    metadata: Optional[Dict[str, Any]]
+
+
+class VersionDetailResponse(VersionResponse):
+    """バージョン詳細レスポンス（コンテンツ含む）"""
+    article_id: str
+    content: str
+
+
+class NavigateVersionRequest(BaseModel):
+    """バージョンナビゲーションリクエスト"""
+    direction: str = Field(..., description="ナビゲーション方向: 'next' または 'previous'")
+
+
+class RestoreVersionRequest(BaseModel):
+    """バージョン復元リクエスト"""
+    create_new_version: bool = Field(True, description="復元時に新しいバージョンを作成するか")
+
+
+@router.post("/{article_id}/versions", response_model=dict, status_code=status.HTTP_201_CREATED)
+async def save_article_version(
+    article_id: str,
+    request: SaveVersionRequest,
+    user_id: str = Depends(get_current_user_id_from_token)
+):
+    """
+    記事の新しいバージョンを保存します。
+
+    - **article_id**: 記事のUUID
+    - **request**: バージョン保存リクエスト
+
+    自動的に古いバージョンを削除し、指定された最大バージョン数を維持します。
+    """
+    try:
+        version_service = get_version_service()
+
+        result = await version_service.save_version(
+            article_id=article_id,
+            user_id=user_id,
+            title=request.title,
+            content=request.content,
+            change_description=request.change_description,
+            metadata=request.metadata,
+            max_versions=request.max_versions
+        )
+
+        return {
+            "success": True,
+            "message": "バージョンが正常に保存されました",
+            "data": result
+        }
+
+    except Exception as e:
+        logger.error(f"Error saving version for article {article_id}: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"バージョンの保存に失敗しました: {str(e)}"
+        )
+
+
+@router.get("/{article_id}/versions", response_model=List[VersionResponse], status_code=status.HTTP_200_OK)
+async def get_article_versions(
+    article_id: str,
+    limit: int = Query(100, ge=1, le=500, description="取得する最大バージョン数"),
+    user_id: str = Depends(get_current_user_id_from_token)
+):
+    """
+    記事のバージョン履歴を取得します。
+
+    - **article_id**: 記事のUUID
+    - **limit**: 取得する最大バージョン数（デフォルト: 100）
+
+    バージョンは新しい順に返されます。
+    """
+    try:
+        version_service = get_version_service()
+
+        versions = await version_service.get_version_history(
+            article_id=article_id,
+            user_id=user_id,
+            limit=limit
+        )
+
+        return versions
+
+    except Exception as e:
+        logger.error(f"Error getting versions for article {article_id}: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"バージョン履歴の取得に失敗しました: {str(e)}"
+        )
+
+
+@router.get("/{article_id}/versions/current", response_model=VersionDetailResponse, status_code=status.HTTP_200_OK)
+async def get_current_version(
+    article_id: str,
+    user_id: str = Depends(get_current_user_id_from_token)
+):
+    """
+    記事の現在のバージョンを取得します。
+
+    - **article_id**: 記事のUUID
+    """
+    try:
+        version_service = get_version_service()
+
+        current_version = await version_service.get_current_version(
+            article_id=article_id,
+            user_id=user_id
+        )
+
+        if not current_version:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="現在のバージョンが見つかりません"
+            )
+
+        return current_version
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting current version for article {article_id}: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"現在のバージョンの取得に失敗しました: {str(e)}"
+        )
+
+
+@router.get("/{article_id}/versions/{version_id}", response_model=VersionDetailResponse, status_code=status.HTTP_200_OK)
+async def get_version_by_id(
+    article_id: str,
+    version_id: str,
+    user_id: str = Depends(get_current_user_id_from_token)
+):
+    """
+    特定のバージョンの詳細を取得します。
+
+    - **article_id**: 記事のUUID
+    - **version_id**: バージョンのUUID
+    """
+    try:
+        version_service = get_version_service()
+
+        version = await version_service.get_version(
+            version_id=version_id,
+            user_id=user_id
+        )
+
+        if not version:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="バージョンが見つかりません"
+            )
+
+        # Verify the version belongs to the specified article
+        if version["article_id"] != article_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="指定された記事にこのバージョンは属していません"
+            )
+
+        return version
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting version {version_id}: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"バージョンの取得に失敗しました: {str(e)}"
+        )
+
+
+@router.post("/{article_id}/versions/{version_id}/restore", response_model=dict, status_code=status.HTTP_200_OK)
+async def restore_version(
+    article_id: str,
+    version_id: str,
+    request: RestoreVersionRequest,
+    user_id: str = Depends(get_current_user_id_from_token)
+):
+    """
+    指定されたバージョンに記事を復元します。
+
+    - **article_id**: 記事のUUID
+    - **version_id**: 復元するバージョンのUUID
+    - **create_new_version**: 復元時に新しいバージョンを作成するか（デフォルト: true）
+
+    create_new_versionがtrueの場合、復元された状態が新しいバージョンとして保存されます。
+    """
+    try:
+        version_service = get_version_service()
+
+        version = await version_service.get_version(
+            version_id=version_id,
+            user_id=user_id
+        )
+
+        if not version:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="バージョンが見つかりません"
+            )
+
+        if version["article_id"] != article_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="指定された記事にこのバージョンは属していません"
+            )
+
+        result = await version_service.restore_version(
+            version_id=version_id,
+            user_id=user_id,
+            create_new_version=request.create_new_version
+        )
+
+        return {
+            "success": True,
+            "message": "バージョンが正常に復元されました",
+            "data": result
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error restoring version {version_id}: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"バージョンの復元に失敗しました: {str(e)}"
+        )
+
+
+@router.post("/{article_id}/versions/navigate", response_model=dict, status_code=status.HTTP_200_OK)
+async def navigate_version(
+    article_id: str,
+    request: NavigateVersionRequest,
+    user_id: str = Depends(get_current_user_id_from_token)
+):
+    """
+    次または前のバージョンにナビゲートします（Googleドキュメント風）。
+
+    - **article_id**: 記事のUUID
+    - **direction**: ナビゲーション方向 ('next' または 'previous')
+
+    新しいバージョンは作成せず、単純に現在のバージョンマーカーを移動します。
+    """
+    try:
+        if request.direction not in ['next', 'previous']:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="direction は 'next' または 'previous' である必要があります"
+            )
+
+        version_service = get_version_service()
+
+        result = await version_service.navigate_version(
+            article_id=article_id,
+            user_id=user_id,
+            direction=request.direction
+        )
+
+        return {
+            "success": True,
+            "message": f"{request.direction} バージョンに移動しました",
+            "data": result
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error navigating version for article {article_id}: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"バージョンのナビゲーションに失敗しました: {str(e)}"
+        )
+
+
+@router.delete("/{article_id}/versions/{version_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_version(
+    article_id: str,
+    version_id: str,
+    user_id: str = Depends(get_current_user_id_from_token)
+):
+    """
+    特定のバージョンを削除します。
+
+    - **article_id**: 記事のUUID
+    - **version_id**: 削除するバージョンのUUID
+
+    注意: 現在のバージョンは削除できません。
+    """
+    try:
+        version_service = get_version_service()
+
+        version = await version_service.get_version(
+            version_id=version_id,
+            user_id=user_id
+        )
+
+        if not version:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="バージョンが見つかりません"
+            )
+
+        if version["article_id"] != article_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="指定された記事にこのバージョンは属していません"
+            )
+
+        await version_service.delete_version(
+            version_id=version_id,
+            user_id=user_id
+        )
+
+        return None
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error deleting version {version_id}: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"バージョンの削除に失敗しました: {str(e)}"
+        )
+
+
+# ============================================================================
+# AI AGENT EDIT ENDPOINTS
+# ============================================================================
+
+class AgentSessionCreateRequest(BaseModel):
+    """エージェントセッション作成リクエスト"""
+    resume_existing: bool = True
+
+
+class AgentStreamEvent(BaseModel):
+    """エージェント実行時のストリームイベント"""
+    event_id: str
+    sequence: int
+    event_type: str
+    message: str
+    created_at: str
+    updated_at: Optional[str] = None
+    payload: Optional[Dict[str, Any]] = None
+
+
+class AgentRunState(BaseModel):
+    """最新のエージェント実行状態"""
+    run_id: Optional[str] = None
+    status: Literal["idle", "running", "completed", "failed"] = "idle"
+    started_at: Optional[str] = None
+    completed_at: Optional[str] = None
+    error: Optional[str] = None
+    events: List[AgentStreamEvent] = Field(default_factory=list)
+
+
+class AgentChatMessage(BaseModel):
+    """エージェントとのメッセージ"""
+    role: str
+    content: str
+    created_at: Optional[str] = None
+
+
+class AgentSessionResponse(BaseModel):
+    """エージェントセッションレスポンス"""
+    session_id: str
+    article_id: str
+    status: str
+    summary: Optional[str] = None
+    last_activity_at: Optional[str] = None
+    created_at: str = Field(default_factory=lambda: datetime.utcnow().isoformat())
+    messages: List[AgentChatMessage] = Field(default_factory=list)
+    run_state: Optional[AgentRunState] = None
+
+
+class AgentChatRequest(BaseModel):
+    """エージェントチャットリクエスト"""
+    message: str = Field(..., description="ユーザーメッセージ")
+
+
+class AgentChatResponse(BaseModel):
+    """エージェントチャットレスポンス"""
+    message: str
+    conversation_history: List[AgentChatMessage]
+
+
+class AgentChatQueuedResponse(BaseModel):
+    """エージェントチャット処理中レスポンス"""
+    status: Literal["processing"]
+    session_id: str
+    run_state: Optional[AgentRunState] = None
+
+
+class AgentSessionDetailResponse(BaseModel):
+    """既存セッションの詳細"""
+    session_id: str
+    article_id: str
+    status: str
+    summary: Optional[str] = None
+    last_activity_at: Optional[str]
+    messages: List[AgentChatMessage]
+    run_state: Optional[AgentRunState] = None
+
+
+class AgentSessionSummary(BaseModel):
+    """セッション一覧のサマリー"""
+    session_id: str
+    status: str
+    summary: Optional[str] = None
+    created_at: Optional[str] = None
+    last_activity_at: Optional[str] = None
+
+
+@router.post("/{article_id}/agent/session", response_model=AgentSessionResponse, status_code=status.HTTP_201_CREATED)
+async def create_agent_session(
+    article_id: str,
+    request: AgentSessionCreateRequest,
+    user_id: str = Depends(get_current_user_id_from_token)
+):
+    """
+    AI エージェント編集セッションを作成します。
+
+    - **article_id**: 記事のUUID
+
+    エージェントとの会話を開始するためのセッションを作成します。
+    """
+    try:
+        agent_service = get_article_agent_service()
+
+        session_id = await agent_service.create_session(
+            article_id=article_id,
+            user_id=user_id,
+            resume_existing=request.resume_existing
+        )
+
+        detail = await agent_service.get_active_session_detail(article_id, user_id)
+        detail_messages = detail.get("messages", []) if detail else await agent_service.get_conversation_history(session_id)
+        status_value = detail.get("status") if detail else "active"
+        summary_value = detail.get("summary") if detail else None
+        last_activity_value = detail.get("last_activity_at") if detail else None
+        run_state = detail.get("run_state") if detail else None
+        messages = [
+            AgentChatMessage(role=item.get("role", ""), content=item.get("content", ""))
+            for item in detail_messages
+        ]
+
+        return AgentSessionResponse(
+            session_id=session_id,
+            article_id=article_id,
+            status=status_value,
+            summary=summary_value,
+            last_activity_at=last_activity_value,
+            messages=messages,
+            run_state=run_state,
+        )
+
+    except Exception as e:
+        logger.error(f"Error creating agent session for article {article_id}: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"エージェントセッションの作成に失敗しました: {str(e)}"
+        )
+
+
+@router.get("/{article_id}/agent/sessions", response_model=List[AgentSessionSummary])
+async def list_agent_sessions(
+    article_id: str,
+    user_id: str = Depends(get_current_user_id_from_token)
+):
+    """
+    指定記事に紐づくAIエージェントセッションの一覧を取得します。
+    """
+    try:
+        agent_service = get_article_agent_service()
+        session_list = agent_service.list_sessions(article_id, user_id)
+        return [
+            AgentSessionSummary(
+                session_id=item["session_id"],
+                status=item["status"],
+                summary=item.get("summary"),
+                created_at=item.get("created_at"),
+                last_activity_at=item.get("last_activity_at"),
+            )
+            for item in session_list
+        ]
+    except Exception as e:
+        logger.error(f"Error listing agent sessions for article {article_id}: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"セッション一覧の取得に失敗しました: {str(e)}"
+        )
+
+
+@router.post("/{article_id}/agent/session/{session_id}/activate", response_model=AgentSessionResponse)
+async def activate_agent_session(
+    article_id: str,
+    session_id: str,
+    user_id: str = Depends(get_current_user_id_from_token)
+):
+    """
+    選択したエージェントセッションをアクティブ化し、会話を再開できるようにします。
+    """
+    try:
+        agent_service = get_article_agent_service()
+        detail = await agent_service.activate_session(article_id, user_id, session_id)
+        messages = [
+            AgentChatMessage(role=item.get("role", ""), content=item.get("content", ""))
+            for item in detail.get("messages", [])
+        ]
+        return AgentSessionResponse(
+            session_id=detail["session_id"],
+            article_id=detail["article_id"],
+            status=detail["status"],
+            summary=detail.get("summary"),
+            last_activity_at=detail.get("last_activity_at"),
+            messages=messages,
+            run_state=detail.get("run_state"),
+        )
+    except Exception as e:
+        logger.error(f"Error activating agent session {session_id} for article {article_id}: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"セッションのアクティブ化に失敗しました: {str(e)}"
+        )
+
+
+
+@router.get("/{article_id}/agent/session", response_model=AgentSessionDetailResponse)
+async def get_agent_session_detail(
+    article_id: str,
+    user_id: str = Depends(get_current_user_id_from_token)
+):
+    """
+    アクティブなAIエージェント編集セッション情報を取得します。
+
+    セッションが存在しない場合は 404 を返します。
+    """
+    try:
+        agent_service = get_article_agent_service()
+        detail = await agent_service.get_active_session_detail(article_id, user_id)
+
+        if not detail:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="アクティブなエージェントセッションが見つかりませんでした"
+            )
+
+        messages = [
+            AgentChatMessage(
+                role=msg.get("role", ""),
+                content=msg.get("content", ""),
+                created_at=msg.get("created_at"),
+            )
+            for msg in detail.get("messages", [])
+        ]
+
+        return AgentSessionDetailResponse(
+            session_id=detail["session_id"],
+            article_id=detail["article_id"],
+            status=detail["status"],
+            summary=detail.get("summary"),
+            last_activity_at=detail.get("last_activity_at"),
+            messages=messages,
+            run_state=detail.get("run_state"),
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error retrieving agent session for article {article_id}: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"エージェントセッション情報の取得に失敗しました: {str(e)}"
+        )
+
+
+@router.post(
+    "/{article_id}/agent/session/{session_id}/chat",
+    response_model=AgentChatQueuedResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+async def chat_with_agent(
+    article_id: str,
+    session_id: str,
+    request: AgentChatRequest,
+    user_id: str = Depends(get_current_user_id_from_token)
+):
+    """
+    AI エージェントとチャットします。
+
+    - **article_id**: 記事のUUID
+    - **session_id**: セッションID
+    - **message**: ユーザーメッセージ
+
+    エージェントが記事の編集を提案・実行します。
+    """
+    agent_service = get_article_agent_service()
+    try:
+        # セッションアクセス検証（存在チェック兼用）
+        await agent_service.get_conversation_history(
+            session_id,
+            expected_user_id=user_id,
+            expected_article_id=article_id,
+        )
+
+        async def _run_agent_chat() -> None:
+            try:
+                async for _chunk in agent_service.chat(
+                    session_id,
+                    request.message,
+                    expected_user_id=user_id,
+                    expected_article_id=article_id,
+                ):
+                    # 返却レスポンスは非同期ポーリングで取得するためチャンクは破棄
+                    continue
+            except Exception as e:  # noqa: BLE001
+                logger.error(
+                    "Background agent chat execution failed for session_id=%s article_id=%s user_id=%s: %s",
+                    session_id,
+                    article_id,
+                    user_id,
+                    str(e),
+                    exc_info=True,
+                )
+
+        asyncio.create_task(_run_agent_chat())
+
+        session_obj = agent_service.sessions.get(session_id)
+        run_state = session_obj.get_run_state_snapshot() if session_obj else None
+
+        return AgentChatQueuedResponse(status="processing", session_id=session_id, run_state=run_state)
+
+    except AgentSessionAccessError as e:
+        logger.warning(
+            "Access denied for agent chat session_id=%s article_id=%s user_id=%s: %s",
+            session_id,
+            article_id,
+            user_id,
+            str(e),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="指定されたセッションにアクセスする権限がありません。"
+        )
+    except AgentSessionNotFoundError as e:
+        logger.warning(
+            "Agent session not found for chat session_id=%s article_id=%s user_id=%s: %s",
+            session_id,
+            article_id,
+            user_id,
+            str(e),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="指定されたエージェントセッションが見つかりません。"
+        )
+    except Exception as e:
+        logger.error(f"Error in agent chat: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"エージェントとのチャットに失敗しました: {str(e)}"
+        )
+
+
+@router.get("/{article_id}/agent/session/{session_id}/content", response_model=dict)
+async def get_agent_session_content(
+    article_id: str,
+    session_id: str,
+    user_id: str = Depends(get_current_user_id_from_token)
+):
+    """
+    エージェントセッションの現在のコンテンツを取得します。
+
+    - **article_id**: 記事のUUID
+    - **session_id**: セッションID
+
+    エージェントによる編集後の記事内容を返します。
+    """
+    agent_service = get_article_agent_service()
+    try:
+        current_content = await agent_service.get_current_content(
+            session_id,
+            expected_user_id=user_id,
+            expected_article_id=article_id,
+        )
+
+        return {
+            "session_id": session_id,
+            "article_id": article_id,
+            "content": current_content
+        }
+
+    except AgentSessionAccessError as e:
+        logger.warning(
+            "Access denied for session content session_id=%s article_id=%s user_id=%s: %s",
+            session_id,
+            article_id,
+            user_id,
+            str(e),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="指定されたセッションにアクセスする権限がありません。"
+        )
+    except AgentSessionNotFoundError as e:
+        logger.warning(
+            "Agent session not found for content session_id=%s article_id=%s user_id=%s: %s",
+            session_id,
+            article_id,
+            user_id,
+            str(e),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="指定されたエージェントセッションが見つかりません。"
+        )
+    except Exception as e:
+        logger.error(f"Error getting agent session content: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"コンテンツの取得に失敗しました: {str(e)}"
+        )
+
+
+@router.get("/{article_id}/agent/session/{session_id}/diff", response_model=dict)
+async def get_agent_session_diff(
+    article_id: str,
+    session_id: str,
+    user_id: str = Depends(get_current_user_id_from_token)
+):
+    """
+    エージェントセッションの差分を取得します。
+
+    - **article_id**: 記事のUUID
+    - **session_id**: セッションID
+
+    元の記事と編集後の記事の差分を返します。
+    """
+    agent_service = get_article_agent_service()
+    try:
+        diff = await agent_service.get_diff(
+            session_id,
+            expected_user_id=user_id,
+            expected_article_id=article_id,
+        )
+
+        return {
+            "session_id": session_id,
+            "article_id": article_id,
+            **diff
+        }
+
+    except AgentSessionAccessError as e:
+        logger.warning(
+            "Access denied for session diff session_id=%s article_id=%s user_id=%s: %s",
+            session_id,
+            article_id,
+            user_id,
+            str(e),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="指定されたセッションにアクセスする権限がありません。"
+        )
+    except AgentSessionNotFoundError as e:
+        logger.warning(
+            "Agent session not found for diff session_id=%s article_id=%s user_id=%s: %s",
+            session_id,
+            article_id,
+            user_id,
+            str(e),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="指定されたエージェントセッションが見つかりません。"
+        )
+    except Exception as e:
+        logger.error(f"Error getting agent session diff: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"差分の取得に失敗しました: {str(e)}"
+        )
+
+
+@router.post("/{article_id}/agent/session/{session_id}/save", status_code=status.HTTP_204_NO_CONTENT)
+async def save_agent_session_changes(
+    article_id: str,
+    session_id: str,
+    user_id: str = Depends(get_current_user_id_from_token)
+):
+    """
+    エージェントセッションの変更を保存します。
+
+    - **article_id**: 記事のUUID
+    - **session_id**: セッションID
+
+    エージェントによる編集をデータベースに保存します。
+    """
+    agent_service = get_article_agent_service()
+    try:
+        await agent_service.save_changes(
+            session_id,
+            expected_user_id=user_id,
+            expected_article_id=article_id,
+        )
+
+        return None
+
+    except AgentSessionAccessError as e:
+        logger.warning(
+            "Access denied for save session_id=%s article_id=%s user_id=%s: %s",
+            session_id,
+            article_id,
+            user_id,
+            str(e),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="指定されたセッションにアクセスする権限がありません。"
+        )
+    except AgentSessionNotFoundError as e:
+        logger.warning(
+            "Agent session not found for save session_id=%s article_id=%s user_id=%s: %s",
+            session_id,
+            article_id,
+            user_id,
+            str(e),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="指定されたエージェントセッションが見つかりません。"
+        )
+    except Exception as e:
+        logger.error(f"Error saving agent session changes: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"変更の保存に失敗しました: {str(e)}"
+        )
+
+
+@router.post("/{article_id}/agent/session/{session_id}/discard", status_code=status.HTTP_204_NO_CONTENT)
+async def discard_agent_session_changes(
+    article_id: str,
+    session_id: str,
+    user_id: str = Depends(get_current_user_id_from_token)
+):
+    """
+    エージェントセッションの変更を破棄します。
+
+    - **article_id**: 記事のUUID
+    - **session_id**: セッションID
+
+    エージェントによる編集を破棄し、元の記事に戻します。
+    """
+    agent_service = get_article_agent_service()
+    try:
+        await agent_service.discard_changes(
+            session_id,
+            expected_user_id=user_id,
+            expected_article_id=article_id,
+        )
+
+        return None
+
+    except AgentSessionAccessError as e:
+        logger.warning(
+            "Access denied for discard session_id=%s article_id=%s user_id=%s: %s",
+            session_id,
+            article_id,
+            user_id,
+            str(e),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="指定されたセッションにアクセスする権限がありません。"
+        )
+    except AgentSessionNotFoundError as e:
+        logger.warning(
+            "Agent session not found for discard session_id=%s article_id=%s user_id=%s: %s",
+            session_id,
+            article_id,
+            user_id,
+            str(e),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="指定されたエージェントセッションが見つかりません。"
+        )
+    except Exception as e:
+        logger.error(f"Error discarding agent session changes: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"変更の破棄に失敗しました: {str(e)}"
+        )
+
+
+@router.delete("/{article_id}/agent/session/{session_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def close_agent_session(
+    article_id: str,
+    session_id: str,
+    user_id: str = Depends(get_current_user_id_from_token)
+):
+    """
+    エージェントセッションを閉じます。
+
+    - **article_id**: 記事のUUID
+    - **session_id**: セッションID
+
+    セッションをクリーンアップし、リソースを解放します。
+    """
+    agent_service = get_article_agent_service()
+    try:
+        await agent_service.close_session(
+            session_id,
+            expected_user_id=user_id,
+            expected_article_id=article_id,
+        )
+
+        return None
+
+    except AgentSessionAccessError as e:
+        logger.warning(
+            "Access denied for close session_id=%s article_id=%s user_id=%s: %s",
+            session_id,
+            article_id,
+            user_id,
+            str(e),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="指定されたセッションにアクセスする権限がありません。"
+        )
+    except AgentSessionNotFoundError as e:
+        logger.warning(
+            "Agent session not found for close session_id=%s article_id=%s user_id=%s: %s",
+            session_id,
+            article_id,
+            user_id,
+            str(e),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="指定されたエージェントセッションが見つかりません。"
+        )
+    except Exception as e:
+        logger.error(f"Error closing agent session: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"セッションのクローズに失敗しました: {str(e)}"
+        )
+
+
+# === Agent Change Approval Endpoints ===
+
+@router.post("/{article_id}/agent/session/{session_id}/extract-changes")
+async def extract_pending_changes(
+    article_id: str,
+    session_id: str,
+    user_id: str = Depends(get_current_user_id_from_token)
+):
+    """
+    apply_patchによる変更を抽出して承認待ちリストに追加します。
+
+    - **article_id**: 記事のUUID
+    - **session_id**: セッションID
+
+    Returns:
+        承認待ちの変更リスト
+    """
+    agent_service = get_article_agent_service()
+    try:
+        changes = await agent_service.extract_pending_changes(
+            session_id,
+            expected_user_id=user_id,
+            expected_article_id=article_id,
+        )
+
+        return {"changes": changes}
+
+    except AgentSessionAccessError as e:
+        logger.warning(
+            "Access denied for extract-changes session_id=%s article_id=%s user_id=%s: %s",
+            session_id,
+            article_id,
+            user_id,
+            str(e),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="指定されたセッションにアクセスする権限がありません。"
+        )
+    except AgentSessionNotFoundError as e:
+        logger.warning(
+            "Agent session not found for extract-changes session_id=%s article_id=%s user_id=%s: %s",
+            session_id,
+            article_id,
+            user_id,
+            str(e),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="指定されたエージェントセッションが見つかりません。"
+        )
+    except Exception as e:
+        logger.error(f"Error extracting pending changes: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"変更の抽出に失敗しました: {str(e)}"
+        )
+
+
+@router.get("/{article_id}/agent/session/{session_id}/pending-changes")
+async def get_pending_changes(
+    article_id: str,
+    session_id: str,
+    user_id: str = Depends(get_current_user_id_from_token)
+):
+    """
+    承認待ちの変更を取得します。
+
+    - **article_id**: 記事のUUID
+    - **session_id**: セッションID
+
+    Returns:
+        承認待ちの変更リスト
+    """
+    agent_service = get_article_agent_service()
+    try:
+        changes = await agent_service.get_pending_changes(
+            session_id,
+            expected_user_id=user_id,
+            expected_article_id=article_id,
+        )
+
+        return {"changes": changes}
+
+    except AgentSessionAccessError as e:
+        logger.warning(
+            "Access denied for pending-changes session_id=%s article_id=%s user_id=%s: %s",
+            session_id,
+            article_id,
+            user_id,
+            str(e),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="指定されたセッションにアクセスする権限がありません。"
+        )
+    except AgentSessionNotFoundError as e:
+        logger.warning(
+            "Agent session not found for pending-changes session_id=%s article_id=%s user_id=%s: %s",
+            session_id,
+            article_id,
+            user_id,
+            str(e),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="指定されたエージェントセッションが見つかりません。"
+        )
+    except Exception as e:
+        logger.error(f"Error getting pending changes: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"変更の取得に失敗しました: {str(e)}"
+        )
+
+
+@router.get("/{article_id}/agent/session/{session_id}/unified-diff")
+async def get_unified_diff_view(
+    article_id: str,
+    session_id: str,
+    user_id: str = Depends(get_current_user_id_from_token)
+):
+    """
+    統合差分ビューを取得します（VSCode風）。
+
+    - **article_id**: 記事のUUID
+    - **session_id**: セッションID
+
+    Returns:
+        統合差分ビュー
+    """
+    agent_service = get_article_agent_service()
+    try:
+        diff_view = await agent_service.get_unified_diff_view(
+            session_id,
+            expected_user_id=user_id,
+            expected_article_id=article_id,
+        )
+
+        return diff_view
+
+    except AgentSessionAccessError as e:
+        logger.warning(
+            "Access denied for unified-diff session_id=%s article_id=%s user_id=%s: %s",
+            session_id,
+            article_id,
+            user_id,
+            str(e),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="指定されたセッションにアクセスする権限がありません。"
+        )
+    except AgentSessionNotFoundError as e:
+        logger.warning(
+            "Agent session not found for unified-diff session_id=%s article_id=%s user_id=%s: %s",
+            session_id,
+            article_id,
+            user_id,
+            str(e),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="指定されたエージェントセッションが見つかりません。"
+        )
+
+    except Exception as e:
+        logger.error(f"Error getting unified diff view: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"統合差分ビューの取得に失敗しました: {str(e)}"
+        )
+
+
+@router.post("/{article_id}/agent/session/{session_id}/changes/{change_id}/approve")
+async def approve_change(
+    article_id: str,
+    session_id: str,
+    change_id: str,
+    user_id: str = Depends(get_current_user_id_from_token)
+):
+    """
+    特定の変更を承認します。
+
+    - **article_id**: 記事のUUID
+    - **session_id**: セッションID
+    - **change_id**: 変更ID
+
+    Returns:
+        承認結果
+    """
+    agent_service = get_article_agent_service()
+    try:
+        success = await agent_service.approve_change(
+            session_id,
+            change_id,
+            expected_user_id=user_id,
+            expected_article_id=article_id,
+        )
+
+        return {"success": success, "change_id": change_id}
+
+    except AgentSessionAccessError as e:
+        logger.warning(
+            "Access denied for approve change session_id=%s change_id=%s article_id=%s user_id=%s: %s",
+            session_id,
+            change_id,
+            article_id,
+            user_id,
+            str(e),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="指定されたセッションにアクセスする権限がありません。"
+        )
+    except AgentSessionNotFoundError as e:
+        logger.warning(
+            "Agent session not found for approve change session_id=%s change_id=%s article_id=%s user_id=%s: %s",
+            session_id,
+            change_id,
+            article_id,
+            user_id,
+            str(e),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="指定されたエージェントセッションが見つかりません。"
+        )
+    except Exception as e:
+        logger.error(f"Error approving change: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"変更の承認に失敗しました: {str(e)}"
+        )
+
+
+@router.post("/{article_id}/agent/session/{session_id}/changes/{change_id}/reject")
+async def reject_change(
+    article_id: str,
+    session_id: str,
+    change_id: str,
+    user_id: str = Depends(get_current_user_id_from_token)
+):
+    """
+    特定の変更を拒否します。
+
+    - **article_id**: 記事のUUID
+    - **session_id**: セッションID
+    - **change_id**: 変更ID
+
+    Returns:
+        拒否結果
+    """
+    agent_service = get_article_agent_service()
+    try:
+        success = await agent_service.reject_change(
+            session_id,
+            change_id,
+            expected_user_id=user_id,
+            expected_article_id=article_id,
+        )
+
+        return {"success": success, "change_id": change_id}
+
+    except AgentSessionAccessError as e:
+        logger.warning(
+            "Access denied for reject change session_id=%s change_id=%s article_id=%s user_id=%s: %s",
+            session_id,
+            change_id,
+            article_id,
+            user_id,
+            str(e),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="指定されたセッションにアクセスする権限がありません。"
+        )
+    except AgentSessionNotFoundError as e:
+        logger.warning(
+            "Agent session not found for reject change session_id=%s change_id=%s article_id=%s user_id=%s: %s",
+            session_id,
+            change_id,
+            article_id,
+            user_id,
+            str(e),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="指定されたエージェントセッションが見つかりません。"
+        )
+    except Exception as e:
+        logger.error(f"Error rejecting change: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"変更の拒否に失敗しました: {str(e)}"
+        )
+
+
+@router.post("/{article_id}/agent/session/{session_id}/apply-approved")
+async def apply_approved_changes(
+    article_id: str,
+    session_id: str,
+    user_id: str = Depends(get_current_user_id_from_token)
+):
+    """
+    承認された変更のみを適用します。
+
+    - **article_id**: 記事のUUID
+    - **session_id**: セッションID
+
+    Returns:
+        適用後のコンテンツ
+    """
+    agent_service = get_article_agent_service()
+    try:
+        result = await agent_service.apply_approved_changes(
+            session_id,
+            expected_user_id=user_id,
+            expected_article_id=article_id,
+        )
+
+        return {
+            "content": result.get("content"),
+            "applied_count": result.get("applied_count", 0),
+            "applied_change_ids": result.get("applied_change_ids", []),
+        }
+
+    except AgentSessionAccessError as e:
+        logger.warning(
+            "Access denied for apply-approved session_id=%s article_id=%s user_id=%s: %s",
+            session_id,
+            article_id,
+            user_id,
+            str(e),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="指定されたセッションにアクセスする権限がありません。"
+        )
+    except AgentSessionNotFoundError as e:
+        logger.warning(
+            "Agent session not found for apply-approved session_id=%s article_id=%s user_id=%s: %s",
+            session_id,
+            article_id,
+            user_id,
+            str(e),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="指定されたエージェントセッションが見つかりません。"
+        )
+    except Exception as e:
+        logger.error(f"Error applying approved changes: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"変更の適用に失敗しました: {str(e)}"
+        )
+
+
+@router.post("/{article_id}/agent/session/{session_id}/clear-changes")
+async def clear_pending_changes(
+    article_id: str,
+    session_id: str,
+    user_id: str = Depends(get_current_user_id_from_token)
+):
+    """
+    承認待ち変更をすべてクリアします。
+
+    - **article_id**: 記事のUUID
+    - **session_id**: セッションID
+
+    Returns:
+        成功メッセージ
+    """
+    agent_service = get_article_agent_service()
+    try:
+        await agent_service.clear_pending_changes(
+            session_id,
+            expected_user_id=user_id,
+            expected_article_id=article_id,
+        )
+
+        return {"message": "Pending changes cleared successfully"}
+
+    except AgentSessionAccessError as e:
+        logger.warning(
+            "Access denied for clear-changes session_id=%s article_id=%s user_id=%s: %s",
+            session_id,
+            article_id,
+            user_id,
+            str(e),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="指定されたセッションにアクセスする権限がありません。"
+        )
+    except AgentSessionNotFoundError as e:
+        logger.warning(
+            "Agent session not found for clear-changes session_id=%s article_id=%s user_id=%s: %s",
+            session_id,
+            article_id,
+            user_id,
+            str(e),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="指定されたエージェントセッションが見つかりません。"
+        )
+    except Exception as e:
+        logger.error(f"Error clearing pending changes: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"変更のクリアに失敗しました: {str(e)}"
         )
