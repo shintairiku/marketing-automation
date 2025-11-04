@@ -554,7 +554,7 @@ def create_outline_instructions(base_prompt: str) -> Callable[[RunContextWrapper
   "top_level_heading": {outline_top_level},
   "sections": [
     {{
-      "heading": "メイン見出し例",
+      "heading": "メイン見出し例1",
       "level": {outline_top_level},
       "description": "このセクションで伝える核となるメッセージ",
       "estimated_chars": 400,
@@ -564,6 +564,20 @@ def create_outline_instructions(base_prompt: str) -> Callable[[RunContextWrapper
           "level": {child_heading_level},
           "description": "詳細トピックや補足説明",
           "estimated_chars": 200
+        }}
+      ]
+    }},
+    {{
+      "heading": "メイン見出し例2",
+      "level": {child_heading_level},
+      "description": "このセクションで伝える核となるメッセージ",
+      "estimated_chars": 500,
+      "subsections": [
+        {{
+           "heading": "小見出し例",
+           "level": {child_heading_level + 1},
+           "description": "詳細トピックや補足説明",
+           "estimated_chars": 250
         }}
       ]
     }}
@@ -1368,9 +1382,7 @@ OUTLINE_AGENT_BASE_PROMPT = """
 - estimated_chars の合計がターゲット文字数の±15%以内になっているか。  
 
 【5】補足ルール
-- FAQブロックを推奨（3〜5項目程度）。  
 - ペルソナはあくまで「記事を読む読者の一例」であり、その人のみが読むわけではない。
-- 公開記事に出力されるheadingは、読者にとって意味が伝わる自然な文章にする。
 - 見出しに意図やその見出しの説明を明記しない.（「はじめに:」や「導入:」「（情報）」など）
   例：「導入: 家づくりを始める前に」→「家づくりを始める前に知っておきたいこと」
 
