@@ -139,35 +139,20 @@ export default function CompactUserInteraction({
 
       const normalizedSections = normalizeOutlineSections(outline.sections, topLevel);
 
-      const convertSection = (section: any, fallbackLevel: number): EditableOutlineSection => {
-        const level = typeof section?.level === 'number' ? section.level : fallbackLevel;
-        const normalizedLevel = level >= fallbackLevel ? Math.min(level, 6) : fallbackLevel;
-        const description = typeof section?.description === 'string' ? section.description : '';
-        const estimated = typeof section?.estimated_chars === 'number'
-          ? section.estimated_chars
-          : normalizedLevel > topLevel
-            ? 200
-            : 300;
-        const subsections = Array.isArray(section?.subsections)
-          ? section.subsections.map((child: any) =>
-              convertSection(child, Math.min(normalizedLevel + 1, 6)),
-            )
-          : [];
-        return {
-          heading: typeof section?.heading === 'string' ? section.heading : '',
-          level: normalizedLevel,
-          description,
-          estimated_chars: estimated,
-          subsections,
-        };
-      };
+      const toEditableSection = (section: typeof normalizedSections[number]): EditableOutlineSection => ({
+        heading: section.heading,
+        level: section.level,
+        description: section.description ?? '',
+        estimated_chars: section.estimated_chars,
+        subsections: section.subsections.map(toEditableSection),
+      });
 
       const editable: EditableOutline = {
         title: outline.title || '',
         suggested_tone: outline.suggested_tone || '',
         topLevel,
         sections: Array.isArray(normalizedSections)
-          ? normalizedSections.map((section: any) => convertSection(section, topLevel))
+          ? normalizedSections.map(toEditableSection)
           : [],
       };
       setEditContent(editable);

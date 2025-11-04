@@ -1,22 +1,16 @@
 /**
- * Utility functions for normalizing outline data structures returned by agents.
+ * Outline normalization utilities.
  *
- * Some agent responses contain deeply nested `subsections` whose declared
- * heading `level` does not increase with depth (e.g. multiple nested H3 items).
- * The previous UI logic tried to "fix" these cases by forcing deeper nodes to
- * bump their levels (parent level + 1). That escalated large trees into H4/H5/H6
- * even when the agent only intended H2/H3, which caused the front-end to render
- * excessive heading levels.
+ * 背景:
+ * - エージェントが返すアウトラインは、`subsections` でネストされているのに
+ *   `level` が一律で (例: 全て 2 や 3 のまま) というケースがある。
+ * - 旧実装は「ネストが深い＝見出しレベルも深いはず」と推測して `parent.level + 1`
+ *   に矯正していたため、H2/H3 しかないはずの構成が UI で H4/H5/H6 へ暴走していた。
  *
- * This module rebuilds the hierarchy purely from the declared `level` values
- * while preserving order. Nodes that would otherwise regress or jump multiple
- * levels are clamped to a sensible range so that:
- *   - Top-level headings stay at the requested outline level (usually H2 or H3)
- *   - Siblings retain their intended `level`
- *   - Children cannot skip more than one level deeper than their parent
- *
- * The resulting structure prevents runaway H4/H5/H6 chains while still handling
- * imperfect agent output gracefully.
+ * 方針:
+ * - 宣言された `level` を基本的に尊重しつつ、スタックを使ってツリーを再構築する。
+ * - 階層構造は宣言された順序から計算し直し、兄弟関係・親子関係のみ整理する。
+ * - `level` の補正は `[topLevel, 6]` に収める最小限のクランプに留める。
  */
 
 export type OutlineSectionInput = {
@@ -47,31 +41,27 @@ const MIN_HEADING_LEVEL = 1;
 const MAX_HEADING_LEVEL = 6;
 
 const clampHeadingLevel = (value: number, minLevel: number) => {
-  const clamped = Number.isFinite(value)
-    ? Math.min(Math.max(Math.trunc(value), MIN_HEADING_LEVEL), MAX_HEADING_LEVEL)
-    : minLevel;
+  const numeric = Number.isFinite(value) ? Math.trunc(value) : minLevel;
+  const clamped = Math.min(Math.max(numeric, MIN_HEADING_LEVEL), MAX_HEADING_LEVEL);
   return Math.max(clamped, minLevel);
 };
 
-const fallbackEstimatedChars = (level: number, topLevel: number) => {
-  return level > topLevel ? 200 : 300;
-};
+const fallbackEstimatedChars = (level: number, topLevel: number) =>
+  level > topLevel ? 200 : 300;
 
-const flattenSections = (
+const collectSections = (
   sections: OutlineSectionInput[] | null | undefined,
-  collector: OutlineSectionInput[] = []
+  acc: OutlineSectionInput[] = []
 ): OutlineSectionInput[] => {
-  if (!Array.isArray(sections)) {
-    return collector;
-  }
+  if (!Array.isArray(sections)) return acc;
   for (const section of sections) {
     if (!section || typeof section !== 'object') continue;
-    collector.push(section);
+    acc.push(section);
     if (Array.isArray(section.subsections) && section.subsections.length > 0) {
-      flattenSections(section.subsections, collector);
+      collectSections(section.subsections, acc);
     }
   }
-  return collector;
+  return acc;
 };
 
 export const normalizeOutlineSections = (
@@ -82,43 +72,24 @@ export const normalizeOutlineSections = (
     Number.isFinite(rawTopLevel) ? Number(rawTopLevel) : FALLBACK_TOP_LEVEL,
     FALLBACK_TOP_LEVEL
   );
-  const flat = flattenSections(sections);
+
+  const flat = collectSections(sections);
   if (flat.length === 0) {
     return [];
   }
 
-  const normalized: NormalizedOutlineSection[] = [];
+  const roots: NormalizedOutlineSection[] = [];
   const stack: NormalizedOutlineSection[] = [];
 
   for (const rawSection of flat) {
     const heading =
       typeof rawSection?.heading === 'string' ? rawSection.heading.trim() : '';
-    if (!heading) {
-      // Skip empty headings rather than emitting blank nodes
-      continue;
-    }
+    if (!heading) continue;
 
-    const rawLevel = Number.isFinite(rawSection?.level)
-      ? Number(rawSection.level)
-      : topLevel;
-    let level = clampHeadingLevel(rawLevel, topLevel);
-
-    // Move up the stack until the new level is strictly deeper than the parent
-    while (stack.length > 0 && level <= stack[stack.length - 1].level) {
-      stack.pop();
-    }
-
-    const parent = stack.length > 0 ? stack[stack.length - 1] : null;
-    if (!parent) {
-      level = topLevel;
-    } else {
-      const maxAllowed = Math.min(parent.level + 1, MAX_HEADING_LEVEL);
-      if (level <= parent.level) {
-        level = Math.min(parent.level + 1, MAX_HEADING_LEVEL);
-      } else if (level > maxAllowed) {
-        level = maxAllowed;
-      }
-    }
+    const declaredLevel = clampHeadingLevel(
+      Number.isFinite(rawSection?.level) ? Number(rawSection.level) : topLevel,
+      topLevel
+    );
 
     const description =
       typeof rawSection?.description === 'string'
@@ -128,26 +99,33 @@ export const normalizeOutlineSections = (
       ? Number(rawSection.estimated_chars)
       : NaN;
     const estimated_chars =
-      estimatedRaw > 0 ? Math.trunc(estimatedRaw) : fallbackEstimatedChars(level, topLevel);
+      estimatedRaw > 0 ? Math.trunc(estimatedRaw) : fallbackEstimatedChars(declaredLevel, topLevel);
 
     const node: NormalizedOutlineSection = {
       heading,
-      level,
+      level: declaredLevel,
       description: description || undefined,
       estimated_chars,
       subsections: [],
     };
 
-    if (!parent) {
-      normalized.push(node);
-    } else {
+    // スタックの上から、現在のノードより level が高いものをすべてポップする。
+    // これにより兄弟関係・親子関係を正しく保つ。
+    while (stack.length > 0 && declaredLevel <= stack[stack.length - 1].level) {
+      stack.pop();
+    }
+
+    const parent = stack.length > 0 ? stack[stack.length - 1] : null;
+    if (parent && declaredLevel > parent.level) {
       parent.subsections.push(node);
+    } else {
+      roots.push(node);
     }
 
     stack.push(node);
   }
 
-  return normalized;
+  return roots;
 };
 
 export const normalizeOutline = (outline: any): NormalizedOutline | null => {
