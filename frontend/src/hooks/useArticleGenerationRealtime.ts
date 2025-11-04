@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 
+import { normalizeOutline } from '@/features/tools/seo/generate/utils/normalize-outline';
 import {
   CompletedSection,
   GenerationState,
@@ -396,8 +397,18 @@ export const useArticleGenerationRealtime = ({
       // CRITICAL: Outline data handling
       const outline = ctx.outline || ctx.generated_outline;
       if (!next.outline && outline) {
-        console.log('📝 Setting outline from context:', outline);
-        next.outline = outline;
+        const normalizedOutline = normalizeOutline(outline);
+        if (normalizedOutline) {
+          if (process.env.NODE_ENV !== 'production') {
+            console.log('📝 Setting normalized outline from context:', {
+              originalTopLevel: outline?.top_level_heading,
+              normalizedTopLevel: normalizedOutline.top_level_heading,
+            });
+          }
+          next.outline = normalizedOutline;
+        } else {
+          next.outline = outline;
+        }
       }
       
       if (!next.isInitialized && next.steps.length > 0) {
@@ -532,9 +543,11 @@ export const useArticleGenerationRealtime = ({
             case 'approve_plan':
               newState.researchPlan = inputData.plan;
               break;
-            case 'approve_outline':
-              newState.outline = inputData.outline;
+            case 'approve_outline': {
+              const normalizedOutline = normalizeOutline(inputData.outline);
+              newState.outline = normalizedOutline ?? inputData.outline ?? null;
               break;
+            }
           }
           break;
 

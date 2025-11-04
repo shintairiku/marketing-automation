@@ -9,17 +9,10 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { type NormalizedOutlineSection,normalizeOutlineSections } from '@/features/tools/seo/generate/utils/normalize-outline';
 import { getOutlineApprovalMessage } from '@/utils/flow-config';
 
 import type { EditableOutline, EditableOutlineSection } from "../../types/outline";
-
-type NormalizedOutlineSection = {
-  heading: string;
-  level: number;
-  description?: string;
-  estimated_chars: number;
-  subsections: NormalizedOutlineSection[];
-};
 
 type Props = {
   value: EditableOutline;
@@ -282,38 +275,8 @@ export default function MainSectionEditor({ value, onChange, onCancel, onSaveAnd
     updateSection(sectionIndex, { subsections: nextSubsections });
   };
 
-  const sanitizeSection = (
-    section: EditableOutlineSection,
-    expectedLevel: number,
-  ): NormalizedOutlineSection | null => {
-    const heading = section.heading?.trim();
-    if (!heading) return null;
-
-    const rawLevel = typeof section.level === "number" ? section.level : expectedLevel;
-    const normalizedLevel = Math.max(expectedLevel, Math.min(rawLevel, 6));
-    const description = section.description?.trim();
-    const estimatedRaw = typeof section.estimated_chars === "number" ? section.estimated_chars : 0;
-    const fallbackChars = normalizedLevel > value.topLevel ? 200 : 300;
-    const estimated_chars = estimatedRaw > 0 ? estimatedRaw : fallbackChars;
-    const subsectionsSource = ensureSubsections(section);
-    const nextExpected = Math.min(normalizedLevel + 1, 6);
-    const normalizedSubsections = subsectionsSource
-      .map((sub) => sanitizeSection(sub, nextExpected))
-      .filter((subsection): subsection is NormalizedOutlineSection => subsection !== null);
-
-    return {
-      heading,
-      level: normalizedLevel,
-      description: description || undefined,
-      estimated_chars,
-      subsections: normalizedSubsections,
-    };
-  };
-
   const onSave = () => {
-    const cleanedSections = sections
-      .map((section) => sanitizeSection(section, value.topLevel))
-      .filter((section): section is NormalizedOutlineSection => section !== null);
+    const cleanedSections = normalizeOutlineSections(sections, value.topLevel);
 
     onSaveAndStart({
       title: value.title.trim(),

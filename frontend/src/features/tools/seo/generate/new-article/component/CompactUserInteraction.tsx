@@ -24,8 +24,9 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
+import { normalizeOutlineSections } from '@/features/tools/seo/generate/utils/normalize-outline';
 import { PersonaOption, ThemeOption } from '@/types/article-generation';
-import { getOutlineApprovalMessage,getThemeSelectionMessage } from '@/utils/flow-config';
+import { getOutlineApprovalMessage, getThemeSelectionMessage } from '@/utils/flow-config';
 
 import type { EditableOutline, EditableOutlineSection } from '../../types/outline';
 
@@ -136,6 +137,8 @@ export default function CompactUserInteraction({
 
       const topLevel = determineTopLevel();
 
+      const normalizedSections = normalizeOutlineSections(outline.sections, topLevel);
+
       const convertSection = (section: any, fallbackLevel: number): EditableOutlineSection => {
         const level = typeof section?.level === 'number' ? section.level : fallbackLevel;
         const normalizedLevel = level >= fallbackLevel ? Math.min(level, 6) : fallbackLevel;
@@ -163,8 +166,8 @@ export default function CompactUserInteraction({
         title: outline.title || '',
         suggested_tone: outline.suggested_tone || '',
         topLevel,
-        sections: Array.isArray(outline.sections)
-          ? outline.sections.map((section: any) => convertSection(section, topLevel))
+        sections: Array.isArray(normalizedSections)
+          ? normalizedSections.map((section: any) => convertSection(section, topLevel))
           : [],
       };
       setEditContent(editable);
