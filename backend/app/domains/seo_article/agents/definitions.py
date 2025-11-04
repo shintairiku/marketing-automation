@@ -569,7 +569,7 @@ def create_outline_instructions(base_prompt: str) -> Callable[[RunContextWrapper
     }},
     {{
       "heading": "メイン見出し例2",
-      "level": {child_heading_level},
+      "level": {outline_top_level},
       "description": "このセクションで伝える核となるメッセージ",
       "estimated_chars": 500,
       "subsections": [
