@@ -575,7 +575,7 @@ def create_outline_instructions(base_prompt: str) -> Callable[[RunContextWrapper
       "subsections": [
         {{
            "heading": "小見出し例",
-           "level": {child_heading_level + 1},
+           "level": {child_heading_level},
            "description": "詳細トピックや補足説明",
            "estimated_chars": 250
         }}
