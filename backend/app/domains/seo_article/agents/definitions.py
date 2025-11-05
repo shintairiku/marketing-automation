@@ -74,23 +74,55 @@ def build_enhanced_company_context(ctx: ArticleContext) -> str:
     if not hasattr(ctx, 'company_name') or not ctx.company_name:
         return "企業情報: 未設定（一般的な記事として作成）"
 
+    def _stringify(value: Any) -> str:
+        """可能性のあるリスト/辞書を含む値を文字列へ整形"""
+        if value is None:
+            return ""
+        if isinstance(value, str):
+            return value.strip()
+        if isinstance(value, (list, tuple, set)):
+            lines: List[str] = []
+            for item in value:
+                if isinstance(item, dict):
+                    kv_pairs = [f"{k}: {v}" for k, v in item.items() if v not in (None, "", [], {})]
+                    lines.append(" / ".join(kv_pairs) if kv_pairs else str(item))
+                else:
+                    lines.append(str(item))
+            return "\n".join(f"- {line}" for line in lines if line)
+        if isinstance(value, dict):
+            kv_lines = [f"{k}: {v}" for k, v in value.items() if v not in (None, "", [], {})]
+            return "\n".join(kv_lines)
+        return str(value)
+
+    def _append(label: str, value: Any) -> None:
+        text = _stringify(value)
+        if not text:
+            return
+        if "\n" in text:
+            # 複数行の値は次行に改行して配置
+            company_parts.append(f"{label}:\n{text}")
+        else:
+            company_parts.append(f"{label}: {text}")
+
     company_parts = []
 
     # 基本情報（簡潔に）
     company_parts.append(f"企業名: {ctx.company_name}")
     company_parts.append("\n※ 以下の企業情報は、テーマに直接関連し企業の専門分野に該当する場合のみ参考としてください※")
-    
-    # 最重要な情報のみ簡潔に表示
-    if hasattr(ctx, 'company_description') and ctx.company_description:
-        company_parts.append(f"概要: {ctx.company_description[:100]}...")  # 文字数制限
 
-    if hasattr(ctx, 'company_usp') and ctx.company_usp:
-        company_parts.append(f"専門分野: {ctx.company_usp[:80]}...")  # USPではなく専門分野として表現
+    # すべての会社情報設定を網羅的に表示
+    _append("概要", getattr(ctx, 'company_description', None))
+    _append("専門分野", getattr(ctx, 'company_usp', None))  # USPではなく専門分野として表現
+    _append("公式サイト", getattr(ctx, 'company_website_url', None))
+    _append("ターゲットペルソナ", getattr(ctx, 'company_target_persona', None))
+    _append("ブランドスローガン", getattr(ctx, 'company_brand_slogan', None))
+    _append("上位表示を狙うキーワード", getattr(ctx, 'company_target_keywords', None))
+    _append("業界専門用語", getattr(ctx, 'company_industry_terms', None))
+    _append("避けるべき表現", getattr(ctx, 'company_avoid_terms', None))
+    _append("人気記事・参考URL", getattr(ctx, 'company_popular_articles', None))
+    _append("重点エリア", getattr(ctx, 'company_target_area', None))
+    _append("過去記事の傾向", getattr(ctx, 'past_articles_summary', None))
 
-    # 避けるべき表現のみ表示（重要）
-    if hasattr(ctx, 'company_avoid_terms') and ctx.company_avoid_terms:
-        company_parts.append(f"避けるべき表現: {ctx.company_avoid_terms}")
-    
     company_parts.append("\n※重要: 上記企業情報はテーマに直接関連する場合のみ参考とし、テーマと無関係な内容は一切反映しないでください※")
 
     return "\n".join(company_parts)
@@ -126,12 +158,12 @@ def create_theme_instructions(base_prompt: str) -> Callable[[RunContextWrapper[A
 推奨文字数: {ctx.context.serp_analysis_report.recommended_target_length}文字
 
 主要テーマ（競合頻出）: {', '.join(ctx.context.serp_analysis_report.main_themes)}
-共通見出し: {', '.join(ctx.context.serp_analysis_report.common_headings[:8])}
+共通見出し: {', '.join(ctx.context.serp_analysis_report.common_headings)}
 コンテンツギャップ: {', '.join(ctx.context.serp_analysis_report.content_gaps)}
 差別化ポイント: {', '.join(ctx.context.serp_analysis_report.competitive_advantages)}
 検索意図: {ctx.context.serp_analysis_report.user_intent_analysis}
 
-戦略推奨: {', '.join(ctx.context.serp_analysis_report.content_strategy_recommendations[:5])}
+戦略推奨: {', '.join(ctx.context.serp_analysis_report.content_strategy_recommendations)}
 
 上記の競合分析を活用し、検索上位を狙える差別化されたテーマを提案してください。
 """
@@ -299,8 +331,7 @@ def create_research_synthesizer_instructions(base_prompt: str) -> Callable[[RunC
 {ctx.context.selected_theme.title if ctx.context.selected_theme else 'N/A'}
 
 --- 収集されたリサーチ結果 (詳細) ---
-{results_str[:15000]}
-{ "... (以下省略)" if len(results_str) > 15000 else "" }
+{results_str}
 ---
 
 **重要:**
@@ -495,10 +526,10 @@ def create_outline_instructions(base_prompt: str) -> Callable[[RunContextWrapper
             specific_headings_list = ""
             if hasattr(ctx.context.serp_analysis_report, 'analyzed_articles') and ctx.context.serp_analysis_report.analyzed_articles:
                 specific_headings_list = "\n=== 上位記事の具体的な見出し一覧（参考用） ===\n"
-                for i, article_data in enumerate(ctx.context.serp_analysis_report.analyzed_articles[:3]):  # 上位3記事
+                for i, article_data in enumerate(ctx.context.serp_analysis_report.analyzed_articles):
                     if isinstance(article_data, dict) and 'headings' in article_data:
                         specific_headings_list += f"\n【記事{i+1}】{article_data.get('title', 'N/A')}\n"
-                        for heading in article_data['headings'][:10]:  # 各記事の上位10見出し
+                        for heading in article_data['headings']:
                             specific_headings_list += f"  • {heading}\n"
                 specific_headings_list += "\n上記見出しを参考に、独自性を保ちながら効果的な構成を設計してください。\n"
             
@@ -674,7 +705,7 @@ def create_section_writer_with_images_instructions(base_prompt: str) -> Callable
 
         outline_context = "\n".join(format_outline_sections(ctx.context.generated_outline.sections))
 
-        research_context_str = f"リサーチ要約: {ctx.context.research_report.overall_summary[:500]}...\n"
+        research_context_str = f"リサーチ要約: {ctx.context.research_report.overall_summary}\n"
         research_context_str += "主要なキーポイント:\n"
         for kp in ctx.context.research_report.key_points:
             research_context_str += f"- {kp.point}\n"
@@ -713,8 +744,7 @@ def create_section_writer_with_images_instructions(base_prompt: str) -> Callable
 {outline_context}
 
 --- 詳細なリサーチ情報 ---
-{research_context_str[:10000]}
-{ "... (以下省略)" if len(research_context_str) > 10000 else "" }
+{research_context_str}
 ---
 
 --- **あなたの現在のタスク** ---
@@ -895,7 +925,7 @@ def create_section_writer_instructions(base_prompt: str) -> Callable[[RunContext
 
         outline_context = "\n".join(format_outline_sections(ctx.context.generated_outline.sections))
 
-        research_context_str = f"リサーチ要約: {ctx.context.research_report.overall_summary[:500]}...\n"
+        research_context_str = f"リサーチ要約: {ctx.context.research_report.overall_summary}\n"
         research_context_str += "主要なキーポイント:\n"
         for kp in ctx.context.research_report.key_points:
             research_context_str += f"- {kp.point}\n"
@@ -940,8 +970,7 @@ def create_section_writer_instructions(base_prompt: str) -> Callable[[RunContext
 {outline_context}
 
 --- 詳細なリサーチ情報 ---
-{research_context_str[:10000]}
-{ "... (以下省略)" if len(research_context_str) > 10000 else "" }
+{research_context_str}
 
 ---
 
@@ -1008,7 +1037,7 @@ def create_editor_instructions(base_prompt: str) -> Callable[[RunContextWrapper[
             raise ValueError("編集のための詳細なペルソナが選択されていません。")
         persona_description = ctx.context.selected_detailed_persona
 
-        research_context_str = f"リサーチ要約: {ctx.context.research_report.overall_summary[:500]}...\n"
+        research_context_str = f"リサーチ要約: {ctx.context.research_report.overall_summary}\n"
         research_context_str += "主要なキーポイント:\n"
         for kp in ctx.context.research_report.key_points:
             research_context_str += f"- {kp.point}\n"
@@ -1028,8 +1057,7 @@ def create_editor_instructions(base_prompt: str) -> Callable[[RunContextWrapper[
 
 --- 編集対象記事ドラフト (HTML) ---
 ```html
-{ctx.context.full_draft_html[:15000]}
-{ "... (以下省略)" if len(ctx.context.full_draft_html) > 15000 else "" }
+{ctx.context.full_draft_html}
 ```
 ---
 
@@ -1045,8 +1073,7 @@ def create_editor_instructions(base_prompt: str) -> Callable[[RunContextWrapper[
 
 {style_guide_context}
 --- 詳細なリサーチ情報 ---
-{research_context_str[:10000]}
-{ "... (以下省略)" if len(research_context_str) > 10000 else "" }
+{research_context_str}
 ---
 
 **重要:**
@@ -1094,6 +1121,35 @@ def create_persona_generator_instructions(base_prompt: str) -> Callable[[RunCont
         elif ctx.context.custom_persona: # 移行措置
             pass
 
+        # SerpAPI分析結果
+        serp_analysis_block = ""
+        if getattr(ctx.context, "serp_analysis_report", None):
+            serp_report = ctx.context.serp_analysis_report
+            analyzed_articles = getattr(serp_report, "analyzed_articles", []) or []
+            recommended_length = getattr(serp_report, "recommended_target_length", None)
+            recommended_length_display = recommended_length if recommended_length is not None else "指定なし"
+
+            def _join(values: Any) -> str:
+                if not values:
+                    return ""
+                if isinstance(values, (list, tuple, set)):
+                    return ", ".join(str(v) for v in values if v not in (None, ""))
+                return str(values)
+
+            serp_analysis_block = f"""
+
+=== SerpAPI競合分析 ===
+検索クエリ: {serp_report.search_query}
+分析記事数: {len(analyzed_articles)}
+推奨文字数: {recommended_length_display}文字
+主要テーマ: {_join(getattr(serp_report, 'main_themes', []) or [])}
+共通見出し: {_join(getattr(serp_report, 'common_headings', []) or [])}
+コンテンツギャップ: {_join(getattr(serp_report, 'content_gaps', []) or [])}
+差別化ポイント: {_join(getattr(serp_report, 'competitive_advantages', []) or [])}
+検索意図: {serp_report.user_intent_analysis}
+戦略推奨: {_join(getattr(serp_report, 'content_strategy_recommendations', []) or [])}
+"""
+
         # 企業情報（拡張）
         company_info_block = f"""
 
@@ -1109,6 +1165,7 @@ SEOキーワード: {', '.join(ctx.context.initial_keywords)}
 ペルソナ属性（大分類）: {ctx.context.persona_type.value if ctx.context.persona_type else '指定なし'}
 （上記属性が「その他」の場合のユーザー指定ペルソナ: {ctx.context.custom_persona if ctx.context.persona_type == PersonaType.OTHER else '該当なし'}）
 生成する具体的なペルソナの数: {ctx.context.num_persona_examples}
+{serp_analysis_block}
 {company_info_block}
 ---
 
@@ -1181,6 +1238,7 @@ def create_serp_keyword_analysis_instructions(base_prompt: str) -> Callable[[Run
         for i, article in enumerate(analysis_result.scraped_articles):
             article_headings = _flatten_headings(article.headings)
             headings_text = "\n".join(article_headings) if article_headings else "見出しが取得できませんでした"
+            content_preview = article.content or ""
             
             articles_summary += f"""
 記事 {i+1}:
@@ -1193,7 +1251,7 @@ def create_serp_keyword_analysis_instructions(base_prompt: str) -> Callable[[Run
 {f"- 関連質問: {article.question}" if article.question else ""}
 - 見出し構成:
 {headings_text}
-- 本文プレビュー: {article.content[:200]}...
+- 本文プレビュー: {content_preview}
 
 """
         
@@ -1206,9 +1264,7 @@ def create_serp_keyword_analysis_instructions(base_prompt: str) -> Callable[[Run
         # 上位記事の見出し一覧をまとめる
         all_headings_summary = "=== 上位記事で使用されている全見出し一覧 ===\n"
         if all_headings_flat:
-            all_headings_summary += "\n".join(all_headings_flat[:50])  # 上位50個の見出しに限定
-            if len(all_headings_flat) > 50:
-                all_headings_summary += f"\n... その他 {len(all_headings_flat) - 50} 個の見出し"
+            all_headings_summary += "\n".join(all_headings_flat)
         else:
             all_headings_summary += "見出しが取得できませんでした"
         all_headings_summary += "\n\n"
