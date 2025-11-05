@@ -602,7 +602,7 @@ export default function AIAgentEditTab({ articleId, onSave }: AIAgentEditTabProp
               value={userInput}
               onChange={(e) => setUserInput(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === 'Enter' && !e.shiftKey) {
+                if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
                   e.preventDefault();
                   handleSendMessage();
                 }
@@ -612,7 +612,7 @@ export default function AIAgentEditTab({ articleId, onSave }: AIAgentEditTabProp
               disabled={loading || !sessionId}
             />
             <div className="flex items-center justify-between text-xs text-slate-500">
-              <span>Shift+Enter で改行、Enter で送信</span>
+              <span>Enter で改行、Ctrl+Enter (⌘+Enter) で送信</span>
               <Button
                 onClick={handleSendMessage}
                 disabled={loading || !userInput.trim() || !sessionId}
