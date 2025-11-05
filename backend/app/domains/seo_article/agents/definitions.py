@@ -74,23 +74,55 @@ def build_enhanced_company_context(ctx: ArticleContext) -> str:
     if not hasattr(ctx, 'company_name') or not ctx.company_name:
         return "企業情報: 未設定（一般的な記事として作成）"
 
+    def _stringify(value: Any) -> str:
+        """可能性のあるリスト/辞書を含む値を文字列へ整形"""
+        if value is None:
+            return ""
+        if isinstance(value, str):
+            return value.strip()
+        if isinstance(value, (list, tuple, set)):
+            lines: List[str] = []
+            for item in value:
+                if isinstance(item, dict):
+                    kv_pairs = [f"{k}: {v}" for k, v in item.items() if v not in (None, "", [], {})]
+                    lines.append(" / ".join(kv_pairs) if kv_pairs else str(item))
+                else:
+                    lines.append(str(item))
+            return "\n".join(f"- {line}" for line in lines if line)
+        if isinstance(value, dict):
+            kv_lines = [f"{k}: {v}" for k, v in value.items() if v not in (None, "", [], {})]
+            return "\n".join(kv_lines)
+        return str(value)
+
+    def _append(label: str, value: Any) -> None:
+        text = _stringify(value)
+        if not text:
+            return
+        if "\n" in text:
+            # 複数行の値は次行に改行して配置
+            company_parts.append(f"{label}:\n{text}")
+        else:
+            company_parts.append(f"{label}: {text}")
+
     company_parts = []
 
     # 基本情報（簡潔に）
     company_parts.append(f"企業名: {ctx.company_name}")
     company_parts.append("\n※ 以下の企業情報は、テーマに直接関連し企業の専門分野に該当する場合のみ参考としてください※")
-    
-    # 最重要な情報のみ簡潔に表示
-    if hasattr(ctx, 'company_description') and ctx.company_description:
-        company_parts.append(f"概要: {ctx.company_description[:100]}...")  # 文字数制限
 
-    if hasattr(ctx, 'company_usp') and ctx.company_usp:
-        company_parts.append(f"専門分野: {ctx.company_usp[:80]}...")  # USPではなく専門分野として表現
+    # すべての会社情報設定を網羅的に表示
+    _append("概要", getattr(ctx, 'company_description', None))
+    _append("専門分野", getattr(ctx, 'company_usp', None))  # USPではなく専門分野として表現
+    _append("公式サイト", getattr(ctx, 'company_website_url', None))
+    _append("ターゲットペルソナ", getattr(ctx, 'company_target_persona', None))
+    _append("ブランドスローガン", getattr(ctx, 'company_brand_slogan', None))
+    _append("上位表示を狙うキーワード", getattr(ctx, 'company_target_keywords', None))
+    _append("業界専門用語", getattr(ctx, 'company_industry_terms', None))
+    _append("避けるべき表現", getattr(ctx, 'company_avoid_terms', None))
+    _append("人気記事・参考URL", getattr(ctx, 'company_popular_articles', None))
+    _append("重点エリア", getattr(ctx, 'company_target_area', None))
+    _append("過去記事の傾向", getattr(ctx, 'past_articles_summary', None))
 
-    # 避けるべき表現のみ表示（重要）
-    if hasattr(ctx, 'company_avoid_terms') and ctx.company_avoid_terms:
-        company_parts.append(f"避けるべき表現: {ctx.company_avoid_terms}")
-    
     company_parts.append("\n※重要: 上記企業情報はテーマに直接関連する場合のみ参考とし、テーマと無関係な内容は一切反映しないでください※")
 
     return "\n".join(company_parts)
