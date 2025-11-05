@@ -335,14 +335,15 @@ def create_research_synthesizer_instructions(base_prompt: str) -> Callable[[RunC
 ---
 
 **重要:**
-- 上記の詳細なリサーチ結果全体を分析し、記事執筆に役立つように情報を統合・要約してください。
-- 以下の要素を含む**実用的で詳細なリサーチレポート**を作成してください:
-    - `overall_summary`: リサーチ全体から得られた主要な洞察やポイントの要約。
-    - `key_points`: 記事に含めるべき重要なポイントや事実をリスト形式で記述し、各ポイントについて**それを裏付ける情報源URL (`supporting_sources`)** を `KeyPoint` 形式で明確に紐付けてください。
-    - `interesting_angles`: 記事を面白くするための切り口や視点のアイデアのリスト形式。
-    - `all_sources`: 参照した全ての情報源URLのリスト（重複削除済み、可能であれば重要度順）。
-- レポートは論文調ではなく、記事作成者がすぐに使えるような分かりやすい言葉で記述してください。
-- あなたの応答は必ず `ResearchReport` 型のJSON形式で出力してください。
+- 収集した情報を統合し、記事の執筆者がすぐに利用できる実務的なリサーチレポートを**日本語の文章**で作成してください。JSONやコードブロック、テーブル形式は使用しないでください。
+- レポートは以下の流れを必ず含めてください（各段落は自然文で記述）:
+  1. 「【総括】」から始め、最重要な洞察と全体の方向性を2〜3文で要約する。
+  2. アウトライン（または推奨構成）に紐づく形で、「【セクション名】」のような角括弧付きの行を見出し代わりに使い、その下で背景情報・読者の課題・使える具体的事実・推奨する論点をまとめる。
+  3. 最新データや統計を引用する際は、「2025年の○○調査では〜」「経済産業省の発表によると〜」のように出典を文章内で説明し、URLは記載しない。
+  4. 情報が不足している箇所や追加調査が必要な場合は、「【追加調査候補】」セクションを設けて簡潔に記録する。
+- 見出し以外で箇条書きを用いる場合は、Markdownではなく「・」などの記号を使ってください。
+- 出典が信頼できるかを必ずコメントし、不確実な情報には注意書きを添えてください。
+- 出力するレポートはテキストのみとし、リンクやJSON構造を含めないでください。
 """
         return full_prompt
     return dynamic_instructions_func
@@ -414,9 +415,9 @@ def create_research_instructions(base_prompt: str) -> Callable[[RunContextWrappe
                 if is_outline_first:
                     outline_focus_block = (
                         "\n**アウトライン先行フロー専用指示（必ず遵守）**\n"
-                        "- 上記アウトラインの各セクションを補強する情報を最優先で集め、内部で設計する検索クエリと収集するkey_pointsには対応する見出し名を明記してください。\n"
+                        "- 上記アウトラインの各セクションを補強する情報を最優先で集め、レポートでは該当する見出し名ごとに段落を分けて整理してください。\n"
                         "- アウトラインに存在しないトピックや推測情報を追加しないでください。必要な情報が見つからない場合は、レポート内で不足理由と代替の調査方針を説明してください。\n"
-                        "- `interesting_angles` は既存アウトラインと矛盾せず、差別化に役立つ視点のみを抽出してください。\n"
+                        "- 差別化できる視点や最新トピックは「追加メモ」としてテキストで補足してください。\n"
                     )
 
         # SerpAPI分析結果を含める
@@ -472,19 +473,21 @@ def create_research_instructions(base_prompt: str) -> Callable[[RunContextWrappe
 - 個人ブログやまとめサイト、広告的なコンテンツよりも、**公的機関、学術機関、業界の権威、著名メディア**からの情報を優先して選択してください。
 - 検索結果全体の**簡潔な要約 (summary)** も生成してください。
 - **`save_research_snippet` ツールは使用しないでください。**
+- 抽出した事実を引用する際は、出典を文章内で説明し、URLはメモに残すのみとし、最終レポートには掲載しないでください。
 
 **重要なリサーチ結果要約指針:**
-- 上記の詳細なリサーチ結果全体を分析し、記事執筆に役立つように情報を統合・要約してください。
-- 以下の要素を含む**実用的で詳細なリサーチレポート**を作成してください:
-    - `overall_summary`: リサーチ全体から得られた主要な洞察やポイントの要約。
-    - `key_points`: 記事に含めるべき重要なポイントや事実をリスト形式で記述し、各ポイントについて**それを裏付ける情報源URL (`supporting_sources`)** を `KeyPoint` 形式で明確に紐付けてください。
-    - `interesting_angles`: 記事を面白くするための切り口や視点のアイデアのリスト形式。
-    - `all_sources`: 参照した全ての情報源URLのリスト（重複削除済み、可能であれば重要度順）。
-- レポートは論文調ではなく、記事作成者がすぐに使えるような分かりやすい言葉で記述してください。
-- あなたの応答は必ず `ResearchReport` 型のJSON形式で出力してください。
+- 収集したすべての知見を統合し、記事執筆に必要な文脈・データ・注意点を**自然文のみ**で整理してください。JSONやコードブロック、Markdownテーブルは使用禁止です。
+- レポート構成は必ず以下の順序にしてください：
+  1. 「【総括】」でテーマ全体の結論・成功条件・読者へのメッセージを短くまとめる。
+  2. 「【セクション名】」の形式でアウトライン（または想定される大枠）ごとに段落を設け、背景説明・読者課題・根拠データ・示唆を文章で記載する。
+  3. 差別化できる視点や季節/時事要素があれば「【追加メモ】」で補足する。
+  4. 見つからなかった情報や確認が必要な点は「【追加調査候補】」に記録する。
+- URLを含めず、出典は「2025年○月○日時点の◯◯省データ」など文章で説明してください。
+- 数値や引用に不確実性がある場合はその旨を明確に記載してください。
+- 最終的な出力はテキストのみとし、JSON構造やキーバリュー形式を含めないでください。
 
 検索クエリの作成、リサーチの実行はすべて上記の指針に従って厳格に行い、内部で実行してください。
-出力は必ず `ResearchReport` 型のJSON形式のみで行ってください。
+最終回答はテキストレポートのみを返してください。
 
 """
         return full_prompt
@@ -506,12 +509,14 @@ def create_outline_instructions(base_prompt: str) -> Callable[[RunContextWrapper
         # フロー設定に応じてリサーチ結果を処理
         from app.core.config import settings
         if hasattr(ctx.context, 'research_report') and ctx.context.research_report:
-            research_summary = ctx.context.research_report.overall_summary
-            sources_count = len(ctx.context.research_report.all_sources)
+            raw_report_text = (ctx.context.research_report.report_text or "").strip()
+            if raw_report_text:
+                research_summary = raw_report_text if len(raw_report_text) <= 2000 else f"{raw_report_text[:2000]}..."
+            else:
+                research_summary = "リサーチレポート本文が空です。テーマとキーワードをもとに構成案を作成してください。"
         else:
             # reorderedフローでは研究レポートがまだ存在しない場合
             research_summary = "まだリサーチが実行されていません。テーマとキーワードに基づいてアウトラインを作成してください。"
-            sources_count = 0
         # 企業情報（拡張）
         company_info_block = f"""
 
@@ -569,7 +574,6 @@ def create_outline_instructions(base_prompt: str) -> Callable[[RunContextWrapper
 {seo_structure_guidance}
 --- 詳細なリサーチ結果 ---
 {research_summary}
-参照した全情報源URL数: {sources_count}
 ---
 
 --- アウトライン構造の要件 ---
@@ -705,10 +709,11 @@ def create_section_writer_with_images_instructions(base_prompt: str) -> Callable
 
         outline_context = "\n".join(format_outline_sections(ctx.context.generated_outline.sections))
 
-        research_context_str = f"リサーチ要約: {ctx.context.research_report.overall_summary}\n"
-        research_context_str += "主要なキーポイント:\n"
-        for kp in ctx.context.research_report.key_points:
-            research_context_str += f"- {kp.point}\n"
+        research_report_text = (ctx.context.research_report.report_text or "").strip()
+        if not research_report_text:
+            raise ValueError("リサーチレポート本文が空です。")
+        truncated_report = research_report_text if len(research_report_text) <= 4000 else f"{research_report_text[:4000]}..."
+        research_context_str = f"=== リサーチレポート抜粋 ===\n{truncated_report}\n"
 
         # 企業情報（拡張）とスタイルガイドコンテキスト
         company_info_str = build_enhanced_company_context(ctx.context)
@@ -925,10 +930,11 @@ def create_section_writer_instructions(base_prompt: str) -> Callable[[RunContext
 
         outline_context = "\n".join(format_outline_sections(ctx.context.generated_outline.sections))
 
-        research_context_str = f"リサーチ要約: {ctx.context.research_report.overall_summary}\n"
-        research_context_str += "主要なキーポイント:\n"
-        for kp in ctx.context.research_report.key_points:
-            research_context_str += f"- {kp.point}\n"
+        research_report_text = (ctx.context.research_report.report_text or "").strip()
+        if not research_report_text:
+            raise ValueError("リサーチレポート本文が空です。")
+        truncated_report = research_report_text if len(research_report_text) <= 4000 else f"{research_report_text[:4000]}..."
+        research_context_str = f"=== リサーチレポート抜粋 ===\n{truncated_report}\n"
 
         # 拡張された会社情報コンテキストを使用
         company_info_str = build_enhanced_company_context(ctx.context)
@@ -1037,10 +1043,11 @@ def create_editor_instructions(base_prompt: str) -> Callable[[RunContextWrapper[
             raise ValueError("編集のための詳細なペルソナが選択されていません。")
         persona_description = ctx.context.selected_detailed_persona
 
-        research_context_str = f"リサーチ要約: {ctx.context.research_report.overall_summary}\n"
-        research_context_str += "主要なキーポイント:\n"
-        for kp in ctx.context.research_report.key_points:
-            research_context_str += f"- {kp.point}\n"
+        research_report_text = (ctx.context.research_report.report_text or "").strip()
+        if not research_report_text:
+            raise ValueError("リサーチレポート本文が空です。")
+        truncated_report = research_report_text if len(research_report_text) <= 4000 else f"{research_report_text[:4000]}..."
+        research_context_str = f"=== リサーチレポート抜粋 ===\n{truncated_report}\n"
 
         # 拡張された会社情報コンテキストを使用
         company_info_str = build_enhanced_company_context(ctx.context)
@@ -1394,7 +1401,7 @@ research_synthesizer_agent = Agent[ArticleContext](
     instructions=create_research_synthesizer_instructions(RESEARCH_SYNTHESIZER_AGENT_BASE_PROMPT),
     model=settings.research_model,
     tools=[],
-    output_type=ResearchReport, # 修正: ResearchReportを返す
+    output_type=str,
 )
 
 # 5. アウトライン作成エージェント
@@ -1540,7 +1547,7 @@ research_agent = Agent[ArticleContext](
     model=settings.research_model,
     model_settings=ModelSettings(max_tokens=32768, tool_choice="required"),  # 最大出力トークン数設定 + web検索強制
     tools=[web_search_tool],
-    output_type=ResearchReport, 
+    output_type=str,
 )
 
 # LiteLLMエージェント生成関数 (APIでは直接使わないかもしれないが、念のため残す)

@@ -995,9 +995,21 @@ class GenerationFlowManager:
                              SerpKeywordAnalysisReport, ArticleSectionWithImages)):
             return output
         elif isinstance(output, str):
-            # SectionWriterAgent and EditorAgent return HTML directly, not JSON
+            # 特殊ケース: HTMLやテキスト文字列をそのまま使用するエージェント
             if agent.name in ["SectionWriterAgent", "EditorAgent"]:
                 return output
+            # リサーチエージェントは自由記述のテキストレポートを返す
+            if agent.name in ["ResearchAgent", "ResearchSynthesizerAgent"]:
+                cleaned_output = output.strip()
+                if not cleaned_output:
+                    raise ModelBehaviorError(f"{agent.name} returned an empty research report.")
+                try:
+                    return ResearchReport(
+                        report_text=cleaned_output
+                    )
+                except ValidationError as validation_error:
+                    console.print(f"[yellow]警告: リサーチレポートの構造変換に失敗しました: {validation_error}[/yellow]")
+                    raise ModelBehaviorError(f"Failed to validate research report output: {validation_error}") from validation_error
             
             try:
                 parsed_output = json.loads(output)
@@ -1564,7 +1576,12 @@ class GenerationFlowManager:
         agent_output = await self.run_agent(current_agent, agent_input, context, run_config)
 
         if isinstance(agent_output, ResearchReport):
-            context.research_report = agent_output
+            topic_title = context.selected_theme.title if context.selected_theme else None
+            report_with_topic = ResearchReport(
+                topic=topic_title,
+                report_text=agent_output.report_text
+            )
+            context.research_report = report_with_topic
             console.print("[cyan]リサーチ報告書が完成しました。[/cyan]")
             
             # Publish research synthesis completion event for Supabase Realtime
@@ -1578,8 +1595,8 @@ class GenerationFlowManager:
                     'p_event_data': {
                         'step': 'research_synthesizing',
                         'message': 'Research synthesis completed successfully',
-                        'report_summary': getattr(agent_output, 'summary', ''),
-                        'key_findings_count': len(getattr(agent_output, 'key_findings', [])),
+                        'report_summary': agent_output.report_text[:200] + ("..." if len(agent_output.report_text) > 200 else ""),
+                        'key_findings_count': 0,
                         'timestamp': datetime.now(timezone.utc).isoformat()
                     },
                     'p_event_category': 'step_completion',
@@ -1595,23 +1612,11 @@ class GenerationFlowManager:
             context.current_step = "outline_generating"
             
             if context.websocket:
-                from app.domains.seo_article.schemas import ResearchReportData, KeyPointData
-                
-                # Convert research report to the expected format
-                key_points = []
-                if hasattr(agent_output, 'key_findings') and agent_output.key_findings:
-                    for finding in agent_output.key_findings:
-                        key_points.append(KeyPointData(
-                            point=finding if isinstance(finding, str) else str(finding),
-                            supporting_sources=[]  # Will be empty for now
-                        ))
+                from app.domains.seo_article.schemas import ResearchReportData
                 
                 report_data = ResearchReportData(
                     topic=context.selected_theme.title if context.selected_theme else "Research Topic",
-                    overall_summary=getattr(agent_output, 'summary', ''),
-                    key_points=key_points,
-                    interesting_angles=[],  # Will be empty for now  
-                    all_sources=[]  # Will be empty for now
+                    report_text=report_with_topic.report_text
                 )
                 
                 await self.service.utils.send_server_event(context, ResearchCompletePayload(
@@ -1663,7 +1668,12 @@ class GenerationFlowManager:
             agent_output = await self.run_agent(research_agent, agent_input, context, run_config)
             
             if isinstance(agent_output, ResearchReport):
-                context.research_report = agent_output
+                topic_title = context.selected_theme.title if context.selected_theme else None
+                report_with_topic = ResearchReport(
+                    topic=topic_title,
+                    report_text=agent_output.report_text
+                )
+                context.research_report = report_with_topic
                 console.print("[green]✓ リサーチが完了しました[/green]")
                 
                 # リサーチ完了イベントの発行
@@ -1677,9 +1687,9 @@ class GenerationFlowManager:
                         'p_event_data': {
                             'step': 'research',
                             'message': 'Research completed successfully',
-                            'report_summary': getattr(agent_output, 'overall_summary', ''),
-                            'key_points_count': len(getattr(agent_output, 'key_points', [])),
-                            'sources_count': len(getattr(agent_output, 'all_sources', [])),
+                            'report_summary': agent_output.report_text[:200] + ("..." if len(agent_output.report_text) > 200 else ""),
+                            'key_points_count': 0,
+                            'sources_count': 0,
                             'timestamp': datetime.now(timezone.utc).isoformat()
                         },
                         'p_event_category': 'step_completion',
@@ -1721,31 +1731,17 @@ class GenerationFlowManager:
                 
                 # WebSocket経由でレポートを送信
                 if context.websocket:
-                    from app.domains.seo_article.schemas import ResearchReportData, KeyPointData
-                    
-                    key_points = []
-                    if hasattr(agent_output, 'key_points') and agent_output.key_points:
-                        for point in agent_output.key_points:
-                            if hasattr(point, 'point'):
-                                key_points.append(KeyPointData(
-                                    point=point.point,
-                                    supporting_sources=getattr(point, 'supporting_sources', [])
-                                ))
-                            else:
-                                key_points.append(KeyPointData(
-                                    point=str(point),
-                                    supporting_sources=[]
-                                ))
+                    from app.domains.seo_article.schemas import ResearchReportData
                     
                     report_data = ResearchReportData(
                         topic=context.selected_theme.title if context.selected_theme else "Research Topic",
-                        overall_summary=getattr(agent_output, 'overall_summary', ''),
-                        key_points=key_points,
-                        interesting_angles=getattr(agent_output, 'interesting_angles', []),
-                        all_sources=getattr(agent_output, 'all_sources', [])
+                        report_text=agent_output.report_text
                     )
-                    await self.service.utils.send_server_event(context, report_data)
-                    
+                    await self.service.utils.send_server_event(
+                        context,
+                        ResearchCompletePayload(report=report_data)
+                    )
+                
             else:
                 console.print(f"[red]リサーチ中に予期しないエージェント出力タイプを受け取りました: {type(agent_output)}[/red]")
                 context.current_step = "error"
@@ -2159,28 +2155,21 @@ class GenerationFlowManager:
         agent_output = await self.run_agent(current_agent, agent_input, context, run_config)
 
         if isinstance(agent_output, ResearchReport):
-            context.research_report = agent_output
+            topic_title = context.selected_theme.title if context.selected_theme else None
+            report_with_topic = ResearchReport(
+                topic=topic_title,
+                report_text=agent_output.report_text
+            )
+            context.research_report = report_with_topic
             context.current_step = "research_report_generated"
             console.print("[green]リサーチレポートを生成しました。[/green]")
             
             # WebSocketでレポートを送信（承認は求めず、情報提供のみ）
-            from app.domains.seo_article.schemas import ResearchReportData, KeyPointData
-            
-            # Convert research report to the expected format
-            key_points = []
-            if hasattr(agent_output, 'key_findings') and agent_output.key_findings:
-                for finding in agent_output.key_findings:
-                    key_points.append(KeyPointData(
-                        point=finding if isinstance(finding, str) else str(finding),
-                        supporting_sources=[]  # Will be empty for now
-                    ))
+            from app.domains.seo_article.schemas import ResearchReportData
             
             report_data = ResearchReportData(
                 topic=context.selected_theme.title if context.selected_theme else "Research Topic",
-                overall_summary=getattr(agent_output, 'summary', ''),
-                key_points=key_points,
-                interesting_angles=[],  # Will be empty for now  
-                all_sources=[]  # Will be empty for now
+                report_text=report_with_topic.report_text
             )
             
             await self.service.utils.send_server_event(context, ResearchCompletePayload(

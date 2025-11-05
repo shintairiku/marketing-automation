@@ -117,16 +117,15 @@ class ResearchProgressPayload(BasePayload):
     total_queries: int = Field(description="総クエリ数")
     query: str = Field(description="実行中のクエリ文字列")
 
-class KeyPointData(BaseModel):
-    point: str
-    supporting_sources: List[str]
-
 class ResearchReportData(BaseModel):
-    topic: str
-    overall_summary: str
-    key_points: List[KeyPointData]
-    interesting_angles: List[str]
-    all_sources: List[str]
+    """リサーチエージェントが返す自由記述レポート
+
+    これまでの構造化JSONではなく、アウトラインに沿って執筆者が参照できる
+    テキストコンテンツを格納する。
+    """
+    topic: Optional[str] = Field(default=None, description="レポート対象のテーマタイトル。")
+    report_text: str = Field(description="アウトライン各セクションの執筆に活用するための自由記述レポート本文。")
+    model_config = ConfigDict(extra='ignore')
 
 class ResearchCompletePayload(BasePayload):
     """リサーチ完了ペイロード (情報提供用)"""

@@ -451,7 +451,7 @@
                  disableInteractionElements(true); // Keep disabled during research
             }
              // 7. Check for Research Complete (Report generated)
-            else if (payload.report && payload.report.overall_summary !== undefined) {
+            else if (payload.report && payload.report.report_text !== undefined) {
                  logMessage(`リサーチ完了。レポート生成。(Research complete. Report generated.)`, 'info');
                  disableInteractionElements(true); // Keep disabled before outline generation/approval
             }

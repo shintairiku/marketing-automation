@@ -431,23 +431,7 @@ async def handle_research_synthesizing_step(self, context: ArticleContext, run_c
 ```json
 {
   "topic": "札幌で子育て世代が選ぶべき自然素材注文住宅",
-  "overall_summary": "札幌の自然素材注文住宅市場では、厳しい冬の気候に対応した高断熱性能と、子育て世代の健康志向に応える自然素材の使用が重要なポイントとなっている。",
-  "key_points": [
-    {
-      "point": "札幌の気候に適した断熱材の選択",
-      "supporting_sources": ["断熱材メーカーA社の技術資料", "札幌市建築指導課のガイドライン"]
-    },
-    {
-      "point": "自然素材の健康効果と安全性",
-      "supporting_sources": ["健康住宅研究所の調査結果", "小児科医の見解"]
-    }
-  ],
-  "interesting_angles": [
-    "札幌特有の積雪対応設計",
-    "光熱費削減効果の具体的データ",
-    "子供のアレルギー症状改善事例"
-  ],
-  "all_sources": ["https://example1.com", "https://example2.com"]
+  "report_text": "【総括】札幌の子育て世代が自然素材の注文住宅を選ぶ際は、厳しい冬に対応した断熱性能と家族の健康志向を両立させることが欠かせない。2025年時点で札幌市が公表している省エネ住宅の補助制度も活用できる。\n【H2 自然素材の必須条件】札幌市建築指導課の最新ガイドラインでは、羊毛断熱材やセルロースファイバーなど調湿性に優れた素材を推奨。小児科医の調査では揮発性有機化合物（VOC）が少ない住環境が子どもの呼吸器疾患リスクを下げるとの報告がある。\n【H2 断熱・気密と光熱費】北海道立北方建築総合研究所の2024年レポートによると、UA値0.3以下の高断熱住宅は従来住宅よりも年間光熱費を約25%削減できる。断熱性能と24時間換気のバランスを取る施工事例をレポートにまとめる。\n【追加メモ】札幌の雪害対策として屋根勾配や融雪設備に関する自治体助成金が2025年も継続予定。"
 }
 ```
 
@@ -471,7 +455,7 @@ async def handle_outline_generating_step(self, context: ArticleContext, run_conf
     {company_context}
     {style_context}
     
-    リサーチレポート: {context.research_report.overall_summary}
+    リサーチレポート冒頭: {context.research_report.report_text[:160]}...
     
     上記の情報を基に、SEOに最適化された詳細なアウトラインを作成してください。
     """

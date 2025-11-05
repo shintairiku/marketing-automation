@@ -402,16 +402,9 @@ class ResearchQueryResult(BaseModel):
     results: List[SourceSnippet] = Field(default_factory=list, description="抽出情報")
     summary: Optional[str] = Field(None, description="結果サマリー")
 
-class KeyPointData(BaseModel):
-    point: str
-    supporting_sources: List[str]
-
 class ResearchReportData(BaseModel):
-    topic: str
-    overall_summary: str
-    key_points: List[KeyPointData]
-    interesting_angles: List[str]
-    all_sources: List[str]
+    topic: Optional[str]
+    report_text: str
 ```
 
 ### 5. 記事構造モデル
