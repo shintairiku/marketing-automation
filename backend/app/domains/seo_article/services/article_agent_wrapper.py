@@ -147,6 +147,141 @@ class ArticleAgentSession:
         self._text_delta_buffers: Dict[Tuple[int, int], str] = {}
         self._assistant_outputs: List[str] = []
 
+    def _build_reference_context_block(self) -> str:
+        reference = self.article_metadata.get("agent_reference_context") if self.article_metadata else {}
+        if not reference:
+            return ""
+
+        sections: List[str] = []
+
+        def add_section(title: str, items: List[str]) -> None:
+            lines = [item for item in items if item]
+            if lines:
+                sections.append(f"## {title}\n" + "\n".join(lines))
+
+        theme = reference.get("theme")
+        if isinstance(theme, dict):
+            theme_lines: List[str] = []
+            if theme.get("title"):
+                theme_lines.append(f"- タイトル: {theme['title']}")
+            if theme.get("description"):
+                theme_lines.append(f"- 説明: {theme['description']}")
+            keywords = theme.get("keywords")
+            if keywords:
+                if isinstance(keywords, (list, tuple, set)):
+                    keyword_text = ", ".join(str(k) for k in keywords if k not in (None, ""))
+                else:
+                    keyword_text = str(keywords)
+                if keyword_text:
+                    theme_lines.append(f"- キーワード: {keyword_text}")
+            add_section("テーマ", theme_lines)
+
+        persona_lines: List[str] = []
+        persona_detail = reference.get("persona")
+        if persona_detail:
+            persona_lines.append(f"- 詳細: {persona_detail}")
+        persona_type = reference.get("persona_type")
+        if persona_type:
+            persona_lines.append(f"- ペルソナ区分: {persona_type}")
+        target_age_group = reference.get("target_age_group")
+        if target_age_group:
+            persona_lines.append(f"- 年代: {target_age_group}")
+        target_audience = reference.get("target_audience")
+        if target_audience:
+            persona_lines.append(f"- ターゲット補足: {target_audience}")
+        add_section("想定読者・ペルソナ", persona_lines)
+
+        keywords = reference.get("article_keywords")
+        if keywords:
+            if isinstance(keywords, (list, tuple, set)):
+                keyword_text = ", ".join(str(k) for k in keywords if k not in (None, ""))
+            else:
+                keyword_text = str(keywords)
+            if keyword_text:
+                add_section("記事キーワード", [f"- {keyword_text}"])
+
+        company = reference.get("company")
+        if isinstance(company, dict):
+            label_map = {
+                "company_name": "企業名",
+                "company_description": "概要",
+                "company_website_url": "公式サイト",
+                "company_usp": "強み・専門領域",
+                "company_target_persona": "ターゲットペルソナ",
+                "company_brand_slogan": "ブランドスローガン",
+                "company_style_guide": "スタイルガイド",
+                "company_target_keywords": "重視キーワード",
+                "company_industry_terms": "業界用語",
+                "company_avoid_terms": "避けるべき表現",
+                "company_popular_articles": "人気記事",
+                "company_target_area": "重点エリア",
+            }
+            company_lines: List[str] = []
+            for key, label in label_map.items():
+                value = company.get(key)
+                if not value:
+                    continue
+                if isinstance(value, (list, tuple, set)):
+                    value_str = ", ".join(str(v) for v in value if v not in (None, ""))
+                elif isinstance(value, dict):
+                    value_str = json.dumps(value, ensure_ascii=False)
+                else:
+                    value_str = str(value)
+                if value_str:
+                    company_lines.append(f"- {label}: {value_str}")
+            add_section("企業情報", company_lines)
+
+        style_settings = reference.get("style_template_settings")
+        if isinstance(style_settings, dict) and style_settings:
+            style_lines = [
+                f"- {key}: {value}"
+                for key, value in style_settings.items()
+                if value not in (None, "", [], {})
+            ]
+            add_section("スタイルテンプレート設定", style_lines)
+
+        seo_analysis = reference.get("seo_analysis")
+        if isinstance(seo_analysis, dict) and seo_analysis:
+            seo_lines: List[str] = []
+            if seo_analysis.get("search_query"):
+                seo_lines.append(f"- 検索クエリ: {seo_analysis['search_query']}")
+            if seo_analysis.get("main_themes"):
+                seo_lines.append(
+                    "- 主要テーマ: "
+                    + ", ".join(str(v) for v in seo_analysis["main_themes"] if v not in (None, ""))
+                )
+            if seo_analysis.get("common_headings"):
+                seo_lines.append(
+                    "- 共通見出し: "
+                    + ", ".join(str(v) for v in seo_analysis["common_headings"] if v not in (None, ""))
+                )
+            if seo_analysis.get("content_gaps"):
+                seo_lines.append(
+                    "- コンテンツギャップ: "
+                    + ", ".join(str(v) for v in seo_analysis["content_gaps"] if v not in (None, ""))
+                )
+            if seo_analysis.get("competitive_points"):
+                seo_lines.append(
+                    "- 差別化ポイント: "
+                    + ", ".join(str(v) for v in seo_analysis["competitive_points"] if v not in (None, ""))
+                )
+            if seo_analysis.get("user_intent"):
+                seo_lines.append(f"- 検索意図: {seo_analysis['user_intent']}")
+            if seo_analysis.get("recommended_length"):
+                seo_lines.append(f"- 推奨文字数: {seo_analysis['recommended_length']}文字")
+            add_section("SerpAPI分析サマリー", seo_lines)
+
+        if not sections:
+            return ""
+        return "\n\n".join(sections)
+
+    def _build_dynamic_instructions(self) -> str:
+        base = SEO_CODEX_INSTRUCTIONS.strip()
+        reference_block = self._build_reference_context_block()
+        if not reference_block:
+            return base
+        return f"{base}\n\n# 参照情報\n{reference_block}"
+
     async def initialize(
         self,
         article_content: str,
@@ -191,10 +326,11 @@ class ArticleAgentSession:
 
         # エージェントを作成（SEO記事編集用）
         web_tool = agent_module.create_web_search_tool()
+        dynamic_instructions = self._build_dynamic_instructions()
         self.agent = agent_module.build_text_edit_agent(
             model=settings.article_edit_agent_model,
             tool_choice="auto",
-            instructions=SEO_CODEX_INSTRUCTIONS,
+            instructions=dynamic_instructions,
             include_web_search=True,
             web_search_tool=web_tool,
         )
@@ -509,6 +645,10 @@ class ArticleAgentSession:
                         metadata_json = json.dumps(self.article_metadata, ensure_ascii=False, indent=2)
                         context_lines.append("記事メタデータ:")
                         context_lines.append(metadata_json)
+                    reference_block = self._build_reference_context_block()
+                    if reference_block:
+                        context_lines.append("参照情報:")
+                        context_lines.append(reference_block)
 
                     guidance = (
                         "補足: 編集や修正が必要な場合のみ read_file と apply_patch を使用してください。"
@@ -966,6 +1106,101 @@ class ArticleAgentService:
             raise Exception(f"Article {article_id} not found or access denied")
         return result.data[0]
 
+    def _build_agent_reference_context(self, article: Dict[str, Any]) -> Dict[str, Any]:
+        """記事編集エージェント向けの参照情報を構築"""
+        reference: Dict[str, Any] = {}
+
+        if article.get("keywords"):
+            reference["article_keywords"] = article.get("keywords")
+        if article.get("target_audience"):
+            reference["target_audience"] = article.get("target_audience")
+
+        process_id = article.get("generation_process_id")
+        context_data: Dict[str, Any] = {}
+        if process_id:
+            try:
+                result = (
+                    self.supabase.table("generated_articles_state")
+                    .select("article_context")
+                    .eq("id", process_id)
+                    .limit(1)
+                    .execute()
+                )
+                if result.data:
+                    context_data = result.data[0].get("article_context") or {}
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "Failed to load generation context for process %s: %s",
+                    process_id,
+                    exc,
+                )
+
+        if context_data:
+            theme = context_data.get("selected_theme")
+            if isinstance(theme, dict):
+                reference["theme"] = {
+                    "title": theme.get("title"),
+                    "description": theme.get("description"),
+                    "keywords": theme.get("keywords"),
+                }
+
+            persona_detail = context_data.get("selected_detailed_persona")
+            if persona_detail:
+                reference["persona"] = persona_detail
+
+            persona_type = context_data.get("persona_type")
+            if persona_type:
+                reference["persona_type"] = persona_type
+
+            target_age_group = context_data.get("target_age_group")
+            if target_age_group:
+                reference["target_age_group"] = target_age_group
+
+            company_keys = [
+                "company_name",
+                "company_description",
+                "company_website_url",
+                "company_usp",
+                "company_target_persona",
+                "company_brand_slogan",
+                "company_style_guide",
+                "company_target_keywords",
+                "company_industry_terms",
+                "company_avoid_terms",
+                "company_popular_articles",
+                "company_target_area",
+            ]
+            company_info = {
+                key: context_data.get(key)
+                for key in company_keys
+                if context_data.get(key)
+            }
+            if company_info:
+                reference["company"] = company_info
+
+            style_settings = context_data.get("style_template_settings")
+            if style_settings:
+                reference["style_template_settings"] = style_settings
+
+            serp_report = context_data.get("serp_analysis_report")
+            if isinstance(serp_report, dict):
+                reference["seo_analysis"] = {
+                    "search_query": serp_report.get("search_query"),
+                    "main_themes": serp_report.get("main_themes"),
+                    "common_headings": serp_report.get("common_headings"),
+                    "content_gaps": serp_report.get("content_gaps"),
+                    "user_intent": serp_report.get("user_intent_analysis"),
+                    "recommended_length": serp_report.get("recommended_target_length"),
+                    "competitive_points": serp_report.get("competitive_advantages"),
+                }
+
+            if not reference.get("article_keywords"):
+                initial_keywords = context_data.get("initial_keywords")
+                if initial_keywords:
+                    reference["article_keywords"] = initial_keywords
+
+        return reference
+
     def _pause_other_sessions(
         self,
         article_id: str,
@@ -1111,6 +1346,19 @@ class ArticleAgentService:
             article_record = article_record or self._fetch_article_record(record["article_id"], record["user_id"])
             article_content = article_record.get("content", "")
 
+        # Ensure metadata carries reference context for future runs
+        article_record = article_record or self._fetch_article_record(record["article_id"], record["user_id"])
+        reference_context = self._build_agent_reference_context(article_record)
+        metadata = dict(metadata) if metadata else dict(article_record)
+        if reference_context:
+            metadata["agent_reference_context"] = reference_context
+        if article_record.get("generation_process_id") and not metadata.get("generation_process_id"):
+            metadata["generation_process_id"] = article_record.get("generation_process_id")
+        if article_record.get("keywords") and not metadata.get("keywords"):
+            metadata["keywords"] = article_record.get("keywords")
+        if article_record.get("target_audience") and not metadata.get("target_audience"):
+            metadata["target_audience"] = article_record.get("target_audience")
+
         history_full = self._load_session_messages(session_id)
         history_for_session = [{"role": msg["role"], "content": msg["content"]} for msg in history_full]
 
@@ -1128,6 +1376,10 @@ class ArticleAgentService:
             original_content=original_content,
             conversation_history=history_for_session,
         )
+        try:
+            self._update_session_record(session_id, {"metadata": metadata})
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Failed to persist enriched metadata for session %s: %s", session_id, exc)
         self.sessions[session_id] = session
         return session
 
@@ -1261,6 +1513,10 @@ class ArticleAgentService:
             article = self._fetch_article_record(article_id, user_id)
             article_content = article.get("content", "")
             article_title = article.get("title", "")
+
+            reference_context = self._build_agent_reference_context(article)
+            if reference_context:
+                article = {**article, "agent_reference_context": reference_context}
 
             # pause other sessions before creating a new active one
             self._pause_other_sessions(article_id, user_id)
