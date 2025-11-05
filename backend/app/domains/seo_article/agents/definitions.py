@@ -511,7 +511,12 @@ def create_outline_instructions(base_prompt: str) -> Callable[[RunContextWrapper
         if hasattr(ctx.context, 'research_report') and ctx.context.research_report:
             raw_report_text = (ctx.context.research_report.report_text or "").strip()
             if raw_report_text:
-                research_summary = raw_report_text if len(raw_report_text) <= 2000 else f"{raw_report_text[:2000]}..."
+                research_summary = (
+                    "=== リサーチレポート全文 ===\n"
+                    "<<<RESEARCH_REPORT>>>\n"
+                    f"{raw_report_text}\n"
+                    "<<<END_RESEARCH_REPORT>>>"
+                )
             else:
                 research_summary = "リサーチレポート本文が空です。テーマとキーワードをもとに構成案を作成してください。"
         else:
@@ -712,8 +717,12 @@ def create_section_writer_with_images_instructions(base_prompt: str) -> Callable
         research_report_text = (ctx.context.research_report.report_text or "").strip()
         if not research_report_text:
             raise ValueError("リサーチレポート本文が空です。")
-        truncated_report = research_report_text if len(research_report_text) <= 4000 else f"{research_report_text[:4000]}..."
-        research_context_str = f"=== リサーチレポート抜粋 ===\n{truncated_report}\n"
+        research_context_str = (
+            "=== リサーチレポート全文 ===\n"
+            "<<<RESEARCH_REPORT>>>\n"
+            f"{research_report_text}\n"
+            "<<<END_RESEARCH_REPORT>>>"
+        )
 
         # 企業情報（拡張）とスタイルガイドコンテキスト
         company_info_str = build_enhanced_company_context(ctx.context)
@@ -933,8 +942,12 @@ def create_section_writer_instructions(base_prompt: str) -> Callable[[RunContext
         research_report_text = (ctx.context.research_report.report_text or "").strip()
         if not research_report_text:
             raise ValueError("リサーチレポート本文が空です。")
-        truncated_report = research_report_text if len(research_report_text) <= 4000 else f"{research_report_text[:4000]}..."
-        research_context_str = f"=== リサーチレポート抜粋 ===\n{truncated_report}\n"
+        research_context_str = (
+            "=== リサーチレポート全文 ===\n"
+            "<<<RESEARCH_REPORT>>>\n"
+            f"{research_report_text}\n"
+            "<<<END_RESEARCH_REPORT>>>"
+        )
 
         # 拡張された会社情報コンテキストを使用
         company_info_str = build_enhanced_company_context(ctx.context)
@@ -1046,8 +1059,12 @@ def create_editor_instructions(base_prompt: str) -> Callable[[RunContextWrapper[
         research_report_text = (ctx.context.research_report.report_text or "").strip()
         if not research_report_text:
             raise ValueError("リサーチレポート本文が空です。")
-        truncated_report = research_report_text if len(research_report_text) <= 4000 else f"{research_report_text[:4000]}..."
-        research_context_str = f"=== リサーチレポート抜粋 ===\n{truncated_report}\n"
+        research_context_str = (
+            "=== リサーチレポート全文 ===\n"
+            "<<<RESEARCH_REPORT>>>\n"
+            f"{research_report_text}\n"
+            "<<<END_RESEARCH_REPORT>>>"
+        )
 
         # 拡張された会社情報コンテキストを使用
         company_info_str = build_enhanced_company_context(ctx.context)
