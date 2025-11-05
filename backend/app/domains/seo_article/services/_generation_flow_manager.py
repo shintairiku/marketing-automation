@@ -1923,11 +1923,14 @@ class GenerationFlowManager:
                 console.print(f"[cyan]通常エージェント ({current_agent.name}) を使用します。[/cyan]")
             
             # エージェント実行に必要な情報をコンテキストに設定（会話履歴を活用）
-            user_request = (
-                f"前のセクション（もしあれば）に続けて、アウトラインのセクション {i + 1}"
-                f"「{section.heading}」の内容をHTMLで執筆してください。提供された詳細リサーチ情報を参照し、"
-                f""
-            )
+            user_request_parts = [
+                f"前のセクション（もしあれば）に続けて、アウトラインのセクション {i + 1}「{section.heading}」の内容をHTMLで執筆してください。",
+                "提供された詳細リサーチ情報・企業情報・スタイルガイドを参照し、指定されたトーンに沿った自然な日本語で執筆してください。",
+                "出力はそのセクションのHTML本文のみを含め、追加の説明文や余計な前置きは入れないでください。"
+            ]
+            if is_image_mode:
+                user_request_parts.append("必要に応じて画像プレースホルダーを指定の形式で挿入してください。")
+            user_request = "\n".join(user_request_parts)
             current_input_messages: List[Dict[str, Any]] = list(context.section_writer_history)
             current_input_messages.append({
                 "role": "user",
@@ -3522,11 +3525,14 @@ class GenerationFlowManager:
             
             # Prepare section input using conversation history
             section_title = section.heading if hasattr(section, 'heading') else f"Section {section_index + 1}"
-            user_request = (
-                f"前のセクション（もしあれば）に続けて、アウトラインのセクション {section_index + 1}"
-                f"「{section_title}」の内容をHTMLで執筆してください。提供された詳細リサーチ情報を参照し、"
-                f""
-            )
+            user_request_parts = [
+                f"前のセクション（もしあれば）に続けて、アウトラインのセクション {section_index + 1}「{section_title}」の内容をHTMLで執筆してください。",
+                "提供された詳細リサーチ情報・企業情報・スタイルガイドを参照し、指定されたトーンに沿った自然な日本語で執筆してください。",
+                "出力はそのセクションのHTML本文のみを含め、追加の説明文や余計な前置きは入れないでください。"
+            ]
+            if getattr(context, 'image_mode', False):
+                user_request_parts.append("必要に応じて画像プレースホルダーを指定の形式で挿入してください。")
+            user_request = "\n".join(user_request_parts)
             current_input_messages: List[Dict[str, Any]] = list(context.section_writer_history)
             current_input_messages.append({
                 "role": "user",
