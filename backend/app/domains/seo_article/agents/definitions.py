@@ -1121,6 +1121,35 @@ def create_persona_generator_instructions(base_prompt: str) -> Callable[[RunCont
         elif ctx.context.custom_persona: # 移行措置
             pass
 
+        # SerpAPI分析結果
+        serp_analysis_block = ""
+        if getattr(ctx.context, "serp_analysis_report", None):
+            serp_report = ctx.context.serp_analysis_report
+            analyzed_articles = getattr(serp_report, "analyzed_articles", []) or []
+            recommended_length = getattr(serp_report, "recommended_target_length", None)
+            recommended_length_display = recommended_length if recommended_length is not None else "指定なし"
+
+            def _join(values: Any) -> str:
+                if not values:
+                    return ""
+                if isinstance(values, (list, tuple, set)):
+                    return ", ".join(str(v) for v in values if v not in (None, ""))
+                return str(values)
+
+            serp_analysis_block = f"""
+
+=== SerpAPI競合分析 ===
+検索クエリ: {serp_report.search_query}
+分析記事数: {len(analyzed_articles)}
+推奨文字数: {recommended_length_display}文字
+主要テーマ: {_join(getattr(serp_report, 'main_themes', []) or [])}
+共通見出し: {_join(getattr(serp_report, 'common_headings', []) or [])}
+コンテンツギャップ: {_join(getattr(serp_report, 'content_gaps', []) or [])}
+差別化ポイント: {_join(getattr(serp_report, 'competitive_advantages', []) or [])}
+検索意図: {serp_report.user_intent_analysis}
+戦略推奨: {_join(getattr(serp_report, 'content_strategy_recommendations', []) or [])}
+"""
+
         # 企業情報（拡張）
         company_info_block = f"""
 
@@ -1136,6 +1165,7 @@ SEOキーワード: {', '.join(ctx.context.initial_keywords)}
 ペルソナ属性（大分類）: {ctx.context.persona_type.value if ctx.context.persona_type else '指定なし'}
 （上記属性が「その他」の場合のユーザー指定ペルソナ: {ctx.context.custom_persona if ctx.context.persona_type == PersonaType.OTHER else '該当なし'}）
 生成する具体的なペルソナの数: {ctx.context.num_persona_examples}
+{serp_analysis_block}
 {company_info_block}
 ---
 
