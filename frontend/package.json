@@ -7,6 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
+    "test:e2e": "playwright test",
     "stripe:listen": "stripe listen --forward-to=localhost:3000/api/webhooks",
     "generate-types": "npx supabase gen types typescript --project-id wptklzekgtduiluwzhap --schema public > src/libs/supabase/types.ts",
     "supabase:link": "env-cmd -f ./.env.local supabase link --project-ref wptklzekgtduiluwzhap",
@@ -71,9 +72,11 @@
     "zod": "^3.24.1"
   },
   "devDependencies": {
+    "@playwright/test": "^1.56.1",
     "@types/react": "19.0.4",
     "@types/react-dom": "19.0.2",
     "autoprefixer": "^10.4.20",
+    "dotenv": "^17.2.3",
     "env-cmd": "^10.1.0",
     "eslint": "^8.57.1",
     "eslint-config-next": "^15.1.4",
