@@ -48,7 +48,15 @@ async def get_company(
     current_user_id: str = Depends(get_current_user_id)
 ):
     """特定の会社情報を取得"""
-    return await CompanyService.get_company_by_id(company_id, current_user_id)
+    company = await CompanyService.get_company_by_id(company_id, current_user_id)
+
+    if not company:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="会社情報が見つかりません"
+        )
+            
+    return company
 
 @router.put("/{company_id}", response_model=CompanyInfoResponse)
 async def update_company(
@@ -57,7 +65,13 @@ async def update_company(
     current_user_id: str = Depends(get_current_user_id)
 ):
     """会社情報を更新"""
-    return await CompanyService.update_company(company_id, company_data, current_user_id)
+    company = await CompanyService.update_company(company_id, company_data, current_user_id)
+    if not company:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="会社情報が見つかりません"
+        )
+    return company
 
 @router.delete("/{company_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_company(
@@ -65,7 +79,12 @@ async def delete_company(
     current_user_id: str = Depends(get_current_user_id)
 ):
     """会社情報を削除"""
-    await CompanyService.delete_company(company_id, current_user_id)
+    company = await CompanyService.delete_company(company_id, current_user_id)
+    if not company:
+        raise HTTPException(   
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="会社情報が見つかりません"
+            )
 
 @router.post("/set-default", response_model=CompanyInfoResponse)
 async def set_default_company(
@@ -73,4 +92,10 @@ async def set_default_company(
     current_user_id: str = Depends(get_current_user_id)
 ):
     """デフォルト会社を設定"""
-    return await CompanyService.set_default_company(request, current_user_id)
+    company = await CompanyService.set_default_company(request, current_user_id)
+    if not company:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="会社情報が見つかりません"
+        )
+    return company
