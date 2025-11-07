@@ -664,8 +664,8 @@ class SerpAPIService:
             
             result = {
                 "title": title,
-                "headings": classified_final_headings[:30],
-                "content": content_text.strip()[:10000],
+                "headings": classified_final_headings,
+                "content": content_text.strip(),
                 "char_count": char_count,
                 "image_count": image_count,
                 # ★ 新しいフィールド

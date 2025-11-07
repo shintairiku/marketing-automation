@@ -446,27 +446,8 @@ class GenerationFlowManager:
 
     def create_theme_agent_input(self, context: ArticleContext) -> str:
         """テーマエージェント用の入力を作成"""
-        agent_input_base = f"キーワード「{', '.join(context.initial_keywords)}」と、以下のペルソナに基づいて、{context.num_theme_proposals}個のテーマ案を生成してください。\\n\\nペルソナ詳細:\\n{context.selected_detailed_persona}"
-        
-        # SerpAPI分析結果がある場合は、競合情報とSEO戦略を追加
-        if context.serp_analysis_report:
-            seo_context = f"""
-
-\\n\\n=== SEO分析結果（競合記事分析） ===
-検索クエリ: {context.serp_analysis_report.search_query}
-分析記事数: {len(context.serp_analysis_report.analyzed_articles)}
-推奨文字数: {context.serp_analysis_report.recommended_target_length}文字
-
-主要テーマ（競合で頻出）: {', '.join(context.serp_analysis_report.main_themes)}
-共通見出しパターン: {', '.join(context.serp_analysis_report.common_headings[:5])}
-コンテンツギャップ（差別化チャンス）: {', '.join(context.serp_analysis_report.content_gaps)}
-競合優位性のポイント: {', '.join(context.serp_analysis_report.competitive_advantages)}
-
-ユーザー検索意図: {context.serp_analysis_report.user_intent_analysis}
-
-\\n上記の競合分析結果を活用し、検索上位を狙えるかつ差別化されたテーマを提案してください。"""
-            return agent_input_base + seo_context
-        return agent_input_base
+        agent_input = f"キーワード「{', '.join(context.initial_keywords)}」と、以下のペルソナに基づいて、{context.num_theme_proposals}個のテーマ案を生成してください。\\n\\nペルソナ詳細:\\n{context.selected_detailed_persona}"
+        return agent_input
 
     async def handle_theme_proposal_result(self, context: ArticleContext, agent_output: ThemeProposal, process_id: Optional[str] = None, user_id: Optional[str] = None):
         """テーマ提案結果の処理"""
@@ -1942,11 +1923,14 @@ class GenerationFlowManager:
                 console.print(f"[cyan]通常エージェント ({current_agent.name}) を使用します。[/cyan]")
             
             # エージェント実行に必要な情報をコンテキストに設定（会話履歴を活用）
-            user_request = (
-                f"前のセクション（もしあれば）に続けて、アウトラインのセクション {i + 1}"
-                f"「{section.heading}」の内容をHTMLで執筆してください。提供された詳細リサーチ情報を参照し、"
-                f""
-            )
+            user_request_parts = [
+                f"前のセクション（もしあれば）に続けて、アウトラインのセクション {i + 1}「{section.heading}」の内容をHTMLで執筆してください。",
+                "提供された詳細リサーチ情報・企業情報・スタイルガイドを参照し、指定されたトーンに沿った自然な日本語で執筆してください。",
+                "出力はそのセクションのHTML本文のみを含め、追加の説明文や余計な前置きは入れないでください。"
+            ]
+            if is_image_mode:
+                user_request_parts.append("必要に応じて画像プレースホルダーを指定の形式で挿入してください。")
+            user_request = "\n".join(user_request_parts)
             current_input_messages: List[Dict[str, Any]] = list(context.section_writer_history)
             current_input_messages.append({
                 "role": "user",
@@ -3541,11 +3525,14 @@ class GenerationFlowManager:
             
             # Prepare section input using conversation history
             section_title = section.heading if hasattr(section, 'heading') else f"Section {section_index + 1}"
-            user_request = (
-                f"前のセクション（もしあれば）に続けて、アウトラインのセクション {section_index + 1}"
-                f"「{section_title}」の内容をHTMLで執筆してください。提供された詳細リサーチ情報を参照し、"
-                f""
-            )
+            user_request_parts = [
+                f"前のセクション（もしあれば）に続けて、アウトラインのセクション {section_index + 1}「{section_title}」の内容をHTMLで執筆してください。",
+                "提供された詳細リサーチ情報・企業情報・スタイルガイドを参照し、指定されたトーンに沿った自然な日本語で執筆してください。",
+                "出力はそのセクションのHTML本文のみを含め、追加の説明文や余計な前置きは入れないでください。"
+            ]
+            if getattr(context, 'image_mode', False):
+                user_request_parts.append("必要に応じて画像プレースホルダーを指定の形式で挿入してください。")
+            user_request = "\n".join(user_request_parts)
             current_input_messages: List[Dict[str, Any]] = list(context.section_writer_history)
             current_input_messages.append({
                 "role": "user",
