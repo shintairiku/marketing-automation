@@ -199,7 +199,9 @@ class ArticleGenerationService:
                 flow_type=request_dict.get("flow_type", "research_first"),  # フロー設定を追加
                 websocket=None,  # Background mode
                 user_response_event=None,  # Background mode
-                user_id=user_id
+                user_id=user_id,
+                auto_decision_mode=request_dict.get("auto_decision_mode", False),
+                disable_realtime_events=request_dict.get("disable_realtime_events", False),
             )
             logger.info(f"✅ [CREATE_PROCESS] ArticleContext created, current_step: {context.current_step}")
 

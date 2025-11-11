@@ -134,6 +134,11 @@ class ArticleContext:
     user_id: Optional[str] = None # ユーザーID (認証から取得)
     process_id: Optional[str] = None # プロセスID (記事生成セッション識別用)
 
+    # --- オートモード & オブザーバビリティ ---
+    auto_decision_mode: bool = False  # 評価やバッチ実行でユーザー入力を自動承認するか
+    disable_realtime_events: bool = False  # Supabaseイベント/RPCを抑制するか
+    observability: Dict[str, Any] = field(default_factory=dict)
+
     # --- 以下、既存のメソッド ---
     def get_full_draft(self) -> str:
         return "\n".join(self.generated_sections_html)

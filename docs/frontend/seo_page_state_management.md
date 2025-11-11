@@ -97,6 +97,14 @@ export interface GenerationState {
   // 画像生成機能
   imageMode?: boolean;
   imagePlaceholders?: ImagePlaceholder[];
+
+  // オブザーバビリティリンク
+  observability?: {
+    weave?: {
+      traceId?: string;
+      traceUrl?: string;
+    }
+  };
 }
 
 export interface GenerationStep {

@@ -389,7 +389,8 @@ export default function GenerationProcessPage({ jobId }: GenerationProcessPagePr
                             sectionsProgress={state.sectionsProgress}
                             imageMode={state.imageMode}
                             imagePlaceholders={state.imagePlaceholders}
-                            completedSections={state.completedSections}
+                        completedSections={state.completedSections}
+                        observability={state.observability}
                         />
 
                         {/* ユーザーインタラクション */}

@@ -233,6 +233,7 @@ export default function IndexPage() {
                             outline={state.outline}
                             researchProgress={state.researchProgress}
                             sectionsProgress={state.sectionsProgress}
+                            observability={state.observability}
                         />
 
                         {/* ユーザーインタラクション */}

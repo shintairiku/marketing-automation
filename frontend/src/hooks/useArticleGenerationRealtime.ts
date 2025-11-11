@@ -105,6 +105,7 @@ export const useArticleGenerationRealtime = ({
     sectionsProgress: undefined,
     completedSections: [],
     imagePlaceholders: [],
+    observability: undefined,
   });
 
   // Atomic state validation to prevent inconsistent states
@@ -409,6 +410,19 @@ export const useArticleGenerationRealtime = ({
         } else {
           next.outline = outline;
         }
+      }
+      
+      const weaveMeta = ctx?.observability?.weave || data.process_metadata?.observability?.weave;
+      if (weaveMeta) {
+        next.observability = {
+          ...next.observability,
+          weave: {
+            traceId: weaveMeta.trace_id ?? weaveMeta.traceId,
+            traceUrl: weaveMeta.trace_url ?? weaveMeta.traceUrl ?? weaveMeta.project_url,
+            projectUrl: weaveMeta.project_url ?? weaveMeta.projectUrl,
+            tags: weaveMeta.tags ?? [],
+          },
+        };
       }
       
       if (!next.isInitialized && next.steps.length > 0) {

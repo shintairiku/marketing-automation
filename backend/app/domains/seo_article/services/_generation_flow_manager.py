@@ -4,6 +4,7 @@ import json
 import time
 import traceback
 import logging
+import uuid
 from datetime import datetime, timezone
 from typing import List, Dict, Any, Optional, Union
 from openai import BadRequestError, AuthenticationError
@@ -43,6 +44,7 @@ from app.domains.seo_article.agents.definitions import (
     section_writer_with_images_agent,
     research_agent  # 統一版リサーチエージェント
 )
+from app.core.observability.weave_integration import build_weave_metadata_stub
 
 console = Console()
 logger = logging.getLogger(__name__)
@@ -122,56 +124,87 @@ def safe_custom_span(name: str, data: dict[str, Any] | None = None):
         from contextlib import nullcontext
         return nullcontext()
 
+
+def is_auto_mode(context: ArticleContext) -> bool:
+    """自動意思決定モードかどうか"""
+    return bool(getattr(context, "auto_decision_mode", False))
+
 class GenerationFlowManager:
     """記事生成フローの管理とエージェントの実行を担当するクラス"""
     
     def __init__(self, service):
         self.service = service  # ArticleGenerationServiceへの参照
         
+    def should_emit_realtime(self, context: ArticleContext, process_id: Optional[str], user_id: Optional[str]) -> bool:
+        """SupabaseイベントやRPCを発火させるか判定"""
+        if getattr(context, "disable_realtime_events", False):
+            return False
+        resolved_process_id = process_id or getattr(context, "process_id", None)
+        resolved_user_id = user_id or getattr(context, "user_id", None)
+        return bool(resolved_process_id and resolved_user_id)
+        
     async def run_generation_loop(self, context: ArticleContext, run_config: RunConfig, process_id: Optional[str] = None, user_id: Optional[str] = None):
         """記事生成のメインループ（WebSocketインタラクティブ版）"""
+
+        resolved_process_id = process_id or getattr(context, "process_id", None) or f"flow-{uuid.uuid4().hex}"
+        context.process_id = resolved_process_id
+        resolved_user_id = user_id or getattr(context, "user_id", None) or "anonymous"
+        trace_id = resolved_process_id or f"trace-{uuid.uuid4().hex}"
+        workflow_name = f"seo_article_generation::{context.flow_type or 'research_first'}"
+
+        context.observability = context.observability or {}
+        if "weave" not in context.observability:
+            context.observability["weave"] = build_weave_metadata_stub(
+                trace_id=trace_id,
+                display_name=f"{workflow_name}:{resolved_process_id}",
+                extra={
+                    "process_id": resolved_process_id,
+                    "user_id": resolved_user_id,
+                },
+            )
 
         # ワークフローロガーを確実に確保
         await self.ensure_workflow_logger(context, process_id, user_id)
 
-        try:
-            while context.current_step not in ["completed", "error"]:
-                console.print(f"[green]生成ループ開始: {context.current_step} (process_id: {process_id})[/green]")
+        with safe_trace_context(workflow_name, trace_id, str(resolved_user_id)):
+            try:
+                while context.current_step not in ["completed", "error"]:
+                    console.print(f"[green]生成ループ開始: {context.current_step} (process_id: {process_id})[/green]")
 
-                # 非同期yield pointを追加してWebSocketループに制御を戻す
-                await asyncio.sleep(0.1)
+                    # 非同期yield pointを追加してWebSocketループに制御を戻す
+                    await asyncio.sleep(0.1)
 
-                # Store previous step for snapshot detection
-                previous_step = context.current_step
+                    # Store previous step for snapshot detection
+                    previous_step = context.current_step
 
-                # データベースに現在の状態を保存
-                if process_id and user_id:
-                    await self.service.persistence_service.save_context_to_db(context, process_id=process_id, user_id=user_id)
+                    # データベースに現在の状態を保存
+                    if process_id and user_id:
+                        await self.service.persistence_service.save_context_to_db(context, process_id=process_id, user_id=user_id)
 
-                await self.service.utils.send_server_event(context, StatusUpdatePayload(
-                    step=context.current_step,
-                    message=f"Starting step: {context.current_step}",
-                    image_mode=getattr(context, 'image_mode', False)
-                ))
-                console.rule(f"[bold yellow]API Step: {context.current_step}[/bold yellow]")
+                    await self.service.utils.send_server_event(context, StatusUpdatePayload(
+                        step=context.current_step,
+                        message=f"Starting step: {context.current_step}",
+                        image_mode=getattr(context, 'image_mode', False)
+                    ))
+                    console.rule(f"[bold yellow]API Step: {context.current_step}[/bold yellow]")
 
-                # ステップ実行
-                await self.execute_step(context, run_config, process_id, user_id)
+                    # ステップ実行
+                    await self.execute_step(context, run_config, process_id, user_id)
 
-                # Save snapshot after step execution if step changed
-                if process_id and user_id and context.current_step != previous_step:
-                    logger.info(f"🔍 Step changed from '{previous_step}' to '{context.current_step}', saving snapshot for '{previous_step}'")
-                    await self.save_step_snapshot_if_applicable(context, previous_step, process_id, user_id)
-                else:
-                    logger.debug(f"⏭️ No snapshot: process_id={process_id}, user_id={user_id}, prev={previous_step}, curr={context.current_step}")
+                    # Save snapshot after step execution if step changed
+                    if process_id and user_id and context.current_step != previous_step:
+                        logger.info(f"🔍 Step changed from '{previous_step}' to '{context.current_step}', saving snapshot for '{previous_step}'")
+                        await self.save_step_snapshot_if_applicable(context, previous_step, process_id, user_id)
+                    else:
+                        logger.debug(f"⏭️ No snapshot: process_id={process_id}, user_id={user_id}, prev={previous_step}, curr={context.current_step}")
 
-        except asyncio.CancelledError:
-            console.print("[yellow]Generation loop cancelled.[/yellow]")
-            await self.service.utils.send_error(context, "Generation process cancelled.", context.current_step)
-        except Exception as e:
-            await self.handle_generation_error(context, e, process_id)
-        finally:
-            await self.finalize_generation_loop(context, process_id)
+            except asyncio.CancelledError:
+                console.print("[yellow]Generation loop cancelled.[/yellow]")
+                await self.service.utils.send_error(context, "Generation process cancelled.", context.current_step)
+            except Exception as e:
+                await self.handle_generation_error(context, e, process_id)
+            finally:
+                await self.finalize_generation_loop(context, process_id)
 
     async def execute_step(self, context: ArticleContext, run_config: RunConfig, process_id: Optional[str] = None, user_id: Optional[str] = None):
         """個別のステップを実行"""
@@ -337,6 +370,10 @@ class GenerationFlowManager:
                 await self.handle_persona_edit(context, payload, process_id, user_id)
             else:
                 await self.handle_invalid_persona_response(context, response_type, payload)
+        elif is_auto_mode(context) and context.generated_detailed_personas:
+            auto_payload = SelectPersonaPayload(selected_id=0)
+            console.print("[blue]Auto-decision mode enabled: selecting the first persona automatically.[/blue]")
+            await self.handle_persona_selection(context, auto_payload, process_id, user_id)
 
     async def handle_persona_selection(self, context: ArticleContext, payload: SelectPersonaPayload, process_id: Optional[str] = None, user_id: Optional[str] = None):
         """ペルソナ選択の処理"""
@@ -522,6 +559,10 @@ class GenerationFlowManager:
                 await self.handle_theme_edit(context, payload, process_id, user_id)
             else:
                 await self.handle_invalid_theme_response(context, response_type, payload)
+        elif is_auto_mode(context) and context.generated_themes:
+            auto_payload = SelectThemePayload(selected_index=0)
+            console.print("[blue]Auto-decision mode enabled: selecting the first theme automatically.[/blue]")
+            await self.handle_theme_selection(context, auto_payload, process_id, user_id)
 
     async def handle_theme_selection(self, context: ArticleContext, payload: SelectThemePayload, process_id: Optional[str] = None, user_id: Optional[str] = None):
         """テーマ選択の処理"""
@@ -1567,30 +1608,30 @@ class GenerationFlowManager:
             context.research_report = agent_output
             console.print("[cyan]リサーチ報告書が完成しました。[/cyan]")
             
-            # Publish research synthesis completion event for Supabase Realtime
-            try:
-                from .flow_service import get_supabase_client
-                supabase = get_supabase_client()
-                
-                result = supabase.rpc('create_process_event', {
-                    'p_process_id': getattr(context, 'process_id', 'unknown'),
-                    'p_event_type': 'research_synthesis_completed',
-                    'p_event_data': {
-                        'step': 'research_synthesizing',
-                        'message': 'Research synthesis completed successfully',
-                        'report_summary': getattr(agent_output, 'summary', ''),
-                        'key_findings_count': len(getattr(agent_output, 'key_findings', [])),
-                        'timestamp': datetime.now(timezone.utc).isoformat()
-                    },
-                    'p_event_category': 'step_completion',
-                    'p_event_source': 'flow_manager'
-                }).execute()
-                
-                if result.data:
-                    logger.info(f"Published research_synthesis_completed event for process {getattr(context, 'process_id', 'unknown')}")
+            if self.should_emit_realtime(context, getattr(context, 'process_id', None), getattr(context, 'user_id', None)):
+                try:
+                    from .flow_service import get_supabase_client
+                    supabase = get_supabase_client()
                     
-            except Exception as e:
-                logger.error(f"Error publishing research_synthesis_completed event: {e}")
+                    result = supabase.rpc('create_process_event', {
+                        'p_process_id': getattr(context, 'process_id', None),
+                        'p_event_type': 'research_synthesis_completed',
+                        'p_event_data': {
+                            'step': 'research_synthesizing',
+                            'message': 'Research synthesis completed successfully',
+                            'report_summary': getattr(agent_output, 'summary', ''),
+                            'key_findings_count': len(getattr(agent_output, 'key_findings', [])),
+                            'timestamp': datetime.now(timezone.utc).isoformat()
+                        },
+                        'p_event_category': 'step_completion',
+                        'p_event_source': 'flow_manager'
+                    }).execute()
+                    
+                    if result.data:
+                        logger.info(f"Published research_synthesis_completed event for process {getattr(context, 'process_id', None)}")
+                        
+                except Exception as e:
+                    logger.error(f"Error publishing research_synthesis_completed event: {e}")
             
             context.current_step = "outline_generating"
             
@@ -1666,31 +1707,33 @@ class GenerationFlowManager:
                 context.research_report = agent_output
                 console.print("[green]✓ リサーチが完了しました[/green]")
                 
-                # リサーチ完了イベントの発行
-                try:
-                    from .flow_service import get_supabase_client
-                    supabase = get_supabase_client()
-                    
-                    result = supabase.rpc('create_process_event', {
-                        'p_process_id': getattr(context, 'process_id', 'unknown'),
-                        'p_event_type': 'research_synthesis_completed',
-                        'p_event_data': {
-                            'step': 'research',
-                            'message': 'Research completed successfully',
-                            'report_summary': getattr(agent_output, 'overall_summary', ''),
-                            'key_points_count': len(getattr(agent_output, 'key_points', [])),
-                            'sources_count': len(getattr(agent_output, 'all_sources', [])),
-                            'timestamp': datetime.now(timezone.utc).isoformat()
-                        },
-                        'p_event_category': 'step_completion',
-                        'p_event_source': 'flow_manager'
-                    }).execute()
-                    
-                    if result.data:
-                        logger.info(f"Published research_synthesis_completed event for process {getattr(context, 'process_id', 'unknown')}")
+                realtime_process_id = getattr(context, 'process_id', None)
+                realtime_user_id = getattr(context, 'user_id', None)
+                if self.should_emit_realtime(context, realtime_process_id, realtime_user_id):
+                    try:
+                        from .flow_service import get_supabase_client
+                        supabase = get_supabase_client()
                         
-                except Exception as e:
-                    logger.error(f"Error publishing research_synthesis_completed event: {e}")
+                        result = supabase.rpc('create_process_event', {
+                            'p_process_id': realtime_process_id,
+                            'p_event_type': 'research_synthesis_completed',
+                            'p_event_data': {
+                                'step': 'research',
+                                'message': 'Research completed successfully',
+                                'report_summary': getattr(agent_output, 'overall_summary', ''),
+                                'key_points_count': len(getattr(agent_output, 'key_points', [])),
+                                'sources_count': len(getattr(agent_output, 'all_sources', [])),
+                                'timestamp': datetime.now(timezone.utc).isoformat()
+                            },
+                            'p_event_category': 'step_completion',
+                            'p_event_source': 'flow_manager'
+                        }).execute()
+                        
+                        if result.data:
+                            logger.info(f"Published research_synthesis_completed event for process {realtime_process_id}")
+                            
+                    except Exception as e:
+                        logger.error(f"Error publishing research_synthesis_completed event: {e}")
                 
                 # Save context after research completion
                 process_id = getattr(context, 'process_id', None)
@@ -1767,30 +1810,30 @@ class GenerationFlowManager:
         elif is_outline_first and not context.research_report:
             logger.info("Outline-first flow: Generating outline without research report")
 
-        # Publish outline generation start event for Supabase Realtime
-        try:
-            from .flow_service import get_supabase_client
-            supabase = get_supabase_client()
-            
-            result = supabase.rpc('create_process_event', {
-                'p_process_id': getattr(context, 'process_id', 'unknown'),
-                'p_event_type': 'outline_generation_started',
-                'p_event_data': {
-                    'step': 'outline_generating',
-                    'message': 'Outline generation started',
-                    'theme_title': getattr(context.selected_theme, 'title', 'Unknown'),
-                    'target_length': context.target_length,
-                    'timestamp': datetime.now(timezone.utc).isoformat()
-                },
-                'p_event_category': 'step_start',
-                'p_event_source': 'flow_manager'
-            }).execute()
-            
-            if result.data:
-                logger.info(f"Published outline_generation_started event for process {getattr(context, 'process_id', 'unknown')}")
+        if self.should_emit_realtime(context, getattr(context, 'process_id', None), getattr(context, 'user_id', None)):
+            try:
+                from .flow_service import get_supabase_client
+                supabase = get_supabase_client()
                 
-        except Exception as e:
-            logger.error(f"Error publishing outline_generation_started event: {e}")
+                result = supabase.rpc('create_process_event', {
+                    'p_process_id': getattr(context, 'process_id', None),
+                    'p_event_type': 'outline_generation_started',
+                    'p_event_data': {
+                        'step': 'outline_generating',
+                        'message': 'Outline generation started',
+                        'theme_title': getattr(context.selected_theme, 'title', 'Unknown'),
+                        'target_length': context.target_length,
+                        'timestamp': datetime.now(timezone.utc).isoformat()
+                    },
+                    'p_event_category': 'step_start',
+                    'p_event_source': 'flow_manager'
+                }).execute()
+                
+                if result.data:
+                    logger.info(f"Published outline_generation_started event for process {getattr(context, 'process_id', None)}")
+                    
+            except Exception as e:
+                logger.error(f"Error publishing outline_generation_started event: {e}")
 
         current_agent = outline_agent
         
@@ -1837,31 +1880,31 @@ class GenerationFlowManager:
             else:
                 logger.warning(f"⚠️ Cannot save context - missing process_id: {process_id}, user_id: {user_id}, or persistence_service")
             
-            # Publish outline generation completion event for Supabase Realtime
-            try:
-                from .flow_service import get_supabase_client
-                supabase = get_supabase_client()
-                
-                result = supabase.rpc('create_process_event', {
-                    'p_process_id': getattr(context, 'process_id', 'unknown'),
-                    'p_event_type': 'outline_generation_completed',
-                    'p_event_data': {
-                        'step': 'outline_generated',
-                        'message': 'Outline generation completed successfully',
-                        'outline_title': agent_output.title,
-                        'sections_count': len(agent_output.sections),
-                        'suggested_tone': getattr(agent_output, 'suggested_tone', ''),
-                        'timestamp': datetime.now(timezone.utc).isoformat()
-                    },
-                    'p_event_category': 'step_completion',
-                    'p_event_source': 'flow_manager'
-                }).execute()
-                
-                if result.data:
-                    logger.info(f"Published outline_generation_completed event for process {getattr(context, 'process_id', 'unknown')}")
+            if self.should_emit_realtime(context, getattr(context, 'process_id', None), getattr(context, 'user_id', None)):
+                try:
+                    from .flow_service import get_supabase_client
+                    supabase = get_supabase_client()
                     
-            except Exception as e:
-                logger.error(f"Error publishing outline_generation_completed event: {e}")
+                    result = supabase.rpc('create_process_event', {
+                        'p_process_id': getattr(context, 'process_id', None),
+                        'p_event_type': 'outline_generation_completed',
+                        'p_event_data': {
+                            'step': 'outline_generated',
+                            'message': 'Outline generation completed successfully',
+                            'outline_title': agent_output.title,
+                            'sections_count': len(agent_output.sections),
+                            'suggested_tone': getattr(agent_output, 'suggested_tone', ''),
+                            'timestamp': datetime.now(timezone.utc).isoformat()
+                        },
+                        'p_event_category': 'step_completion',
+                        'p_event_source': 'flow_manager'
+                    }).execute()
+                    
+                    if result.data:
+                        logger.info(f"Published outline_generation_completed event for process {getattr(context, 'process_id', None)}")
+                        
+                except Exception as e:
+                    logger.error(f"Error publishing outline_generation_completed event: {e}")
         else:
             console.print("[red]アウトライン生成中に予期しないエージェント出力タイプを受け取りました。[/red]")
             context.current_step = "error"
@@ -1884,32 +1927,32 @@ class GenerationFlowManager:
         for i, section in enumerate(sections):
             console.print(f"✍️ セクション {i+1}/{total_sections}: {section.heading}")
             
-            # Publish section start event for background processing
-            try:
-                from .flow_service import get_supabase_client
-                supabase = get_supabase_client()
-                
-                result = supabase.rpc('create_process_event', {
-                    'p_process_id': getattr(context, 'process_id', 'unknown'),
-                    'p_event_type': 'section_writing_started',
-                    'p_event_data': {
-                        'step': 'writing_sections',
-                        'section_index': i,
-                        'section_heading': section.heading,
-                        'total_sections': total_sections,
-                        'image_mode': is_image_mode,
-                        'message': f'Started writing section {i + 1}: {section.heading}',
-                        'timestamp': datetime.now(timezone.utc).isoformat()
-                    },
-                    'p_event_category': 'section_progress',
-                    'p_event_source': 'flow_manager_background'
-                }).execute()
-                
-                if result.data:
-                    logger.info(f"Published section_writing_started event for section {i + 1} (background)")
+            if self.should_emit_realtime(context, getattr(context, 'process_id', None), getattr(context, 'user_id', None)):
+                try:
+                    from .flow_service import get_supabase_client
+                    supabase = get_supabase_client()
                     
-            except Exception as e:
-                logger.error(f"Error publishing section_writing_started event: {e}")
+                    result = supabase.rpc('create_process_event', {
+                        'p_process_id': getattr(context, 'process_id', None),
+                        'p_event_type': 'section_writing_started',
+                        'p_event_data': {
+                            'step': 'writing_sections',
+                            'section_index': i,
+                            'section_heading': section.heading,
+                            'total_sections': total_sections,
+                            'image_mode': is_image_mode,
+                            'message': f'Started writing section {i + 1}: {section.heading}',
+                            'timestamp': datetime.now(timezone.utc).isoformat()
+                        },
+                        'p_event_category': 'section_progress',
+                        'p_event_source': 'flow_manager_background'
+                    }).execute()
+                    
+                    if result.data:
+                        logger.info(f"Published section_writing_started event for section {i + 1} (background)")
+                        
+                except Exception as e:
+                    logger.error(f"Error publishing section_writing_started event: {e}")
             
             # コンテキストの現在のセクションインデックスを設定
             context.current_section_index = i
@@ -1998,51 +2041,51 @@ class GenerationFlowManager:
             # セクションインデックスを完了に合わせて更新（統一）
             context.current_section_index = i + 1
 
-            # Publish section completion event for background processing
-            try:
-                from .flow_service import get_supabase_client
-                supabase = get_supabase_client()
-                
-                result = supabase.rpc('create_process_event', {
-                    'p_process_id': getattr(context, 'process_id', 'unknown'),
-                    'p_event_type': 'section_completed',
-                    'p_event_data': {
-                        'step': 'writing_sections',
-                        'section_index': i,
-                        'section_heading': section.heading,
-                        'section_content': (
-                            agent_output.content if hasattr(agent_output, 'content') else (
-                                agent_output if isinstance(agent_output, str) else ''
-                            )
-                        ),
-                        'section_content_length': section_content_length,
-                        'completed_sections': i + 1,
-                        'total_sections': total_sections,
-                        'image_mode': is_image_mode,
-                        'placeholders_count': len(getattr(agent_output, 'image_placeholders', [])) if hasattr(agent_output, 'image_placeholders') else 0,
-                        'image_placeholders': [
-                            {
-                                'placeholder_id': p.placeholder_id,
-                                'description_jp': p.description_jp,
-                                'prompt_en': p.prompt_en,
-                                'alt_text': p.alt_text,
-                            }
-                            for p in getattr(agent_output, 'image_placeholders', [])
-                        ] if is_image_mode else [],
-                        'message': f'Completed section {i + 1}: {section.heading}',
-                        'progress_percentage': int(((i + 1) / total_sections) * 100),
-                        'batch_completion': True,
-                        'timestamp': datetime.now(timezone.utc).isoformat()
-                    },
-                    'p_event_category': 'section_completion',
-                    'p_event_source': 'flow_manager_background'
-                }).execute()
-                
-                if result.data:
-                    logger.info(f"Published section_completed event for section {i + 1} (background)")
+            if self.should_emit_realtime(context, getattr(context, 'process_id', None), getattr(context, 'user_id', None)):
+                try:
+                    from .flow_service import get_supabase_client
+                    supabase = get_supabase_client()
                     
-            except Exception as e:
-                logger.error(f"Error publishing section_completed event: {e}")
+                    result = supabase.rpc('create_process_event', {
+                        'p_process_id': getattr(context, 'process_id', None),
+                        'p_event_type': 'section_completed',
+                        'p_event_data': {
+                            'step': 'writing_sections',
+                            'section_index': i,
+                            'section_heading': section.heading,
+                            'section_content': (
+                                agent_output.content if hasattr(agent_output, 'content') else (
+                                    agent_output if isinstance(agent_output, str) else ''
+                                )
+                            ),
+                            'section_content_length': section_content_length,
+                            'completed_sections': i + 1,
+                            'total_sections': total_sections,
+                            'image_mode': is_image_mode,
+                            'placeholders_count': len(getattr(agent_output, 'image_placeholders', [])) if hasattr(agent_output, 'image_placeholders') else 0,
+                            'image_placeholders': [
+                                {
+                                    'placeholder_id': p.placeholder_id,
+                                    'description_jp': p.description_jp,
+                                    'prompt_en': p.prompt_en,
+                                    'alt_text': p.alt_text,
+                                }
+                                for p in getattr(agent_output, 'image_placeholders', [])
+                            ] if is_image_mode else [],
+                            'message': f'Completed section {i + 1}: {section.heading}',
+                            'progress_percentage': int(((i + 1) / total_sections) * 100),
+                            'batch_completion': True,
+                            'timestamp': datetime.now(timezone.utc).isoformat()
+                        },
+                        'p_event_category': 'section_completion',
+                        'p_event_source': 'flow_manager_background'
+                    }).execute()
+                    
+                    if result.data:
+                        logger.info(f"Published section_completed event for section {i + 1} (background)")
+                        
+                except Exception as e:
+                    logger.error(f"Error publishing section_completed event: {e}")
 
         # 全セクション完了
         context.current_step = "editing"
@@ -2485,6 +2528,20 @@ class GenerationFlowManager:
                 else:
                     await self.service.utils.send_error(context, f"予期しない応答タイプ: {response_type}")
                     context.current_step = "error"
+            elif is_auto_mode(context):
+                console.print("[blue]Auto-decision mode enabled: approving outline automatically.[/blue]")
+                context.current_step = "outline_approved"
+                await self.service.utils.send_server_event(context, StatusUpdatePayload(
+                    step=context.current_step,
+                    message="Outline auto-approved (evaluation mode).",
+                    image_mode=getattr(context, 'image_mode', False)
+                ))
+                if process_id and user_id:
+                    try:
+                        await self.service.persistence_service.save_context_to_db(context, process_id=process_id, user_id=user_id)
+                        logger.info("Context saved successfully after auto outline approval")
+                    except Exception as save_err:
+                        logger.error(f"Failed to save context after auto outline approval: {save_err}")
             else:
                 console.print("[red]アウトラインの承認/編集でクライアントからの応答がありませんでした。[/red]")
                 context.current_step = "error"

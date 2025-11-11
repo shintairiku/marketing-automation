@@ -52,6 +52,17 @@ export interface CompletedSection {
   imagePlaceholders?: ImagePlaceholder[];
 }
 
+export interface WeaveObservability {
+  traceId?: string;
+  traceUrl?: string;
+  projectUrl?: string;
+  tags?: string[];
+}
+
+export interface ObservabilityState {
+  weave?: WeaveObservability;
+}
+
 export interface GenerationState {
   currentStep: string;
   steps: GenerationStep[];
@@ -83,6 +94,7 @@ export interface GenerationState {
   imagePlaceholders?: ImagePlaceholder[];
   // Section completion data for image mode
   completedSections?: CompletedSection[];
+  observability?: ObservabilityState;
 }
 
 // Input types for user interactions

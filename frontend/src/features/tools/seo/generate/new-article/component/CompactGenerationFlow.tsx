@@ -10,6 +10,7 @@ import {
   Clock,
   Download,
   Edit3,
+  ExternalLink,
   Eye,
   FileText, 
   Image,
@@ -27,7 +28,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { GenerationStep } from '@/types/article-generation';
+import { GenerationStep, ObservabilityState } from '@/types/article-generation';
 
 import ArticlePreviewStyles from './ArticlePreviewStyles';
 import CompletedArticleView from './CompletedArticleView';
@@ -80,6 +81,7 @@ interface CompactGenerationFlowProps {
       alt_text: string;
     }>;
   }>;
+  observability?: ObservabilityState;
 }
 
 const stepIcons = {
@@ -118,9 +120,12 @@ export default memo(function CompactGenerationFlow({
   imageMode,
   imagePlaceholders,
   completedSections,
+  observability,
 }: CompactGenerationFlowProps) {
   const [showCompletionAnimation, setShowCompletionAnimation] = useState(false);
   const [hideProcessCards, setHideProcessCards] = useState(false);
+  const weaveTraceUrl = observability?.weave?.traceUrl || observability?.weave?.projectUrl;
+  const weaveTraceId = observability?.weave?.traceId;
 
   // プレビュー表示が必要かどうかを判定
   const shouldShowPreview = currentStep === 'writing_sections' || currentStep === 'editing' || currentStep === 'completed';
@@ -240,6 +245,23 @@ export default memo(function CompactGenerationFlow({
             </div>
             
           </div>
+          { (weaveTraceUrl || weaveTraceId) && (
+            <div className="flex items-center gap-2">
+              {weaveTraceId && (
+                <Badge variant="outline" className="font-mono text-[11px]">
+                  Trace {weaveTraceId.slice(0, 8)}
+                </Badge>
+              )}
+              {weaveTraceUrl && (
+                <Button variant="outline" size="sm" asChild>
+                  <a href={weaveTraceUrl} target="_blank" rel="noreferrer">
+                    <ExternalLink className="w-3.5 h-3.5 mr-1" />
+                    Weave Trace
+                  </a>
+                </Button>
+              )}
+            </div>
+          )}
 
           {/* Compact Progress Section */}
           <div className="space-y-2">

@@ -2,6 +2,7 @@
 import os
 from pathlib import Path
 import tempfile
+from typing import List
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import Field
 from dotenv import load_dotenv
@@ -103,6 +104,21 @@ class Settings(BaseSettings):
     enable_tracing: bool = os.getenv("OPENAI_AGENTS_ENABLE_TRACING", "true").lower() == "true"
     trace_include_sensitive_data: bool = os.getenv("OPENAI_AGENTS_TRACE_INCLUDE_SENSITIVE_DATA", "false").lower() == "true"
 
+    # Weave / observability settings
+    weave_enabled: bool = os.getenv("WEAVE_ENABLED", "true").lower() == "true"
+    weave_project_name: str = os.getenv("WEAVE_PROJECT_NAME", "seo-article-generation")
+    weave_entity: str = os.getenv("WEAVE_ENTITY", "")
+    weave_base_url: str = os.getenv("WEAVE_BASE_URL", "https://wandb.ai")
+    weave_default_tags: List[str] = Field(
+        default_factory=lambda: [
+            tag.strip()
+            for tag in os.getenv("WEAVE_DEFAULT_TAGS", "seo-article-generation,agents-sdk").split(",")
+            if tag.strip()
+        ]
+    )
+    weave_replace_default_tracer: bool = os.getenv("WEAVE_REPLACE_DEFAULT_TRACER", "false").lower() == "true"
+    weave_api_key: str = Field(default_factory=lambda: os.getenv("WEAVE_API_KEY") or os.getenv("WANDB_API_KEY", ""))
+
     # Agent session persistence settings
     agent_session_storage_dir: str = Field(
         default_factory=lambda: os.getenv(
@@ -174,6 +190,14 @@ def setup_agents_sdk():
         if settings.debug:
             enable_verbose_stdout_logging()
             print("OpenAI Agents SDK デバッグログが有効化されました")
+
+        try:
+            from app.core.observability.weave_integration import init_weave_tracing
+
+            if init_weave_tracing():
+                print("Weave tracing integration has been initialized")
+        except Exception as exc:  # pragma: no cover - observability best effort
+            print(f"Weave tracing setup skipped: {exc}")
             
     except ImportError as e:
         print(f"OpenAI Agents SDKのインポートに失敗しました: {e}")

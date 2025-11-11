@@ -59,6 +59,14 @@ class GenerateArticleRequest(BaseModel):
         default="research_first", 
         description="記事生成フロータイプ (outline_first: 構成先行, research_first: リサーチ先行)"
     )
+    auto_decision_mode: bool = Field(
+        False,
+        description="ユーザー入力を自動的に承認・選択する評価/テストモードのフラグ"
+    )
+    disable_realtime_events: bool = Field(
+        False,
+        description="Supabase RealtimeイベントやRPCの発火を抑止するかどうか"
+    )
 
     class Config:
         json_schema_extra = {
@@ -79,6 +87,8 @@ class GenerateArticleRequest(BaseModel):
                 "advanced_outline_mode": False,
                 "outline_top_level_heading": 2,
                 "flow_type": "research_first",
+                "auto_decision_mode": False,
+                "disable_realtime_events": False,
             }
         }
 

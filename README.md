@@ -84,6 +84,11 @@ GEMINI_API_KEY=
 SERPAPI_API_KEY=
 ```
 
+### Weave Observability / Evaluations
+
+* `WEAVE_ENABLED`, `WEAVE_PROJECT_NAME`, `WEAVE_ENTITY`, `WANDB_API_KEY` をセットすると、`backend/app/core/observability/weave_integration.py` が OpenAI Agents SDK のトレースパイプラインへ [WeaveTracingProcessor](https://docs.wandb.ai/weave/guides/integrations/openai_agents) を追加し、全エージェント実行を Weave のトレースツリーへ送信します。
+* `uv run python -m app.evals.run_eval --project <your-project>` を実行すると `backend/app/evals` のデータセット/スコアラーを使って Weave Evaluations にスコアボードを作成できます（LLM ジャッジ + 構造チェックの組み合わせ）。
+
 ---
 
 ## セットアップ手順

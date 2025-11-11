@@ -71,6 +71,13 @@ def setup_agents_sdk():
         if settings.debug:
             enable_verbose_stdout_logging()
             print("OpenAI Agents SDK デバッグログが有効化されました")
+
+        try:
+            from app.core.observability.weave_integration import init_weave_tracing
+            if init_weave_tracing():
+                print("Weave tracing integration has been initialized")
+        except Exception as exc:
+            print(f"Weave tracing setup skipped: {exc}")
             
     except ImportError as e:
         print(f"OpenAI Agents SDKのインポートに失敗しました: {e}")
@@ -78,6 +85,11 @@ def setup_agents_sdk():
     except Exception as e:
         print(f"OpenAI Agents SDKのセットアップに失敗しました: {e}")
 ```
+
+### Weave トレーシング連携
+
+* `.env` に `WEAVE_ENABLED=true`, `WEAVE_PROJECT_NAME`, `WEAVE_ENTITY`, `WANDB_API_KEY` を設定すると、`init_weave_tracing()` が [WeaveTracingProcessor](https://docs.wandb.ai/weave/guides/integrations/openai_agents) を登録し、OpenAI Agents SDK のトレースイベントを Weave にも同時送信します。
+* `ArticleContext.observability["weave"]` へ `trace_url`, `trace_id`, `project_url` を保存しておくと、Supabase Realtime 経由でフロントにもリンクを共有できます。 
 
 ### 設定パラメータ
 
