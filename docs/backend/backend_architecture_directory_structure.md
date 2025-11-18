@@ -170,8 +170,12 @@ class Settings(BaseSettings):
     google_cloud_project: str = Field(default_factory=lambda: os.getenv("GOOGLE_CLOUD_PROJECT", ""))
     google_service_account_json: str = Field(default_factory=lambda: os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON", ""))
     
-    # モデル設定
-    default_model: str = os.getenv("DEFAULT_MODEL", "gpt-4o-mini")
+    # モデル設定（用途別）
+    research_model: str = os.getenv("RESEARCH_MODEL", "gpt-5-mini")
+    writing_model: str = os.getenv("WRITING_MODEL", "gpt-4o-mini")
+    serp_analysis_model: str = os.getenv("SERP_ANALYSIS_MODEL") or research_model
+    persona_model: str = os.getenv("PERSONA_MODEL") or writing_model
+    theme_model: str = os.getenv("THEME_MODEL") or writing_model
     model_for_agents: str = os.getenv("MODEL_FOR_AGENTS", "gpt-4o-mini")
 ```
 

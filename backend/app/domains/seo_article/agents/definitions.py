@@ -1178,9 +1178,9 @@ SEOキーワード: {', '.join(ctx.context.initial_keywords)}
 persona_generator_agent = Agent[ArticleContext](
     name="PersonaGeneratorAgent",
     instructions=create_persona_generator_instructions(PERSONA_GENERATOR_AGENT_BASE_PROMPT),
-    model=settings.default_model, # ペルソナ生成に適したモデルを選択 (例: default_model や writing_model)
-    tools=[], # 基本的にはツール不要だが、必要に応じてweb_searchなどを追加検討
-    output_type=GeneratedPersonasResponse, # 新しく定義したモデル
+    model=settings.persona_model,  # ペルソナ用に個別モデルを選択可能
+    tools=[],  # 基本的にはツール不要だが、必要に応じてweb_searchなどを追加検討
+    output_type=GeneratedPersonasResponse,  # 新しく定義したモデル
 )
 
 # 新しいエージェント: SerpAPIキーワード分析エージェント
@@ -1326,7 +1326,7 @@ def create_serp_keyword_analysis_instructions(base_prompt: str) -> Callable[[Run
 serp_keyword_analysis_agent = Agent[ArticleContext](
     name="SerpKeywordAnalysisAgent",
     instructions=create_serp_keyword_analysis_instructions(SERP_KEYWORD_ANALYSIS_AGENT_BASE_PROMPT),
-    model=settings.research_model,  # 分析タスクに適したモデル
+    model=settings.serp_analysis_model,
     tools=[],  # SerpAPIサービスを直接使用するため、ツールは不要
     output_type=SerpKeywordAnalysisReport,
 )
@@ -1343,7 +1343,7 @@ THEME_AGENT_BASE_PROMPT = """
 theme_agent = Agent[ArticleContext](
     name="ThemeAgent",
     instructions=create_theme_instructions(THEME_AGENT_BASE_PROMPT),
-    model=settings.default_model,
+    model=settings.theme_model,
     tools=[web_search_tool],
     output_type=Union[ThemeProposal, ClarificationNeeded],
 )
