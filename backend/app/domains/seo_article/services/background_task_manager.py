@@ -376,85 +376,85 @@ class BackgroundTaskManager:
             context.process_id = process_id
             context.user_id = user_id
             
-            step_counter = 0
-            while context.current_step not in ['completed', 'error']:
-                step_counter += 1
-                current_step = context.current_step
-                logger.info(f"🔄 [TASK {task_id}] Loop iteration {step_counter}, current step: {current_step}")
-                
-                try:
-                    # Check if current step requires user input
-                    # IMPORTANT: Save snapshot BEFORE breaking the loop for user input steps!
-                    if context.current_step in ['persona_generated', 'theme_proposed', 'research_plan_generated', 'outline_generated']:
-                        # 注意(legacy-flow): `research_plan_generated` は統合前に作成されたセッションに対応するため残しています。
-                        logger.info(f"👤 [TASK {task_id}] Step {current_step} requires user input")
+            flow_manager = self.service.flow_manager
+            flow_manager._ensure_trace_identity(context)
+            with flow_manager.workflow_trace(context, metadata={"task_id": task_id}, background=True):
+                step_counter = 0
+                while context.current_step not in ['completed', 'error']:
+                    step_counter += 1
+                    current_step = context.current_step
+                    logger.info(f"🔄 [TASK {task_id}] Loop iteration {step_counter}, current step: {current_step}")
+                    
+                    try:
+                        # Check if current step requires user input
+                        # IMPORTANT: Save snapshot BEFORE breaking the loop for user input steps!
+                        if context.current_step in ['persona_generated', 'theme_proposed', 'research_plan_generated', 'outline_generated']:
+                            # 注意(legacy-flow): `research_plan_generated` は統合前に作成されたセッションに対応するため残しています。
+                            logger.info(f"👤 [TASK {task_id}] Step {current_step} requires user input")
 
-                        # Save snapshot for this decision point BEFORE waiting for user input
-                        logger.info(f"📸 [TASK {task_id}] Saving snapshot for user input step: {current_step}")
-                        await self.service.flow_manager.save_step_snapshot_if_applicable(
-                            context=context,
-                            completed_step=current_step,
+                            # Save snapshot for this decision point BEFORE waiting for user input
+                            logger.info(f"📸 [TASK {task_id}] Saving snapshot for user input step: {current_step}")
+                            await flow_manager.save_step_snapshot_if_applicable(
+                                context=context,
+                                completed_step=current_step,
+                                process_id=process_id,
+                                user_id=user_id
+                            )
+
+                            # Now handle user input and break
+                            logger.info(f"⏸️ [TASK {task_id}] Waiting for user input...")
+                            await self._handle_user_input_step(context, process_id, user_id, task_id)
+                            break  # Exit loop and wait for user input
+
+                        # Publish step start event
+                        logger.info(f"📢 [TASK {task_id}] Publishing step_started event for {current_step}")
+                        await self._publish_realtime_event(
                             process_id=process_id,
-                            user_id=user_id
+                            event_type="step_started",
+                            event_data={
+                                "step_name": context.current_step,
+                                "message": f"Starting step: {context.current_step}",
+                                "task_id": task_id
+                            }
+                        )
+                        
+                        # Execute the step
+                        logger.info(f"⚡ [TASK {task_id}] Executing step: {current_step}")
+                        await self._execute_single_step_with_events(context, process_id, user_id, task_id)
+                        logger.info(f"✅ [TASK {task_id}] Step execution completed, new step: {context.current_step}")
+
+                        # Publish step completion event
+                        await self._publish_realtime_event(
+                            process_id=process_id,
+                            event_type="step_completed",
+                            event_data={
+                                "step_name": current_step,  # Use the original step name
+                                "next_step": context.current_step,  # Show the new step
+                                "message": f"Completed step: {current_step}, next: {context.current_step}",
+                                "task_id": task_id
+                            }
                         )
 
-                        # Now handle user input and break
-                        logger.info(f"⏸️ [TASK {task_id}] Waiting for user input...")
-                        await self._handle_user_input_step(context, process_id, user_id, task_id)
-                        break  # Exit loop and wait for user input
-
-                    # Publish step start event
-                    logger.info(f"📢 [TASK {task_id}] Publishing step_started event for {current_step}")
-                    await self._publish_realtime_event(
-                        process_id=process_id,
-                        event_type="step_started",
-                        event_data={
-                            "step_name": context.current_step,
-                            "message": f"Starting step: {context.current_step}",
-                            "task_id": task_id
-                        }
-                    )
-                    
-                    # Execute the step
-                    logger.info(f"⚡ [TASK {task_id}] Executing step: {current_step}")
-                    await self._execute_single_step_with_events(context, process_id, user_id, task_id)
-                    logger.info(f"✅ [TASK {task_id}] Step execution completed, new step: {context.current_step}")
-
-                    # Note: Snapshot saving is handled above (line 393) for user input steps
-                    # For other steps, we don't save snapshots (only 3 specific steps are saved)
-
-                    # Publish step completion event
-                    await self._publish_realtime_event(
-                        process_id=process_id,
-                        event_type="step_completed",
-                        event_data={
-                            "step_name": current_step,  # Use the original step name
-                            "next_step": context.current_step,  # Show the new step
-                            "message": f"Completed step: {current_step}, next: {context.current_step}",
-                            "task_id": task_id
-                        }
-                    )
-
-                    # Save progress to database
-                    logger.info(f"💾 [TASK {task_id}] Saving context to database")
-                    await self.service.persistence_service.save_context_to_db(
-                        context, process_id=process_id, user_id=user_id
-                    )
-                    logger.info(f"✅ [TASK {task_id}] Context saved successfully")
-                    
-                    # Small delay to prevent overwhelming the system
-                    await asyncio.sleep(0.5)
-                    
-                    # Safety check to prevent infinite loops
-                    if step_counter > 20:
-                        logger.error(f"⚠️ [TASK {task_id}] Too many step iterations ({step_counter}), breaking loop")
+                        # Save progress to database
+                        logger.info(f"💾 [TASK {task_id}] Saving context to database")
+                        await self.service.persistence_service.save_context_to_db(
+                            context, process_id=process_id, user_id=user_id
+                        )
+                        logger.info(f"✅ [TASK {task_id}] Context saved successfully")
+                        
+                        # Small delay to prevent overwhelming the system
+                        await asyncio.sleep(0.5)
+                        
+                        # Safety check to prevent infinite loops
+                        if step_counter > 20:
+                            logger.error(f"⚠️ [TASK {task_id}] Too many step iterations ({step_counter}), breaking loop")
+                            break
+                        
+                    except Exception as e:
+                        logger.error(f"💥 [TASK {task_id}] Error executing step {context.current_step}: {e}")
+                        logger.exception(f"[TASK {task_id}] Step execution exception details:")
+                        await self._handle_generation_error(process_id, str(e), context.current_step)
                         break
-                    
-                except Exception as e:
-                    logger.error(f"💥 [TASK {task_id}] Error executing step {context.current_step}: {e}")
-                    logger.exception(f"[TASK {task_id}] Step execution exception details:")
-                    await self._handle_generation_error(process_id, str(e), context.current_step)
-                    break
             
             # Handle completion
             if context.current_step == 'completed':

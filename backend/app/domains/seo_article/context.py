@@ -119,6 +119,10 @@ class ArticleContext:
     responses_conversation_id: Optional[str] = None
     last_response_id: Optional[str] = None
 
+    # --- Observability / tracing ---
+    trace_id: Optional[str] = None
+    workflow_name: Optional[str] = None
+
     # --- 進捗追跡関連 ---
     # 注意(legacy-flow): 廃止されたプランナー／リサーチャーステージの進捗管理を
     # 後方互換のために保持しています。

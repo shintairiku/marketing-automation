@@ -17,7 +17,7 @@
 
 2. `backend/app/core/observability/weave_integration.py` が `weave.init()` を呼び出し、`WeaveTracingProcessor` を OpenAI Agents SDK の trace processor へ追加します。OpenAI Traces を無効化せず、同じイベントを Weave 側にもストリームできます。
 
-3. `ArticleGenerationService` → `GenerationFlowManager` で `safe_trace_context()` をラップし、`ArticleContext.observability["weave"]` に `trace_url`, `trace_id`, `project_url` を保存します。Supabase Realtime 側からも `article_context.observability` 経由で参照可能です。
+3. `GenerationFlowManager.workflow_trace()` でバックグラウンドタスク／通常フローの両方を包み、`ArticleContext.observability["weave"]` に `trace_url`, `trace_id`, `project_url` を保存します。Supabase Realtime 側からも `article_context.observability` 経由で参照可能です。
 
 ---
 

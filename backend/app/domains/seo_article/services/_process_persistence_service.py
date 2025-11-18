@@ -179,6 +179,13 @@ class ProcessPersistenceService:
                                 console.print(f"[red]Fallback article save also failed: {fallback_error}[/red]")
                 
                 supabase.table("generated_articles_state").update(update_data).eq("id", process_id).execute()
+                context.process_id = process_id
+                if not getattr(context, "trace_id", None):
+                    existing_trace = (
+                        context_dict.get("trace_id")
+                        or context_dict.get("observability", {}).get("weave", {}).get("trace_id")
+                    )
+                    context.trace_id = existing_trace or process_id
                 return process_id
             else:
                 # Get default flow ID for new states
@@ -202,7 +209,11 @@ class ProcessPersistenceService:
                 
                 result = supabase.table("generated_articles_state").insert(state_data).execute()
                 if result.data:
-                    return result.data[0]["id"]
+                    new_process_id = result.data[0]["id"]
+                    context.process_id = new_process_id
+                    if not getattr(context, "trace_id", None):
+                        context.trace_id = new_process_id
+                    return new_process_id
                 else:
                     raise Exception("Failed to create generation state")
             
@@ -306,7 +317,13 @@ class ProcessPersistenceService:
                 auto_decision_mode=context_dict.get("auto_decision_mode", False),
                 disable_realtime_events=context_dict.get("disable_realtime_events", False),
                 observability=context_dict.get("observability", {}),
+                trace_id=context_dict.get("trace_id"),
+                workflow_name=context_dict.get("workflow_name"),
             )
+            context.process_id = process_id
+            if not context.trace_id:
+                weave_meta = context.observability.get("weave", {}) if isinstance(context.observability, dict) else {}
+                context.trace_id = weave_meta.get("trace_id", process_id)
             
             # Restore other context state
             context.current_step = context_dict.get("current_step", "start")
@@ -1098,6 +1115,43 @@ class ProcessPersistenceService:
                 
         except Exception as e:
             logger.error(f"Error updating process status for {process_id}: {e}")
+            raise
+
+    async def update_process_state(
+        self,
+        process_id: str,
+        *,
+        current_step_name: Optional[str] = None,
+        status: Optional[str] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        """Lightweight state update helper (step name / status / metadata)."""
+        try:
+            from app.domains.seo_article.services.flow_service import get_supabase_client
+            from datetime import datetime, timezone
+
+            supabase = get_supabase_client()
+            update_data: Dict[str, Any] = {"updated_at": datetime.now(timezone.utc).isoformat()}
+            if current_step_name:
+                update_data["current_step_name"] = current_step_name
+            if status:
+                update_data["status"] = status
+            if metadata is not None:
+                update_data["process_metadata"] = metadata
+
+            if len(update_data) == 1:  # only updated_at present
+                return
+
+            result = (
+                supabase.table("generated_articles_state")
+                .update(update_data)
+                .eq("id", process_id)
+                .execute()
+            )
+            if not result.data:
+                logger.warning(f"No rows updated while updating state for process {process_id}")
+        except Exception as exc:
+            logger.error(f"Error updating process state for {process_id}: {exc}")
             raise
 
     async def add_step_to_history(self, process_id: str, step_name: str, status: str, data: dict = None) -> None:

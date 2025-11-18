@@ -5,6 +5,7 @@ import time
 import traceback
 import logging
 import uuid
+from contextlib import contextmanager, nullcontext
 from datetime import datetime, timezone
 from typing import List, Dict, Any, Optional, Union
 from openai import BadRequestError, AuthenticationError
@@ -106,15 +107,6 @@ ALL_VALID_STEPS = (
     TERMINAL_STEPS | INITIAL_STEPS
 )
 
-def safe_trace_context(workflow_name: str, trace_id: str, group_id: str):
-    """トレーシングエラーを安全にハンドリングするコンテキストマネージャー"""
-    try:
-        return trace(workflow_name=workflow_name, trace_id=trace_id, group_id=group_id)
-    except Exception as e:
-        logger.warning(f"トレーシング初期化に失敗しました: {e}")
-        from contextlib import nullcontext
-        return nullcontext()
-
 def safe_custom_span(name: str, data: dict[str, Any] | None = None):
     """カスタムスパンを安全にハンドリングするコンテキストマネージャー"""
     try:
@@ -134,6 +126,104 @@ class GenerationFlowManager:
     
     def __init__(self, service):
         self.service = service  # ArticleGenerationServiceへの参照
+
+    def _ensure_trace_identity(self, context: ArticleContext) -> tuple[str, str, str]:
+        """Ensure workflow_name/trace_id/group_id are populated on the context."""
+        process_id = context.process_id or getattr(context, "process_id", None)
+        if not process_id:
+            process_id = f"proc-{uuid.uuid4().hex}"
+            context.process_id = process_id
+
+        workflow_name = context.workflow_name or f"seo_article_generation::{context.flow_type or 'research_first'}"
+        context.workflow_name = workflow_name
+
+        trace_id = context.trace_id
+        if not trace_id:
+            existing_weave = {}
+            if isinstance(context.observability, dict):
+                existing_weave = context.observability.get("weave", {})
+            else:
+                context.observability = {}
+            trace_id = existing_weave.get("trace_id") or process_id or f"trace-{uuid.uuid4().hex}"
+            context.trace_id = trace_id
+
+        if not isinstance(getattr(context, "observability", {}), dict):
+            context.observability = {}
+
+        weave_meta = context.observability.get("weave")
+        if not isinstance(weave_meta, dict) or weave_meta.get("trace_id") != trace_id:
+            context.observability["weave"] = build_weave_metadata_stub(
+                trace_id,
+                display_name=f"{workflow_name}:{process_id}",
+                extra={
+                    "process_id": process_id,
+                    "user_id": context.user_id,
+                },
+            )
+
+        group_id = process_id or trace_id
+        return workflow_name, trace_id, group_id
+
+    def _build_run_config_for_step(
+        self,
+        context: ArticleContext,
+        step_name: str,
+        *,
+        metadata: Optional[Dict[str, Any]] = None,
+        background: bool = False,
+    ) -> RunConfig:
+        workflow_name, trace_id, group_id = self._ensure_trace_identity(context)
+        trace_metadata: Dict[str, Any] = {
+            "process_id": context.process_id,
+            "user_id": context.user_id,
+            "step": step_name,
+            "background": str(background).lower(),
+            "flow_type": context.flow_type,
+        }
+        if metadata:
+            trace_metadata.update(metadata)
+        return RunConfig(
+            workflow_name=workflow_name,
+            trace_id=trace_id,
+            group_id=group_id,
+            trace_metadata=trace_metadata,
+        )
+
+    def _trace_context(
+        self,
+        context: ArticleContext,
+        *,
+        span_name: Optional[str] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+        background: bool = False,
+    ):
+        workflow_name, trace_id, group_id = self._ensure_trace_identity(context)
+        name = workflow_name if span_name is None else f"{workflow_name}.{span_name}"
+        base_metadata: Dict[str, Any] = {
+            "process_id": context.process_id,
+            "user_id": context.user_id,
+            "flow_type": context.flow_type,
+            "background": str(background).lower(),
+        }
+        if metadata:
+            base_metadata.update(metadata)
+        try:
+            return trace(workflow_name=name, trace_id=trace_id, group_id=group_id, metadata=base_metadata)
+        except Exception as exc:
+            logger.warning(f"トレース初期化に失敗しました ({name}): {exc}")
+            return nullcontext()
+
+    @contextmanager
+    def workflow_trace(
+        self,
+        context: ArticleContext,
+        *,
+        metadata: Optional[Dict[str, Any]] = None,
+        background: bool = False,
+    ):
+        trace_ctx = self._trace_context(context, metadata=metadata, background=background)
+        with trace_ctx:
+            yield
         
     def should_emit_realtime(self, context: ArticleContext, process_id: Optional[str], user_id: Optional[str]) -> bool:
         """SupabaseイベントやRPCを発火させるか判定"""
@@ -143,32 +233,31 @@ class GenerationFlowManager:
         resolved_user_id = user_id or getattr(context, "user_id", None)
         return bool(resolved_process_id and resolved_user_id)
         
-    async def run_generation_loop(self, context: ArticleContext, run_config: RunConfig, process_id: Optional[str] = None, user_id: Optional[str] = None):
+    async def run_generation_loop(self, context: ArticleContext, run_config: Optional[RunConfig] = None, process_id: Optional[str] = None, user_id: Optional[str] = None):
         """記事生成のメインループ（WebSocketインタラクティブ版）"""
+
+        if run_config:
+            if getattr(run_config, "workflow_name", None):
+                context.workflow_name = run_config.workflow_name
+            if getattr(run_config, "trace_id", None):
+                context.trace_id = run_config.trace_id
+            if getattr(run_config, "group_id", None) and not process_id:
+                process_id = run_config.group_id
 
         resolved_process_id = process_id or getattr(context, "process_id", None) or f"flow-{uuid.uuid4().hex}"
         context.process_id = resolved_process_id
         resolved_user_id = user_id or getattr(context, "user_id", None) or "anonymous"
-        trace_id = resolved_process_id or f"trace-{uuid.uuid4().hex}"
-        workflow_name = f"seo_article_generation::{context.flow_type or 'research_first'}"
-
-        context.observability = context.observability or {}
-        if "weave" not in context.observability:
-            context.observability["weave"] = build_weave_metadata_stub(
-                trace_id=trace_id,
-                display_name=f"{workflow_name}:{resolved_process_id}",
-                extra={
-                    "process_id": resolved_process_id,
-                    "user_id": resolved_user_id,
-                },
-            )
+        context.user_id = resolved_user_id
+        self._ensure_trace_identity(context)
 
         # ワークフローロガーを確実に確保
         await self.ensure_workflow_logger(context, process_id, user_id)
 
-        with safe_trace_context(workflow_name, trace_id, str(resolved_user_id)):
+        with self.workflow_trace(context, metadata={"entrypoint": "interactive"}, background=False):
             try:
+                loop_counter = 0
                 while context.current_step not in ["completed", "error"]:
+                    loop_counter += 1
                     console.print(f"[green]生成ループ開始: {context.current_step} (process_id: {process_id})[/green]")
 
                     # 非同期yield pointを追加してWebSocketループに制御を戻す
@@ -189,7 +278,13 @@ class GenerationFlowManager:
                     console.rule(f"[bold yellow]API Step: {context.current_step}[/bold yellow]")
 
                     # ステップ実行
-                    await self.execute_step(context, run_config, process_id, user_id)
+                    step_run_config = self._build_run_config_for_step(
+                        context,
+                        context.current_step,
+                        metadata={"loop_iteration": loop_counter},
+                        background=False,
+                    )
+                    await self.execute_step(context, step_run_config, process_id, user_id)
 
                     # Save snapshot after step execution if step changed
                     if process_id and user_id and context.current_step != previous_step:
@@ -872,7 +967,7 @@ class GenerationFlowManager:
         
         context.current_step = "research_synthesizing"
 
-    async def ensure_serp_analysis_fields(self, agent_output: SerpKeywordAnalysisReport, context: ArticleContext):
+    def ensure_serp_analysis_fields(self, agent_output: SerpKeywordAnalysisReport, context: ArticleContext):
         """SerpAPI分析結果に必要なフィールドを確保"""
         if not hasattr(agent_output, 'search_query') or not agent_output.search_query:
             agent_output.search_query = ', '.join(context.initial_keywords)
@@ -942,7 +1037,7 @@ class GenerationFlowManager:
             context.target_length = agent_output.recommended_target_length
             console.print(f"[cyan]推奨目標文字数を設定しました: {context.target_length}文字[/cyan]")
 
-    async def run_agent(self, agent: Agent[ArticleContext], input_data: Union[str, List[Dict[str, Any]]], context: ArticleContext, run_config: RunConfig) -> Any:
+    async def run_agent(self, agent: Agent[ArticleContext], input_data: Union[str, List[Dict[str, Any]]], context: ArticleContext, run_config: Optional[RunConfig] = None) -> Any:
         """エージェントを実行し、結果を返す（リトライ付き）"""
         last_exception = None
         start_time = time.time()
@@ -964,6 +1059,11 @@ class GenerationFlowManager:
                 console.print(f"[red]❌ Failed to create workflow logger for process {process_id}: {e}[/red]")
 
         # エージェント実行のメインロジック
+        if run_config is None:
+            run_config = self._build_run_config_for_step(
+                context,
+                context.current_step or agent.name,
+            )
         with safe_custom_span("agent_execution", data={
             "agent_name": agent.name,
             "current_step": context.current_step,
@@ -1666,15 +1766,15 @@ class GenerationFlowManager:
         """Execute research step for background tasks"""
         try:
             process_id = getattr(context, 'process_id', 'unknown')
-            run_config = RunConfig(
-                workflow_name="SEO記事生成ワークフロー（バックグラウンド）",
-                trace_id=f"trace_bg_research_{process_id}",
-                group_id=process_id,
-                trace_metadata={
+            run_config = self._build_run_config_for_step(
+                context,
+                "researching",
+                metadata={
                     "process_id": process_id,
                     "background_processing": "true",
-                    "current_step": "researching"
-                }
+                    "current_step": "researching",
+                },
+                background=True,
             )
             # 統合リサーチを直接実行
             await self.execute_research_background(context, run_config)
@@ -3365,15 +3465,15 @@ class GenerationFlowManager:
         """Execute keyword analysis step for background tasks"""
         try:
             process_id = getattr(context, 'process_id', 'unknown')
-            run_config = RunConfig(
-                workflow_name="SEO記事生成ワークフロー（バックグラウンド）",
-                trace_id=f"trace_bg_keyword_{process_id}",
-                group_id=process_id,
-                trace_metadata={
+            run_config = self._build_run_config_for_step(
+                context,
+                "keyword_analyzing",
+                metadata={
                     "process_id": process_id,
                     "background_processing": "true",
-                    "current_step": "keyword_analyzing"
-                }
+                    "current_step": "keyword_analyzing",
+                },
+                background=True,
             )
             await self.handle_keyword_analyzing_step(context, run_config)
         except Exception as e:
@@ -3386,15 +3486,15 @@ class GenerationFlowManager:
         """Execute persona generation step for background tasks"""
         try:
             process_id = getattr(context, 'process_id', 'unknown')
-            run_config = RunConfig(
-                workflow_name="SEO記事生成ワークフロー（バックグラウンド）",
-                trace_id=f"trace_bg_persona_{process_id}",
-                group_id=process_id,
-                trace_metadata={
+            run_config = self._build_run_config_for_step(
+                context,
+                "persona_generating",
+                metadata={
                     "process_id": process_id,
                     "background_processing": "true",
-                    "current_step": "persona_generating"
-                }
+                    "current_step": "persona_generating",
+                },
+                background=True,
             )
             
             # Execute persona generation without WebSocket interaction
@@ -3424,15 +3524,15 @@ class GenerationFlowManager:
         """Execute theme generation step for background tasks"""
         try:
             process_id = getattr(context, 'process_id', 'unknown')
-            run_config = RunConfig(
-                workflow_name="SEO記事生成ワークフロー（バックグラウンド）",
-                trace_id=f"trace_bg_theme_{process_id}",
-                group_id=process_id,
-                trace_metadata={
+            run_config = self._build_run_config_for_step(
+                context,
+                "theme_generating",
+                metadata={
                     "process_id": process_id,
                     "background_processing": "true",
-                    "current_step": "theme_generating"
-                }
+                    "current_step": "theme_generating",
+                },
+                background=True,
             )
             
             # Execute theme generation without WebSocket interaction
@@ -3462,15 +3562,15 @@ class GenerationFlowManager:
         """Execute research planning step for background tasks"""
         try:
             process_id = getattr(context, 'process_id', 'unknown')
-            run_config = RunConfig(
-                workflow_name="SEO記事生成ワークフロー（バックグラウンド）",
-                trace_id=f"trace_bg_research_plan_{process_id}",
-                group_id=process_id,
-                trace_metadata={
+            run_config = self._build_run_config_for_step(
+                context,
+                "research_planning",
+                metadata={
                     "process_id": process_id,
                     "background_processing": "true",
-                    "current_step": "research_planning"
-                }
+                    "current_step": "research_planning",
+                },
+                background=True,
             )
             # 注意(legacy-flow): バックグラウンドでの計画ステップは旧フロー互換のために残しています。
             await self.execute_research_planning_background(context, run_config)
@@ -3484,16 +3584,16 @@ class GenerationFlowManager:
         """Execute a single research query for background tasks"""
         try:
             process_id = getattr(context, 'process_id', 'unknown')
-            run_config = RunConfig(
-                workflow_name="SEO記事生成ワークフロー（バックグラウンド）",
-                trace_id=f"trace_bg_research_query_{process_id}_{query_index}",
-                group_id=process_id,
-                trace_metadata={
+            run_config = self._build_run_config_for_step(
+                context,
+                "researching",
+                metadata={
                     "process_id": process_id,
                     "background_processing": "true",
                     "current_step": "researching",
-                    "query_index": query_index
-                }
+                    "query_index": query_index,
+                },
+                background=True,
             )
             
             # Initialize research query results if not exists
@@ -3520,15 +3620,15 @@ class GenerationFlowManager:
         """Execute research synthesis step for background tasks"""
         try:
             process_id = getattr(context, 'process_id', 'unknown')
-            run_config = RunConfig(
-                workflow_name="SEO記事生成ワークフロー（バックグラウンド）",
-                trace_id=f"trace_bg_research_synthesis_{process_id}",
-                group_id=process_id,
-                trace_metadata={
+            run_config = self._build_run_config_for_step(
+                context,
+                "research_synthesizing",
+                metadata={
                     "process_id": process_id,
                     "background_processing": "true",
-                    "current_step": "research_synthesizing"
-                }
+                    "current_step": "research_synthesizing",
+                },
+                background=True,
             )
             await self.execute_research_synthesizing_background(context, run_config)
         except Exception as e:
@@ -3541,15 +3641,15 @@ class GenerationFlowManager:
         """Execute outline generation step for background tasks"""
         try:
             process_id = getattr(context, 'process_id', 'unknown')
-            run_config = RunConfig(
-                workflow_name="SEO記事生成ワークフロー（バックグラウンド）",
-                trace_id=f"trace_bg_outline_{process_id}",
-                group_id=process_id,
-                trace_metadata={
+            run_config = self._build_run_config_for_step(
+                context,
+                "outline_generating",
+                metadata={
                     "process_id": process_id,
                     "background_processing": "true",
-                    "current_step": "outline_generating"
-                }
+                    "current_step": "outline_generating",
+                },
+                background=True,
             )
             await self.execute_outline_generating_background(context, run_config)
         except Exception as e:
@@ -3562,16 +3662,16 @@ class GenerationFlowManager:
         """Write a single section for background tasks"""
         try:
             process_id = getattr(context, 'process_id', 'unknown')
-            run_config = RunConfig(
-                workflow_name="SEO記事生成ワークフロー（バックグラウンド）",
-                trace_id=f"trace_bg_section_{process_id}_{section_index}",
-                group_id=process_id,
-                trace_metadata={
+            run_config = self._build_run_config_for_step(
+                context,
+                "writing_sections",
+                metadata={
                     "process_id": process_id,
                     "background_processing": "true",
                     "current_step": "writing_sections",
-                    "section_index": str(section_index)
-                }
+                    "section_index": str(section_index),
+                },
+                background=True,
             )
             
             # Choose appropriate agent based on image mode
@@ -3625,15 +3725,15 @@ class GenerationFlowManager:
         """Execute editing step for background tasks"""
         try:
             process_id = getattr(context, 'process_id', 'unknown')
-            run_config = RunConfig(
-                workflow_name="SEO記事生成ワークフロー（バックグラウンド）",
-                trace_id=f"trace_bg_editing_{process_id}",
-                group_id=process_id,
-                trace_metadata={
+            run_config = self._build_run_config_for_step(
+                context,
+                "editing",
+                metadata={
                     "process_id": process_id,
                     "background_processing": "true",
-                    "current_step": "editing"
-                }
+                    "current_step": "editing",
+                },
+                background=True,
             )
             await self.execute_editing_background(context, run_config)
         except Exception as e:
