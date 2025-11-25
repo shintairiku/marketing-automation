@@ -45,6 +45,7 @@ export default function InputSection({ onStartGeneration, isConnected, isGenerat
     // 高度アウトラインモード関連の状態
     const [advancedOutlineMode, setAdvancedOutlineMode] = useState(false);
     const [topLevelHeading, setTopLevelHeading] = useState<'h2' | 'h3'>('h2');
+    const [enableFinalEditing, setEnableFinalEditing] = useState(false);
     
     // スタイルテンプレート関連の状態
     const [styleTemplates, setStyleTemplates] = useState([]);
@@ -171,6 +172,8 @@ export default function InputSection({ onStartGeneration, isConnected, isGenerat
             outline_top_level_heading: advancedOutlineMode ? (topLevelHeading === 'h3' ? 3 : 2) : 2,
             // フロー設定を追加
             flow_type: selectedFlowType,
+            // 最終編集ステップ実行可否
+            enable_final_editing: enableFinalEditing,
         };
 
         console.log('📦 Request data being sent:', requestData);
@@ -560,8 +563,8 @@ export default function InputSection({ onStartGeneration, isConnected, isGenerat
               {showAdvanced ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
             </Button>
           </CollapsibleTrigger>
-          <CollapsibleContent>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 mb-6">
+        <CollapsibleContent>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 mb-6">
               {/* 目標文字数 */}
               <Card>
                 <CardHeader>
@@ -584,8 +587,29 @@ export default function InputSection({ onStartGeneration, isConnected, isGenerat
                       <span>10,000</span>
                     </div>
                   </div>
-                </CardContent>
-              </Card>
+              </CardContent>
+            </Card>
+
+            {/* 最終編集ステップ */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-lg">最終編集ステップ</CardTitle>
+                <p className="text-sm text-muted-foreground">ONにすると記事生成後に編集エージェントで仕上げます。OFFならセクション執筆で完了し高速化します。</p>
+              </CardHeader>
+              <CardContent>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="font-medium text-sm">最終編集を実行する</p>
+                    <p className="text-xs text-muted-foreground">従来挙動: ON / 高速完了: OFF</p>
+                  </div>
+                  <Switch
+                    checked={enableFinalEditing}
+                    onCheckedChange={setEnableFinalEditing}
+                    aria-label="最終編集を実行する"
+                  />
+                </div>
+              </CardContent>
+            </Card>
 
               {/* リサーチクエリ数 */}
               <Card>

@@ -738,8 +738,13 @@ class BackgroundTaskManager:
         
         # Combine all sections
         context.full_draft_html = '\n\n'.join(context.generated_sections_html)
-        context.current_step = "editing"
-    
+        if getattr(context, "enable_final_editing", False):
+            context.current_step = "editing"
+        else:
+            # Skip editing and mark as completed
+            await self.service.flow_manager.finalize_without_editing(context, process_id, getattr(context, 'user_id', None), send_events=False)
+            return
+
     async def _handle_user_input_step(
         self, 
         context: ArticleContext, 

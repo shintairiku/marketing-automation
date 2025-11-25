@@ -197,6 +197,7 @@ class ArticleGenerationService:
                 advanced_outline_mode=request_dict.get("advanced_outline_mode", False),
                 outline_top_level_heading=outline_top_level,
                 flow_type=request_dict.get("flow_type", "research_first"),  # フロー設定を追加
+                enable_final_editing=request_dict.get("enable_final_editing", False),
                 websocket=None,  # Background mode
                 user_response_event=None,  # Background mode
                 user_id=user_id

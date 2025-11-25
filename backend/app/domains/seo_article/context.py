@@ -134,6 +134,7 @@ class ArticleContext:
     user_id: Optional[str] = None # ユーザーID (認証から取得)
     process_id: Optional[str] = None # プロセスID (記事生成セッション識別用)
     trace_id: Optional[str] = None  # OpenAI Agents トレースID（プロセス全体で共有）
+    enable_final_editing: bool = False  # 最終編集エージェントを実行するか
 
     # --- 以下、既存のメソッド ---
     def get_full_draft(self) -> str:

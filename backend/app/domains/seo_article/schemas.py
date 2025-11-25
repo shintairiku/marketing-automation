@@ -60,6 +60,12 @@ class GenerateArticleRequest(BaseModel):
         description="記事生成フロータイプ (outline_first: 構成先行, research_first: リサーチ先行)"
     )
 
+    # --- 編集ステップ制御 ---
+    enable_final_editing: bool = Field(
+        False,
+        description="最終の編集エージェントを実行するか。falseの場合はセクション執筆で完了する"
+    )
+
     class Config:
         json_schema_extra = {
             "example": {

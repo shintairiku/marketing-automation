@@ -1982,6 +1982,9 @@ class GenerationFlowManager:
                 )
                 context.generated_sections.append(article_section)
                 section_content_length = len(agent_output.content)
+                if len(context.generated_sections_html) <= i:
+                    context.generated_sections_html.extend([""] * (i + 1 - len(context.generated_sections_html)))
+                context.generated_sections_html[i] = agent_output.content
                 
                 # 画像プレースホルダー情報をコンテキストに保存
                 if not hasattr(context, 'image_placeholders'):
@@ -1993,6 +1996,9 @@ class GenerationFlowManager:
             elif not is_image_mode and isinstance(agent_output, ArticleSection):
                 context.generated_sections.append(agent_output)
                 section_content_length = len(agent_output.content)
+                if len(context.generated_sections_html) <= i:
+                    context.generated_sections_html.extend([""] * (i + 1 - len(context.generated_sections_html)))
+                context.generated_sections_html[i] = agent_output.content
                 console.print(f"[green]セクション {i+1} が完了しました。[/green]")
                 
             elif isinstance(agent_output, str):
@@ -2004,6 +2010,9 @@ class GenerationFlowManager:
                 )
                 context.generated_sections.append(article_section)
                 section_content_length = len(agent_output)
+                if len(context.generated_sections_html) <= i:
+                    context.generated_sections_html.extend([""] * (i + 1 - len(context.generated_sections_html)))
+                context.generated_sections_html[i] = agent_output
                 console.print(f"[green]セクション {i+1} が完了しました（HTML文字列形式）。[/green]")
                 
             else:
@@ -2077,8 +2086,17 @@ class GenerationFlowManager:
                 logger.error(f"Error publishing section_completed event: {e}")
 
         # 全セクション完了
-        context.current_step = "editing"
-        console.print("[cyan]全セクションの執筆が完了しました。[/cyan]")
+        # ドラフトを確定
+        if not context.full_draft_html:
+            context.full_draft_html = "\n\n".join(context.generated_sections_html)
+
+        if getattr(context, "enable_final_editing", False):
+            context.current_step = "editing"
+            console.print("[cyan]全セクションの執筆が完了しました。編集ステップに進みます。[/cyan]")
+        else:
+            console.print("[cyan]全セクションの執筆が完了しました。編集ステップをスキップして完了します。[/cyan]")
+            await self.finalize_without_editing(context, getattr(context, 'process_id', None), getattr(context, 'user_id', None), send_events=False)
+            return
         
         # Publish all sections completion event
         try:
@@ -2578,9 +2596,13 @@ class GenerationFlowManager:
         
         # セクション完全性をチェック
         if self.service.utils.validate_section_completeness(context, context.generated_outline.sections, total_sections):
-            context.current_step = "editing"
-            console.print(f"[green]全{total_sections}セクションの執筆が完了しました（{len(context.full_draft_html)}文字）。編集ステップに移ります。[/green]")
-            await self.service.utils.send_server_event(context, EditingStartPayload())
+            if getattr(context, "enable_final_editing", False):
+                context.current_step = "editing"
+                console.print(f"[green]全{total_sections}セクションの執筆が完了しました（{len(context.full_draft_html)}文字）。編集ステップに移ります。[/green]")
+                await self.service.utils.send_server_event(context, EditingStartPayload())
+            else:
+                console.print(f"[green]全{total_sections}セクションの執筆が完了しました（{len(context.full_draft_html)}文字）。編集ステップをスキップして完了します。[/green]")
+                await self.finalize_without_editing(context, process_id, user_id, send_events=True)
             return
 
         # 画像モードかどうかでエージェントを選択
@@ -2838,6 +2860,53 @@ class GenerationFlowManager:
                         ))
                     except Exception as ws_err:
                         console.print(f"[dim]WebSocket section completion event error (continuing): {ws_err}[/dim]")
+
+    async def finalize_without_editing(self, context: ArticleContext, process_id: Optional[str], user_id: Optional[str], send_events: bool = True):
+        """編集ステップをスキップして記事を確定する。"""
+        if not context.full_draft_html:
+            context.full_draft_html = context.get_full_draft()
+
+        if not context.full_draft_html or not context.full_draft_html.strip():
+            await self.service.utils.send_error(context, "記事本文が空のため完了できません。", context.current_step)
+            context.current_step = "error"
+            return
+
+        context.final_article_html = context.full_draft_html
+        context.current_step = "completed"
+
+        title = (
+            getattr(context.generated_outline, "title", None)
+            if getattr(context, "generated_outline", None)
+            else None
+        ) or (getattr(context.selected_theme, "title", None) if getattr(context, "selected_theme", None) else None) or "Generated Article"
+
+        await self.log_workflow_step(context, "completed", {
+            "final_article_length": len(context.final_article_html),
+            "sections_count": len(getattr(context, 'generated_sections_html', [])),
+            "total_tokens_used": getattr(context, 'total_tokens_used', 0)
+        })
+
+        article_id: Optional[str] = None
+
+        if process_id and user_id:
+            try:
+                await self.service.persistence_service.save_context_to_db(context, process_id=process_id, user_id=user_id)
+
+                from app.domains.seo_article.services.flow_service import get_supabase_client
+                supabase = get_supabase_client()
+                state_res = supabase.table("generated_articles_state").select("article_id").eq("id", process_id).execute()
+                if state_res.data and state_res.data[0].get("article_id"):
+                    article_id = state_res.data[0]["article_id"]
+                    context.final_article_id = article_id
+            except Exception as save_err:
+                logger.error(f"Failed to save finalized article without editing: {save_err}")
+
+        if send_events and context.websocket:
+            await self.service.utils.send_server_event(context, FinalResultPayload(
+                title=title,
+                final_html_content=context.final_article_html,
+                article_id=article_id
+            ))
 
     async def handle_editing_step(self, context: ArticleContext, run_config: RunConfig, process_id: Optional[str] = None, user_id: Optional[str] = None):
         """編集ステップの処理"""

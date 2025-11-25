@@ -300,6 +300,7 @@ class ProcessPersistenceService:
                 advanced_outline_mode=context_dict.get("advanced_outline_mode", False),
                 outline_top_level_heading=outline_top_level,
                 flow_type=context_dict.get("flow_type", "research_first"),
+                enable_final_editing=context_dict.get("enable_final_editing", False),
                 websocket=None,  # Will be set when WebSocket connects
                 user_response_event=None,  # Will be set when WebSocket connects
                 user_id=user_id,  # Set user_id from method parameter
@@ -457,6 +458,7 @@ class ProcessPersistenceService:
                 "image_mode": context_dict.get("image_mode", False),
                 "image_settings": context_dict.get("image_settings", {}),
                 "image_placeholders": context_dict.get("image_placeholders", []),
+                "enable_final_editing": context_dict.get("enable_final_editing", False),
                 "created_at": state.get("created_at"),
                 "updated_at": state.get("updated_at")
             }
