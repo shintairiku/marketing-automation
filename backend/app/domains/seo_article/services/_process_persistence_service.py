@@ -302,7 +302,8 @@ class ProcessPersistenceService:
                 flow_type=context_dict.get("flow_type", "research_first"),
                 websocket=None,  # Will be set when WebSocket connects
                 user_response_event=None,  # Will be set when WebSocket connects
-                user_id=user_id  # Set user_id from method parameter
+                user_id=user_id,  # Set user_id from method parameter
+                trace_id=context_dict.get("trace_id")
             )
             
             # Restore other context state

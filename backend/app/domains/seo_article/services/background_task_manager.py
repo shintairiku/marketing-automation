@@ -13,6 +13,9 @@ import uuid
 from typing import Dict, Optional, Any, List
 from datetime import datetime, timezone, timedelta
 
+from agents import tracing as agent_tracing
+
+from app.core.config import settings
 from app.domains.seo_article.context import ArticleContext
 from app.domains.seo_article.schemas import GenerateArticleRequest
 
@@ -365,7 +368,9 @@ class BackgroundTaskManager:
         task_id: str
     ):
         """Run the main generation flow with realtime events"""
-        
+
+        trace_obj = None
+
         try:
             logger.info(f"🔄 [TASK {task_id}] Starting generation flow for process {process_id}")
             logger.info(f"📍 [TASK {task_id}] Initial step: {context.current_step}")
@@ -375,6 +380,33 @@ class BackgroundTaskManager:
             context.user_response_event = asyncio.Event()
             context.process_id = process_id
             context.user_id = user_id
+
+            # Ensure a single trace_id is reused across all agent runs in this process
+            try:
+                if not getattr(context, "trace_id", None):
+                    context.trace_id = agent_tracing.gen_trace_id()
+
+                trace_obj = agent_tracing.trace(
+                    workflow_name="seo_article_generation",
+                    trace_id=context.trace_id,
+                    group_id=process_id,
+                    metadata={
+                        "process_id": process_id,
+                        "user_id": user_id,
+                        "task_id": task_id,
+                        "mode": "background",
+                    },
+                    disabled=not settings.enable_tracing,
+                )
+                trace_obj.start(mark_as_current=True)
+                logger.info(
+                    f"[TASK {task_id}] Tracing started for process {process_id} with trace_id={context.trace_id}"
+                )
+            except Exception as trace_err:  # noqa: BLE001
+                logger.warning(
+                    f"[TASK {task_id}] Failed to initialize tracing for process {process_id}: {trace_err}"
+                )
+                trace_obj = None
             
             step_counter = 0
             while context.current_step not in ['completed', 'error']:
@@ -468,6 +500,14 @@ class BackgroundTaskManager:
             logger.exception(f"[TASK {task_id}] Generation flow exception details:")
             await self._handle_generation_error(process_id, str(e), context.current_step)
             raise
+        finally:
+            if trace_obj:
+                try:
+                    trace_obj.finish(reset_current=True)
+                except Exception as trace_err:  # noqa: BLE001
+                    logger.warning(
+                        f"[TASK {task_id}] Failed to finish tracing for process {process_id}: {trace_err}"
+                    )
     
     async def _execute_single_step_with_events(
         self, 
