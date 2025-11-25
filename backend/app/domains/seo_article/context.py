@@ -103,6 +103,9 @@ class ArticleContext:
     current_research_query_index: int = 0
     research_query_results: List[ResearchQueryResult] = field(default_factory=list)
     research_report: Optional[ResearchReport] = None
+    # 新形式: 構造化せずそのまま保持するリサーチテキスト
+    research_sources_text: Optional[str] = None
+    research_sources_tagged: Optional[str] = None
     generated_outline: Optional[Outline] = None
     current_section_index: int = 0
     generated_sections: List[ArticleSection] = field(default_factory=list)
@@ -165,6 +168,8 @@ class ArticleContext:
         self.research_query_results = []
         self.current_research_query_index = 0
         self.research_report = None
+        self.research_sources_text = None
+        self.research_sources_tagged = None
 
         self.generated_outline = None
         self.outline = None

@@ -307,6 +307,10 @@ class ProcessPersistenceService:
                 trace_id=context_dict.get("trace_id")
             )
             
+            # 新形式のリサーチテキストを復元
+            context.research_sources_text = context_dict.get("research_sources_text")
+            context.research_sources_tagged = context_dict.get("research_sources_tagged")
+            
             # Restore other context state
             context.current_step = context_dict.get("current_step", "start")
             context.generated_detailed_personas = context_dict.get("generated_detailed_personas", [])

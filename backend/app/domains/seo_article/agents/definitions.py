@@ -4,6 +4,7 @@ import logging
 from typing import Callable, Awaitable, Union, Any, List, Dict
 from agents import Agent, RunContextWrapper, ModelSettings
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 
 logger = logging.getLogger(__name__)
 # 循環参照を避けるため、モデル、ツール、コンテキストは直接インポートしない
@@ -26,11 +27,10 @@ from app.domains.seo_article.schemas import PersonaType
 def get_current_date_context() -> str:
     """現在の日付コンテキストを取得"""
     try:
-        now = datetime.now(timezone.utc)
-        japan_time = now.astimezone()
-        return f"現在の日時: {japan_time.strftime('%Y年%m月%d日')}"
+        now = datetime.now(ZoneInfo("Asia/Tokyo"))
+        return f"現在の日付：{now.strftime('%Y/%m/%d')}"
     except Exception:
-        return f"現在の日時: {datetime.now().strftime('%Y年%m月%d日')}"
+        return f"現在の日付：{datetime.now().strftime('%Y/%m/%d')}"
 
 def build_style_context(ctx: ArticleContext) -> str:
     """スタイルガイドコンテキストを構築（カスタムテンプレート優先）"""
@@ -209,6 +209,7 @@ def create_research_planner_instructions(base_prompt: str) -> Callable[[RunConte
         if not ctx.context.selected_detailed_persona:
             raise ValueError("リサーチ計画のための詳細なペルソナが選択されていません。")
         persona_description = ctx.context.selected_detailed_persona
+        date_context = get_current_date_context()
 
         # 企業情報（拡張）
         company_info_str = build_enhanced_company_context(ctx.context)
@@ -228,6 +229,8 @@ def create_research_planner_instructions(base_prompt: str) -> Callable[[RunConte
 """
 
         full_prompt = f"""{base_prompt}
+
+{date_context}
 
 --- リサーチ対象テーマ ---
 タイトル: {ctx.context.selected_theme.title}
@@ -270,11 +273,14 @@ def create_researcher_instructions(base_prompt: str) -> Callable[[RunContextWrap
             raise ValueError("有効なリサーチプランまたは実行すべきクエリがありません。")
 
         current_query = ctx.context.research_plan.queries[ctx.context.current_research_query_index]
+        date_context = get_current_date_context()
 
         # 企業情報（拡張）
         company_info_str = build_enhanced_company_context(ctx.context)
 
         full_prompt = f"""{base_prompt}
+
+{date_context}
 
 --- 現在のリサーチタスク ---
 記事テーマ: {ctx.context.research_plan.topic}
@@ -310,6 +316,7 @@ def create_research_synthesizer_instructions(base_prompt: str) -> Callable[[RunC
     async def dynamic_instructions_func(ctx: RunContextWrapper[ArticleContext], agent: Agent[ArticleContext]) -> str:
         if not ctx.context.research_query_results:
             raise ValueError("要約するためのリサーチ結果がありません。")
+        date_context = get_current_date_context()
 
         results_str = ""
         all_sources_set = set() # 重複削除用
@@ -326,6 +333,8 @@ def create_research_synthesizer_instructions(base_prompt: str) -> Callable[[RunC
         sorted(list(all_sources_set)) # 重複削除してリスト化
 
         full_prompt = f"""{base_prompt}
+
+{date_context}
 
 --- リサーチ対象テーマ ---
 {ctx.context.selected_theme.title if ctx.context.selected_theme else 'N/A'}
@@ -354,6 +363,7 @@ def create_research_instructions(base_prompt: str) -> Callable[[RunContextWrappe
         if not ctx.context.selected_detailed_persona:
             raise ValueError("リサーチ計画のための詳細なペルソナが選択されていません。")
         persona_description = ctx.context.selected_detailed_persona
+        date_context = get_current_date_context()
 
         # 企業情報（拡張）
         company_info_str = build_enhanced_company_context(ctx.context)
@@ -448,44 +458,24 @@ def create_research_instructions(base_prompt: str) -> Callable[[RunContextWrappe
 {company_info_str}
 ---
 
-**検索クエリ生成の厳密な基準:**
-1. テーマタイトルとキーワードに直結する基礎情報・定義
-2. 読者がそのキーワードで求める具体的な疑問・悩みへの答え
-3. テーマに完全一致する実践的なノウハウ・手順
-4. テーマキーワードに直接関連する統計データ・事例のみ
-5. テーマ範囲内での比較・選択肢のみ
+{date_context}
 
-**重要:**
-- 上記テーマについて深く掘り下げるための、具体的で多様な検索クエリを **{ctx.context.num_research_queries}個** 生成してください。
-- 各クエリには、そのクエリで何を明らかにしたいか（focus）を明確に記述してください。
+**検索と収集の基準（アウトライン優先）**
+- 上記のアウトライン（ある場合）各見出しを1つずつ裏付ける情報を優先的に集めること
+- 検索クエリは必ずアウトライン/テーマ/キーワードに完全一致させ、脱線させない
+- 権威性の高い情報源（公的機関・学術・大手メディア・公式情報）を優先
+- 収集したテキストには **URLを一切含めない**（タイトルや出典名のみ可）
 
-**重要なリサーチ指針:**
-- 生成した検索クエリを使用して `web_search` ツールを実行してください。
-- **権威ある情報源を最優先で活用してください**：
-  * **Wikipedia（ja.wikipedia.org）**: 基礎情報、定義、概要
-  * **政府機関・自治体サイト（.go.jp）**: 統計データ、公式見解、制度情報
-  * **学術機関（.ac.jp）**: 研究データ、専門知識
-  * **業界団体・公的機関**: 業界統計、ガイドライン
-  * **大手メディア・新聞社**: ニュース、トレンド情報
-  * **企業公式サイト**: 製品情報、サービス詳細
-- 検索結果を**深く分析**し、記事テーマとクエリの焦点に関連する**具体的な情報、データ、主張、引用**などを**詳細に抽出**してください。
-- 個人ブログやまとめサイト、広告的なコンテンツよりも、**公的機関、学術機関、業界の権威、著名メディア**からの情報を優先して選択してください。
-- 検索結果全体の**簡潔な要約 (summary)** も生成してください。
-- **`save_research_snippet` ツールは使用しないでください。**
+**出力フォーマット（絶対厳守・構造化禁止）**
+- 最終出力はプレーンテキストのみ。JSONや箇条書きの強制形式は不要。
+- 取得した事実・データ・引用・根拠を **一切省略せずそのまま** 記載する。
+- テキスト全体を `<RESEARCH_SOURCES>` と `</RESEARCH_SOURCES>` で囲む。
+- 冒頭に「これらはリサーチした情報源。すべてを執筆に含める必要はない」と明記する。
+- URLは書かない。出典は「出典名: 〜」のようにテキストのみで示す。
 
-**重要なリサーチ結果要約指針:**
-- 上記の詳細なリサーチ結果全体を分析し、記事執筆に役立つように情報を統合・要約してください。
-- 以下の要素を含む**実用的で詳細なリサーチレポート**を作成してください:
-    - `overall_summary`: リサーチ全体から得られた主要な洞察やポイントの要約。
-    - `key_points`: 記事に含めるべき重要なポイントや事実をリスト形式で記述し、各ポイントについて**それを裏付ける情報源URL (`supporting_sources`)** を `KeyPoint` 形式で明確に紐付けてください。
-    - `interesting_angles`: 記事を面白くするための切り口や視点のアイデアのリスト形式。
-    - `all_sources`: 参照した全ての情報源URLのリスト（重複削除済み、可能であれば重要度順）。
-- レポートは論文調ではなく、記事作成者がすぐに使えるような分かりやすい言葉で記述してください。
-- あなたの応答は必ず `ResearchReport` 型のJSON形式で出力してください。
-
-検索クエリの作成、リサーチの実行はすべて上記の指針に従って厳格に行い、内部で実行してください。
-出力は必ず `ResearchReport` 型のJSON形式のみで行ってください。
-
+**あなたのゴール**
+- 生成した検索クエリで `web_search` ツールを用いて深く調査し、アウトラインの各見出しを支える具体的な根拠・データ・主張を集約したプレーンテキストを返す。
+- 文章は後続LLMがシステムプロンプトとして読みやすいよう、短い見出しや区切りを適宜入れてよいが、情報自体は削らない。
 """
         return full_prompt
     return dynamic_instructions_func
@@ -496,6 +486,7 @@ def create_outline_instructions(base_prompt: str) -> Callable[[RunContextWrapper
             raise ValueError("アウトライン作成に必要なテーマがありません。")
         if not ctx.context.selected_detailed_persona:
             raise ValueError("アウトライン作成のための詳細なペルソナが選択されていません。")
+        date_context = get_current_date_context()
         persona_description = ctx.context.selected_detailed_persona
         outline_top_level = getattr(ctx.context, 'outline_top_level_heading', 2) or 2
         if outline_top_level not in (2, 3):
@@ -505,12 +496,14 @@ def create_outline_instructions(base_prompt: str) -> Callable[[RunContextWrapper
 
         # フロー設定に応じてリサーチ結果を処理
         from app.core.config import settings
-        if hasattr(ctx.context, 'research_report') and ctx.context.research_report:
-            research_summary = ctx.context.research_report.overall_summary
-            sources_count = len(ctx.context.research_report.all_sources)
+        research_text = getattr(ctx.context, "research_sources_tagged", None) or getattr(ctx.context, "research_sources_text", None)
+        if not research_text and getattr(ctx.context, "research_report", None):
+            research_text = getattr(ctx.context.research_report, "overall_summary", "")
+        if research_text:
+            research_summary = f"リサーチ情報源（タグ付き）:\n{research_text}"
+            sources_count = 0
         else:
-            # reorderedフローでは研究レポートがまだ存在しない場合
-            research_summary = "まだリサーチが実行されていません。テーマとキーワードに基づいてアウトラインを作成してください。"
+            research_summary = "リサーチテキストが未取得です。テーマとキーワードに基づいてアウトラインを作成してください。"
             sources_count = 0
         # 企業情報（拡張）
         company_info_block = f"""
@@ -557,6 +550,8 @@ def create_outline_instructions(base_prompt: str) -> Callable[[RunContextWrapper
 
         full_prompt = f"""{base_prompt}
 
+{date_context}
+
 --- 入力情報 ---
 選択されたテーマ:
   タイトル: {ctx.context.selected_theme.title}
@@ -570,6 +565,7 @@ def create_outline_instructions(base_prompt: str) -> Callable[[RunContextWrapper
 --- 詳細なリサーチ結果 ---
 {research_summary}
 参照した全情報源URL数: {sources_count}
+（リサーチ情報は参考用。必要な部分だけ構成に反映し、すべてを盛り込む必要はありません）
 ---
 
 --- アウトライン構造の要件 ---
@@ -618,10 +614,11 @@ def create_section_writer_with_images_instructions(base_prompt: str) -> Callable
     async def dynamic_instructions_func(ctx: RunContextWrapper[ArticleContext], agent: Agent[ArticleContext]) -> str:
         if not ctx.context.generated_outline or ctx.context.current_section_index >= len(ctx.context.generated_outline.sections):
             raise ValueError("有効なアウトラインまたはセクションインデックスがありません。")
-        if not ctx.context.research_report:
-            raise ValueError("参照すべきリサーチレポートがありません。")
+        if not (getattr(ctx.context, "research_sources_text", None) or getattr(ctx.context, "research_sources_tagged", None) or getattr(ctx.context, "research_report", None)):
+            raise ValueError("参照すべきリサーチテキストがありません。")
         if not ctx.context.selected_detailed_persona:
             raise ValueError("セクション執筆のための詳細なペルソナが選択されていません。")
+        date_context = get_current_date_context()
         persona_description = ctx.context.selected_detailed_persona
 
         target_section = ctx.context.generated_outline.sections[ctx.context.current_section_index]
@@ -705,10 +702,12 @@ def create_section_writer_with_images_instructions(base_prompt: str) -> Callable
 
         outline_context = "\n".join(format_outline_sections(ctx.context.generated_outline.sections))
 
-        research_context_str = f"リサーチ要約: {ctx.context.research_report.overall_summary}\n"
-        research_context_str += "主要なキーポイント:\n"
-        for kp in ctx.context.research_report.key_points:
-            research_context_str += f"- {kp.point}\n"
+        research_text = getattr(ctx.context, "research_sources_tagged", None) or getattr(ctx.context, "research_sources_text", None)
+        if not research_text and getattr(ctx.context, "research_report", None):
+            research_text = getattr(ctx.context.research_report, "overall_summary", "")
+        if not research_text:
+            raise ValueError("参照すべきリサーチテキストがありません。")
+        research_context_str = f"リサーチ情報源（タグ付き・省略なし）:\n{research_text}"
 
         # 企業情報（拡張）とスタイルガイドコンテキスト
         company_info_str = build_enhanced_company_context(ctx.context)
@@ -730,6 +729,8 @@ def create_section_writer_with_images_instructions(base_prompt: str) -> Callable
 
         full_prompt = f"""{base_prompt}
 
+{date_context}
+
 --- 記事全体の情報 ---
 記事タイトル: {ctx.context.generated_outline.title}
 記事全体のキーワード: {', '.join(ctx.context.selected_theme.keywords) if ctx.context.selected_theme else 'N/A'}
@@ -745,6 +746,7 @@ def create_section_writer_with_images_instructions(base_prompt: str) -> Callable
 
 --- 詳細なリサーチ情報 ---
 {research_context_str}
+（リサーチ情報は参考用。必要に応じて取捨選択し、すべてを書き写す必要はありません）
 ---
 
 --- **あなたの現在のタスク** ---
@@ -838,8 +840,8 @@ def create_section_writer_instructions(base_prompt: str) -> Callable[[RunContext
     async def dynamic_instructions_func(ctx: RunContextWrapper[ArticleContext], agent: Agent[ArticleContext]) -> str:
         if not ctx.context.generated_outline or ctx.context.current_section_index >= len(ctx.context.generated_outline.sections):
             raise ValueError("有効なアウトラインまたはセクションインデックスがありません。")
-        if not ctx.context.research_report:
-            raise ValueError("参照すべきリサーチレポートがありません。")
+        if not (getattr(ctx.context, "research_sources_text", None) or getattr(ctx.context, "research_sources_tagged", None) or getattr(ctx.context, "research_report", None)):
+            raise ValueError("参照すべきリサーチテキストがありません。")
         if not ctx.context.selected_detailed_persona:
             raise ValueError("セクション執筆のための詳細なペルソナが選択されていません。")
         persona_description = ctx.context.selected_detailed_persona
@@ -925,10 +927,12 @@ def create_section_writer_instructions(base_prompt: str) -> Callable[[RunContext
 
         outline_context = "\n".join(format_outline_sections(ctx.context.generated_outline.sections))
 
-        research_context_str = f"リサーチ要約: {ctx.context.research_report.overall_summary}\n"
-        research_context_str += "主要なキーポイント:\n"
-        for kp in ctx.context.research_report.key_points:
-            research_context_str += f"- {kp.point}\n"
+        research_text = getattr(ctx.context, "research_sources_tagged", None) or getattr(ctx.context, "research_sources_text", None)
+        if not research_text and getattr(ctx.context, "research_report", None):
+            research_text = getattr(ctx.context.research_report, "overall_summary", "")
+        if not research_text:
+            raise ValueError("参照すべきリサーチテキストがありません。")
+        research_context_str = f"リサーチ情報源（タグ付き・省略なし）:\n{research_text}"
 
         # 拡張された会社情報コンテキストを使用
         company_info_str = build_enhanced_company_context(ctx.context)
@@ -971,6 +975,7 @@ def create_section_writer_instructions(base_prompt: str) -> Callable[[RunContext
 
 --- 詳細なリサーチ情報 ---
 {research_context_str}
+（リサーチ情報は参考用。必要な部分だけ活用し、すべてを記事に含める必要はありません）
 
 ---
 
@@ -1031,16 +1036,18 @@ def create_editor_instructions(base_prompt: str) -> Callable[[RunContextWrapper[
     async def dynamic_instructions_func(ctx: RunContextWrapper[ArticleContext], agent: Agent[ArticleContext]) -> str:
         if not ctx.context.full_draft_html:
             raise ValueError("編集対象のドラフト記事がありません。")
-        if not ctx.context.research_report:
-            raise ValueError("参照すべきリサーチレポートがありません。")
+        if not (getattr(ctx.context, "research_sources_text", None) or getattr(ctx.context, "research_sources_tagged", None) or getattr(ctx.context, "research_report", None)):
+            raise ValueError("参照すべきリサーチテキストがありません。")
         if not ctx.context.selected_detailed_persona:
             raise ValueError("編集のための詳細なペルソナが選択されていません。")
         persona_description = ctx.context.selected_detailed_persona
 
-        research_context_str = f"リサーチ要約: {ctx.context.research_report.overall_summary}\n"
-        research_context_str += "主要なキーポイント:\n"
-        for kp in ctx.context.research_report.key_points:
-            research_context_str += f"- {kp.point}\n"
+        research_text = getattr(ctx.context, "research_sources_tagged", None) or getattr(ctx.context, "research_sources_text", None)
+        if not research_text and getattr(ctx.context, "research_report", None):
+            research_text = getattr(ctx.context.research_report, "overall_summary", "")
+        if not research_text:
+            raise ValueError("参照すべきリサーチテキストがありません。")
+        research_context_str = f"リサーチ情報源（タグ付き・省略なし）:\n{research_text}"
 
         # 拡張された会社情報コンテキストを使用
         company_info_str = build_enhanced_company_context(ctx.context)
@@ -1074,6 +1081,7 @@ def create_editor_instructions(base_prompt: str) -> Callable[[RunContextWrapper[
 {style_guide_context}
 --- 詳細なリサーチ情報 ---
 {research_context_str}
+（リサーチ情報は参考用であり、必要に応じて取捨選択してください。記事に必ずしも全てを含める必要はありません）
 ---
 
 **重要:**
@@ -1120,6 +1128,7 @@ def create_persona_generator_instructions(base_prompt: str) -> Callable[[RunCont
             pass
         elif ctx.context.custom_persona: # 移行措置
             pass
+        date_context = get_current_date_context()
 
         # SerpAPI分析結果
         serp_analysis_block = ""
@@ -1165,8 +1174,9 @@ SEOキーワード: {', '.join(ctx.context.initial_keywords)}
 ペルソナ属性（大分類）: {ctx.context.persona_type.value if ctx.context.persona_type else '指定なし'}
 （上記属性が「その他」の場合のユーザー指定ペルソナ: {ctx.context.custom_persona if ctx.context.persona_type == PersonaType.OTHER else '該当なし'}）
 生成する具体的なペルソナの数: {ctx.context.num_persona_examples}
-{serp_analysis_block}
-{company_info_block}
+        {serp_analysis_block}
+        {company_info_block}
+{date_context}
 ---
 
 あなたのタスクは、上記入力情報に基づいて、より具体的で詳細なペルソナ像を **{ctx.context.num_persona_examples}個** 生成することです。
@@ -1221,6 +1231,7 @@ def create_serp_keyword_analysis_instructions(base_prompt: str) -> Callable[[Run
     async def dynamic_instructions_func(ctx: RunContextWrapper[ArticleContext], agent: Agent[ArticleContext]) -> str:
         # キーワードからSerpAPI分析を実行（この時点で実行）
         keywords = ctx.context.initial_keywords
+        date_context = get_current_date_context()
         
         # SerpAPIサービスのインポートと実行
         from app.infrastructure.external_apis.serpapi_service import get_serpapi_service
@@ -1270,6 +1281,8 @@ def create_serp_keyword_analysis_instructions(base_prompt: str) -> Callable[[Run
         all_headings_summary += "\n\n"
 
         full_prompt = f"""{base_prompt}
+
+{date_context}
 
 --- SerpAPI分析データ ---
 検索クエリ: {analysis_result.search_query}
@@ -1528,11 +1541,11 @@ editor_agent = Agent[ArticleContext](
 
 # リサーチエージェント（計画、実行、要約を一度に実行するエージェント）
 RESEARCH_AGENT_BASE_PROMPT = """
-あなたはリサーチエージェントです。与えられたテーマに基づいて、計画、実行、要約を一度に行います。
-1. まず、テーマを深く掘り下げ、読者が知りたいであろう情報を網羅するための効果的なWeb検索クエリを作成します。
-2. 次に、その検索クエリでWeb検索を実行し、結果を深く分析します。記事テーマに関連する具体的で信頼できる情報、データ、主張、引用を詳細に抽出し、最も適切な出典元URLとタイトルを特定します。必ずweb_searchツールを使用してください。
-3. 最後に、収集された詳細なリサーチ結果を分析し、記事のテーマに沿って統合・要約します。各キーポイントについて、記事作成者がすぐに活用できる実用的で詳細なリサーチレポートを作成します。
-
+あなたは「アウトラインに即した裏付け情報だけを集める」ことに特化したリサーチエージェントです。
+構造化JSONではなく、後段LLMがそのまま読めるプレーンテキストを返します。
+出力は必ず `<RESEARCH_SOURCES>` と `</RESEARCH_SOURCES>` で囲み、情報を一切省略しません。
+URLは含めず、出典名のみを記述します。
+記事執筆では **すべてを使う必要はない** ことを明記してください。
 """
 research_agent = Agent[ArticleContext](
     name="ResearchAgent",
@@ -1540,7 +1553,7 @@ research_agent = Agent[ArticleContext](
     model=settings.research_model,
     model_settings=ModelSettings(max_tokens=32768, tool_choice="required"),  # 最大出力トークン数設定 + web検索強制
     tools=[web_search_tool],
-    output_type=ResearchReport, 
+    # 構造化出力を廃止し、プレーンテキストを許可する
 )
 
 # LiteLLMエージェント生成関数 (APIでは直接使わないかもしれないが、念のため残す)
