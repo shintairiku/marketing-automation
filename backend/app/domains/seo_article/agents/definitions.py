@@ -1389,6 +1389,10 @@ researcher_agent = Agent[ArticleContext](
     name="ResearcherAgent",
     instructions=create_researcher_instructions(RESEARCHER_AGENT_BASE_PROMPT),
     model=settings.research_model,
+    model_settings=ModelSettings(
+        max_tokens=32768,
+        response_include=["web_search_call.action.sources"],
+    ),
     tools=[web_search_tool],
     output_type=ResearchQueryResult,
 )
@@ -1551,7 +1555,11 @@ research_agent = Agent[ArticleContext](
     name="ResearchAgent",
     instructions=create_research_instructions(RESEARCH_AGENT_BASE_PROMPT),
     model=settings.research_model,
-    model_settings=ModelSettings(max_tokens=32768, tool_choice="required"),  # 最大出力トークン数設定 + web検索強制
+    model_settings=ModelSettings(
+        max_tokens=32768,
+        tool_choice="required",  # web検索を強制
+        response_include=["web_search_call.action.sources"],  # Web検索の参照元URLをレスポンスに含める
+    ),
     tools=[web_search_tool],
     # 構造化出力を廃止し、プレーンテキストを許可する
 )

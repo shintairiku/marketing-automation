@@ -5,7 +5,7 @@ import time
 import traceback
 import logging
 from datetime import datetime, timezone
-from typing import List, Dict, Any, Optional, Union
+from typing import List, Dict, Any, Optional, Union, Set
 from openai import BadRequestError, AuthenticationError
 from agents import Runner, RunConfig, Agent, trace
 from agents import tracing as agent_tracing
@@ -997,7 +997,23 @@ class GenerationFlowManager:
                         
                         # ログ記録処理
                         await self.log_agent_execution(workflow_logger, agent, result, execution_time, attempt)
-                        
+
+                        # Web検索ソースURLの収集（レスポンスの include を活用）
+                        sources = self._extract_web_search_sources(result)
+                        if sources:
+                            existing_ctx = set(getattr(context, "research_sources_urls", []) or [])
+                            merged = sorted(existing_ctx | set(sources))
+                            context.research_sources_urls = merged
+                            # ResearchReport型の出力なら all_sources にもマージ
+                            if isinstance(output, ResearchReport):
+                                existing = set(getattr(output, "all_sources", []) or [])
+                                output.all_sources = sorted(existing | set(sources))
+
+                        # 本文中の引用(annotations.url_citation)を抽出してコンテキストに保存
+                        citations = self._extract_url_citations(result)
+                        if citations:
+                            context.research_citations = citations
+
                         # 出力の検証と変換
                         return await self.validate_and_convert_agent_output(agent, output)
                     else:
@@ -1028,6 +1044,52 @@ class GenerationFlowManager:
     def should_break_retry(self, e: Exception) -> bool:
         """リトライを中断すべきエラーかどうかを判定"""
         return isinstance(e, (BadRequestError, MaxTurnsExceeded, ModelBehaviorError, UserError, AuthenticationError))
+
+    def _extract_web_search_sources(self, run_result) -> List[str]:
+        """
+        Responses API生レスポンスから web_search の出典URLを抽出
+        型定義の差異を吸収するため、ダックタイピングで処理する。
+        """
+        urls: Set[str] = set()
+        for model_response in getattr(run_result, "raw_responses", []) or []:
+            outputs = getattr(model_response, "output", []) or []
+            for out in outputs:
+                if getattr(out, "type", None) == "web_search_call":
+                    action = getattr(out, "action", None) or getattr(out, "data", None) or {}
+                    sources = getattr(action, "sources", None)
+                    if sources is None and isinstance(action, dict):
+                        sources = action.get("sources", [])
+                    if sources is None:
+                        sources = []
+                    for src in sources:
+                        url = getattr(src, "url", None) or (src.get("url") if isinstance(src, dict) else None)
+                        if url:
+                            urls.add(url)
+        return sorted(urls)
+
+    def _extract_url_citations(self, run_result) -> List[Dict[str, Any]]:
+        """
+        Responses APIメッセージ出力に付与された url_citation annotations を抽出
+        型定義の差異を吸収するため、ダックタイピングで処理する。
+        """
+        citations: List[Dict[str, Any]] = []
+        for model_response in getattr(run_result, "raw_responses", []) or []:
+            outputs = getattr(model_response, "output", []) or []
+            for out in outputs:
+                if getattr(out, "type", None) == "message":
+                    contents = getattr(out, "content", []) or []
+                    for content in contents:
+                        annotations = getattr(content, "annotations", []) or []
+                        for ann in annotations:
+                            if getattr(ann, "type", None) == "url_citation":
+                                citations.append({
+                                    "title": getattr(ann, "title", None),
+                                    "url": getattr(ann, "url", None),
+                                    "start_index": getattr(ann, "start_index", None),
+                                    "end_index": getattr(ann, "end_index", None),
+                                    "text": getattr(content, "text", None),
+                                })
+        return citations
 
     async def validate_and_convert_agent_output(self, agent: Agent, output: Any) -> Any:
         """エージェント出力の検証と変換"""

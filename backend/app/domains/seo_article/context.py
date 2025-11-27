@@ -106,6 +106,10 @@ class ArticleContext:
     # 新形式: 構造化せずそのまま保持するリサーチテキスト
     research_sources_text: Optional[str] = None
     research_sources_tagged: Optional[str] = None
+    # 収集した出典URL一覧（Web検索レスポンスから抽出した生URL）
+    research_sources_urls: List[str] = field(default_factory=list)
+    # 本文中の引用情報（Responses API annotations: url_citation）
+    research_citations: List[Dict[str, Any]] = field(default_factory=list)
     generated_outline: Optional[Outline] = None
     current_section_index: int = 0
     generated_sections: List[ArticleSection] = field(default_factory=list)
@@ -170,6 +174,8 @@ class ArticleContext:
         self.research_report = None
         self.research_sources_text = None
         self.research_sources_tagged = None
+        self.research_sources_urls = []
+        self.research_citations = []
 
         self.generated_outline = None
         self.outline = None
