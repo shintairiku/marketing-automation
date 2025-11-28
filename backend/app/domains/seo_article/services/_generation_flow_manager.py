@@ -10,7 +10,9 @@ from openai import BadRequestError, AuthenticationError
 from agents import Runner, RunConfig, Agent, trace
 from agents.exceptions import MaxTurnsExceeded, ModelBehaviorError, UserError
 from agents.tracing import custom_span
+from agents.run_context import RunContextWrapper
 from rich.console import Console
+from app.infrastructure.external_apis.litellm_client import stream_chat_completion
 from pydantic import ValidationError
 
 # 内部モジュールのインポート
@@ -903,6 +905,14 @@ class GenerationFlowManager:
 
     async def run_agent(self, agent: Agent[ArticleContext], input_data: Union[str, List[Dict[str, Any]]], context: ArticleContext, run_config: RunConfig) -> Any:
         """エージェントを実行し、結果を返す（リトライ付き）"""
+
+        # writing_sections はモデルに応じて LiteLLM or 従来経路で分岐
+        use_litellm = False
+        is_image_mode = getattr(context, "image_mode", False)
+        if context.current_step == "writing_sections" or getattr(agent, "name", "") in ["SectionWriterAgent", "SectionWriterWithImagesAgent"]:
+            use_litellm = self._should_use_litellm(settings.writing_model)
+            section_index = getattr(context, "current_section_index", 0)
+
         last_exception = None
         start_time = time.time()
         execution_log_id = None
@@ -935,27 +945,47 @@ class GenerationFlowManager:
             for attempt in range(settings.max_retries):
                 try:
                     console.print(f"[dim]エージェント {agent.name} 実行開始 (試行 {attempt + 1}/{settings.max_retries})...[/dim]")
-                    
-                    # エージェント実行
-                    result = await Runner.run(
-                        starting_agent=agent,
-                        input=input_data,
-                        context=context,
-                        run_config=run_config,
-                        max_turns=10
-                    )
-                    
+                    result = None
+
+                    # エージェント実行: LiteLLM と従来経路を共通リトライ枠で処理
+                    if use_litellm:
+                        llm_result = await self._run_section_with_litellm(
+                            agent,
+                            input_data,
+                            context,
+                            run_config,
+                            is_image_mode=is_image_mode,
+                        )
+                        if is_image_mode:
+                            output = ArticleSectionWithImages(
+                                title=llm_result.get("title") or (context.generated_outline.sections[section_index].heading if context.generated_outline else ""),
+                                content=llm_result.get("content", ""),
+                                order=llm_result.get("order") or section_index + 1,
+                                images=llm_result.get("image_placeholders") or [],
+                            )
+                        else:
+                            output = llm_result.get("content", None)
+                    else:
+                        result = await Runner.run(
+                            starting_agent=agent,
+                            input=input_data,
+                            context=context,
+                            run_config=run_config,
+                            max_turns=10
+                        )
+                        output = result.final_output if result and getattr(result, "final_output", None) is not None else None
+
                     console.print(f"[dim]エージェント {agent.name} 実行完了。[/dim]")
 
                     # 成功時の処理とログ記録
-                    if result and result.final_output:
-                        output = result.final_output
+                    if self._is_non_empty_output(output):
                         execution_time = time.time() - start_time
-                        
+
                         logger.info(f"エージェント {agent.name} 実行成功: {execution_time:.2f}秒, 試行回数: {attempt + 1}")
-                        
+
                         # ログ記録処理
-                        await self.log_agent_execution(workflow_logger, agent, result, execution_time, attempt)
+                        result_for_log = None if use_litellm else result
+                        await self.log_agent_execution(workflow_logger, agent, result_for_log, execution_time, attempt)
                         
                         # 出力の検証と変換
                         return await self.validate_and_convert_agent_output(agent, output)
@@ -983,6 +1013,175 @@ class GenerationFlowManager:
             total_time = time.time() - start_time
             logger.error(f"エージェント {agent.name} execution finished unexpectedly: 総実行時間 {total_time:.2f}秒")
             raise RuntimeError(f"Agent {agent.name} execution finished unexpectedly.")
+
+    def _should_use_litellm(self, model_name: str) -> bool:
+        """`gpt-` で始まらないモデルは LiteLLM 経路を使う。"""
+        return not model_name.startswith("gpt-")
+
+    def _is_non_empty_output(self, output: Any) -> bool:
+        """空文字/空コンテナを失敗として扱う。"""
+        if output is None:
+            return False
+        if isinstance(output, str):
+            return bool(output.strip())
+        # ArticleSectionWithImages など Pydantic モデルも content を確認
+        if hasattr(output, "content") and isinstance(getattr(output, "content"), str):
+            return bool(getattr(output, "content").strip())
+        # リストや辞書も空なら失敗
+        if isinstance(output, (list, dict, tuple, set)):
+            return len(output) > 0
+        return True
+
+    async def _run_section_with_litellm(
+        self,
+        agent: Agent[ArticleContext],
+        input_data: Union[str, List[Dict[str, Any]]],
+        context: ArticleContext,
+        run_config: RunConfig,
+        *,
+        is_image_mode: bool = False,
+    ) -> Dict[str, Any]:
+        """LiteLLMでセクションを書かせ、チャンクを逐次送信する最小実装。
+
+        画像モードでは JSON 形式の ArticleSectionWithImages を期待
+        """
+
+        section_index = getattr(context, "current_section_index", 0)
+
+        # system + 履歴メッセージを role を保持したまま組み立て。image_mode では JSON 指示を末尾ユーザーに付与。
+        instructions = getattr(agent, "instructions", "") or ""
+        if callable(instructions):
+            # openai-agents v0.4 以降では RunContextWrapper に agent 引数が無い可能性に備える
+            try:
+                ctx_wrapper = RunContextWrapper(context=context, run_config=run_config)
+            except TypeError:
+                ctx_wrapper = RunContextWrapper(context=context)
+
+            # instructions 解決に失敗した場合は握りつぶさず上位に伝播させ、リトライ/エラー処理を動かす
+            instructions = await instructions(ctx_wrapper, agent)  # type: ignore[arg-type]
+
+        def _normalize_message(msg: Dict[str, Any]) -> Dict[str, str]:
+            role = msg.get("role", "assistant") if isinstance(msg, dict) else "user"
+            raw_content = msg.get("content", "") if isinstance(msg, dict) else str(msg)
+            if isinstance(raw_content, list):
+                parts: List[str] = []
+                for part in raw_content:
+                    if isinstance(part, dict):
+                        if "text" in part:
+                            parts.append(str(part.get("text", "")))
+                        elif "content" in part:
+                            parts.append(str(part.get("content", "")))
+                        else:
+                            parts.append(str(part))
+                    else:
+                        parts.append(str(part))
+                content = "".join(parts)
+            else:
+                content = str(raw_content)
+            return {"role": role, "content": content}
+
+        history_messages: List[Dict[str, str]]
+        if isinstance(input_data, list):
+            history_messages = [_normalize_message(m) for m in input_data if m is not None]
+        else:
+            history_messages = [{"role": "user", "content": str(input_data)}]
+
+        if is_image_mode:
+            # 最後の user メッセージに JSON 形式の出力指示を付加（構造化出力に対応していないため）
+            for m in reversed(history_messages):
+                if m.get("role") == "user":
+                    m["content"] += (
+                        "\n\n出力は必ず JSON オブジェクト1つで返してください。キーは `title` (文字列), `content` (HTML文字列),"
+                        " `order` (整数), `images` (配列) のみを含めてください。"
+                        "images 配列の各要素は {\"placeholder_id\", \"description_jp\", \"prompt_en\", \"alt_text\"} を持ちます。"
+                        "Markdownのコードフェンスは付けないでください。\n"
+                        "例: {\"title\": \"セクション見出し\", \"content\": \"<p>本文</p>\", \"order\": 1, \"images\": [{\"placeholder_id\": \"img1\", \"description_jp\": \"説明\", \"prompt_en\": \"photo of ...\", \"alt_text\": \"代替テキスト\"}]}"
+                    )
+                    break
+
+        messages = [{"role": "system", "content": instructions}] + history_messages
+
+        accumulated = ""
+
+        # OpenAI従来挙動に合わせ、チャンク配信は行わず最後にまとめて返す
+        async for chunk in stream_chat_completion(messages):
+            if not chunk:
+                continue
+            accumulated += chunk
+
+        # 画像モード: JSON をパースして placeholders を抽出
+        image_placeholders = None
+        final_html = accumulated
+        section_title = ""
+        section_order = section_index + 1
+        if is_image_mode:
+            try:
+                parsed = self._extract_json_from_text(accumulated)
+                section_title = parsed.get("title") or section_title
+                final_html = parsed.get("content") or parsed.get("html_content") or accumulated
+                section_order = parsed.get("order") or section_order
+                phs = parsed.get("images") or parsed.get("image_placeholders") or parsed.get("placeholders") or []
+                from app.domains.seo_article.schemas import ImagePlaceholderData
+                image_placeholders = [
+                    ImagePlaceholderData(
+                        placeholder_id=p.get("placeholder_id", ""),
+                        description_jp=p.get("description_jp", ""),
+                        prompt_en=p.get("prompt_en", ""),
+                        alt_text=p.get("alt_text", ""),
+                    )
+                    for p in phs if isinstance(p, dict)
+                ] or []
+            except Exception as parse_err:
+                console.print(f"[yellow]画像モードのJSONパースに失敗しました: {parse_err}[/yellow]")
+                raise ModelBehaviorError(f"Failed to parse image-mode JSON output: {parse_err}") from parse_err
+
+        # 完了イベントは呼び出し側で一度だけ送るため、ここでは返却のみ
+        return {
+            "content": final_html,
+            "image_placeholders": image_placeholders,
+            "title": section_title,
+            "order": section_order,
+            "is_image_mode": is_image_mode,
+            "streamed": False,
+        }
+
+    def _extract_json_from_text(self, text: str) -> Dict[str, Any]:
+        """出力から最初に現れる JSON オブジェクトを抽出してロードする。
+
+        - コードフェンスや前置きテキストがあっても、最初の '{' から対応する '}' までを抜き出す。
+        - 見つからない場合は JSONDecodeError を投げ、上位でリトライさせる。
+        """
+        import json
+        cleaned = text.strip()
+
+        # コードフェンスを緩めに除去
+        if cleaned.startswith("```"):
+            cleaned = cleaned.strip("`").strip()
+            if cleaned.lower().startswith("json"):
+                cleaned = cleaned[4:].strip()
+
+        # 最初の { から最後に対応する } までを取り出す
+        start = cleaned.find("{")
+        if start == -1:
+            raise json.JSONDecodeError("No JSON object start found", cleaned, 0)
+
+        # バランスをとりながらマッチする末尾の '}' を探す
+        depth = 0
+        end = -1
+        for idx, ch in enumerate(cleaned[start:], start=start):
+            if ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0:
+                    end = idx
+                    break
+
+        if end == -1:
+            raise json.JSONDecodeError("No matching closing brace for JSON object", cleaned, start)
+
+        json_str = cleaned[start:end+1]
+        return json.loads(json_str)
 
     def should_break_retry(self, e: Exception) -> bool:
         """リトライを中断すべきエラーかどうかを判定"""
@@ -1027,12 +1226,8 @@ class GenerationFlowManager:
         """エージェント実行のログ記録"""
         if LOGGING_ENABLED and workflow_logger and self.service.logging_service:
             try:
-                # トークン使用量と会話履歴を抽出（ログ目的のみ、実際には使用されない）
-                # token_usage = self.service.utils.extract_token_usage_from_result(result)
-                # conversation_history = self.service.utils.extract_conversation_history_from_result(result, "")
-                
-                # ログ更新処理（簡略化）
-                console.print(f"[cyan]📋 Agent execution logged for {agent.name}[/cyan]")
+                # ログ更新処理（LiteLLM出力にも対応するため簡略化）
+                console.print(f"[cyan]📋 Agent execution logged for {agent.name} (attempt {attempt + 1})[/cyan]")
             except Exception as log_err:
                 logger.warning(f"Failed to log agent execution: {log_err}")
 

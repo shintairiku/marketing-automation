@@ -28,5 +28,8 @@ dependencies = [
     "psycopg2-binary",
     "sqlalchemy",
     "ruff",
+    "aiohttp==3.11.11",
+    "aiohappyeyeballs<2.5",
+    "litellm",
     "numpy>=1.26.0,<2.0.0",
 ]
