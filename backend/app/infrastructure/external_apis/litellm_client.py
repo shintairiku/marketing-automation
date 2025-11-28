@@ -11,9 +11,7 @@ Message = Dict[str, str]
 DEFAULT_MAX_TOKENS = 32768
 
 
-async def stream_chat_completion(
-    messages: List[Message], **kwargs: Any
-) -> AsyncIterator[str]:
+async def stream_chat_completion(messages: List[Message], **kwargs: Any) -> AsyncIterator[str]:
     """LiteLLM によるチャット補完ストリーム。
 
     Parameters
