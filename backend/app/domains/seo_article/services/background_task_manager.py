@@ -839,7 +839,11 @@ class BackgroundTaskManager:
             outline = getattr(context, "generated_outline", None)
             valid, reason = self._validate_outline(outline, context)
             if not valid:
-                raise ValueError(f"Generated outline did not pass auto validation: {reason}")
+                # 再生成を一度試みる
+                return (
+                    {"response_type": "regenerate", "payload": {}},
+                    {"reason": reason, "action": "regenerate_outline"},
+                )
             return (
                 {"response_type": "approve_outline", "payload": {"approved": True}},
                 {"reason": reason or "outline_validated"},
