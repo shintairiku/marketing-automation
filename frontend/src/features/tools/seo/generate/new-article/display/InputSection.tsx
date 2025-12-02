@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { ChevronDown, ChevronUp, Image, ListTree, Palette, Plus, Settings, X, Zap } from 'lucide-react';
+import { Bot, ChevronDown, ChevronUp, Image, ListTree, Palette, Plus, Settings, X, Zap } from 'lucide-react';
 import { IoRefresh, IoSparkles } from 'react-icons/io5';
 
 import { Badge } from '@/components/ui/badge';
@@ -46,6 +46,8 @@ export default function InputSection({ onStartGeneration, isConnected, isGenerat
     const [advancedOutlineMode, setAdvancedOutlineMode] = useState(false);
     const [topLevelHeading, setTopLevelHeading] = useState<'h2' | 'h3'>('h2');
     const [enableFinalEditing, setEnableFinalEditing] = useState(false);
+    const [autoMode, setAutoMode] = useState(false);
+    const [autoSelectionStrategy, setAutoSelectionStrategy] = useState<'first' | 'best_match'>('best_match');
     
     // スタイルテンプレート関連の状態
     const [styleTemplates, setStyleTemplates] = useState([]);
@@ -174,6 +176,9 @@ export default function InputSection({ onStartGeneration, isConnected, isGenerat
             flow_type: selectedFlowType,
             // 最終編集ステップ実行可否
             enable_final_editing: enableFinalEditing,
+            // オートモード
+            auto_mode: autoMode,
+            auto_selection_strategy: autoSelectionStrategy,
         };
 
         console.log('📦 Request data being sent:', requestData);
@@ -657,6 +662,52 @@ export default function InputSection({ onStartGeneration, isConnected, isGenerat
                       <span>4</span>
                       <span>8</span>
                     </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* オートモード */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-lg flex items-center gap-2">
+                    <Bot className="h-5 w-5" />
+                    オートモード
+                  </CardTitle>
+                  <p className="text-sm text-muted-foreground">
+                    ペルソナ/テーマ/アウトラインの承認を自動で進めます。フローはそのまま、確認なしで完走させたいときに。
+                  </p>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="font-medium text-sm">オートモードを有効にする</p>
+                      <p className="text-xs text-muted-foreground">ユーザー入力ステップをスキップし自動選択します。</p>
+                    </div>
+                    <Switch
+                      checked={autoMode}
+                      onCheckedChange={setAutoMode}
+                      aria-label="オートモードを有効にする"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label className="text-sm">自動選択の戦略</Label>
+                    <Select
+                      value={autoSelectionStrategy}
+                      onValueChange={(value) => setAutoSelectionStrategy(value as 'first' | 'best_match')}
+                      disabled={!autoMode}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="戦略を選択" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="best_match">コンテキストに最適（推奨）</SelectItem>
+                        <SelectItem value="first">先頭を常に選ぶ</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-muted-foreground">
+                      best_match: キーワード・会社情報・SERP傾向に最も合う候補を選択 / first: 生成順で固定
+                    </p>
                   </div>
                 </CardContent>
               </Card>

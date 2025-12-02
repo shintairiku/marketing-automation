@@ -30,7 +30,9 @@ class ArticleContext:
     
     # フロー設定
     flow_type: Optional[Literal["research_first", "outline_first"]] = None  # "research_first"（リサーチ先行） or "outline_first"（構成先行）
-    
+    auto_mode: bool = False  # ユーザー承認ステップを自動解決するか
+    auto_selection_strategy: str = "best_match"  # first / best_match
+
     # 会社情報 - 基本情報
     company_name: Optional[str] = None
     company_description: Optional[str] = None

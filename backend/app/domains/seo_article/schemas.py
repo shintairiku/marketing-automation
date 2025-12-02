@@ -66,6 +66,16 @@ class GenerateArticleRequest(BaseModel):
         description="最終の編集エージェントを実行するか。falseの場合はセクション執筆で完了する"
     )
 
+    # --- オートモード設定 ---
+    auto_mode: bool = Field(
+        False,
+        description="ペルソナ/テーマ/アウトラインなどのユーザー承認ステップをスキップして自動進行するかどうか"
+    )
+    auto_selection_strategy: Optional[Literal["first", "best_match"]] = Field(
+        default="best_match",
+        description="オートモード時に候補を選ぶ戦略（first: 先頭固定, best_match: コンテキストに最も合うもの）"
+    )
+
     class Config:
         json_schema_extra = {
             "example": {
@@ -85,6 +95,8 @@ class GenerateArticleRequest(BaseModel):
                 "advanced_outline_mode": False,
                 "outline_top_level_heading": 2,
                 "flow_type": "research_first",
+                "auto_mode": True,
+                "auto_selection_strategy": "best_match",
             }
         }
 
