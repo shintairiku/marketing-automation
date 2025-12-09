@@ -65,7 +65,8 @@ export const useArticleGenerationRealtime = ({
   const getInitialSteps = useCallback((flowType: string = 'research_first', enableFinalEditing: boolean = true): GenerationStep[] => {
     const isOutlineFirst = flowType === 'outline_first';
 
-    const baseSteps = isOutlineFirst ? [
+    // Explicitly type base steps so `status` stays on the StepStatus union
+    const baseSteps: GenerationStep[] = isOutlineFirst ? [
       { id: 'keyword_analyzing', name: 'キーワード分析', status: 'pending' },
       { id: 'persona_generating', name: 'ペルソナ生成', status: 'pending' },
       { id: 'theme_generating', name: 'テーマ提案', status: 'pending' },
