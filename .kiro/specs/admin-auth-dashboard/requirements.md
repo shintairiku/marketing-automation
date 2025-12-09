@@ -1,137 +1,125 @@
-# Requirements Document
+# 要件定義書
 
-## Introduction
+## はじめに
 
-This document outlines the requirements for implementing an admin authentication and dashboard system for the marketing automation platform. The system will provide secure access control for administrators using Google Workspace SSO restrictions, comprehensive user and organization management capabilities, and a monitoring dashboard for system oversight.
+この文書は、マーケティング自動化プラットフォームのマスター管理者認証と内部運用ダッシュボードの実装要件を概説します。このシステムは、サービスプロバイダー管理者が内部プラットフォーム運用、システム監視、インフラ管理、およびサービスプロバイダービジネス運用を管理するための安全なアクセス制御を提供します。
 
-The admin system is part of a larger administrative interface that will eventually include user management, organization management, subscription management, support ticket management, announcements, messaging, and system settings.
+マスター管理者システムは、顧客管理よりも内部サービスプロバイダー運用に焦点を当て、システムヘルス監視、インフラ管理、内部設定、サービスデプロイメント管理、およびサービスプロバイダーの意思決定のためのビジネスインテリジェンスを含みます。
 
-## Requirements
+## 要件
 
-### Requirement 1: Google Workspace SSO Authentication
+### 要件1: Clerk組織ベース管理者認証
 
-**User Story:** As a platform administrator, I want to authenticate using only company-issued Google Workspace accounts, so that access is restricted to authorized personnel and personal Gmail accounts are blocked.
+**ユーザーストーリー:** プラットフォーム管理者として、Google Workspaceドメインの許可された担当者にアクセスを制限するために、検証済みドメイン制限付きClerk組織メンバーシップを使用して認証したい。
 
-#### Acceptance Criteria
+#### 受入基準
 
-1. WHEN an administrator attempts to sign in THEN the system SHALL only accept Google Workspace SSO authentication
-2. WHEN a user tries to authenticate with a personal Gmail account (@gmail.com) THEN the system SHALL reject the authentication attempt
-3. WHEN a user authenticates with a Google Workspace account THEN the system SHALL verify the hosted domain (hd) claim matches the allowed domain list
-4. WHEN JWT token verification is enabled THEN the system SHALL validate token signatures and claims
-5. WHEN an unauthorized domain is used THEN the system SHALL return a 403 Forbidden response with appropriate error message
-6. WHEN authentication succeeds THEN the system SHALL set admin privilege flags and create an audit log entry
+1. 管理者がサインインを試みる時、システムは指定されたClerk組織（org_31qpu3arGjKdiatiavEP9E7H3LV）のメンバーであることを検証すること
+2. ユーザーが組織メンバーシップなしで認証を試みる時、Clerkは自動的に認証試行を拒否すること
+3. ユーザーが検証済みドメインアカウントで認証する時、Clerkは検証済み「shintairiku.jp」ドメインを使用して自動的にドメイン検証を処理すること
+4. JWT トークン検証が有効な時、システムはトークン署名と組織メンバーシップクレームを検証すること
+5. 未認可ユーザーがアクセスを試みる時、システムは適切なエラーメッセージと共に403 Forbiddenレスポンスを返すこと
+6. 認証が成功した時、システムは管理者権限フラグを設定し、監査ログエントリを作成すること
 
-### Requirement 2: Admin Authorization Middleware
+### 要件2: 管理者認可ミドルウェア
 
-**User Story:** As a system architect, I want a centralized authorization system for admin endpoints, so that all admin operations are properly secured and audited.
+**ユーザーストーリー:** システムアーキテクトとして、すべての管理者操作が適切に保護され、監査されるように、管理者エンドポイント用の集中認可システムを必要としている。
 
-#### Acceptance Criteria
+#### 受入基準
 
-1. WHEN an admin endpoint is accessed THEN the system SHALL verify admin privileges using the @require_admin decorator
-2. WHEN admin verification fails THEN the system SHALL return a 403 Forbidden response
-3. WHEN admin operations are performed THEN the system SHALL automatically log all actions to the audit system
-4. WHEN JWT tokens are invalid or expired THEN the system SHALL reject the request with appropriate error codes
-5. WHEN admin middleware is applied THEN the system SHALL extract user context and make it available to the endpoint
+1. 管理者エンドポイントがアクセスされる時、システムは@require_adminデコレーターを使用してClerk組織メンバーシップを検証すること
+2. 組織メンバーシップ検証が失敗した時、システムは403 Forbiddenレスポンスを返すこと
+3. 管理者操作が実行される時、システムは自動的にすべてのアクションを監査システムにログ記録すること
+4. JWTトークンが無効または期限切れの時、システムは適切なエラーコードでリクエストを拒否すること
+5. 管理者ミドルウェアが適用される時、システムはユーザーコンテキストと組織メンバーシップを抽出し、エンドポイントで利用可能にすること
 
-### Requirement 3: Admin Dashboard Overview
+### 要件3: マスター管理者内部運用ダッシュボード
 
-**User Story:** As a platform administrator, I want to view key system metrics and status information on a dashboard, so that I can monitor platform health and user activity at a glance.
+**ユーザーストーリー:** サービスプロバイダー管理者として、プラットフォームのヘルス、デプロイメントステータス、およびビジネス運用を監視できるように、ダッシュボードで内部システム運用とインフラメトリックスを表示したい。
 
-#### Acceptance Criteria
+#### 受入基準
 
-1. WHEN accessing the admin dashboard THEN the system SHALL display current active user count
-2. WHEN viewing dashboard metrics THEN the system SHALL show new user registrations (daily, weekly, monthly)
-3. WHEN monitoring subscriptions THEN the system SHALL display subscription status distribution and revenue metrics
-4. WHEN checking system health THEN the system SHALL show API usage statistics and error rates
-5. WHEN viewing organization metrics THEN the system SHALL display organization creation and membership trends
-6. WHEN accessing dashboard data THEN the system SHALL refresh metrics automatically every 5 minutes
-7. WHEN dashboard loads THEN the system SHALL display data within 2 seconds for optimal user experience
+1. マスター管理者ダッシュボードにアクセスする時、システムはインフラヘルスメトリックス（CPU、メモリ、データベースパフォーマンス）を表示すること
+2. システムメトリックスを表示する時、システムはAPIレスポンス時間、エラー率、サービス可用性を表示すること
+3. ~~デプロイメントを監視する時、システムはデプロイメントステータス、バージョン情報、ロールバック機能を表示すること~~
+4. ビジネスメトリックスをチェックする時、システムは収益トレンド、コスト分析、収益性メトリックスを表示すること
+5. サービスヘルスを表示する時、システムは外部サービスステータス（Clerk、Stripe、GCP、Supabase）を表示すること
+6. ダッシュボードデータにアクセスする時、システムはリアルタイム監視のために2分ごとにメトリックスを自動更新すること
+7. ダッシュボードが読み込まれる時、システムは1秒以内に重要アラートとシステムステータスを表示すること
 
-### Requirement 4: Admin User Management Interface
+### 要件4: システム設定管理
 
-**User Story:** As a platform administrator, I want to manage user accounts through a comprehensive interface, so that I can handle customer support requests and account issues efficiently.
+**ユーザーストーリー:** サービスプロバイダー管理者として、プラットフォームの動作を制御し、変更を安全にデプロイできるように、内部システム設定と機能フラグを管理したい。
 
-#### Acceptance Criteria
+#### 受入基準
 
-1. WHEN viewing the user management page THEN the system SHALL display a searchable list of all users
-2. WHEN searching users THEN the system SHALL support filtering by email, status, plan, and registration date
-3. WHEN viewing user details THEN the system SHALL show profile information, subscription status, and organization memberships
-4. WHEN suspending a user account THEN the system SHALL disable access and sync with Clerk authentication
-5. WHEN reactivating a user account THEN the system SHALL restore access and update all related systems
-6. WHEN exporting user data THEN the system SHALL generate CSV files with selected user information
-7. WHEN performing user operations THEN the system SHALL log all changes to the audit system
+1. システム設定を表示する時、システムは環境変数、機能フラグ、サービス設定を表示すること
+2. ~~WHEN updating configurations THEN the system SHALL support real-time updates without service restart where possible~~
+3. ~~WHEN managing feature flags THEN the system SHALL allow enabling/disabling features with percentage rollouts~~
+4. ~~WHEN configuring services THEN the system SHALL validate configuration changes before applying~~
+5. ~~WHEN deploying configuration changes THEN the system SHALL provide rollback capabilities for failed changes~~
+6. ~~WHEN exporting configurations THEN the system SHALL generate backup files for disaster recovery~~
+7. ~~WHEN performing configuration operations THEN the system SHALL log all changes to the audit system~~
 
-### Requirement 5: Admin Organization Management
+### 要件5: インフラおよびサービス管理
 
-**User Story:** As a platform administrator, I want to manage organizations and their memberships, so that I can handle enterprise customer needs and resolve organizational issues.
+**ユーザーストーリー:** サービスプロバイダー管理者として、プラットフォームの信頼性とパフォーマンスを確保できるように、インフラサービスとデプロイメントを管理したい。
 
-#### Acceptance Criteria
+#### 受入基準
 
-1. WHEN viewing organizations THEN the system SHALL display a list with member counts and subscription status
-2. WHEN managing organization members THEN the system SHALL allow adding, removing, and changing member roles
-3. WHEN viewing organization details THEN the system SHALL show subscription information, member list, and usage statistics
-4. WHEN transferring organization ownership THEN the system SHALL update ownership and maintain data integrity
-5. WHEN deleting organizations THEN the system SHALL handle member reassignment and data cleanup
-6. WHEN syncing with Clerk THEN the system SHALL maintain consistency between Clerk organizations and database records
+1. インフラステータスを表示する時、システムはすべての重要コンポーネントのサービスヘルスを表示すること
+2. ~~デプロイメントを管理する時、システムはデプロイメント、ロールバック、ヘルスチェックのトリガーを許可すること~~
+3. サービスを監視する時、システムはデータベース、API、外部統合のリアルタイムメトリックスを表示すること
+4. ~~インフラをスケールする時、システムは自動スケールとリソース割り当てのコントロールを提供すること~~
+5. ~~インシデントを処理する時、システムはインシデント管理ツールとコミュニケーションチャンネルを提供すること~~
+6. ~~サービスをメンテナンスする時、システムはユーザー通知付きのメンテナンスウィンドウをスケジュールし、追跡すること~~
 
-### Requirement 6: Audit Logging System
+### 要件6: 監査ログシステム
 
-**User Story:** As a compliance officer, I want all administrative actions to be logged with detailed information, so that we can maintain security audit trails and investigate issues.
+**ユーザーストーリー:** コンプライアンス担当者として、セキュリティ監査記録を維持し、問題を調査できるように、すべての管理操作を詳細情報とともにログとして記録したい。
 
-#### Acceptance Criteria
+#### 受入基準
 
-1. WHEN any admin operation is performed THEN the system SHALL create a detailed audit log entry
-2. WHEN logging admin actions THEN the system SHALL record timestamp, admin user ID, action type, target resource, and changes made
-3. WHEN audit logs are created THEN the system SHALL include IP address, user agent, and session information
-4. WHEN viewing audit logs THEN the system SHALL provide filtering and search capabilities
-5. WHEN audit data is stored THEN the system SHALL ensure tamper-proof logging with appropriate retention policies
-6. WHEN critical operations occur THEN the system SHALL generate real-time alerts for security monitoring
+1. 任意の管理者操作が実行される時、システムは詳細な監査ログエントリを作成すること
+2. 管理者アクションをログ記録する時、システムはタイムスタンプ、管理者ユーザーID、アクションタイプ、対象リソース、変更内容を記録すること
+3. 監査ログが作成される時、システムはIPアドレス、ユーザーエージェント、セッション情報を含めること
+4. ~~監査ログを表示する時、システムはフィルタリングと検索機能を提供すること~~
+5. 監査データが保存される時、システムは適切な保持ポリシーで改ざん防止ログ記録を保証すること
+6. ~~重要な操作が発生する時、システムはセキュリティ監視のためのリアルタイムアラートを生成すること~~
 
-### Requirement 7: Admin API Infrastructure
+### 要件7: 管理者APIインフラ
 
-**User Story:** As a frontend developer, I want consistent and well-documented admin APIs, so that I can build reliable administrative interfaces.
+**ユーザーストーリー:** フロントエンド開発者として、信頼性の高い管理インターフェースを構築できるように、一貫性があり、よく文書化された管理者APIを必要としている。
 
-#### Acceptance Criteria
+#### 受入基準
 
-1. WHEN admin APIs are called THEN the system SHALL return consistent response formats with proper HTTP status codes
-2. WHEN API errors occur THEN the system SHALL provide detailed error messages without exposing sensitive information
-3. WHEN API documentation is generated THEN the system SHALL automatically create OpenAPI specifications
-4. WHEN rate limiting is applied THEN the system SHALL protect admin endpoints from abuse while allowing normal operations
-5. WHEN API responses are returned THEN the system SHALL include appropriate CORS headers for admin frontend access
+1. 管理者APIが呼び出される時、システムは適切なHTTPステータスコードと一貫したレスポンス形式を返すこと
+2. APIエラーが発生する時、システムは機密情報を暴露することなく詳細なエラーメッセージを提供すること
+3. ~~API文書が生成される時、システムは自動的にOpenAPI仕様を作成すること~~
+4. ~~レート制限が適用される時、システムは通常操作を許可しながらアビューズから管理者エンドポイントを保護すること~~
+5. APIレスポンスが返される時、システムは管理者フロントエンドアクセス用の適切なCORSヘッダーを含めること
 
-### Requirement 8: System Configuration Management
+### 要件8: ビジネスインテリジェンスと分析
 
-**User Story:** As a platform administrator, I want to manage system-wide settings through the admin interface, so that I can configure the platform without requiring code deployments.
+**ユーザーストーリー:** サービスプロバイダー管理者として、プラットフォームの成長と最適化について情報に基づいた意思決定を行えるように、ビジネスインテリジェンスと分析データにアクセスしたい。
 
-#### Acceptance Criteria
+#### 受入基準
 
-1. WHEN accessing system settings THEN the system SHALL display configurable parameters organized by category
-2. WHEN updating settings THEN the system SHALL validate input values and provide immediate feedback
-3. WHEN settings are changed THEN the system SHALL apply changes without requiring system restart where possible
-4. WHEN configuration is updated THEN the system SHALL maintain version history and allow rollback capabilities
-5. WHEN settings affect user experience THEN the system SHALL provide preview functionality before applying changes
+1. ビジネス分析にアクセスする時、システムは収益トレンド、コスト分析、利益マージンを表示すること
+2. 使用状況分析を表示する時、システムはAPI使用パターン、機能採用率、パフォーマンスメトリックスを表示すること
+3. コストを分析する時、システムはサービスと使用パターン別にインフラコストを分解すること
+4. ~~成長を予測する時、システムはキャパシティプランニング用の予測分析を提供すること~~
+5. ~~レポートを生成する時、システムはステークホルダーコミュニケーション用のエクスポート可能なレポートを作成すること~~
 
-### Requirement 9: Security and Performance
+### 要件9: セキュリティとパフォーマンス
 
-**User Story:** As a security administrator, I want the admin system to meet enterprise security standards, so that sensitive administrative operations are properly protected.
+**ユーザーストーリー:** セキュリティ管理者として、機密な管理操作が適切に保護されるように、管理者システムがエンタープライズセキュリティ基準を満たすことを必要としている。
 
-#### Acceptance Criteria
+#### 受入基準
 
-1. WHEN admin sessions are created THEN the system SHALL implement appropriate session timeout and renewal
-2. WHEN sensitive operations are performed THEN the system SHALL require additional confirmation dialogs
-3. WHEN database queries are executed THEN the system SHALL use proper indexing and query optimization
-4. WHEN admin pages load THEN the system SHALL achieve 95% of requests under 500ms response time
-5. WHEN concurrent admin users access the system THEN the system SHALL handle up to 10 simultaneous admin sessions
-6. WHEN security vulnerabilities are detected THEN the system SHALL have zero high-severity vulnerabilities
-
-### Requirement 10: Integration and Data Consistency
-
-**User Story:** As a system administrator, I want the admin system to maintain data consistency across all integrated services, so that administrative actions are properly synchronized.
-
-#### Acceptance Criteria
-
-1. WHEN user data is modified THEN the system SHALL sync changes with Clerk authentication service
-2. WHEN organization changes occur THEN the system SHALL maintain consistency between Clerk organizations and database records
-3. WHEN subscription data is accessed THEN the system SHALL display current information from Stripe integration
-4. WHEN data inconsistencies are detected THEN the system SHALL provide reconciliation tools and alerts
-5. WHEN external service failures occur THEN the system SHALL handle errors gracefully and provide retry mechanisms
+1. 管理者セッションが作成される時、システムは適切なセッションタイムアウトと更新を実装すること
+2. ~~機密操作が実行される時、システムは追加の確認ダイアログを必要とすること~~
+3. データベースクエリが実行される時、システムは適切なインデックシングとクエリ最適化を使用すること
+4. 管理者ページが読み込まれる時、システムは95%のリクエストを500ms未満のレスポンス時間で達成すること
+5. 同時管理者ユーザーがシステムにアクセスする時、システムは最大10同時管理者セッションを処理すること
+6. セキュリティ脆弱性が検出される時、システムは高重要度の脆弱性をゼロにすること

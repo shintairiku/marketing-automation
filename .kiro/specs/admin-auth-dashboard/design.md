@@ -1,69 +1,71 @@
-# Design Document
+# 設計ドキュメント
 
-## Overview
+## 概要
 
-The admin authentication and dashboard system provides secure, Google Workspace SSO-restricted access to platform administrative functions. The system implements a comprehensive authentication layer, centralized authorization middleware, and a monitoring dashboard that serves as the foundation for the broader administrative interface.
+マスター管理者認証および内部運営システムは、サービスプロバイダーの管理機能に対して、Clerk組織ベースの安全なアクセスを提供します。このシステムは、認可されたサービスプロバイダー担当者へのアクセスを制限するために、Clerkの組織メンバーシップと検証済みドメイン機能を活用し、インフラ管理、ビジネスインテリジェンス、およびサービスプロバイダーワークフロー用の集中認可ミドルウェアと内部運営ダッシュボードを実装します。
 
-The design follows a domain-driven architecture pattern, separating authentication concerns, user management, organization management, and system monitoring into distinct but integrated components. The system leverages existing infrastructure including Clerk for authentication, Supabase for data persistence, and integrates with Stripe for subscription management.
+設計はドメイン駆動アーキテクチャパターンに従い、認証の関心事、インフラ監視、システム設定、ビジネス分析、およびサービスプロバイダー運営を別個でありながら統合されたコンポーネントに分離します。システムは認証のためにClerk組織メンバーシップ（org_31qpu3arGjKdiatiavEP9E7H3LV）と検証済みドメイン「shintairiku.jp」を活用し、顧客管理よりも内部サービスプロバイダー運営に焦点を当て、インフラ監視およびビジネスインテリジェンスツールと統合します。
 
-## Architecture
+## アーキテクチャ
 
-### High-Level Architecture
+### 高レベルアーキテクチャ
 
 ```mermaid
 graph TB
     subgraph "Frontend Layer"
-        AF[Admin Frontend]
-        AD[Admin Dashboard]
-        AU[Admin User Management]
-        AO[Admin Organization Management]
+        MAF[Master Admin Frontend]
+        IOD[Internal Operations Dashboard]
+        IM[Infrastructure Monitoring]
+        BA[Business Analytics]
     end
     
     subgraph "API Gateway Layer"
-        AR[Admin Router]
+        MAR[Master Admin Router]
         AM[Auth Middleware]
         RL[Rate Limiter]
     end
     
     subgraph "Domain Layer"
-        UD[User Domain]
-        OD[Organization Domain]
-        AD_SERVICE[Admin Service]
+        IS[Infrastructure Service]
+        CS[Configuration Service]
+        BAS[Business Analytics Service]
+        OS[Operations Service]
         AL[Audit Logger]
     end
     
     subgraph "Infrastructure Layer"
         CA[Clerk Auth]
-        SB[Supabase Admin Client]
-        ST[Stripe Integration]
-        GCP[GCP Cloud Logging]
+        GCP[GCP Monitoring & Logging]
+        INFRA[Infrastructure APIs]
+        BI[Business Intelligence]
     end
     
-    AF --> AR
-    AD --> AR
-    AU --> AR
-    AO --> AR
+    MAF --> MAR
+    IOD --> MAR
+    IM --> MAR
+    BA --> MAR
     
-    AR --> AM
+    MAR --> AM
     AM --> RL
-    RL --> UD
-    RL --> OD
-    RL --> AD_SERVICE
+    RL --> IS
+    RL --> CS
+    RL --> BAS
+    RL --> OS
     
-    UD --> SB
-    OD --> SB
-    AD_SERVICE --> SB
+    IS --> INFRA
+    CS --> GCP
+    BAS --> BI
+    OS --> GCP
     
     AM --> CA
     AL --> GCP
-    UD --> AL
-    OD --> AL
-    AD_SERVICE --> AL
-    
-    SB --> ST
+    IS --> AL
+    CS --> AL
+    BAS --> AL
+    OS --> AL
 ```
 
-### Authentication Flow
+### 認証フロー
 
 ```mermaid
 sequenceDiagram
@@ -76,56 +78,55 @@ sequenceDiagram
     
     Admin->>Frontend: Access admin page
     Frontend->>Middleware: Request with JWT token
-    Middleware->>Clerk: Verify JWT signature
-    Clerk-->>Middleware: Token validation result
-    Middleware->>Middleware: Check hosted domain (hd claim)
-    Middleware->>Middleware: Verify against allowed domains
+    Middleware->>Clerk: Verify JWT signature and organization membership
+    Clerk-->>Middleware: Token validation and organization membership result
+    Middleware->>Middleware: Check organization ID (org_31qpu3arGjKdiatiavEP9E7H3LV)
     
-    alt Valid Google Workspace Domain
-        Middleware->>DB: Check admin privileges
+    alt Valid Organization Member
+        Middleware->>DB: Verify admin privileges in database
         DB-->>Middleware: Admin status confirmed
         Middleware->>Audit: Log successful admin access
         Middleware-->>Frontend: Access granted
         Frontend-->>Admin: Admin interface loaded
-    else Invalid Domain or Personal Gmail
+    else Invalid Organization or Not Member
         Middleware->>Audit: Log failed access attempt
         Middleware-->>Frontend: 403 Forbidden
         Frontend-->>Admin: Access denied message
     end
 ```
 
-## Components and Interfaces
+## コンポーネントとインターフェース
 
-### 1. Authentication Components
+### 1. 認証コンポーネント
 
-#### Google Workspace SSO Validator
+#### Clerk組織バリデーター
 **Location**: `backend/app/common/auth.py`
 
-**Responsibilities**:
-- Validate JWT tokens from Clerk
-- Extract and verify hosted domain (hd) claim
-- Check against allowed Google Workspace domains
-- Reject personal Gmail accounts (@gmail.com)
+**責任**:
+- ClerkからのJWTトークンの検証
+- 組織メンバーシップクレームの抽出と検証
+- 指定された管理者組織IDとの照合
+- 組織メンバーシップステータスの検証
 
-**Interface**:
+**インターフェース**:
 ```python
-class GoogleWorkspaceValidator:
-    def __init__(self, allowed_domains: List[str])
+class ClerkOrganizationValidator:
+    def __init__(self, admin_org_id: str)
     async def validate_admin_token(self, token: str) -> AdminUser
-    async def extract_domain_from_token(self, token: str) -> Optional[str]
-    def is_personal_gmail(self, email: str) -> bool
+    async def extract_organization_from_token(self, token: str) -> Optional[str]
+    def is_admin_organization_member(self, org_id: str) -> bool
 ```
 
-#### Admin Authorization Middleware
+#### 管理者認可ミドルウェア
 **Location**: `backend/app/middleware/admin_auth.py`
 
-**Responsibilities**:
-- Provide @require_admin decorator
-- Automatic audit logging
-- Error handling and response formatting
-- Session management
+**責任**:
+- @require_admin デコレーターの提供
+- 自動監査ログ記録
+- エラー処理とレスポンス形式設定
+- セッション管理
 
-**Interface**:
+**インターフェース**:
 ```python
 @require_admin
 async def admin_endpoint(current_admin: AdminUser = Depends(get_current_admin)):
@@ -137,18 +138,18 @@ class AdminAuthMiddleware:
     async def log_admin_action(self, admin: AdminUser, action: str, details: dict)
 ```
 
-### 2. Dashboard Components
+### 2. ダッシュボードコンポーネント
 
-#### Dashboard Service
+#### ダッシュボードサービス
 **Location**: `backend/app/domains/admin/dashboard_service.py`
 
-**Responsibilities**:
-- Aggregate system metrics
-- Calculate KPIs and statistics
-- Cache frequently accessed data
-- Provide real-time updates
+**責任**:
+- システムメトリドクスの集約
+- KPIと統計の計算
+- 頻繁にアクセスされるデータのキャッシュ
+- リアルタイム更新の提供
 
-**Interface**:
+**インターフェース**:
 ```python
 class DashboardService:
     async def get_user_metrics(self) -> UserMetrics
@@ -158,27 +159,27 @@ class DashboardService:
     async def get_api_usage_statistics(self) -> ApiUsageStats
 ```
 
-#### Metrics Calculator
+#### メトリデクス計算機
 **Location**: `backend/app/domains/admin/metrics_calculator.py`
 
-**Responsibilities**:
-- Calculate user growth rates
-- Compute subscription revenue
-- Analyze API usage patterns
-- Generate trend data
+**責任**:
+- ユーザー成長率の計算
+- サブスクリプション収益の算出
+- API使用パターンの分析
+- トレンドデータの生成
 
-### 3. User Management Components
+### 3. ユーザー管理コンポーネント
 
-#### User Management Service
+#### ユーザー管理サービス
 **Location**: `backend/app/domains/user/admin_service.py`
 
-**Responsibilities**:
-- User CRUD operations with admin privileges
-- Account suspension/activation
-- Bulk operations and exports
-- Clerk synchronization
+**責任**:
+- 管理者権限でのユーザーCRUD操作
+- アカウントの停止/有効化
+- 一括操作とエクスポート
+- Clerk同期
 
-**Interface**:
+**インターフェース**:
 ```python
 class UserAdminService:
     async def list_users(self, filters: UserFilters, pagination: Pagination) -> UserList
@@ -188,18 +189,18 @@ class UserAdminService:
     async def export_users_csv(self, filters: UserFilters) -> bytes
 ```
 
-### 4. Organization Management Components
+### 4. 組織管理コンポーネント
 
-#### Organization Admin Service
+#### 組織管理サービス
 **Location**: `backend/app/domains/organization/admin_service.py`
 
-**Responsibilities**:
-- Organization CRUD with admin privileges
-- Member management operations
-- Ownership transfers
-- Clerk organization synchronization
+**責任**:
+- 管理者権限での組織CRUD
+- メンバー管理操作
+- 所有権の移転
+- Clerk組織同期
 
-**Interface**:
+**インターフェース**:
 ```python
 class OrganizationAdminService:
     async def list_organizations(self, filters: OrgFilters) -> OrganizationList
@@ -208,18 +209,18 @@ class OrganizationAdminService:
     async def transfer_ownership(self, org_id: str, new_owner_id: str) -> None
 ```
 
-### 5. Infrastructure Components
+### 5. インフラコンポーネント
 
-#### Supabase Admin Client
+#### Supabase管理者クライアント
 **Location**: `backend/app/infrastructure/supabase_admin.py`
 
-**Responsibilities**:
-- Service Role Key authentication
-- RLS bypass for admin operations
-- Connection pooling and error handling
-- Transaction management
+**責任**:
+- サービスロールキー認証
+- 管理者操作のRLSバイパス
+- コネクションプールとエラー処理
+- トランザクション管理
 
-**Interface**:
+**インターフェース**:
 ```python
 class SupabaseAdminClient:
     async def __aenter__(self) -> SupabaseClient
@@ -227,16 +228,16 @@ class SupabaseAdminClient:
     async def execute_admin_query(self, query: str, params: dict) -> Any
 ```
 
-#### Audit Logger
+#### 監査ロガー
 **Location**: `backend/app/infrastructure/admin_audit.py`
 
-**Responsibilities**:
-- Structured audit log creation
-- GCP Cloud Logging integration
-- Tamper-proof logging
-- Log retention management
+**責任**:
+- 構造化監査ログの作成
+- GCP Cloud Logging統合
+- 改ざん防止ログ記録
+- ログ保持管理
 
-**Interface**:
+**インターフェース**:
 ```python
 class AdminAuditLogger:
     async def log_admin_action(self, action: AdminAction) -> None
@@ -244,9 +245,9 @@ class AdminAuditLogger:
     async def query_audit_logs(self, filters: AuditFilters) -> AuditLogList
 ```
 
-## Data Models
+## データモデル
 
-### Core Admin Models
+### コア管理者モデル
 
 ```python
 @dataclass
@@ -254,7 +255,8 @@ class AdminUser:
     user_id: str
     email: str
     full_name: str
-    workspace_domain: str
+    organization_id: str
+    organization_slug: str
     admin_privileges: List[str]
     last_login: datetime
     session_id: str
@@ -283,49 +285,49 @@ class DashboardMetrics:
     last_updated: datetime
 ```
 
-### Database Schema Extensions
+### データベーススキーマ拡張
 
-The system leverages existing database tables and adds admin-specific views and functions:
+システムは既存のデータベーステーブルを活用し、管理者固有のビューと関数を追加します:
 
-**Admin Views**:
+**管理者ビュー**:
 - `admin_user_summary`: Aggregated user data for admin interface
 - `admin_organization_summary`: Organization data with member counts and subscription status
 - `admin_subscription_metrics`: Revenue and subscription analytics
 - `admin_system_metrics`: System-wide usage statistics
 
-**Admin Functions**:
+**管理者関数**:
 - `calculate_user_growth(period)`: User registration trends
 - `get_subscription_revenue(period)`: Revenue calculations
 - `get_api_usage_stats(period)`: API usage analytics
 
-## Error Handling
+## エラー処理
 
-### Authentication Errors
+### 認証エラー
 
 ```python
 class AdminAuthenticationError(Exception):
     """Raised when admin authentication fails"""
     pass
 
-class InvalidWorkspaceDomainError(AdminAuthenticationError):
-    """Raised when user domain is not in allowed list"""
+class InvalidOrganizationError(AdminAuthenticationError):
+    """Raised when user is not member of admin organization"""
     pass
 
-class PersonalGmailNotAllowedError(AdminAuthenticationError):
-    """Raised when personal Gmail account is used"""
+class OrganizationMembershipRequiredError(AdminAuthenticationError):
+    """Raised when organization membership is required but not found"""
     pass
 ```
 
-### Error Response Format
+### エラーレスポンス形式
 
 ```json
 {
   "error": {
     "code": "ADMIN_AUTH_FAILED",
-    "message": "Authentication failed: Invalid workspace domain",
+    "message": "Authentication failed: Not a member of admin organization",
     "details": {
-      "domain": "personal-domain.com",
-      "allowed_domains": ["company.com", "subsidiary.com"]
+      "user_organization": "org_user123",
+      "required_organization": "org_31qpu3arGjKdiatiavEP9E7H3LV"
     },
     "timestamp": "2025-01-20T10:30:00Z",
     "request_id": "req_123456"
@@ -333,156 +335,156 @@ class PersonalGmailNotAllowedError(AdminAuthenticationError):
 }
 ```
 
-## Testing Strategy
+## テスト戦略
 
-### Unit Testing
+### ユニットテスト
 
-**Authentication Components**:
+**認証コンポーネント**:
 - JWT token validation with various domain scenarios
 - Google Workspace domain verification logic
 - Personal Gmail rejection functionality
 - Admin privilege checking
 
-**Dashboard Services**:
+**ダッシュボードサービス**:
 - Metrics calculation accuracy
 - Data aggregation performance
 - Cache invalidation logic
 - Real-time update mechanisms
 
-**User Management**:
+**ユーザー管理**:
 - CRUD operations with proper authorization
 - Bulk operations and export functionality
 - Clerk synchronization handling
 - Error scenarios and rollback
 
-### Integration Testing
+### 統合テスト
 
-**Authentication Flow**:
+**認証フロー**:
 - End-to-end admin login process
 - Token validation with Clerk service
 - Database privilege verification
 - Audit logging integration
 
-**API Endpoints**:
+**APIエンドポイント**:
 - Admin API response formats
 - Error handling consistency
 - Rate limiting behavior
 - CORS configuration
 
-### Performance Testing
+### パフォーマンステスト
 
-**Dashboard Loading**:
+**ダッシュボード読み込み**:
 - Metrics calculation under load
 - Database query optimization
 - Cache performance
 - Concurrent admin user handling
 
-**Scalability**:
+**スケーラビリティ**:
 - Large dataset handling (10,000+ users)
 - Bulk operation performance
 - Export functionality with large datasets
 - Real-time update performance
 
-## Security Considerations
+## セキュリティ考慮事項
 
-### Authentication Security
+### 認証セキュリティ
 
 - **JWT Signature Verification**: Mandatory in production environments
 - **Domain Validation**: Strict checking against allowed Google Workspace domains
 - **Session Management**: Secure session handling with appropriate timeouts
 - **Token Refresh**: Automatic token renewal for long admin sessions
 
-### Authorization Security
+### 認可セキュリティ
 
 - **Principle of Least Privilege**: Admin operations require explicit authorization
 - **Operation Confirmation**: Critical operations require additional confirmation
 - **Audit Trail**: Complete logging of all administrative actions
 - **IP Restrictions**: Future implementation of IP-based access control
 
-### Data Security
+### データセキュリティ
 
 - **RLS Bypass Control**: Careful management of Service Role Key usage
 - **Data Encryption**: Sensitive data encryption at rest and in transit
 - **Access Logging**: Detailed logging of all data access operations
 - **Backup Security**: Secure backup and recovery procedures
 
-## Performance Optimization
+## パフォーマンス最適化
 
-### Database Optimization
+### データベース最適化
 
-**Indexing Strategy**:
+**インデックシング戦略**:
 - Composite indexes for admin queries
 - Partial indexes for active users/organizations
 - Covering indexes for dashboard metrics
 
-**Query Optimization**:
+**クエリ最適化**:
 - Materialized views for complex aggregations
 - Query result caching for dashboard data
 - Connection pooling for admin operations
 
-### Caching Strategy
+### キャッシュ戦略
 
-**Dashboard Metrics**:
+**ダッシュボードメトリックス**:
 - Redis caching for frequently accessed metrics
 - 5-minute cache TTL with background refresh
 - Cache invalidation on data changes
 
-**User/Organization Data**:
+**ユーザー/組織データ**:
 - Application-level caching for user details
 - Cache warming for frequently accessed data
 - Distributed cache for multi-instance deployments
 
-### API Performance
+### APIパフォーマンス
 
-**Response Optimization**:
+**レスポンス最適化**:
 - Pagination for large datasets
 - Field selection for reduced payload size
 - Compression for large responses
 
-**Concurrent Handling**:
+**並行処理**:
 - Async/await for I/O operations
 - Connection pooling for database access
 - Rate limiting to prevent abuse
 
-## Monitoring and Observability
+## 監視と可観測性
 
-### Metrics Collection
+### メトリックス収集
 
-**System Metrics**:
+**システムメトリックス**:
 - Admin login frequency and success rates
 - API response times and error rates
 - Database query performance
 - Cache hit/miss ratios
 
-**Business Metrics**:
+**ビジネスメトリックス**:
 - Admin operation frequency
 - User management activity
 - System configuration changes
 - Security event frequency
 
-### Alerting
+### アラート
 
-**Security Alerts**:
+**セキュリティアラート**:
 - Failed admin authentication attempts
 - Unusual admin activity patterns
 - Privilege escalation attempts
 - Data access anomalies
 
-**Performance Alerts**:
+**パフォーマンスアラート**:
 - API response time degradation
 - Database query timeout
 - Cache performance issues
 - High error rates
 
-### Logging
+### ログ記録
 
-**Structured Logging**:
+**構造化ログ記録**:
 - JSON format for all log entries
 - Consistent field naming and types
 - Correlation IDs for request tracking
 - Log level appropriate filtering
 
-**Log Retention**:
+**ログ保持**:
 - Admin audit logs: 7 years retention
 - Security logs: 3 years retention
 - Performance logs: 90 days retention
