@@ -300,10 +300,18 @@ class ProcessPersistenceService:
                 advanced_outline_mode=context_dict.get("advanced_outline_mode", False),
                 outline_top_level_heading=outline_top_level,
                 flow_type=context_dict.get("flow_type", "research_first"),
+                auto_mode=context_dict.get("auto_mode", False),
+                auto_selection_strategy=context_dict.get("auto_selection_strategy", "best_match"),
+                enable_final_editing=context_dict.get("enable_final_editing", False),
                 websocket=None,  # Will be set when WebSocket connects
                 user_response_event=None,  # Will be set when WebSocket connects
-                user_id=user_id  # Set user_id from method parameter
+                user_id=user_id,  # Set user_id from method parameter
+                trace_id=context_dict.get("trace_id")
             )
+            
+            # 新形式のリサーチテキストを復元
+            context.research_sources_text = context_dict.get("research_sources_text")
+            context.research_sources_tagged = context_dict.get("research_sources_tagged")
             
             # Restore other context state
             context.current_step = context_dict.get("current_step", "start")
@@ -450,12 +458,16 @@ class ProcessPersistenceService:
                 "error_message": state.get("error_message"),
                 # 注意(legacy-flow): 旧スナップショットを正しく再開できるよう
                 # `research_plan_generated` も待機状態として扱います。
-                "is_waiting_for_input": context_dict.get("current_step") in ["persona_generated", "theme_proposed", "research_plan_generated", "outline_generated"],
+                "is_waiting_for_input": (
+                    context_dict.get("current_step") in ["persona_generated", "theme_proposed", "research_plan_generated", "outline_generated"]
+                    and not context_dict.get("auto_mode", False)
+                ),
                 "input_type": self.get_input_type_for_step(context_dict.get("current_step")),
                 # 画像モード関連情報を含める
                 "image_mode": context_dict.get("image_mode", False),
                 "image_settings": context_dict.get("image_settings", {}),
                 "image_placeholders": context_dict.get("image_placeholders", []),
+                "enable_final_editing": context_dict.get("enable_final_editing", False),
                 "created_at": state.get("created_at"),
                 "updated_at": state.get("updated_at")
             }

@@ -62,10 +62,11 @@ export const useArticleGenerationRealtime = ({
   
   // Generation state - with debouncing for stable UI
   // ステップ順序は動的に更新されるため、初期値はresearch_firstを使用
-  const getInitialSteps = useCallback((flowType: string = 'research_first'): GenerationStep[] => {
+  const getInitialSteps = useCallback((flowType: string = 'research_first', enableFinalEditing: boolean = true): GenerationStep[] => {
     const isOutlineFirst = flowType === 'outline_first';
-    
-    return isOutlineFirst ? [
+
+    // Explicitly type base steps so `status` stays on the StepStatus union
+    const baseSteps: GenerationStep[] = isOutlineFirst ? [
       { id: 'keyword_analyzing', name: 'キーワード分析', status: 'pending' },
       { id: 'persona_generating', name: 'ペルソナ生成', status: 'pending' },
       { id: 'theme_generating', name: 'テーマ提案', status: 'pending' },
@@ -82,6 +83,8 @@ export const useArticleGenerationRealtime = ({
       { id: 'writing_sections', name: '執筆', status: 'pending' },
       { id: 'editing', name: '編集・校正', status: 'pending' },
     ];
+
+    return enableFinalEditing ? baseSteps : baseSteps.filter(step => step.id !== 'editing');
   }, []);
   
   // フック初期化時はデフォルトのresearch_firstで初期化
@@ -90,6 +93,7 @@ export const useArticleGenerationRealtime = ({
     currentStep: 'start',
     status: 'pending', // Initialize with pending status
     flowType: undefined,
+    enableFinalEditing: true,
     steps: [],
     isInitialized: false,
     isWaitingForInput: false,
@@ -233,7 +237,7 @@ export const useArticleGenerationRealtime = ({
   }, [validateAndSanitizeState]);
 
   // Helper function to map backend steps to UI steps with proper loading state handling
-  const mapBackendStepToUIStep = useCallback((backendStep: string, status?: string): string => {
+  const mapBackendStepToUIStep = useCallback((backendStep: string, status?: string, enableFinalEditing: boolean = true): string => {
     const stepMapping: Record<string, string> = {
       // Initial state
       'start': 'keyword_analyzing',
@@ -265,14 +269,14 @@ export const useArticleGenerationRealtime = ({
       
       // Writing Sections Phase
       'writing_sections': 'writing_sections',
-      'all_sections_completed': 'editing', // Auto-transition to editing loading
+      'all_sections_completed': enableFinalEditing ? 'editing' : 'writing_sections', // Auto-transition to editing loading
       
       // Editing Phase
-      'editing': 'editing',
-      'editing_completed': 'editing',
+      'editing': enableFinalEditing ? 'editing' : 'writing_sections',
+      'editing_completed': enableFinalEditing ? 'editing' : 'writing_sections',
       
       // Final states
-      'completed': 'editing',
+      'completed': 'completed',
       'error': 'keyword_analyzing',
       'paused': 'keyword_analyzing',
       'cancelled': 'keyword_analyzing',
@@ -302,17 +306,34 @@ export const useArticleGenerationRealtime = ({
       const flowTypeChanged = flowTypeFromData !== previousFlowType;
       const previousSteps = next.steps;
 
+      // 最終編集フラグ（バックエンド優先）
+      const enableFinalEditingFromData =
+        ctx.enable_final_editing ??
+        ctx.enableFinalEditing ??
+        data.enable_final_editing ??
+        data.process_metadata?.enable_final_editing;
+      const resolvedEnableFinalEditing =
+        enableFinalEditingFromData !== undefined
+          ? Boolean(enableFinalEditingFromData)
+          : (next.enableFinalEditing ?? true);
+      const enableFinalEditingChanged = resolvedEnableFinalEditing !== next.enableFinalEditing;
+
+      next.enableFinalEditing = resolvedEnableFinalEditing;
+
       next.flowType = flowTypeFromData;
 
       if (!previousSteps || previousSteps.length === 0) {
-        next.steps = getInitialSteps(flowTypeFromData);
-      } else if (flowTypeChanged) {
-        const reorderedSteps = getInitialSteps(flowTypeFromData);
+        next.steps = getInitialSteps(flowTypeFromData, resolvedEnableFinalEditing);
+      } else if (flowTypeChanged || enableFinalEditingChanged) {
+        const reorderedSteps = getInitialSteps(flowTypeFromData, resolvedEnableFinalEditing);
         next.steps = reorderedSteps.map(newStep => {
           const existingStep = previousSteps.find(s => s.id === newStep.id);
           return existingStep ? { ...newStep, status: existingStep.status } : newStep;
         });
-        console.log('🔀 Flow type changed. Reordered steps for:', flowTypeFromData);
+        console.log('🔀 Flow or editing setting changed. Reordered steps for:', {
+          flowType: flowTypeFromData,
+          enableFinalEditing: resolvedEnableFinalEditing
+        });
       }
 
       // Status & waiting state - CRITICAL for UI display
@@ -325,14 +346,18 @@ export const useArticleGenerationRealtime = ({
       // Backend step -> UI step mapping
       const backendStep = data.current_step || data.current_step_name || data.article_context?.current_step;
       if (backendStep) {
-        const uiStep = mapBackendStepToUIStep(backendStep, data.status);
+        const uiStep = mapBackendStepToUIStep(backendStep, data.status, resolvedEnableFinalEditing);
         next.currentStep = uiStep;
         console.log(`🔍 Step mapping: ${backendStep} -> ${uiStep} (waiting: ${next.isWaitingForInput})`);
 
         // Progressive step completion: mark current step AND all previous steps as completed
         // フローを決定するロジックを追加
-        const stepOrderResearchFirst = ['keyword_analyzing', 'persona_generating', 'theme_generating', 'researching', 'outline_generating', 'writing_sections', 'editing'];
-        const stepOrderOutlineFirst = ['keyword_analyzing', 'persona_generating', 'theme_generating', 'outline_generating', 'researching', 'writing_sections', 'editing'];
+        const stepOrderResearchFirst = resolvedEnableFinalEditing
+          ? ['keyword_analyzing', 'persona_generating', 'theme_generating', 'researching', 'outline_generating', 'writing_sections', 'editing', 'completed']
+          : ['keyword_analyzing', 'persona_generating', 'theme_generating', 'researching', 'outline_generating', 'writing_sections', 'completed'];
+        const stepOrderOutlineFirst = resolvedEnableFinalEditing
+          ? ['keyword_analyzing', 'persona_generating', 'theme_generating', 'outline_generating', 'researching', 'writing_sections', 'editing', 'completed']
+          : ['keyword_analyzing', 'persona_generating', 'theme_generating', 'outline_generating', 'researching', 'writing_sections', 'completed'];
 
         // Determine which flow we're using based on current context
         const flowType = next.flowType || flowTypeFromData;
@@ -490,7 +515,7 @@ export const useArticleGenerationRealtime = ({
 
         // All other cases with inline step status updates
         case 'step_started':
-          const startedStep = mapBackendStepToUIStep(event.event_data.step_name);
+          const startedStep = mapBackendStepToUIStep(event.event_data.step_name, undefined, newState.enableFinalEditing ?? true);
           newState.currentStep = startedStep;
           newState.steps = newState.steps.map((step: GenerationStep) => 
             step.id === startedStep ? { ...step, status: 'in_progress' as StepStatus } : step
@@ -499,7 +524,7 @@ export const useArticleGenerationRealtime = ({
           break;
 
         case 'step_completed':
-          const completedStep = mapBackendStepToUIStep(event.event_data.step_name);
+          const completedStep = mapBackendStepToUIStep(event.event_data.step_name, undefined, newState.enableFinalEditing ?? true);
           newState.steps = newState.steps.map((step: GenerationStep) => 
             step.id === completedStep ? { ...step, status: 'completed' as StepStatus } : step
           );
@@ -512,7 +537,7 @@ export const useArticleGenerationRealtime = ({
             'theme_generating': null, // Waits for user selection  
             'researching': getNextStepAfterResearch(flowTypeForProgression),
             'outline_generating': null, // Waits for user approval
-            'writing_sections': 'editing',
+            'writing_sections': (newState.enableFinalEditing ?? true) ? 'editing' : null,
             'editing': null, // Final step
           };
           
@@ -653,7 +678,7 @@ export const useArticleGenerationRealtime = ({
           
           // Mark current step as error
           if (event.event_data.step_name) {
-            const errorStepName = mapBackendStepToUIStep(event.event_data.step_name);
+            const errorStepName = mapBackendStepToUIStep(event.event_data.step_name, undefined, newState.enableFinalEditing ?? true);
             newState.steps = newState.steps.map((step: GenerationStep) => 
               step.id === errorStepName ? { ...step, status: 'error' as StepStatus } : step
             );
@@ -734,6 +759,15 @@ export const useArticleGenerationRealtime = ({
           break;
 
         case 'editing_started':
+          if (newState.enableFinalEditing === false) {
+            // 編集をスキップする設定の場合は無視し、執筆完了として扱う
+            newState.currentStep = 'writing_sections';
+            newState.steps = newState.steps.map((step: GenerationStep) => 
+              step.id === 'writing_sections' ? { ...step, status: 'completed' as StepStatus } : step
+            );
+            break;
+          }
+
           newState.currentStep = 'editing';
           newState.steps = newState.steps.map((step: GenerationStep) => 
             step.id === 'editing' ? { ...step, status: 'in_progress' as StepStatus } : step
@@ -811,13 +845,18 @@ export const useArticleGenerationRealtime = ({
           // Update step statuses
           newState.steps = newState.steps.map((step: GenerationStep) => {
             if (step.id === 'writing_sections') return { ...step, status: 'completed' as StepStatus };
-            if (step.id === 'editing') return { ...step, status: 'in_progress' as StepStatus };
+            if (step.id === 'editing' && (newState.enableFinalEditing ?? true)) return { ...step, status: 'in_progress' as StepStatus };
             return step;
           });
-          
-          // Auto-progress to editing step with loading state
-          console.log('🔄 Auto-progressing to editing step');
-          newState.currentStep = 'editing';
+
+          if (newState.enableFinalEditing ?? true) {
+            // Auto-progress to editing step with loading state
+            console.log('🔄 Auto-progressing to editing step');
+            newState.currentStep = 'editing';
+          } else {
+            // 編集なしの場合は執筆完了を最終ステップとして扱う
+            newState.currentStep = 'writing_sections';
+          }
           
           // Update sections progress to show completion
           if (event.event_data.total_sections) {
@@ -979,13 +1018,15 @@ export const useArticleGenerationRealtime = ({
       
       // Reset state for new generation with correct flow type
       const flowType = requestData.flow_type || 'research_first';
-      const newSteps = getInitialSteps(flowType);
-      
+      const enableFinalEditing = requestData.enable_final_editing ?? true;
+      const newSteps = getInitialSteps(flowType, enableFinalEditing);
+
       setValidatedState((prev: GenerationState) => ({
         ...prev,
         currentStep: 'keyword_analyzing',
         status: 'pending', // Reset status for new generation
         flowType: flowType, // Set flow type from request
+        enableFinalEditing,
         steps: newSteps.map((step: GenerationStep) => ({ ...step, status: 'pending' as StepStatus, message: undefined })),
         isInitialized: true,
         personas: undefined,

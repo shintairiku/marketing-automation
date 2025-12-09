@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from typing import List, Dict, Any, Optional, Union
 from openai import BadRequestError, AuthenticationError
 from agents import Runner, RunConfig, Agent, trace
+from agents import tracing as agent_tracing
 from agents.exceptions import MaxTurnsExceeded, ModelBehaviorError, UserError
 from agents.tracing import custom_span
 from rich.console import Console
@@ -127,6 +128,46 @@ class GenerationFlowManager:
     
     def __init__(self, service):
         self.service = service  # ArticleGenerationServiceへの参照
+
+    # ------------------------------------------------------------------
+    # Tracing helpers
+    # ------------------------------------------------------------------
+    def _ensure_trace_id(self, context: ArticleContext, process_id: str) -> str:
+        """Ensure the context has a trace_id; generate if missing."""
+        trace_id = getattr(context, "trace_id", None)
+        if not trace_id:
+            try:
+                trace_id = agent_tracing.gen_trace_id()
+            except Exception:
+                trace_id = f"trace_process_{process_id}"
+            context.trace_id = trace_id
+        return trace_id
+
+    def _build_step_run_config(
+        self,
+        context: ArticleContext,
+        process_id: str,
+        current_step: str,
+        extra_metadata: Optional[Dict[str, Any]] = None,
+    ) -> RunConfig:
+        """Create a RunConfig that reuses the process-level trace ID."""
+        trace_id = self._ensure_trace_id(context, process_id)
+
+        metadata: Dict[str, Any] = {
+            "process_id": process_id,
+            "current_step": current_step,
+            "background_processing": "true",
+        }
+        if extra_metadata:
+            metadata.update(extra_metadata)
+
+        return RunConfig(
+            workflow_name="SEO記事生成ワークフロー（バックグラウンド）",
+            trace_id=trace_id,
+            group_id=process_id,
+            trace_metadata=metadata,
+            trace_include_sensitive_data=settings.trace_include_sensitive_data,
+        )
         
     async def run_generation_loop(self, context: ArticleContext, run_config: RunConfig, process_id: Optional[str] = None, user_id: Optional[str] = None):
         """記事生成のメインループ（WebSocketインタラクティブ版）"""
@@ -995,8 +1036,8 @@ class GenerationFlowManager:
                              SerpKeywordAnalysisReport, ArticleSectionWithImages)):
             return output
         elif isinstance(output, str):
-            # SectionWriterAgent and EditorAgent return HTML directly, not JSON
-            if agent.name in ["SectionWriterAgent", "EditorAgent"]:
+            # SectionWriterAgent / EditorAgent / ResearchAgent can return raw text
+            if agent.name in ["SectionWriterAgent", "EditorAgent", "ResearchAgent"]:
                 return output
             
             try:
@@ -1625,16 +1666,7 @@ class GenerationFlowManager:
         """Execute research step for background tasks"""
         try:
             process_id = getattr(context, 'process_id', 'unknown')
-            run_config = RunConfig(
-                workflow_name="SEO記事生成ワークフロー（バックグラウンド）",
-                trace_id=f"trace_bg_research_{process_id}",
-                group_id=process_id,
-                trace_metadata={
-                    "process_id": process_id,
-                    "background_processing": "true",
-                    "current_step": "researching"
-                }
-            )
+            run_config = self._build_step_run_config(context, process_id, "researching")
             # 統合リサーチを直接実行
             await self.execute_research_background(context, run_config)
         except Exception as e:
@@ -1662,94 +1694,92 @@ class GenerationFlowManager:
         try:
             agent_output = await self.run_agent(research_agent, agent_input, context, run_config)
             
+            # 新仕様: プレーンテキストを期待するが、後方互換でResearchReportも扱う
             if isinstance(agent_output, ResearchReport):
-                context.research_report = agent_output
-                console.print("[green]✓ リサーチが完了しました[/green]")
-                
-                # リサーチ完了イベントの発行
-                try:
-                    from .flow_service import get_supabase_client
-                    supabase = get_supabase_client()
-                    
-                    result = supabase.rpc('create_process_event', {
-                        'p_process_id': getattr(context, 'process_id', 'unknown'),
-                        'p_event_type': 'research_synthesis_completed',
-                        'p_event_data': {
-                            'step': 'research',
-                            'message': 'Research completed successfully',
-                            'report_summary': getattr(agent_output, 'overall_summary', ''),
-                            'key_points_count': len(getattr(agent_output, 'key_points', [])),
-                            'sources_count': len(getattr(agent_output, 'all_sources', [])),
-                            'timestamp': datetime.now(timezone.utc).isoformat()
-                        },
-                        'p_event_category': 'step_completion',
-                        'p_event_source': 'flow_manager'
-                    }).execute()
-                    
-                    if result.data:
-                        logger.info(f"Published research_synthesis_completed event for process {getattr(context, 'process_id', 'unknown')}")
-                        
-                except Exception as e:
-                    logger.error(f"Error publishing research_synthesis_completed event: {e}")
-                
-                # Save context after research completion
-                process_id = getattr(context, 'process_id', None)
-                user_id = getattr(context, 'user_id', None)
-                if process_id and user_id:
-                    try:
-                        # 1) Ensure current_step_name is set to completion state
-                        context.current_step = "research_completed"
-                        await self.service.persistence_service.update_process_state(
-                            process_id=process_id,
-                            current_step_name="research_completed"
-                        )
-                        
-                        # 2) Save context with research report to DB
-                        await self.service.persistence_service.save_context_to_db(context, process_id=process_id, user_id=user_id)
-                        logger.info("Context saved successfully after research completion")
-                    except Exception as save_err:
-                        logger.error(f"Failed to save context after research completion: {save_err}")
-                
-                # フロー設定に応じて次のステップを決定
-                is_outline_first = context.flow_type == "outline_first"
-                if is_outline_first:
-                    context.current_step = "writing_sections"
-                    logger.info("Outline-first flow: Moving from research completion to writing_sections")
-                else:
-                    context.current_step = "outline_generating"
-                    logger.info("Research-first flow: Moving from research completion to outline_generating")
-                
-                # WebSocket経由でレポートを送信
-                if context.websocket:
-                    from app.domains.seo_article.schemas import ResearchReportData, KeyPointData
-                    
-                    key_points = []
-                    if hasattr(agent_output, 'key_points') and agent_output.key_points:
-                        for point in agent_output.key_points:
-                            if hasattr(point, 'point'):
-                                key_points.append(KeyPointData(
-                                    point=point.point,
-                                    supporting_sources=getattr(point, 'supporting_sources', [])
-                                ))
-                            else:
-                                key_points.append(KeyPointData(
-                                    point=str(point),
-                                    supporting_sources=[]
-                                ))
-                    
-                    report_data = ResearchReportData(
-                        topic=context.selected_theme.title if context.selected_theme else "Research Topic",
-                        overall_summary=getattr(agent_output, 'overall_summary', ''),
-                        key_points=key_points,
-                        interesting_angles=getattr(agent_output, 'interesting_angles', []),
-                        all_sources=getattr(agent_output, 'all_sources', [])
-                    )
-                    await self.service.utils.send_server_event(context, report_data)
-                    
+                raw_text = getattr(agent_output, "overall_summary", agent_output.model_dump_json())
+            elif isinstance(agent_output, str):
+                raw_text = agent_output
             else:
                 console.print(f"[red]リサーチ中に予期しないエージェント出力タイプを受け取りました: {type(agent_output)}[/red]")
                 context.current_step = "error"
+                return
+
+            # タグで囲まれていなければ自動で付与し、全量保持
+            tagged_text = raw_text
+            if "<RESEARCH_SOURCES>" not in raw_text:
+                tagged_text = f"<RESEARCH_SOURCES>\n{raw_text.strip()}\n</RESEARCH_SOURCES>\n\n（上記はリサーチした情報源。すべてを執筆に入れる必要はありません）"
+
+            context.research_sources_text = raw_text
+            context.research_sources_tagged = tagged_text
+            context.research_report = None  # 構造化出力は使用しない
+            console.print("[green]✓ リサーチが完了しました（プレーンテキスト版）[/green]")
+            
+            # リサーチ完了イベントの発行
+            try:
+                from .flow_service import get_supabase_client
+                supabase = get_supabase_client()
                 
+                result = supabase.rpc('create_process_event', {
+                    'p_process_id': getattr(context, 'process_id', 'unknown'),
+                    'p_event_type': 'research_synthesis_completed',
+                    'p_event_data': {
+                        'step': 'research',
+                        'message': 'Research completed successfully',
+                        'report_summary': tagged_text[:5000],  # 大きすぎる場合はSupabase制約を考慮し控えめに保存
+                        'key_points_count': 0,
+                        'sources_count': 0,
+                        'timestamp': datetime.now(timezone.utc).isoformat()
+                    },
+                    'p_event_category': 'step_completion',
+                    'p_event_source': 'flow_manager'
+                }).execute()
+                
+                if result.data:
+                    logger.info(f"Published research_synthesis_completed event for process {getattr(context, 'process_id', 'unknown')}")
+                    
+            except Exception as e:
+                logger.error(f"Error publishing research_synthesis_completed event: {e}")
+            
+            # Save context after research completion
+            process_id = getattr(context, 'process_id', None)
+            user_id = getattr(context, 'user_id', None)
+            if process_id and user_id:
+                try:
+                    # 1) Ensure current_step_name is set to completion state
+                    context.current_step = "research_completed"
+                    await self.service.persistence_service.update_process_state(
+                        process_id=process_id,
+                        current_step_name="research_completed"
+                    )
+                    
+                    # 2) Save context with research text to DB
+                    await self.service.persistence_service.save_context_to_db(context, process_id=process_id, user_id=user_id)
+                    logger.info("Context saved successfully after research completion")
+                except Exception as save_err:
+                    logger.error(f"Failed to save context after research completion: {save_err}")
+            
+            # フロー設定に応じて次のステップを決定
+            is_outline_first = context.flow_type == "outline_first"
+            if is_outline_first:
+                context.current_step = "writing_sections"
+                logger.info("Outline-first flow: Moving from research completion to writing_sections")
+            else:
+                context.current_step = "outline_generating"
+                logger.info("Research-first flow: Moving from research completion to outline_generating")
+            
+            # WebSocket経由でリサーチ情報を送信（既存スキーマに合わせてoverall_summaryへ格納）
+            if context.websocket:
+                from app.domains.seo_article.schemas import ResearchReportData
+                
+                report_data = ResearchReportData(
+                    topic=context.selected_theme.title if context.selected_theme else "Research Topic",
+                    overall_summary=tagged_text,
+                    key_points=[],
+                    interesting_angles=[],
+                    all_sources=[]
+                )
+                await self.service.utils.send_server_event(context, ResearchCompletePayload(report=report_data))
+            
         except Exception as e:
             console.print(f"[red]リサーチ実行中にエラーが発生しました: {str(e)}[/red]")
             logger.error(f"Error in research execution: {e}", exc_info=True)
@@ -1760,12 +1790,13 @@ class GenerationFlowManager:
         
         # フロー設定に応じてリサーチ報告書の必要性をチェック
         is_outline_first = context.flow_type == "outline_first"
-        if not is_outline_first and not context.research_report:
-            console.print("[red]リサーチ報告書がありません。アウトライン生成をスキップします。[/red]")
+        has_research_text = bool(getattr(context, "research_sources_text", None) or getattr(context, "research_sources_tagged", None) or getattr(context, "research_report", None))
+        if not is_outline_first and not has_research_text:
+            console.print("[red]リサーチ情報がありません。アウトライン生成をスキップします。[/red]")
             context.current_step = "error"
             return
-        elif is_outline_first and not context.research_report:
-            logger.info("Outline-first flow: Generating outline without research report")
+        elif is_outline_first and not has_research_text:
+            logger.info("Outline-first flow: Generating outline without research data")
 
         # Publish outline generation start event for Supabase Realtime
         try:
@@ -1796,15 +1827,16 @@ class GenerationFlowManager:
         
         # フロー設定に応じてエージェント入力を構築
         is_outline_first = context.flow_type == "outline_first"
-        if is_outline_first and context.research_report is None:
+        research_text_for_outline = getattr(context, "research_sources_tagged", None) or getattr(context, "research_sources_text", None)
+        if is_outline_first and research_text_for_outline is None:
             # 構成先行フローではリサーチ前にアウトライン生成
             agent_input = f"テーマ: {context.selected_theme.title}\nペルソナ: {context.selected_detailed_persona}\n目標文字数: {context.target_length}"
             console.print(f"🤖 {current_agent.name} にアウトライン生成を依頼します (リサーチ前)...")
         else:
             # リサーチ先行フローではリサーチ後にアウトライン生成
-            if context.research_report is None:
-                raise ValueError("Classic flow requires research_report before outline generation")
-            agent_input = f"テーマ: {context.selected_theme.title}\nペルソナ: {context.selected_detailed_persona}\nリサーチ報告書: {context.research_report.model_dump_json(indent=2)}\n目標文字数: {context.target_length}"
+            if research_text_for_outline is None:
+                raise ValueError("リサーチテキストがないためアウトラインを生成できません")
+            agent_input = f"テーマ: {context.selected_theme.title}\nペルソナ: {context.selected_detailed_persona}\nリサーチ情報:\n{research_text_for_outline}\n目標文字数: {context.target_length}"
             console.print(f"🤖 {current_agent.name} にアウトライン生成を依頼します (リサーチ後)...")
         
         agent_output = await self.run_agent(current_agent, agent_input, context, run_config)
@@ -1950,6 +1982,9 @@ class GenerationFlowManager:
                 )
                 context.generated_sections.append(article_section)
                 section_content_length = len(agent_output.content)
+                if len(context.generated_sections_html) <= i:
+                    context.generated_sections_html.extend([""] * (i + 1 - len(context.generated_sections_html)))
+                context.generated_sections_html[i] = agent_output.content
                 
                 # 画像プレースホルダー情報をコンテキストに保存
                 if not hasattr(context, 'image_placeholders'):
@@ -1961,6 +1996,9 @@ class GenerationFlowManager:
             elif not is_image_mode and isinstance(agent_output, ArticleSection):
                 context.generated_sections.append(agent_output)
                 section_content_length = len(agent_output.content)
+                if len(context.generated_sections_html) <= i:
+                    context.generated_sections_html.extend([""] * (i + 1 - len(context.generated_sections_html)))
+                context.generated_sections_html[i] = agent_output.content
                 console.print(f"[green]セクション {i+1} が完了しました。[/green]")
                 
             elif isinstance(agent_output, str):
@@ -1972,6 +2010,9 @@ class GenerationFlowManager:
                 )
                 context.generated_sections.append(article_section)
                 section_content_length = len(agent_output)
+                if len(context.generated_sections_html) <= i:
+                    context.generated_sections_html.extend([""] * (i + 1 - len(context.generated_sections_html)))
+                context.generated_sections_html[i] = agent_output
                 console.print(f"[green]セクション {i+1} が完了しました（HTML文字列形式）。[/green]")
                 
             else:
@@ -2045,8 +2086,17 @@ class GenerationFlowManager:
                 logger.error(f"Error publishing section_completed event: {e}")
 
         # 全セクション完了
-        context.current_step = "editing"
-        console.print("[cyan]全セクションの執筆が完了しました。[/cyan]")
+        # ドラフトを確定
+        if not context.full_draft_html:
+            context.full_draft_html = "\n\n".join(context.generated_sections_html)
+
+        if getattr(context, "enable_final_editing", False):
+            context.current_step = "editing"
+            console.print("[cyan]全セクションの執筆が完了しました。編集ステップに進みます。[/cyan]")
+        else:
+            console.print("[cyan]全セクションの執筆が完了しました。編集ステップをスキップして完了します。[/cyan]")
+            await self.finalize_without_editing(context, getattr(context, 'process_id', None), getattr(context, 'user_id', None), send_events=False)
+            return
         
         # Publish all sections completion event
         try:
@@ -2212,7 +2262,8 @@ class GenerationFlowManager:
         
         # フロー設定に応じてリサーチ報告書の必要性をチェック
         is_outline_first = context.flow_type == "outline_first"
-        if is_outline_first and context.research_report is None:
+        research_text_for_outline = getattr(context, "research_sources_tagged", None) or getattr(context, "research_sources_text", None)
+        if is_outline_first and research_text_for_outline is None:
             agent_input = (
                 f"テーマ: {context.selected_theme.title if context.selected_theme else '未選択'}\n"
                 f"ペルソナ: {context.selected_detailed_persona or '未設定'}\n"
@@ -2220,16 +2271,15 @@ class GenerationFlowManager:
             )
             console.print(f"🤖 {current_agent.name} にアウトライン作成を依頼します (リサーチ前)...")
         else:
-            if context.research_report is None:
-                await self.service.utils.send_error(context, "リサーチレポートがありません。アウトライン作成をスキップします。", "outline_generating")
+            if research_text_for_outline is None:
+                await self.service.utils.send_error(context, "リサーチテキストがありません。アウトライン作成をスキップします。", "outline_generating")
                 context.current_step = "error"
                 return
             instruction_text = (
-                f"詳細リサーチレポートに基づいてアウトラインを作成してください。"
+                f"詳細リサーチ情報に基づいてアウトラインを作成してください。"
                 f"テーマ: {context.selected_theme.title if context.selected_theme else '未選択'}, "
                 f"目標文字数 {context.target_length or '指定なし'}"
             )
-            research_report_json_str = json.dumps(context.research_report.model_dump(), indent=2)
 
             # 会話履歴形式のリストを作成
             agent_input = [
@@ -2237,7 +2287,7 @@ class GenerationFlowManager:
                     "role": "user",
                     "content": [
                         {"type": "input_text", "text": instruction_text},
-                        {"type": "input_text", "text": f"\n\n---参照リサーチレポート開始---\n{research_report_json_str}\n---参照リサーチレポート終了---"}
+                        {"type": "input_text", "text": f"\n\n---リサーチ情報源（タグ付き）---\n{research_text_for_outline}\n---ここまで---"}
                     ]
                 }
             ]
@@ -2540,15 +2590,23 @@ class GenerationFlowManager:
             await self.service.utils.send_error(context, "承認済みアウトラインがありません。セクション執筆をスキップします。")
             context.current_step = "error"
             return
+        if not (getattr(context, "research_sources_text", None) or getattr(context, "research_sources_tagged", None)):
+            await self.service.utils.send_error(context, "リサーチ情報がありません。セクション執筆を開始できません。")
+            context.current_step = "error"
+            return
 
         # セクション完了判定を厳密化
         total_sections = len(context.generated_outline.sections)
         
         # セクション完全性をチェック
         if self.service.utils.validate_section_completeness(context, context.generated_outline.sections, total_sections):
-            context.current_step = "editing"
-            console.print(f"[green]全{total_sections}セクションの執筆が完了しました（{len(context.full_draft_html)}文字）。編集ステップに移ります。[/green]")
-            await self.service.utils.send_server_event(context, EditingStartPayload())
+            if getattr(context, "enable_final_editing", False):
+                context.current_step = "editing"
+                console.print(f"[green]全{total_sections}セクションの執筆が完了しました（{len(context.full_draft_html)}文字）。編集ステップに移ります。[/green]")
+                await self.service.utils.send_server_event(context, EditingStartPayload())
+            else:
+                console.print(f"[green]全{total_sections}セクションの執筆が完了しました（{len(context.full_draft_html)}文字）。編集ステップをスキップして完了します。[/green]")
+                await self.finalize_without_editing(context, process_id, user_id, send_events=True)
             return
 
         # 画像モードかどうかでエージェントを選択
@@ -2569,6 +2627,17 @@ class GenerationFlowManager:
             "section_heading": target_heading,
             "total_sections": str(len(context.generated_outline.sections))
         }):
+            # まだシステムプロンプトにリサーチ情報を入れていなければ注入（タグ付きで全量）
+            research_text_for_writing = getattr(context, "research_sources_tagged", None) or getattr(context, "research_sources_text", None)
+            if research_text_for_writing and not any(
+                msg.get("role") == "system" and "リサーチ" in str(msg.get("content", ""))
+                for msg in context.section_writer_history
+            ):
+                context.add_to_section_writer_history(
+                    "system",
+                    f"以下はリサーチした情報源（省略なし）。必要な部分だけ参照し、すべてを記事に含める必要はありません。\n{research_text_for_writing}"
+                )
+
             user_request = f"前のセクション（もしあれば）に続けて、アウトラインのセクション {target_index + 1}「{target_heading}」の内容をHTMLで執筆してください。"
             current_input_messages: List[Dict[str, Any]] = list(context.section_writer_history)
             current_input_messages.append({"role": "user", "content": [{"type": "input_text", "text": user_request}]})
@@ -2806,6 +2875,53 @@ class GenerationFlowManager:
                         ))
                     except Exception as ws_err:
                         console.print(f"[dim]WebSocket section completion event error (continuing): {ws_err}[/dim]")
+
+    async def finalize_without_editing(self, context: ArticleContext, process_id: Optional[str], user_id: Optional[str], send_events: bool = True):
+        """編集ステップをスキップして記事を確定する。"""
+        if not context.full_draft_html:
+            context.full_draft_html = context.get_full_draft()
+
+        if not context.full_draft_html or not context.full_draft_html.strip():
+            await self.service.utils.send_error(context, "記事本文が空のため完了できません。", context.current_step)
+            context.current_step = "error"
+            return
+
+        context.final_article_html = context.full_draft_html
+        context.current_step = "completed"
+
+        title = (
+            getattr(context.generated_outline, "title", None)
+            if getattr(context, "generated_outline", None)
+            else None
+        ) or (getattr(context.selected_theme, "title", None) if getattr(context, "selected_theme", None) else None) or "Generated Article"
+
+        await self.log_workflow_step(context, "completed", {
+            "final_article_length": len(context.final_article_html),
+            "sections_count": len(getattr(context, 'generated_sections_html', [])),
+            "total_tokens_used": getattr(context, 'total_tokens_used', 0)
+        })
+
+        article_id: Optional[str] = None
+
+        if process_id and user_id:
+            try:
+                await self.service.persistence_service.save_context_to_db(context, process_id=process_id, user_id=user_id)
+
+                from app.domains.seo_article.services.flow_service import get_supabase_client
+                supabase = get_supabase_client()
+                state_res = supabase.table("generated_articles_state").select("article_id").eq("id", process_id).execute()
+                if state_res.data and state_res.data[0].get("article_id"):
+                    article_id = state_res.data[0]["article_id"]
+                    context.final_article_id = article_id
+            except Exception as save_err:
+                logger.error(f"Failed to save finalized article without editing: {save_err}")
+
+        if send_events and context.websocket:
+            await self.service.utils.send_server_event(context, FinalResultPayload(
+                title=title,
+                final_html_content=context.final_article_html,
+                article_id=article_id
+            ))
 
     async def handle_editing_step(self, context: ArticleContext, run_config: RunConfig, process_id: Optional[str] = None, user_id: Optional[str] = None):
         """編集ステップの処理"""
@@ -3308,17 +3424,8 @@ class GenerationFlowManager:
         """Execute keyword analysis step for background tasks"""
         try:
             process_id = getattr(context, 'process_id', 'unknown')
-            run_config = RunConfig(
-                workflow_name="SEO記事生成ワークフロー（バックグラウンド）",
-                trace_id=f"trace_bg_keyword_{process_id}",
-                group_id=process_id,
-                trace_metadata={
-                    "process_id": process_id,
-                    "background_processing": "true",
-                    "current_step": "keyword_analyzing"
-                }
-            )
-            await self.handle_keyword_analyzing_step(context, run_config)
+            run_config = self._build_step_run_config(context, process_id, "keyword_analyzing")
+            await self.handle_keyword_analyzing_step(context, run_config, process_id=process_id, user_id=getattr(context, 'user_id', None))
         except Exception as e:
             logger.error(f"Error in keyword analysis step: {e}")
             context.current_step = "error"
@@ -3329,16 +3436,7 @@ class GenerationFlowManager:
         """Execute persona generation step for background tasks"""
         try:
             process_id = getattr(context, 'process_id', 'unknown')
-            run_config = RunConfig(
-                workflow_name="SEO記事生成ワークフロー（バックグラウンド）",
-                trace_id=f"trace_bg_persona_{process_id}",
-                group_id=process_id,
-                trace_metadata={
-                    "process_id": process_id,
-                    "background_processing": "true",
-                    "current_step": "persona_generating"
-                }
-            )
+            run_config = self._build_step_run_config(context, process_id, "persona_generating")
             
             # Execute persona generation without WebSocket interaction
             current_agent = persona_generator_agent
@@ -3367,16 +3465,7 @@ class GenerationFlowManager:
         """Execute theme generation step for background tasks"""
         try:
             process_id = getattr(context, 'process_id', 'unknown')
-            run_config = RunConfig(
-                workflow_name="SEO記事生成ワークフロー（バックグラウンド）",
-                trace_id=f"trace_bg_theme_{process_id}",
-                group_id=process_id,
-                trace_metadata={
-                    "process_id": process_id,
-                    "background_processing": "true",
-                    "current_step": "theme_generating"
-                }
-            )
+            run_config = self._build_step_run_config(context, process_id, "theme_generating")
             
             # Execute theme generation without WebSocket interaction
             current_agent = theme_agent
@@ -3405,16 +3494,7 @@ class GenerationFlowManager:
         """Execute research planning step for background tasks"""
         try:
             process_id = getattr(context, 'process_id', 'unknown')
-            run_config = RunConfig(
-                workflow_name="SEO記事生成ワークフロー（バックグラウンド）",
-                trace_id=f"trace_bg_research_plan_{process_id}",
-                group_id=process_id,
-                trace_metadata={
-                    "process_id": process_id,
-                    "background_processing": "true",
-                    "current_step": "research_planning"
-                }
-            )
+            run_config = self._build_step_run_config(context, process_id, "research_planning")
             # 注意(legacy-flow): バックグラウンドでの計画ステップは旧フロー互換のために残しています。
             await self.execute_research_planning_background(context, run_config)
         except Exception as e:
@@ -3427,16 +3507,11 @@ class GenerationFlowManager:
         """Execute a single research query for background tasks"""
         try:
             process_id = getattr(context, 'process_id', 'unknown')
-            run_config = RunConfig(
-                workflow_name="SEO記事生成ワークフロー（バックグラウンド）",
-                trace_id=f"trace_bg_research_query_{process_id}_{query_index}",
-                group_id=process_id,
-                trace_metadata={
-                    "process_id": process_id,
-                    "background_processing": "true",
-                    "current_step": "researching",
-                    "query_index": query_index
-                }
+            run_config = self._build_step_run_config(
+                context,
+                process_id,
+                "researching",
+                {"query_index": query_index}
             )
             
             # Initialize research query results if not exists
@@ -3463,16 +3538,7 @@ class GenerationFlowManager:
         """Execute research synthesis step for background tasks"""
         try:
             process_id = getattr(context, 'process_id', 'unknown')
-            run_config = RunConfig(
-                workflow_name="SEO記事生成ワークフロー（バックグラウンド）",
-                trace_id=f"trace_bg_research_synthesis_{process_id}",
-                group_id=process_id,
-                trace_metadata={
-                    "process_id": process_id,
-                    "background_processing": "true",
-                    "current_step": "research_synthesizing"
-                }
-            )
+            run_config = self._build_step_run_config(context, process_id, "research_synthesizing")
             await self.execute_research_synthesizing_background(context, run_config)
         except Exception as e:
             logger.error(f"Error in research synthesis step: {e}")
@@ -3484,16 +3550,7 @@ class GenerationFlowManager:
         """Execute outline generation step for background tasks"""
         try:
             process_id = getattr(context, 'process_id', 'unknown')
-            run_config = RunConfig(
-                workflow_name="SEO記事生成ワークフロー（バックグラウンド）",
-                trace_id=f"trace_bg_outline_{process_id}",
-                group_id=process_id,
-                trace_metadata={
-                    "process_id": process_id,
-                    "background_processing": "true",
-                    "current_step": "outline_generating"
-                }
-            )
+            run_config = self._build_step_run_config(context, process_id, "outline_generating")
             await self.execute_outline_generating_background(context, run_config)
         except Exception as e:
             logger.error(f"Error in outline generation step: {e}")
@@ -3505,16 +3562,11 @@ class GenerationFlowManager:
         """Write a single section for background tasks"""
         try:
             process_id = getattr(context, 'process_id', 'unknown')
-            run_config = RunConfig(
-                workflow_name="SEO記事生成ワークフロー（バックグラウンド）",
-                trace_id=f"trace_bg_section_{process_id}_{section_index}",
-                group_id=process_id,
-                trace_metadata={
-                    "process_id": process_id,
-                    "background_processing": "true",
-                    "current_step": "writing_sections",
-                    "section_index": str(section_index)
-                }
+            run_config = self._build_step_run_config(
+                context,
+                process_id,
+                "writing_sections",
+                {"section_index": str(section_index)}
             )
             
             # Choose appropriate agent based on image mode
@@ -3568,16 +3620,7 @@ class GenerationFlowManager:
         """Execute editing step for background tasks"""
         try:
             process_id = getattr(context, 'process_id', 'unknown')
-            run_config = RunConfig(
-                workflow_name="SEO記事生成ワークフロー（バックグラウンド）",
-                trace_id=f"trace_bg_editing_{process_id}",
-                group_id=process_id,
-                trace_metadata={
-                    "process_id": process_id,
-                    "background_processing": "true",
-                    "current_step": "editing"
-                }
-            )
+            run_config = self._build_step_run_config(context, process_id, "editing")
             await self.execute_editing_background(context, run_config)
         except Exception as e:
             logger.error(f"Error in editing step: {e}")

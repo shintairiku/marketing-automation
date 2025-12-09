@@ -204,7 +204,7 @@ export default function GenerationProcessPage({ jobId }: GenerationProcessPagePr
             return 0;
         }
         // フロー設定に応じた動的進捗計算
-        const stepProgressMap = getStepProgressMap(state.flowType);
+        const stepProgressMap = getStepProgressMap(state.flowType, state.enableFinalEditing ?? true);
 
         // ユーザー入力待ちの場合は、現在のステップの進捗を返す
         const progress = stepProgressMap[state.currentStep as keyof typeof stepProgressMap];
