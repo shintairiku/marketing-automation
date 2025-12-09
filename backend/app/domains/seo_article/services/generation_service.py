@@ -199,6 +199,7 @@ class ArticleGenerationService:
                 flow_type=request_dict.get("flow_type", "research_first"),  # フロー設定を追加
                 auto_mode=request_dict.get("auto_mode", False),
                 auto_selection_strategy=request_dict.get("auto_selection_strategy", "best_match") or "best_match",
+                runtime_overrides=request_dict.get("runtime_overrides") or {},
                 enable_final_editing=request_dict.get("enable_final_editing", False),
                 websocket=None,  # Background mode
                 user_response_event=None,  # Background mode

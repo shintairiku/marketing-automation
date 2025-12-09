@@ -76,6 +76,12 @@ class GenerateArticleRequest(BaseModel):
         description="オートモード時に候補を選ぶ戦略（first: 先頭固定, best_match: コンテキストに最も合うもの）"
     )
 
+    # --- ランタイム上書き設定 (モデル/プロンプト/ツールなどの実験用) ---
+    runtime_overrides: Optional[dict] = Field(
+        default=None,
+        description="実行時にモデル・温度・プロンプト等を上書きするための設定。global/agents キーを持つ辞書を推奨。"
+    )
+
     class Config:
         json_schema_extra = {
             "example": {

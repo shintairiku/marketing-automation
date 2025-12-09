@@ -6,11 +6,13 @@ import traceback
 import logging
 from datetime import datetime, timezone
 from typing import List, Dict, Any, Optional, Union
+from dataclasses import replace
 from openai import BadRequestError, AuthenticationError
 from agents import Runner, RunConfig, Agent, trace
 from agents import tracing as agent_tracing
 from agents.exceptions import MaxTurnsExceeded, ModelBehaviorError, UserError
 from agents.tracing import custom_span
+from agents.model_settings import ModelSettings
 from rich.console import Console
 from pydantic import ValidationError
 
@@ -44,6 +46,7 @@ from app.domains.seo_article.agents.definitions import (
     section_writer_with_images_agent,
     research_agent  # 統一版リサーチエージェント
 )
+from app.domains.seo_article.services.article_agent_service import build_model_settings
 
 console = Console()
 logger = logging.getLogger(__name__)
@@ -942,6 +945,71 @@ class GenerationFlowManager:
             context.target_length = agent_output.recommended_target_length
             console.print(f"[cyan]推奨目標文字数を設定しました: {context.target_length}文字[/cyan]")
 
+    # ------------------------------------------------------------------
+    # Runtime overrides (model / prompt / tool_choice etc.)
+    # ------------------------------------------------------------------
+    def _extract_agent_overrides(self, context: ArticleContext, agent_name: str) -> Dict[str, Any]:
+        """Context.runtime_overrides からエージェントごとの上書きを抽出"""
+        overrides = getattr(context, "runtime_overrides", {}) or {}
+        global_overrides = overrides.get("global", overrides if "global" not in overrides else {}) or {}
+        agent_overrides = (overrides.get("agents", {}) or {}).get(agent_name, {}) or {}
+        merged: Dict[str, Any] = {}
+        merged.update(global_overrides)
+        merged.update(agent_overrides)
+        return merged
+
+    def _apply_runconfig_overrides(self, run_config: RunConfig, overrides: Dict[str, Any]) -> RunConfig:
+        """RunConfig にモデル設定上書きを適用"""
+        model_settings: Optional[ModelSettings] = None
+        ms_kwargs: Dict[str, Any] = {}
+        for key in ("tool_choice", "temperature", "top_p", "parallel_tool_calls"):
+            if key in overrides and overrides[key] is not None:
+                ms_kwargs[key] = overrides[key]
+        reasoning_summary = overrides.get("reasoning_summary")
+        if reasoning_summary:
+            ms_kwargs["reasoning_summary"] = reasoning_summary
+        if ms_kwargs:
+            model_settings = build_model_settings(**ms_kwargs)
+        if overrides.get("max_output_tokens") is not None:
+            if model_settings:
+                model_settings.max_tokens = overrides["max_output_tokens"]
+            else:
+                model_settings = ModelSettings(max_tokens=overrides["max_output_tokens"])
+
+        if model_settings:
+            try:
+                return replace(run_config, model_settings=model_settings)
+            except Exception:
+                # dataclass でない場合のフォールバック
+                try:
+                    run_config.model_settings = model_settings  # type: ignore
+                except Exception:
+                    pass
+        return run_config
+
+    def _apply_agent_overrides(self, agent: Agent[ArticleContext], overrides: Dict[str, Any]) -> Agent[ArticleContext]:
+        """エージェントを複製し、モデルやプロンプトを上書きする"""
+        model_override = overrides.get("model")
+        prompt_patch = overrides.get("system_prompt_patch") or overrides.get("prompt_patch")
+
+        patched = Agent[ArticleContext](
+            name=agent.name,
+            instructions=agent.instructions,
+            model=model_override or agent.model,
+            tools=getattr(agent, "tools", []),
+            output_type=getattr(agent, "output_type", None),
+            model_settings=getattr(agent, "model_settings", None),
+        )
+
+        if prompt_patch:
+            patched.instructions = f"{agent.instructions}\n\n[Runtime Patch]\n{prompt_patch}"
+
+        return patched
+
+    def _restore_agent(self, _original: Agent[ArticleContext], _patched: Agent[ArticleContext]) -> None:
+        """互換性確保用（複製方式なので復元は不要）"""
+        return
+
     async def run_agent(self, agent: Agent[ArticleContext], input_data: Union[str, List[Dict[str, Any]]], context: ArticleContext, run_config: RunConfig) -> Any:
         """エージェントを実行し、結果を返す（リトライ付き）"""
         last_exception = None
@@ -974,17 +1042,26 @@ class GenerationFlowManager:
             "execution_log_id": execution_log_id
         }):
             for attempt in range(settings.max_retries):
+                agent_patched: Optional[Agent[ArticleContext]] = None
                 try:
                     console.print(f"[dim]エージェント {agent.name} 実行開始 (試行 {attempt + 1}/{settings.max_retries})...[/dim]")
+
+                    # --- ランタイム上書き: モデル/温度/プロンプトなど ---
+                    overrides = self._extract_agent_overrides(context, agent.name)
+                    run_config_effective = self._apply_runconfig_overrides(run_config, overrides)
+                    agent_patched = self._apply_agent_overrides(agent, overrides)
                     
                     # エージェント実行
                     result = await Runner.run(
-                        starting_agent=agent,
+                        starting_agent=agent_patched,
                         input=input_data,
                         context=context,
-                        run_config=run_config,
+                        run_config=run_config_effective,
                         max_turns=10
                     )
+
+                    # パッチしたエージェントは破棄（元を戻す）
+                    self._restore_agent(agent, agent_patched)
                     
                     console.print(f"[dim]エージェント {agent.name} 実行完了。[/dim]")
 
@@ -1006,6 +1083,12 @@ class GenerationFlowManager:
 
                 except Exception as e:
                     last_exception = e
+                    try:
+                        # 念のためパッチ済みエージェントを破棄
+                        if agent_patched:
+                            self._restore_agent(agent, agent_patched)
+                    except Exception:
+                        pass
                     await self.handle_agent_execution_error(agent, e, attempt, start_time, workflow_logger)
                     
                     if self.should_break_retry(e) or attempt >= settings.max_retries - 1:

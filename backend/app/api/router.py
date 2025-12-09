@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+import os
 from fastapi import APIRouter
 
 # 各ドメインのエンドポイントをインポート
@@ -17,6 +18,14 @@ api_router.include_router(organization_router, prefix="/organizations", tags=["O
 api_router.include_router(company_router, prefix="/companies", tags=["Companies"])
 api_router.include_router(style_template_router, prefix="/style-templates", tags=["Style Templates"])
 api_router.include_router(image_generation_router, prefix="/images", tags=["Image Generation"])
+
+# デバッグコンソール（ENABLE_DEBUG_CONSOLE=true のときのみ有効化）
+if os.getenv("ENABLE_DEBUG_CONSOLE", "").lower() == "true":
+    try:
+        from app.api.routes.debug_console import router as debug_console_router
+        api_router.include_router(debug_console_router, prefix="/debug", tags=["Debug"])
+    except Exception as e:
+        print(f"[debug_console] ルーター登録に失敗しました: {e}")
 
 # 今後、Instagram機能などを追加する場合は、ここに一行追加するだけでよい
 # from app.domains.instagram.endpoints import router as instagram_router

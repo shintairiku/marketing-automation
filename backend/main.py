@@ -10,6 +10,19 @@ from app.api.router import api_router
 from app.core.config import settings
 from app.core.exceptions import exception_handlers
 
+# Debug console (Gradio)
+ENABLE_DEBUG_CONSOLE = os.getenv("ENABLE_DEBUG_CONSOLE", "").lower() == "true"
+if ENABLE_DEBUG_CONSOLE:
+    try:
+        from app.debug.gradio_console import build_demo
+        import gradio as gr  # type: ignore
+        _gradio_demo = build_demo()
+    except Exception as e:
+        print(f"[debug_console] Gradio 読み込みに失敗しました: {e}")
+        _gradio_demo = None
+else:
+    _gradio_demo = None
+
 # FastAPIアプリケーションの初期化
 app = FastAPI(
     title="Marketing Automation API",
@@ -33,6 +46,14 @@ app.add_middleware(
 
 # ★ APIルーターをまとめてインクルード（プレフィックスなしで互換性維持）
 app.include_router(api_router)
+
+# Gradio デバッグコンソールをマウント（有効時のみ）
+if _gradio_demo:
+    try:
+        from gradio import mount_gradio_app  # type: ignore
+        app = mount_gradio_app(app, _gradio_demo, path="/debug/console")
+    except Exception as e:
+        print(f"[debug_console] mount_gradio_app に失敗しました: {e}")
 
 # 画像の静的ファイル配信は /images/serve/{filename} エンドポイントで処理
 # StaticFilesによる /images マウントは画像APIと衝突するため削除
@@ -65,4 +86,3 @@ async def health_check():
 if __name__ == "__main__":
     print("To run the server, use the command:")
     print("uvicorn main:app --reload --host 0.0.0.0 --port 8000")
-
