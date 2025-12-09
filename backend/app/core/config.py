@@ -37,12 +37,14 @@ class Settings(BaseSettings):
     stripe_secret_key: str = Field(default_factory=lambda: os.getenv("STRIPE_SECRET_KEY", ""))
     stripe_webhook_secret: str = Field(default_factory=lambda: os.getenv("STRIPE_WEBHOOK_SECRET", ""))
 
-    # デフォルトモデル名 (環境変数またはデフォルト値)
-    default_model: str = os.getenv("DEFAULT_MODEL", "gpt-4o-mini")
+    # モデル設定（用途別に個別コントロール可能）
     research_model: str = os.getenv("RESEARCH_MODEL", "gpt-5-mini")
     writing_model: str = os.getenv("WRITING_MODEL", "gpt-4o-mini")
     outline_model: str = os.getenv("OUTLINE_MODEL") or writing_model  # 未指定時は執筆モデルを利用
     editing_model: str = os.getenv("EDITING_MODEL", "gpt-4o-mini")
+    serp_analysis_model: str = os.getenv("SERP_ANALYSIS_MODEL") or research_model
+    persona_model: str = os.getenv("PERSONA_MODEL") or writing_model
+    theme_model: str = os.getenv("THEME_MODEL") or writing_model
     
     # Agents SDK specific settings
     model_for_agents: str = os.getenv("MODEL_FOR_AGENTS", "gpt-4o-mini")

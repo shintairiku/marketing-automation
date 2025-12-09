@@ -84,6 +84,9 @@ def setup_agents_sdk():
 | パラメータ | 説明 | デフォルト値 | 環境変数 |
 |-----------|------|-------------|----------|
 | `model_for_agents` | エージェント実行に使用するモデル | `gpt-4o-mini` | `MODEL_FOR_AGENTS` |
+| `serp_analysis_model` | SerpAPI分析エージェント用モデル | `RESEARCH_MODEL` の値 (`gpt-5-mini`) | `SERP_ANALYSIS_MODEL` |
+| `persona_model` | ペルソナ生成エージェント用モデル | `WRITING_MODEL` の値 (`gpt-4o-mini`) | `PERSONA_MODEL` |
+| `theme_model` | テーマ生成エージェント用モデル | `WRITING_MODEL` の値 (`gpt-4o-mini`) | `THEME_MODEL` |
 | `max_turns_for_agents` | エージェントの最大ターン数 | `10` | `MAX_TURNS_FOR_AGENTS` |
 | `enable_tracing` | トレーシング機能の有効化 | `true` | `OPENAI_AGENTS_ENABLE_TRACING` |
 | `trace_include_sensitive_data` | 機密データのトレーシング含有 | `false` | `OPENAI_AGENTS_TRACE_INCLUDE_SENSITIVE_DATA` |

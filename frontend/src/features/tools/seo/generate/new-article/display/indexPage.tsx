@@ -119,7 +119,7 @@ export default function IndexPage() {
     };
 
     const getProgressPercentage = () => {
-        const stepProgressMap = getStepProgressMap(state.flowType);
+        const stepProgressMap = getStepProgressMap(state.flowType, state.enableFinalEditing ?? true);
 
         // ユーザー入力待ちの場合は、現在のステップの進捗を返す
         const progress = stepProgressMap[state.currentStep as keyof typeof stepProgressMap];

@@ -10,13 +10,25 @@ and Supabase Realtime event publishing.
 import asyncio
 import logging
 import uuid
+import re
 from typing import Dict, Optional, Any, List
 from datetime import datetime, timezone, timedelta
 
+from agents import tracing as agent_tracing
+
+from app.core.config import settings
 from app.domains.seo_article.context import ArticleContext
 from app.domains.seo_article.schemas import GenerateArticleRequest
 
 logger = logging.getLogger(__name__)
+
+# Steps that traditionally require user approval/interaction
+USER_INPUT_STEPS = {
+    "persona_generated",
+    "theme_proposed",
+    "research_plan_generated",  # legacy compatibility
+    "outline_generated",
+}
 
 class BackgroundTaskManager:
     """Manages background task execution for article generation"""
@@ -365,7 +377,9 @@ class BackgroundTaskManager:
         task_id: str
     ):
         """Run the main generation flow with realtime events"""
-        
+
+        trace_obj = None
+
         try:
             logger.info(f"🔄 [TASK {task_id}] Starting generation flow for process {process_id}")
             logger.info(f"📍 [TASK {task_id}] Initial step: {context.current_step}")
@@ -375,6 +389,33 @@ class BackgroundTaskManager:
             context.user_response_event = asyncio.Event()
             context.process_id = process_id
             context.user_id = user_id
+
+            # Ensure a single trace_id is reused across all agent runs in this process
+            try:
+                if not getattr(context, "trace_id", None):
+                    context.trace_id = agent_tracing.gen_trace_id()
+
+                trace_obj = agent_tracing.trace(
+                    workflow_name="seo_article_generation",
+                    trace_id=context.trace_id,
+                    group_id=process_id,
+                    metadata={
+                        "process_id": process_id,
+                        "user_id": user_id,
+                        "task_id": task_id,
+                        "mode": "background",
+                    },
+                    disabled=not settings.enable_tracing,
+                )
+                trace_obj.start(mark_as_current=True)
+                logger.info(
+                    f"[TASK {task_id}] Tracing started for process {process_id} with trace_id={context.trace_id}"
+                )
+            except Exception as trace_err:  # noqa: BLE001
+                logger.warning(
+                    f"[TASK {task_id}] Failed to initialize tracing for process {process_id}: {trace_err}"
+                )
+                trace_obj = None
             
             step_counter = 0
             while context.current_step not in ['completed', 'error']:
@@ -385,7 +426,7 @@ class BackgroundTaskManager:
                 try:
                     # Check if current step requires user input
                     # IMPORTANT: Save snapshot BEFORE breaking the loop for user input steps!
-                    if context.current_step in ['persona_generated', 'theme_proposed', 'research_plan_generated', 'outline_generated']:
+                    if context.current_step in USER_INPUT_STEPS:
                         # 注意(legacy-flow): `research_plan_generated` は統合前に作成されたセッションに対応するため残しています。
                         logger.info(f"👤 [TASK {task_id}] Step {current_step} requires user input")
 
@@ -398,7 +439,14 @@ class BackgroundTaskManager:
                             user_id=user_id
                         )
 
-                        # Now handle user input and break
+                        # Auto-resolve when auto_mode is enabled
+                        if getattr(context, "auto_mode", False):
+                            logger.info(f"🤖 [TASK {task_id}] Auto-mode enabled, resolving step {current_step} without user input")
+                            await self._auto_resolve_user_input_step(context, process_id, user_id, task_id)
+                            # After auto application, move to next loop iteration
+                            continue
+
+                        # Manual path: wait for user input
                         logger.info(f"⏸️ [TASK {task_id}] Waiting for user input...")
                         await self._handle_user_input_step(context, process_id, user_id, task_id)
                         break  # Exit loop and wait for user input
@@ -468,6 +516,14 @@ class BackgroundTaskManager:
             logger.exception(f"[TASK {task_id}] Generation flow exception details:")
             await self._handle_generation_error(process_id, str(e), context.current_step)
             raise
+        finally:
+            if trace_obj:
+                try:
+                    trace_obj.finish(reset_current=True)
+                except Exception as trace_err:  # noqa: BLE001
+                    logger.warning(
+                        f"[TASK {task_id}] Failed to finish tracing for process {process_id}: {trace_err}"
+                    )
     
     async def _execute_single_step_with_events(
         self, 
@@ -698,8 +754,266 @@ class BackgroundTaskManager:
         
         # Combine all sections
         context.full_draft_html = '\n\n'.join(context.generated_sections_html)
-        context.current_step = "editing"
+        if getattr(context, "enable_final_editing", False):
+            context.current_step = "editing"
+        else:
+            # Skip editing and mark as completed
+            await self.service.flow_manager.finalize_without_editing(
+                context,
+                process_id,
+                getattr(context, "user_id", None),
+                send_events=False,
+            )
+
+            # Immediately emit the final result via Realtime so clients receive the article
+            await self._publish_realtime_event(
+                process_id=process_id,
+                event_type="generation_completed",
+                event_data={
+                    "title": context.generated_outline.title
+                    if hasattr(context, "generated_outline")
+                    and context.generated_outline
+                    and hasattr(context.generated_outline, "title")
+                    else "Generated Article",
+                    "final_html_content": getattr(context, "final_article_html", None)
+                    or context.full_draft_html,
+                    "article_id": getattr(context, "final_article_id", None),
+                    "message": "Article generation completed successfully (editing skipped)",
+                    "completion_time": datetime.now(timezone.utc).isoformat(),
+                },
+            )
+
+            # Prevent duplicate final events when the completion handler runs
+            context.final_result_event_emitted = True
+            return
     
+    async def _auto_resolve_user_input_step(
+        self,
+        context: ArticleContext,
+        process_id: str,
+        user_id: str,
+        task_id: str,
+    ):
+        """自動モードでのユーザー入力ステップ処理"""
+        step = context.current_step
+        try:
+            user_input, decision = await self._build_auto_user_input(context, step)
+
+            # Apply to context via existing path to minimize divergence
+            await self._apply_user_input_to_context(context, user_input)
+
+            # Persist immediately so frontend/state stays in-sync
+            await self.service.persistence_service.save_context_to_db(
+                context, process_id=process_id, user_id=user_id
+            )
+
+            # Emit a lightweight event for observability
+            event_payload = {
+                "step": step,
+                "response_type": user_input.get("response_type"),
+                "auto_mode": True,
+                "strategy": getattr(context, "auto_selection_strategy", "best_match"),
+                **decision,
+            }
+            await self._publish_realtime_event(
+                process_id=process_id,
+                event_type="user_input_resolved",
+                event_data=event_payload,
+            )
+            logger.info(
+                f"🤖 [TASK {task_id}] Auto-resolved step {step} with response {user_input.get('response_type')} "
+                f"(strategy={event_payload.get('strategy')}, detail={decision})"
+            )
+        except Exception as e:
+            logger.error(f"💥 [TASK {task_id}] Failed to auto-resolve step {step}: {e}")
+            raise
+
+    async def _build_auto_user_input(
+        self, context: ArticleContext, step: str
+    ) -> tuple[Dict[str, Any], Dict[str, Any]]:
+        """ステップ別に自動選択した user_input オブジェクトを構築"""
+        strategy = getattr(context, "auto_selection_strategy", "best_match") or "best_match"
+
+        if step == "persona_generated":
+            personas = getattr(context, "generated_detailed_personas", []) or []
+            if not personas:
+                raise ValueError("No personas generated to auto-select from.")
+            selected_id, reason = self._select_persona_index_auto(context, personas, strategy)
+            return (
+                {"response_type": "select_persona", "payload": {"selected_id": selected_id}},
+                {"selected_id": selected_id, "reason": reason},
+            )
+
+        if step == "theme_proposed":
+            themes = getattr(context, "generated_themes", []) or []
+            if not themes:
+                raise ValueError("No themes generated to auto-select from.")
+            selected_idx, reason = self._select_theme_index_auto(context, themes, strategy)
+            return (
+                {"response_type": "select_theme", "payload": {"selected_index": selected_idx}},
+                {"selected_index": selected_idx, "reason": reason},
+            )
+
+        if step == "research_plan_generated":
+            # Legacy step: approve by default
+            return (
+                {"response_type": "approve_plan", "payload": {"approved": True}},
+                {"reason": "auto_approved_plan"},
+            )
+
+        if step == "outline_generated":
+            outline = getattr(context, "generated_outline", None)
+            valid, reason = self._validate_outline(outline, context)
+            if not valid:
+                # 再生成を一度試みる
+                return (
+                    {"response_type": "regenerate", "payload": {}},
+                    {"reason": reason, "action": "regenerate_outline"},
+                )
+            return (
+                {"response_type": "approve_outline", "payload": {"approved": True}},
+                {"reason": reason or "outline_validated"},
+            )
+
+        raise ValueError(f"Auto user input not supported for step: {step}")
+
+    def _select_persona_index_auto(
+        self, context: ArticleContext, personas: List[Any], strategy: str
+    ) -> tuple[int, str]:
+        """ペルソナ候補から自動選択"""
+        if strategy == "first" or len(personas) == 1:
+            return 0, "strategy_first"
+
+        signals = self._collect_signals(context, include_serp=False)
+        best_idx = 0
+        best_score = -1
+        for idx, persona in enumerate(personas):
+            text = persona if isinstance(persona, str) else str(persona)
+            score = self._score_text_against_signals(text, signals)
+            if score > best_score:
+                best_idx, best_score = idx, score
+
+        reason = f"best_match_score={best_score}"
+        return best_idx, reason
+
+    def _select_theme_index_auto(
+        self, context: ArticleContext, themes: List[Any], strategy: str
+    ) -> tuple[int, str]:
+        """テーマ候補から自動選択"""
+        if strategy == "first" or len(themes) == 1:
+            return 0, "strategy_first"
+
+        signals = self._collect_signals(context, include_serp=True)
+        signals_lower = [s.lower() for s in signals]
+
+        best_idx = 0
+        best_score = -1
+        for idx, theme in enumerate(themes):
+            title = getattr(theme, "title", None) or (theme.get("title") if isinstance(theme, dict) else "")
+            description = getattr(theme, "description", None) or (theme.get("description") if isinstance(theme, dict) else "")
+            keywords = getattr(theme, "keywords", None) or (theme.get("keywords") if isinstance(theme, dict) else []) or []
+
+            candidate_text = " ".join(
+                [
+                    str(title or ""),
+                    str(description or ""),
+                    " ".join([str(k) for k in keywords]),
+                ]
+            )
+            score = self._score_text_against_signals(candidate_text, signals)
+
+            # bonus for keyword overlap
+            keyword_bonus = sum(
+                2 for kw in keywords if isinstance(kw, str) and kw.lower() in signals_lower
+            )
+            score += keyword_bonus
+
+            if score > best_score:
+                best_idx, best_score = idx, score
+
+        reason = f"best_match_score={best_score}"
+        return best_idx, reason
+
+    def _collect_signals(self, context: ArticleContext, include_serp: bool = True) -> List[str]:
+        """コンテキストから自動選択に使えるシグナルを集約"""
+        signals: List[str] = []
+
+        def _add_tokens(value: Any):
+            if not value:
+                return
+            if isinstance(value, list):
+                signals.extend([str(v) for v in value if v])
+                return
+            if isinstance(value, str):
+                tokens = [t.strip() for t in re.split(r"[,\n/|;]", value) if t.strip()]
+                signals.extend(tokens or [value])
+                return
+            signals.append(str(value))
+
+        _add_tokens(getattr(context, "initial_keywords", []))
+        _add_tokens(getattr(context, "company_target_keywords", None))
+        _add_tokens(getattr(context, "company_target_area", None))
+        _add_tokens(getattr(context, "company_target_persona", None))
+        _add_tokens(getattr(context, "company_usp", None))
+        _add_tokens(getattr(context, "selected_detailed_persona", None))
+
+        # persona metadata
+        if getattr(context, "persona_type", None):
+            _add_tokens(str(context.persona_type))
+        if getattr(context, "target_age_group", None):
+            _add_tokens(str(context.target_age_group))
+
+        if include_serp:
+            report = getattr(context, "serp_analysis_report", None)
+            if report:
+                _add_tokens(getattr(report, "main_themes", []))
+                _add_tokens(getattr(report, "content_gaps", []))
+                _add_tokens(getattr(report, "recommendations", []))
+
+        return [s for s in signals if s]
+
+    def _score_text_against_signals(self, text: str, signals: List[str]) -> int:
+        """簡易スコアリング（シグナル一致数ベース）"""
+        if not text:
+            return 0
+        text_lower = text.lower()
+        score = 0
+        for sig in signals:
+            s = sig.lower()
+            if not s:
+                continue
+            if s in text_lower:
+                score += 3
+            else:
+                # 部分一致でも少し加点
+                for token in s.split():
+                    if token and token in text_lower:
+                        score += 1
+                        break
+        return score
+
+    def _validate_outline(self, outline: Any, context: ArticleContext) -> tuple[bool, str]:
+        """アウトラインの簡易バリデーション"""
+        if not outline:
+            return False, "outline_missing"
+        if not getattr(outline, "title", None):
+            return False, "title_missing"
+
+        sections = getattr(outline, "sections", []) or []
+        if not sections:
+            return False, "sections_missing"
+        if any(not getattr(s, "heading", None) for s in sections):
+            return False, "section_heading_missing"
+        if len(sections) < 2:
+            return False, "not_enough_sections"
+
+        expected_level = getattr(context, "outline_top_level_heading", None)
+        if expected_level and hasattr(outline, "top_level_heading"):
+            if outline.top_level_heading != expected_level:
+                return True, f"top_level_mismatch_expected_{expected_level}_got_{outline.top_level_heading}"
+
+        return True, "outline_valid"
+
     async def _handle_user_input_step(
         self, 
         context: ArticleContext, 
@@ -801,17 +1115,19 @@ class BackgroundTaskManager:
             )
             
             # Publish completion event
-            await self._publish_realtime_event(
-                process_id=process_id,
-                event_type="generation_completed",
-                event_data={
-                    "title": context.generated_outline.title if hasattr(context, 'generated_outline') and context.generated_outline and hasattr(context.generated_outline, 'title') else "Generated Article",
-                    "final_html_content": final_content,
-                    "article_id": getattr(context, 'final_article_id', None),
-                    "message": "Article generation completed successfully",
-                    "completion_time": datetime.now(timezone.utc).isoformat()
-                }
-            )
+            if not getattr(context, "final_result_event_emitted", False):
+                await self._publish_realtime_event(
+                    process_id=process_id,
+                    event_type="generation_completed",
+                    event_data={
+                        "title": context.generated_outline.title if hasattr(context, 'generated_outline') and context.generated_outline and hasattr(context.generated_outline, 'title') else "Generated Article",
+                        "final_html_content": final_content,
+                        "article_id": getattr(context, 'final_article_id', None),
+                        "message": "Article generation completed successfully",
+                        "completion_time": datetime.now(timezone.utc).isoformat()
+                    }
+                )
+                context.final_result_event_emitted = True
             
             logger.info(f"Generation completed successfully for process {process_id}")
             
