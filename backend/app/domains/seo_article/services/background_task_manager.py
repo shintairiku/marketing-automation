@@ -758,7 +758,33 @@ class BackgroundTaskManager:
             context.current_step = "editing"
         else:
             # Skip editing and mark as completed
-            await self.service.flow_manager.finalize_without_editing(context, process_id, getattr(context, 'user_id', None), send_events=False)
+            await self.service.flow_manager.finalize_without_editing(
+                context,
+                process_id,
+                getattr(context, "user_id", None),
+                send_events=False,
+            )
+
+            # Immediately emit the final result via Realtime so clients receive the article
+            await self._publish_realtime_event(
+                process_id=process_id,
+                event_type="generation_completed",
+                event_data={
+                    "title": context.generated_outline.title
+                    if hasattr(context, "generated_outline")
+                    and context.generated_outline
+                    and hasattr(context.generated_outline, "title")
+                    else "Generated Article",
+                    "final_html_content": getattr(context, "final_article_html", None)
+                    or context.full_draft_html,
+                    "article_id": getattr(context, "final_article_id", None),
+                    "message": "Article generation completed successfully (editing skipped)",
+                    "completion_time": datetime.now(timezone.utc).isoformat(),
+                },
+            )
+
+            # Prevent duplicate final events when the completion handler runs
+            context.final_result_event_emitted = True
             return
     
     async def _auto_resolve_user_input_step(
@@ -1089,17 +1115,19 @@ class BackgroundTaskManager:
             )
             
             # Publish completion event
-            await self._publish_realtime_event(
-                process_id=process_id,
-                event_type="generation_completed",
-                event_data={
-                    "title": context.generated_outline.title if hasattr(context, 'generated_outline') and context.generated_outline and hasattr(context.generated_outline, 'title') else "Generated Article",
-                    "final_html_content": final_content,
-                    "article_id": getattr(context, 'final_article_id', None),
-                    "message": "Article generation completed successfully",
-                    "completion_time": datetime.now(timezone.utc).isoformat()
-                }
-            )
+            if not getattr(context, "final_result_event_emitted", False):
+                await self._publish_realtime_event(
+                    process_id=process_id,
+                    event_type="generation_completed",
+                    event_data={
+                        "title": context.generated_outline.title if hasattr(context, 'generated_outline') and context.generated_outline and hasattr(context.generated_outline, 'title') else "Generated Article",
+                        "final_html_content": final_content,
+                        "article_id": getattr(context, 'final_article_id', None),
+                        "message": "Article generation completed successfully",
+                        "completion_time": datetime.now(timezone.utc).isoformat()
+                    }
+                )
+                context.final_result_event_emitted = True
             
             logger.info(f"Generation completed successfully for process {process_id}")
             

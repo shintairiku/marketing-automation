@@ -304,59 +304,48 @@ export default function InputSection({ onStartGeneration, isConnected, isGenerat
             </CardContent>
           </Card>
 
-          {/* Card3: 高度アウトラインモード */}
+          {/* Card3: オートモード（位置を入れ替え） */}
           <Card>
             <CardHeader>
               <CardTitle className="text-lg flex items-center gap-2">
-                <ListTree className="h-5 w-5" />
-                高度アウトラインモード
+                <Bot className="h-5 w-5" />
+                オートモード
               </CardTitle>
+              <p className="text-sm text-muted-foreground">
+                ペルソナ/テーマ/アウトラインの承認を自動で進めます。フローはそのまま、確認なしで完走させたいときに。
+              </p>
             </CardHeader>
-            <CardContent>
-              <div className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <div className="space-y-1">
-                    <Label className="text-sm font-medium">有効にする</Label>
-                    <p className="text-sm text-muted-foreground">
-                      大見出しと小見出しを同時に生成し、階層構造を維持したままセクションライティングを行います
-                    </p>
-                  </div>
-                  <Switch
-                    checked={advancedOutlineMode}
-                    onCheckedChange={(value) => setAdvancedOutlineMode(value)}
-                  />
+            <CardContent className="space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="font-medium text-sm">オートモードを有効にする</p>
+                  <p className="text-xs text-muted-foreground">ユーザー入力ステップをスキップし自動選択します。</p>
                 </div>
+                <Switch
+                  checked={autoMode}
+                  onCheckedChange={setAutoMode}
+                  aria-label="オートモードを有効にする"
+                />
+              </div>
 
-                {advancedOutlineMode && (
-                  <div className="space-y-4 rounded-lg border border-blue-200 bg-blue-50 p-4">
-                    <div className="space-y-2">
-                      <Label className="text-sm font-medium">大見出しのレベルを選択</Label>
-                      <Select
-                        value={topLevelHeading}
-                        onValueChange={(value) => setTopLevelHeading(value as 'h2' | 'h3')}
-                      >
-                        <SelectTrigger>
-                          <SelectValue placeholder="トップレベル見出しを選択" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="h2">H2</SelectItem>
-                          <SelectItem value="h3">H3</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className="space-y-1 text-xs text-blue-800">
-                      <p>
-                        大見出しをH2にするかH3にするかを選択できます。生成後のアウトライン編集でも、この階層構造に沿って各見出しを調整できます。
-                      </p>
-                    </div>
-                  </div>
-                )}
-
-                {!advancedOutlineMode && (
-                  <p className="text-xs text-muted-foreground">
-                    標準モードでは H2 を大見出しとした構成案が生成されます。必要に応じてアウトライン編集で小見出しを追加できます。
-                  </p>
-                )}
+              <div className="space-y-2">
+                <Label className="text-sm">自動選択の戦略</Label>
+                <Select
+                  value={autoSelectionStrategy}
+                  onValueChange={(value) => setAutoSelectionStrategy(value as 'first' | 'best_match')}
+                  disabled={!autoMode}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="戦略を選択" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="best_match">コンテキストに最適（推奨）</SelectItem>
+                    <SelectItem value="first">先頭を常に選ぶ</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  best_match: キーワード・会社情報・SERP傾向に最も合う候補を選択 / first: 生成順で固定
+                </p>
               </div>
             </CardContent>
           </Card>
@@ -666,48 +655,63 @@ export default function InputSection({ onStartGeneration, isConnected, isGenerat
                 </CardContent>
               </Card>
 
-              {/* オートモード */}
+              {/* 高度アウトラインモード（高度設定へ移動） */}
               <Card>
                 <CardHeader>
                   <CardTitle className="text-lg flex items-center gap-2">
-                    <Bot className="h-5 w-5" />
-                    オートモード
+                    <ListTree className="h-5 w-5" />
+                    高度アウトラインモード
                   </CardTitle>
                   <p className="text-sm text-muted-foreground">
-                    ペルソナ/テーマ/アウトラインの承認を自動で進めます。フローはそのまま、確認なしで完走させたいときに。
+                    大見出しと小見出しを同時に生成し、階層構造を維持したままセクションライティングを行います。
                   </p>
                 </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="font-medium text-sm">オートモードを有効にする</p>
-                      <p className="text-xs text-muted-foreground">ユーザー入力ステップをスキップし自動選択します。</p>
+                <CardContent>
+                  <div className="space-y-4">
+                    <div className="flex items-center justify-between">
+                      <div className="space-y-1">
+                        <Label className="text-sm font-medium">有効にする</Label>
+                        <p className="text-sm text-muted-foreground">
+                          階層化されたアウトラインを自動生成し、その構造を保持したまま執筆します。
+                        </p>
+                      </div>
+                      <Switch
+                        checked={advancedOutlineMode}
+                        onCheckedChange={(value) => setAdvancedOutlineMode(value)}
+                        aria-label="高度アウトラインモードを有効にする"
+                      />
                     </div>
-                    <Switch
-                      checked={autoMode}
-                      onCheckedChange={setAutoMode}
-                      aria-label="オートモードを有効にする"
-                    />
-                  </div>
 
-                  <div className="space-y-2">
-                    <Label className="text-sm">自動選択の戦略</Label>
-                    <Select
-                      value={autoSelectionStrategy}
-                      onValueChange={(value) => setAutoSelectionStrategy(value as 'first' | 'best_match')}
-                      disabled={!autoMode}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="戦略を選択" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="best_match">コンテキストに最適（推奨）</SelectItem>
-                        <SelectItem value="first">先頭を常に選ぶ</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    <p className="text-xs text-muted-foreground">
-                      best_match: キーワード・会社情報・SERP傾向に最も合う候補を選択 / first: 生成順で固定
-                    </p>
+                    {advancedOutlineMode && (
+                      <div className="space-y-4 rounded-lg border border-blue-200 bg-blue-50 p-4">
+                        <div className="space-y-2">
+                          <Label className="text-sm font-medium">大見出しのレベルを選択</Label>
+                          <Select
+                            value={topLevelHeading}
+                            onValueChange={(value) => setTopLevelHeading(value as 'h2' | 'h3')}
+                          >
+                            <SelectTrigger>
+                              <SelectValue placeholder="トップレベル見出しを選択" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="h2">H2</SelectItem>
+                              <SelectItem value="h3">H3</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="space-y-1 text-xs text-blue-800">
+                          <p>
+                            大見出しをH2にするかH3にするかを選択できます。生成後のアウトライン編集でも、この階層構造に沿って各見出しを調整できます。
+                          </p>
+                        </div>
+                      </div>
+                    )}
+
+                    {!advancedOutlineMode && (
+                      <p className="text-xs text-muted-foreground">
+                        標準モードでは H2 を大見出しとした構成案が生成されます。必要に応じてアウトライン編集で小見出しを追加できます。
+                      </p>
+                    )}
                   </div>
                 </CardContent>
               </Card>
