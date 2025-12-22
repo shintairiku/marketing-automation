@@ -158,3 +158,5 @@ npm run start
 - `npm run migration:new`: 新しい Supabase マイグレーションファイルを作成
 - `npm run migration:up`: Supabase マイグレーションを実行し、型を再生成
 - `npm run migration:squash`: Supabase マイグレーションをスカッシュ（統合）
+- `bunx playwright test tests/<ファイル名> --<オプション名> `: （オプション名）モードでテスト
+- `bunx playwright test tests/<ファイル名> --<オプション名> --no-deps`: cookieで認証された情報を基にログイン処理をスキップ
