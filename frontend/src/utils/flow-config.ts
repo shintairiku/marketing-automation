@@ -167,30 +167,36 @@ export function getOutlineGenerationMessage(flowType?: FlowType): string {
  * @param flowType フロータイプ（省略時はデフォルト）
  * @returns ステップ名と進捗率のマップ
  */
-export function getStepProgressMap(flowType?: FlowType): Record<string, number> {
+export function getStepProgressMap(flowType?: FlowType, enableFinalEditing: boolean = true): Record<string, number> {
   const type = flowType || getDefaultFlowType();
-  
+
+  // Editing をスキップする場合は執筆を最終ステップとして扱う
+  const editingStepValue = enableFinalEditing ? 100 : 100;
+  const writingFinalValue = enableFinalEditing ? 85 : 100;
+
   if (type === 'outline_first') {
-    // Outline-first Flow: Theme → Outline → Research → Writing → Editing
+    // Outline-first Flow: Theme → Outline → Research → Writing → (Editing)
     return {
       'keyword_analyzing': 10,
       'persona_generating': 20,
       'theme_generating': 30,
       'outline_generating': 50,   // アウトラインが早い段階
       'researching': 70,           // リサーチが後の段階
-      'writing_sections': 85,
-      'editing': 100,
+      'writing_sections': writingFinalValue,
+      ...(enableFinalEditing ? { 'editing': editingStepValue } : {}),
+      'completed': 100,
     };
   } else {
-    // Research-first Flow: Theme → Research → Outline → Writing → Editing
+    // Research-first Flow: Theme → Research → Outline → Writing → (Editing)
     return {
       'keyword_analyzing': 10,
       'persona_generating': 20,
       'theme_generating': 30,
       'researching': 50,           // リサーチが早い段階
       'outline_generating': 70,    // アウトラインが後の段階
-      'writing_sections': 85,
-      'editing': 100,
+      'writing_sections': writingFinalValue,
+      ...(enableFinalEditing ? { 'editing': editingStepValue } : {}),
+      'completed': 100,
     };
   }
 }

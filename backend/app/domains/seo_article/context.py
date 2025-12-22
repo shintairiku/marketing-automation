@@ -30,7 +30,9 @@ class ArticleContext:
     
     # フロー設定
     flow_type: Optional[Literal["research_first", "outline_first"]] = None  # "research_first"（リサーチ先行） or "outline_first"（構成先行）
-    
+    auto_mode: bool = False  # ユーザー承認ステップを自動解決するか
+    auto_selection_strategy: str = "best_match"  # first / best_match
+
     # 会社情報 - 基本情報
     company_name: Optional[str] = None
     company_description: Optional[str] = None
@@ -103,6 +105,9 @@ class ArticleContext:
     current_research_query_index: int = 0
     research_query_results: List[ResearchQueryResult] = field(default_factory=list)
     research_report: Optional[ResearchReport] = None
+    # 新形式: 構造化せずそのまま保持するリサーチテキスト
+    research_sources_text: Optional[str] = None
+    research_sources_tagged: Optional[str] = None
     generated_outline: Optional[Outline] = None
     current_section_index: int = 0
     generated_sections: List[ArticleSection] = field(default_factory=list)
@@ -133,6 +138,8 @@ class ArticleContext:
     user_response: Optional[ClientResponsePayload] = None # ユーザーからの応答ペイロード
     user_id: Optional[str] = None # ユーザーID (認証から取得)
     process_id: Optional[str] = None # プロセスID (記事生成セッション識別用)
+    trace_id: Optional[str] = None  # OpenAI Agents トレースID（プロセス全体で共有）
+    enable_final_editing: bool = False  # 最終編集エージェントを実行するか
 
     # --- 以下、既存のメソッド ---
     def get_full_draft(self) -> str:
@@ -163,6 +170,8 @@ class ArticleContext:
         self.research_query_results = []
         self.current_research_query_index = 0
         self.research_report = None
+        self.research_sources_text = None
+        self.research_sources_tagged = None
 
         self.generated_outline = None
         self.outline = None

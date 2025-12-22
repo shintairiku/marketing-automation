@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { ChevronDown, ChevronUp, Image, ListTree, Palette, Plus, Settings, X, Zap } from 'lucide-react';
+import { Bot, ChevronDown, ChevronUp, Image, ListTree, Palette, Plus, Settings, X, Zap } from 'lucide-react';
 import { IoRefresh, IoSparkles } from 'react-icons/io5';
 
 import { Badge } from '@/components/ui/badge';
@@ -45,6 +45,9 @@ export default function InputSection({ onStartGeneration, isConnected, isGenerat
     // 高度アウトラインモード関連の状態
     const [advancedOutlineMode, setAdvancedOutlineMode] = useState(false);
     const [topLevelHeading, setTopLevelHeading] = useState<'h2' | 'h3'>('h2');
+    const [enableFinalEditing, setEnableFinalEditing] = useState(false);
+    const [autoMode, setAutoMode] = useState(false);
+    const [autoSelectionStrategy, setAutoSelectionStrategy] = useState<'first' | 'best_match'>('best_match');
     
     // スタイルテンプレート関連の状態
     const [styleTemplates, setStyleTemplates] = useState([]);
@@ -171,6 +174,11 @@ export default function InputSection({ onStartGeneration, isConnected, isGenerat
             outline_top_level_heading: advancedOutlineMode ? (topLevelHeading === 'h3' ? 3 : 2) : 2,
             // フロー設定を追加
             flow_type: selectedFlowType,
+            // 最終編集ステップ実行可否
+            enable_final_editing: enableFinalEditing,
+            // オートモード
+            auto_mode: autoMode,
+            auto_selection_strategy: autoSelectionStrategy,
         };
 
         console.log('📦 Request data being sent:', requestData);
@@ -296,59 +304,48 @@ export default function InputSection({ onStartGeneration, isConnected, isGenerat
             </CardContent>
           </Card>
 
-          {/* Card3: 高度アウトラインモード */}
+          {/* Card3: オートモード（位置を入れ替え） */}
           <Card>
             <CardHeader>
               <CardTitle className="text-lg flex items-center gap-2">
-                <ListTree className="h-5 w-5" />
-                高度アウトラインモード
+                <Bot className="h-5 w-5" />
+                オートモード
               </CardTitle>
+              <p className="text-sm text-muted-foreground">
+                ペルソナ/テーマ/アウトラインの承認を自動で進めます。フローはそのまま、確認なしで完走させたいときに。
+              </p>
             </CardHeader>
-            <CardContent>
-              <div className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <div className="space-y-1">
-                    <Label className="text-sm font-medium">有効にする</Label>
-                    <p className="text-sm text-muted-foreground">
-                      大見出しと小見出しを同時に生成し、階層構造を維持したままセクションライティングを行います
-                    </p>
-                  </div>
-                  <Switch
-                    checked={advancedOutlineMode}
-                    onCheckedChange={(value) => setAdvancedOutlineMode(value)}
-                  />
+            <CardContent className="space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="font-medium text-sm">オートモードを有効にする</p>
+                  <p className="text-xs text-muted-foreground">ユーザー入力ステップをスキップし自動選択します。</p>
                 </div>
+                <Switch
+                  checked={autoMode}
+                  onCheckedChange={setAutoMode}
+                  aria-label="オートモードを有効にする"
+                />
+              </div>
 
-                {advancedOutlineMode && (
-                  <div className="space-y-4 rounded-lg border border-blue-200 bg-blue-50 p-4">
-                    <div className="space-y-2">
-                      <Label className="text-sm font-medium">大見出しのレベルを選択</Label>
-                      <Select
-                        value={topLevelHeading}
-                        onValueChange={(value) => setTopLevelHeading(value as 'h2' | 'h3')}
-                      >
-                        <SelectTrigger>
-                          <SelectValue placeholder="トップレベル見出しを選択" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="h2">H2</SelectItem>
-                          <SelectItem value="h3">H3</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className="space-y-1 text-xs text-blue-800">
-                      <p>
-                        大見出しをH2にするかH3にするかを選択できます。生成後のアウトライン編集でも、この階層構造に沿って各見出しを調整できます。
-                      </p>
-                    </div>
-                  </div>
-                )}
-
-                {!advancedOutlineMode && (
-                  <p className="text-xs text-muted-foreground">
-                    標準モードでは H2 を大見出しとした構成案が生成されます。必要に応じてアウトライン編集で小見出しを追加できます。
-                  </p>
-                )}
+              <div className="space-y-2">
+                <Label className="text-sm">自動選択の戦略</Label>
+                <Select
+                  value={autoSelectionStrategy}
+                  onValueChange={(value) => setAutoSelectionStrategy(value as 'first' | 'best_match')}
+                  disabled={!autoMode}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="戦略を選択" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="best_match">コンテキストに最適（推奨）</SelectItem>
+                    <SelectItem value="first">先頭を常に選ぶ</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  best_match: キーワード・会社情報・SERP傾向に最も合う候補を選択 / first: 生成順で固定
+                </p>
               </div>
             </CardContent>
           </Card>
@@ -560,8 +557,8 @@ export default function InputSection({ onStartGeneration, isConnected, isGenerat
               {showAdvanced ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
             </Button>
           </CollapsibleTrigger>
-          <CollapsibleContent>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 mb-6">
+        <CollapsibleContent>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 mb-6">
               {/* 目標文字数 */}
               <Card>
                 <CardHeader>
@@ -584,8 +581,29 @@ export default function InputSection({ onStartGeneration, isConnected, isGenerat
                       <span>10,000</span>
                     </div>
                   </div>
-                </CardContent>
-              </Card>
+              </CardContent>
+            </Card>
+
+            {/* 最終編集ステップ */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-lg">最終編集ステップ</CardTitle>
+                <p className="text-sm text-muted-foreground">ONにすると記事生成後に編集エージェントで仕上げます。OFFならセクション執筆で完了し高速化します。</p>
+              </CardHeader>
+              <CardContent>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="font-medium text-sm">最終編集を実行する</p>
+                    <p className="text-xs text-muted-foreground">従来挙動: ON / 高速完了: OFF</p>
+                  </div>
+                  <Switch
+                    checked={enableFinalEditing}
+                    onCheckedChange={setEnableFinalEditing}
+                    aria-label="最終編集を実行する"
+                  />
+                </div>
+              </CardContent>
+            </Card>
 
               {/* リサーチクエリ数 */}
               <Card>
@@ -633,6 +651,67 @@ export default function InputSection({ onStartGeneration, isConnected, isGenerat
                       <span>4</span>
                       <span>8</span>
                     </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* 高度アウトラインモード（高度設定へ移動） */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-lg flex items-center gap-2">
+                    <ListTree className="h-5 w-5" />
+                    高度アウトラインモード
+                  </CardTitle>
+                  <p className="text-sm text-muted-foreground">
+                    大見出しと小見出しを同時に生成し、階層構造を維持したままセクションライティングを行います。
+                  </p>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-4">
+                    <div className="flex items-center justify-between">
+                      <div className="space-y-1">
+                        <Label className="text-sm font-medium">有効にする</Label>
+                        <p className="text-sm text-muted-foreground">
+                          階層化されたアウトラインを自動生成し、その構造を保持したまま執筆します。
+                        </p>
+                      </div>
+                      <Switch
+                        checked={advancedOutlineMode}
+                        onCheckedChange={(value) => setAdvancedOutlineMode(value)}
+                        aria-label="高度アウトラインモードを有効にする"
+                      />
+                    </div>
+
+                    {advancedOutlineMode && (
+                      <div className="space-y-4 rounded-lg border border-blue-200 bg-blue-50 p-4">
+                        <div className="space-y-2">
+                          <Label className="text-sm font-medium">大見出しのレベルを選択</Label>
+                          <Select
+                            value={topLevelHeading}
+                            onValueChange={(value) => setTopLevelHeading(value as 'h2' | 'h3')}
+                          >
+                            <SelectTrigger>
+                              <SelectValue placeholder="トップレベル見出しを選択" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="h2">H2</SelectItem>
+                              <SelectItem value="h3">H3</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="space-y-1 text-xs text-blue-800">
+                          <p>
+                            大見出しをH2にするかH3にするかを選択できます。生成後のアウトライン編集でも、この階層構造に沿って各見出しを調整できます。
+                          </p>
+                        </div>
+                      </div>
+                    )}
+
+                    {!advancedOutlineMode && (
+                      <p className="text-xs text-muted-foreground">
+                        標準モードでは H2 を大見出しとした構成案が生成されます。必要に応じてアウトライン編集で小見出しを追加できます。
+                      </p>
+                    )}
                   </div>
                 </CardContent>
               </Card>

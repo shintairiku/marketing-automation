@@ -57,6 +57,7 @@ export interface GenerationState {
   steps: GenerationStep[];
   status?: string; // Process status from backend (e.g., 'running', 'user_input_required', 'completed')
   flowType?: 'research_first' | 'outline_first'; // Flow type for step order determination
+  enableFinalEditing?: boolean; // 最終編集ステップを実行するか
   isInitialized: boolean;
   personas?: PersonaOption[];
   themes?: ThemeOption[];

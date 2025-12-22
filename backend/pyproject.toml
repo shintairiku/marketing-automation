@@ -30,3 +30,9 @@ dependencies = [
     "ruff",
     "numpy>=1.26.0,<2.0.0",
 ]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.1",
+    "pytest-asyncio>=1.3.0",
+]
