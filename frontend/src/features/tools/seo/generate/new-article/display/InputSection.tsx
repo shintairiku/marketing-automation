@@ -9,6 +9,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -17,6 +18,7 @@ import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 import { useDefaultCompany } from '@/hooks/useDefaultCompany';
 import { FLOW_METADATA, FlowType } from '@/utils/flow-config';
+import { cn } from '@/utils/cn';
 import { useAuth } from '@clerk/nextjs';
 
 interface InputSectionProps {
@@ -25,13 +27,16 @@ interface InputSectionProps {
   isGenerating: boolean;
 }
 
+const AGE_OPTIONS = ["10代", "20代", "30代", "40代", "50代", "60代", "70代以上"] as const;
+const PERSONA_OPTIONS = ["主婦", "学生", "社会人", "自営業", "経営者・役員", "退職者", "その他"] as const;
+
 export default function InputSection({ onStartGeneration, isConnected, isGenerating }: InputSectionProps) {
     const { getToken } = useAuth();
     const [seoKeywords, setSeoKeywords] = useState<string[]>([]);
     const [currentKeyword, setCurrentKeyword] = useState('');
     const [themeCount, setThemeCount] = useState(3);
-    const [targetAgeGroup, setTargetAgeGroup] = useState('');
-    const [personaType, setPersonaType] = useState('');
+    const [targetAgeGroups, setTargetAgeGroups] = useState<string[]>([]);
+    const [selectedPersonaTypes, setSelectedPersonaTypes] = useState<string[]>([]);
     const [customPersona, setCustomPersona] = useState('');
     const [targetLength, setTargetLength] = useState(3000);
     const [researchQueries, setResearchQueries] = useState(3);
@@ -39,14 +44,14 @@ export default function InputSection({ onStartGeneration, isConnected, isGenerat
     const [showAdvanced, setShowAdvanced] = useState(false);
     
     // 画像モード関連の状態
-    const [imageMode, setImageMode] = useState(false);
+    const [imageMode, setImageMode] = useState(true);
     const [imageSettings, setImageSettings] = useState({});
 
     // 高度アウトラインモード関連の状態
     const [advancedOutlineMode, setAdvancedOutlineMode] = useState(false);
     const [topLevelHeading, setTopLevelHeading] = useState<'h2' | 'h3'>('h2');
     const [enableFinalEditing, setEnableFinalEditing] = useState(false);
-    const [autoMode, setAutoMode] = useState(false);
+    const [autoMode, setAutoMode] = useState(true);
     const [autoSelectionStrategy, setAutoSelectionStrategy] = useState<'first' | 'best_match'>('best_match');
     
     // スタイルテンプレート関連の状態
@@ -61,10 +66,16 @@ export default function InputSection({ onStartGeneration, isConnected, isGenerat
 
     // 会社のペルソナをデフォルト選択として設定
     useEffect(() => {
-        if (company?.target_persona && !personaType) {
-            setPersonaType('会社設定');
+        if (company?.target_persona && selectedPersonaTypes.length === 0) {
+            setSelectedPersonaTypes(['会社設定']);
         }
-    }, [company?.target_persona, personaType]);
+    }, [company?.target_persona, selectedPersonaTypes.length]);
+
+    useEffect(() => {
+        if (!company?.target_persona) {
+            setSelectedPersonaTypes((prev) => prev.filter((type) => type !== '会社設定'));
+        }
+    }, [company?.target_persona]);
 
 
     // スタイルテンプレートを取得
@@ -128,28 +139,41 @@ export default function InputSection({ onStartGeneration, isConnected, isGenerat
             return;
         }
 
-        if (!targetAgeGroup) {
+        if (targetAgeGroups.length === 0) {
             alert('ターゲット年代層を選択してください');
             return;
         }
 
         // ペルソナ設定の処理
-        let effectivePersonaType = personaType;
-        let effectiveCustomPersona = customPersona;
-        
-        // 会社設定のペルソナが選択されている場合
-        if (personaType === '会社設定' && company?.target_persona) {
-            effectivePersonaType = 'その他'; // バックエンドでは「その他」として扱う
-            effectiveCustomPersona = company.target_persona; // 会社のペルソナをカスタムペルソナとして使用
+        const companyPersonaSelected =
+          selectedPersonaTypes.includes('会社設定') && company?.target_persona ? company.target_persona : null;
+        const primaryPersonaCandidates = selectedPersonaTypes.filter(
+          (type) => type !== '会社設定' && type !== 'その他'
+        );
+        const includesOtherPersona = selectedPersonaTypes.includes('その他');
+
+        let effectivePersonaType: string | null = primaryPersonaCandidates[0] || null;
+        let effectiveCustomPersona = customPersona.trim() ? customPersona.trim() : null;
+
+        if (companyPersonaSelected) {
+            effectiveCustomPersona = [companyPersonaSelected, effectiveCustomPersona]
+              .filter(Boolean)
+              .join('\n\n') || companyPersonaSelected;
+        }
+
+        if (!effectivePersonaType && (includesOtherPersona || companyPersonaSelected)) {
+            effectivePersonaType = 'その他';
         }
 
         const requestData = {
             initial_keywords: seoKeywords,
-            target_age_group: targetAgeGroup,
+            target_age_group: targetAgeGroups[0],
+            target_age_groups: targetAgeGroups,
             num_theme_proposals: themeCount,
             num_research_queries: researchQueries,
             num_persona_examples: personaExamples,
             persona_type: effectivePersonaType || null,
+            persona_types: selectedPersonaTypes,
             custom_persona: effectiveCustomPersona || null,
             target_length: targetLength,
             // 会社情報をデフォルト会社から自動設定
@@ -194,7 +218,7 @@ export default function InputSection({ onStartGeneration, isConnected, isGenerat
           {/* Card1: SEOワード */}
           <Card className="md:col-span-2">
             <CardHeader>
-              <CardTitle className="text-lg">リーチしたいSEOワード *</CardTitle>
+              <CardTitle className="text-lg">記事を上位表示したい検索ワード *</CardTitle>
             </CardHeader>
             <CardContent>
               <div className="space-y-4">
@@ -204,7 +228,7 @@ export default function InputSection({ onStartGeneration, isConnected, isGenerat
                     value={currentKeyword}
                     onChange={(e) => setCurrentKeyword(e.target.value)}
                     onKeyPress={handleKeywordKeyPress}
-                    placeholder="例: Webマーケティング"
+                    placeholder="例: リフォーム"
                     className="flex-1"
                   />
                   <Button
@@ -247,7 +271,7 @@ export default function InputSection({ onStartGeneration, isConnected, isGenerat
                 
                 {/* ヘルプテキスト */}
                 <div className="text-sm text-muted-foreground">
-                  キーワードを入力し、Enterを押す（＋ボタンを押す）と追加されます。キーワードを複数使用する際は、1キーワード入力ごとに追加してください。
+                「大阪 リフォーム」のような検索ワードで上位表示をしたい場合は、「大阪」を一度＋ボタンで追加してから、次に「リフォーム」を入力してください
                 </div>
               </div>
             </CardContent>
@@ -312,7 +336,7 @@ export default function InputSection({ onStartGeneration, isConnected, isGenerat
                 オートモード
               </CardTitle>
               <p className="text-sm text-muted-foreground">
-                ペルソナ/テーマ/アウトラインの承認を自動で進めます。フローはそのまま、確認なしで完走させたいときに。
+                ペルソナ/記事タイトル/アウトラインの承認を自動で進めます。フローはそのまま、確認なしで完走させたいときに。
               </p>
             </CardHeader>
             <CardContent className="space-y-4">
@@ -328,7 +352,7 @@ export default function InputSection({ onStartGeneration, isConnected, isGenerat
                 />
               </div>
 
-              <div className="space-y-2">
+              {/* <div className="space-y-2">
                 <Label className="text-sm">自動選択の戦略</Label>
                 <Select
                   value={autoSelectionStrategy}
@@ -346,7 +370,7 @@ export default function InputSection({ onStartGeneration, isConnected, isGenerat
                 <p className="text-xs text-muted-foreground">
                   best_match: キーワード・会社情報・SERP傾向に最も合う候補を選択 / first: 生成順で固定
                 </p>
-              </div>
+              </div> */}
             </CardContent>
           </Card>
 
@@ -416,9 +440,12 @@ export default function InputSection({ onStartGeneration, isConnected, isGenerat
           {/* Card4: テーマ数 */}
           <Card>
             <CardHeader>
-              <CardTitle className="text-lg">生成する記事テーマ数</CardTitle>
+              <CardTitle className="text-lg">記事タイトル候補数</CardTitle>
             </CardHeader>
             <CardContent>
+              <p className="text-sm text-muted-foreground">
+              ※オートモードの場合、タイトル候補は1つのみ作られます
+              </p>
               <div className="space-y-4">
                 <div className="space-y-3">
                   <div className="text-center text-2xl font-bold text-primary">{themeCount}</div>
@@ -443,24 +470,80 @@ export default function InputSection({ onStartGeneration, isConnected, isGenerat
           {/* Card5: ターゲット年代層 */}
           <Card>
             <CardHeader>
-              <CardTitle className="text-lg">ターゲット年代層 *</CardTitle>
+              <CardTitle className="text-lg">ターゲット年代層</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="space-y-4">
-                <Select value={targetAgeGroup} onValueChange={setTargetAgeGroup} required>
-                  <SelectTrigger>
-                    <SelectValue placeholder="年代層を選択" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="10代">10代</SelectItem>
-                    <SelectItem value="20代">20代</SelectItem>
-                    <SelectItem value="30代">30代</SelectItem>
-                    <SelectItem value="40代">40代</SelectItem>
-                    <SelectItem value="50代">50代</SelectItem>
-                    <SelectItem value="60代">60代</SelectItem>
-                    <SelectItem value="70代以上">70代以上</SelectItem>
-                  </SelectContent>
-                </Select>
+              <div className="space-y-3">
+                <p className="text-sm text-muted-foreground">複数年代をまとめて指定できます。</p>
+                {targetAgeGroups.length > 0 && (
+                  <div className="space-y-2">
+                    <Label className="text-sm font-medium">選択中 ({targetAgeGroups.length}件)</Label>
+                    <div className="flex flex-wrap gap-2">
+                      {targetAgeGroups.map((age) => (
+                        <span
+                          key={age}
+                          className="flex items-center gap-1 rounded-full border border-primary/30 bg-primary/10 px-3 py-1 text-xs font-medium text-primary"
+                        >
+                          {age}
+                          <button
+                            type="button"
+                            aria-label={`${age} を削除`}
+                            className="rounded-full p-1 text-primary transition hover:bg-primary/20"
+                            onClick={() =>
+                              setTargetAgeGroups((prev) => prev.filter((item) => item !== age))
+                            }
+                          >
+                            <X className="h-3 w-3" />
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                <div className="grid grid-cols-2 gap-3">
+                  {AGE_OPTIONS.map((age) => {
+                    const selected = targetAgeGroups.includes(age);
+                    return (
+                      <label
+                        key={age}
+                        className={cn(
+                          "flex items-center space-x-2 rounded-lg border p-2 text-sm cursor-pointer transition",
+                          selected
+                            ? "border-primary bg-primary/10 text-primary shadow-sm"
+                            : "border-border hover:bg-muted"
+                        )}
+                      >
+                        <Checkbox
+                          checked={selected}
+                          onCheckedChange={() =>
+                            setTargetAgeGroups((prev) =>
+                              prev.includes(age) ? prev.filter((item) => item !== age) : [...prev, age]
+                            )
+                          }
+                        />
+                        <span>{age}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+                {/* <div className="flex items-center justify-between text-xs text-muted-foreground">
+                  <span>
+                    {targetAgeGroups.length > 0
+                      ? `選択中: ${targetAgeGroups.join('、')}`
+                      : '未選択'}
+                  </span>
+                  {targetAgeGroups.length > 0 && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 px-2 text-xs"
+                      onClick={() => setTargetAgeGroups([])}
+                    >
+                      クリア
+                    </Button>
+                  )}
+                </div> */}
               </div>
             </CardContent>
           </Card>
@@ -472,32 +555,90 @@ export default function InputSection({ onStartGeneration, isConnected, isGenerat
             </CardHeader>
             <CardContent>
               <div className="space-y-4">
-                <Select value={personaType} onValueChange={setPersonaType}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="ペルソナを選択" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {hasCompany && company?.target_persona && (
-                      <SelectItem value="会社設定">
-                        事前設定済みのペルソナ（推奨）
-                      </SelectItem>
-                    )}
-                    <SelectItem value="主婦">主婦</SelectItem>
-                    <SelectItem value="学生">学生</SelectItem>
-                    <SelectItem value="社会人">社会人</SelectItem>
-                    <SelectItem value="自営業">自営業</SelectItem>
-                    <SelectItem value="経営者・役員">経営者・役員</SelectItem>
-                    <SelectItem value="退職者">退職者</SelectItem>
-                    <SelectItem value="その他">その他</SelectItem>
-                  </SelectContent>
-                </Select>
-                {personaType === '会社設定' && hasCompany && company?.target_persona && (
-                  <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
-                    <div className="text-sm font-medium text-blue-900 mb-2">会社設定のペルソナ:</div>
-                    <div className="text-sm text-blue-800">{company.target_persona}</div>
+                <p className="text-sm text-muted-foreground">複数の想定読者像を組み合わせて指定できます。</p>
+                {selectedPersonaTypes.length > 0 && (
+                  <div className="space-y-2">
+                    <Label className="text-sm font-medium">選択中 ({selectedPersonaTypes.length}件)</Label>
+                    <div className="flex flex-wrap gap-2">
+                      {selectedPersonaTypes.map((persona) => {
+                        const chipLabel =
+                          persona === '会社設定' && company?.target_persona
+                            ? `会社設定: ${company.target_persona}`
+                            : persona === 'その他' && customPersona.trim()
+                              ? `その他: ${customPersona.trim()}`
+                              : persona;
+                        return (
+                          <span
+                            key={persona}
+                            className="flex items-center gap-1 rounded-full border border-primary/30 bg-primary/10 px-3 py-1 text-xs font-medium text-primary"
+                            title={chipLabel}
+                          >
+                            {chipLabel}
+                            <button
+                              type="button"
+                              aria-label={`${persona} を削除`}
+                              className="rounded-full p-1 text-primary transition hover:bg-primary/20"
+                              onClick={() =>
+                                setSelectedPersonaTypes((prev) => prev.filter((item) => item !== persona))
+                              }
+                            >
+                              <X className="h-3 w-3" />
+                            </button>
+                          </span>
+                        );
+                      })}
+                    </div>
                   </div>
                 )}
-                {personaType === 'その他' && (
+                <div className="grid grid-cols-2 gap-3">
+                  {(hasCompany && company?.target_persona ? ['会社設定'] : []).concat(PERSONA_OPTIONS).map((persona) => {
+                    const selected = selectedPersonaTypes.includes(persona);
+                    const isCompanyOption = persona === '会社設定';
+                    const isDisabled = isCompanyOption && !company?.target_persona;
+                    return (
+                      <label
+                        key={persona}
+                        className={cn(
+                          "flex items-start space-x-2 rounded-lg border p-3 text-sm cursor-pointer transition",
+                          selected
+                            ? "border-primary bg-primary/10 text-primary shadow-sm"
+                            : "border-border hover:bg-muted",
+                          isDisabled && "cursor-not-allowed opacity-50"
+                        )}
+                      >
+                        <Checkbox
+                          checked={selected}
+                          disabled={isDisabled}
+                          onCheckedChange={() => {
+                            if (isDisabled) return;
+                            setSelectedPersonaTypes((prev) =>
+                              prev.includes(persona)
+                                ? prev.filter((item) => item !== persona)
+                                : [...prev, persona]
+                            );
+                          }}
+                        />
+                        <div className="space-y-1">
+                          <span className="font-medium">
+                            {isCompanyOption ? '事前設定済みのペルソナ（推奨）' : persona}
+                          </span>
+                          {isCompanyOption && company?.target_persona && (
+                            <p className="text-xs text-muted-foreground line-clamp-2">
+                              {company.target_persona}
+                            </p>
+                          )}
+                        </div>
+                      </label>
+                    );
+                  })}
+                </div>
+                {selectedPersonaTypes.includes('会社設定') && hasCompany && company?.target_persona && (
+                  <div className="p-3 bg-gray-50 border border-gray-200 rounded-lg">
+                    <div className="text-sm font-medium text-gray-900 mb-2">会社設定のペルソナ:</div>
+                    <div className="text-sm text-gray-800">{company.target_persona}</div>
+                  </div>
+                )}
+                {selectedPersonaTypes.includes('その他') && (
                   <Textarea
                     value={customPersona}
                     onChange={(e) => setCustomPersona(e.target.value)}
@@ -754,7 +895,7 @@ export default function InputSection({ onStartGeneration, isConnected, isGenerat
         <div className="mt-auto flex justify-center">
           <Button
             onClick={handleStartGeneration}
-            disabled={!isConnected || isGenerating || seoKeywords.length === 0 || !targetAgeGroup}
+            disabled={!isConnected || isGenerating || seoKeywords.length === 0 || targetAgeGroups.length === 0}
             className="w-full max-w-md"
             size="lg"
           >
