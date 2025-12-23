@@ -2,19 +2,26 @@
 """
 Company information service using Supabase client
 """
-from typing import Optional
-from fastapi import HTTPException, status
 import logging
-from datetime import datetime
+import json
 import uuid
+from datetime import datetime
+from typing import Optional
+from urllib.parse import urlparse
+
+from openai import OpenAI
+from fastapi import HTTPException, status
 
 from app.common.database import supabase
+from app.core.config import settings
 from app.domains.company.schemas import (
     CompanyInfoCreate, 
     CompanyInfoUpdate, 
     CompanyInfoResponse, 
     CompanyInfoList,
-    SetDefaultCompanyRequest
+    SetDefaultCompanyRequest,
+    AutoCompanyDataRequest,
+    AutoCompanyDataResponse
 )
 
 logger = logging.getLogger(__name__)
@@ -310,3 +317,79 @@ class CompanyService:
         except Exception as e:
             logger.error(f"Failed to unset default companies for user {user_id}: {e}")
             raise
+
+    @staticmethod
+    async def auto_generate_company_data(request: AutoCompanyDataRequest, user_id: str) -> AutoCompanyDataResponse:
+        """会社情報の自動生成"""
+        try:
+            fields = [field for field in request.fields if field]
+            requested_fields = ", ".join(fields) if fields else "all"
+            host = urlparse(str(request.website_url)).netloc.split(":")[0].strip().lower()
+            allowed_domains = []
+            if host:
+                allowed_domains.append(host)
+                if host.startswith("www."):
+                    allowed_domains.append(host[4:])
+
+            prompt = f"""
+あなたは企業情報の調査・要約に長けたリサーチャーです。
+指定URLの内容を確認し、会社情報の不足項目を補完してください。
+
+補完対象フィールド: {requested_fields}
+
+ルール:
+- 補完対象フィールドのみ出力すること（未指定フィールドは必ずnull）。
+- 根拠が不十分な場合は推測せずnullにする。
+- 会社概要/USP/ペルソナは簡潔な日本語で、誇張表現は避ける。
+- キーワードや用語はカンマ区切りの文字列で返す。
+- 制限ドメイン内を分析して詳細な情報を返すこと。
+""".strip()
+
+            client = OpenAI(api_key=settings.openai_api_key)
+
+            tool_spec = {"type": "web_search"}
+            if allowed_domains:
+                tool_spec["filters"] = {"allowed_domains": allowed_domains}
+
+            schema = AutoCompanyDataResponse.model_json_schema()
+            if "additionalProperties" not in schema:
+                schema["additionalProperties"] = False
+            if "properties" in schema:
+                schema["required"] = list(schema["properties"].keys())
+
+            response = client.responses.create(
+                model=settings.research_model,
+                input=prompt,
+                instructions=(
+                    "必ず web_search ツールを1回以上使い、"
+                    "取得した根拠に基づいて AutoCompanyDataResponse に準拠したJSONのみを出力してください。"
+                    "余分なciteturn2view0turn1view0などは削除してください。"
+                ),
+                tools=[tool_spec],
+                text={
+                    "format": {
+                        "type": "json_schema",
+                        "name": "auto_company_data",
+                        "strict": True,
+                        "schema": schema,
+                    }
+                },
+            )
+
+            output_text = getattr(response, "output_text", None) or ""
+            if not output_text:
+                raise ValueError("Empty response from OpenAI Responses API")
+            try:
+                payload = json.loads(output_text)
+            except json.JSONDecodeError as exc:
+                logger.error(f"Failed to parse JSON output: {output_text}")
+                raise ValueError("Model returned non-JSON output") from exc
+
+            return AutoCompanyDataResponse(**payload)
+
+        except Exception as e:
+            logger.error(f"Failed to auto-generate company data for user {user_id}: {e}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="会社情報の自動生成に失敗しました"
+            )

@@ -71,3 +71,21 @@ class CompanyInfoList(BaseModel):
 class SetDefaultCompanyRequest(BaseModel):
     """デフォルト会社設定用スキーマ"""
     company_id: str = Field(..., description="デフォルトに設定する会社ID")
+
+class AutoCompanyDataRequest(BaseModel):
+    """会社情報自動入力リクエストスキーマ"""
+    website_url: HttpUrl = Field(..., description="企業HP URL")
+    fields: List[str] = Field(..., description="充実化するフィールドのリスト")
+
+class AutoCompanyDataResponse(BaseModel):
+    """会社情報自動入力レスポンススキーマ"""
+    description: Optional[str] = Field(None, description="会社概要テキスト")
+    usp: Optional[str] = Field(None, description="USPテキスト")
+    target_persona: Optional[str] = Field(None, description="ターゲットペルソナ")
+    brand_slogan: Optional[str] = Field(None, description="ブランドスローガン／キャッチコピー")
+    target_keywords: Optional[str] = Field(None, description="上位表示を狙いたいキーワード")
+    industry_terms: Optional[str] = Field(None, description="業界特有の専門用語リスト")
+    avoid_terms: Optional[str] = Field(None, description="避けたい表現・NGワードリスト")
+    popular_articles: Optional[str] = Field(None, description="過去に人気だった記事タイトル・URL")
+    target_area: Optional[str] = Field(None, description="ターゲットエリア・エリアキーワード")
+

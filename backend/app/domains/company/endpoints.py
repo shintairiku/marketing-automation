@@ -6,7 +6,9 @@ from .schemas import (
     CompanyInfoUpdate, 
     CompanyInfoResponse, 
     CompanyInfoList,
-    SetDefaultCompanyRequest
+    SetDefaultCompanyRequest,
+    AutoCompanyDataRequest,
+    AutoCompanyDataResponse
 )
 from app.common.auth import get_current_user_id_from_token as get_current_user_id
 
@@ -74,3 +76,11 @@ async def set_default_company(
 ):
     """デフォルト会社を設定"""
     return await CompanyService.set_default_company(request, current_user_id)
+
+@router.post("/auto-generate", response_model=AutoCompanyDataResponse)
+async def auto_generate_company_data(
+    request: AutoCompanyDataRequest,
+    current_user_id: str = Depends(get_current_user_id)
+):
+    """会社情報の自動入力"""
+    return await CompanyService.auto_generate_company_data(request, current_user_id)
