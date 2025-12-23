@@ -1,6 +1,8 @@
 import { useEffect,useState } from 'react';
 import { toast } from 'sonner';
 
+import { isCompanyMockEnabled, mockCompanyData } from '@/constants/mockCompanyData';
+
 export interface CompanyInfo {
   id: string;
   name: string;
@@ -28,6 +30,11 @@ export function useDefaultCompany() {
     try {
       setLoading(true);
       setError(null);
+
+      if (isCompanyMockEnabled) {
+        setCompany(mockCompanyData as CompanyInfo);
+        return;
+      }
       
       const response = await fetch('/api/companies/default');
       

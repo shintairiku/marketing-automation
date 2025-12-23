@@ -14,6 +14,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 
+import { isCompanyMockEnabled, mockCompanyData } from "@/constants/mockCompanyData";
+
 // 型定義
 interface CompanyInfo {
   id: string;
@@ -78,6 +80,11 @@ export default function CompanySettingsPage() {
   const fetchCompanies = async () => {
     try {
       setLoading(true);
+
+      if (isCompanyMockEnabled) {
+        setCompanies([mockCompanyData as CompanyInfo]);
+        return;
+      }
       const response = await fetch('/api/companies/');
       
       if (!response.ok) {

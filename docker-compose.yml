@@ -15,6 +15,8 @@ services:
       - "3000:3000"
     env_file:
       - ./frontend/.env.local # Environment file for frontend development
+    environment:
+      NEXT_PUBLIC_ENABLE_COMPANY_MOCK: "true"
     volumes:
       - ./frontend:/app # Mount frontend source code
       - /app/node_modules
