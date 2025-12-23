@@ -2,14 +2,14 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { Bot, ChevronDown, ChevronUp, Image, ListTree, Palette, Plus, Settings, X, Zap } from 'lucide-react';
+import { Bot, ChevronDown, ChevronUp, ImageIcon, ListTree, Palette, Plus, Settings, X, Zap } from 'lucide-react';
 import { IoRefresh, IoSparkles } from 'react-icons/io5';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Checkbox } from '@/components/ui/checkbox';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -17,8 +17,8 @@ import { Slider } from '@/components/ui/slider';
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 import { useDefaultCompany } from '@/hooks/useDefaultCompany';
-import { FLOW_METADATA, FlowType } from '@/utils/flow-config';
 import { cn } from '@/utils/cn';
+import { FLOW_METADATA, FlowType } from '@/utils/flow-config';
 import { useAuth } from '@clerk/nextjs';
 
 interface InputSectionProps {
@@ -277,57 +277,6 @@ export default function InputSection({ onStartGeneration, isConnected, isGenerat
             </CardContent>
           </Card>
 
-          {/* Card2: 画像モード */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-lg flex items-center gap-2">
-                {/* eslint-disable-next-line jsx-a11y/alt-text */}
-                <Image className="h-5 w-5" aria-hidden="true" />
-                画像生成・挿入機能
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <div className="space-y-1">
-                    <Label className="text-sm font-medium">有効にする</Label>
-                    <p className="text-sm text-muted-foreground">
-                      記事に画像プレースホルダーを挿入し、後から画像生成や画像アップロードができます
-                    </p>
-                  </div>
-                  <Switch
-                    checked={imageMode}
-                    onCheckedChange={(value) => {
-                      console.log('🖼️ Image mode toggle changed:', value);
-                      setImageMode(value);
-                    }}
-                  />
-                </div>
-                
-                {imageMode && (
-                  <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
-                    <div className="flex items-start gap-3">
-                      <IoSparkles className="h-5 w-5 text-blue-600 mt-0.5" />
-                      <div className="space-y-2">
-                        <h4 className="text-sm font-medium text-blue-900">画像モードが有効です</h4>
-                        <p className="text-sm text-blue-800">
-                          AIが記事の適切な箇所に画像プレースホルダーを配置します。生成後の編集画面で：
-                        </p>
-                        <ul className="text-sm text-blue-800 list-disc list-inside ml-2 space-y-1">
-                          <li>Imagen 4.0で自動画像生成</li>
-                          <li>手動での画像アップロード</li>
-                        </ul>
-                        <p className="text-sm text-blue-800">
-                          などが可能です。
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </div>
-            </CardContent>
-          </Card>
-
           {/* Card3: オートモード（位置を入れ替え） */}
           <Card>
             <CardHeader>
@@ -374,281 +323,6 @@ export default function InputSection({ onStartGeneration, isConnected, isGenerat
             </CardContent>
           </Card>
 
-          {/* Card4: スタイルテンプレート */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-lg flex items-center gap-2">
-                <Palette className="h-5 w-5" />
-                記事スタイル設定
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-4">
-                <Select value={selectedStyleTemplate} onValueChange={setSelectedStyleTemplate}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="スタイルテンプレートを選択" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="default">デフォルトスタイル</SelectItem>
-                    {styleTemplates.map((template: any) => (
-                      <SelectItem key={template.id} value={template.id}>
-                        {template.name}
-                        {template.is_default && " (デフォルト)"}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                
-                {selectedStyleTemplate && selectedStyleTemplate !== 'default' && (
-                  <div className="p-3 bg-purple-50 border border-purple-200 rounded-lg">
-                    {(() => {
-                      const template: any = styleTemplates.find((t: any) => t.id === selectedStyleTemplate);
-                      return template ? (
-                        <div className="space-y-2">
-                          <div className="text-sm font-medium text-purple-900">{template.name}</div>
-                          {template.description && (
-                            <div className="text-sm text-purple-800">{template.description}</div>
-                          )}
-                          <div className="text-xs text-purple-700 space-y-1">
-                            {template.settings?.tone && <div>トーン: {template.settings.tone}</div>}
-                            {template.settings?.style && <div>文体: {template.settings.style}</div>}
-                            {template.settings?.approach && <div>アプローチ: {template.settings.approach}</div>}
-                          </div>
-                        </div>
-                      ) : null;
-                    })()}
-                  </div>
-                )}
-                
-                {(!selectedStyleTemplate || selectedStyleTemplate === 'default') && (
-                  <div className="p-3 bg-gray-50 border border-gray-200 rounded-lg">
-                    <div className="text-sm text-gray-800">
-                      デフォルトスタイル: 親しみやすく分かりやすい文章で、読者に寄り添うトーン
-                    </div>
-                  </div>
-                )}
-                
-                <div className="text-xs text-gray-500">
-                  <Link href="/company-settings/style-guide" className="text-blue-600 hover:text-blue-800 underline">
-                    記事スタイルのテンプレートを管理
-                  </Link>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Card4: テーマ数 */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-lg">記事タイトル候補数</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="text-sm text-muted-foreground">
-              ※オートモードの場合、タイトル候補は1つのみ作られます
-              </p>
-              <div className="space-y-4">
-                <div className="space-y-3">
-                  <div className="text-center text-2xl font-bold text-primary">{themeCount}</div>
-                  <Slider
-                    value={[themeCount]}
-                    onValueChange={(value) => setThemeCount(value[0])}
-                    min={1}
-                    max={10}
-                    step={1}
-                    className="w-full"
-                  />
-                  <div className="flex justify-between text-sm text-gray-500">
-                    <span>1</span>
-                    <span>5</span>
-                    <span>10</span>
-                  </div>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Card5: ターゲット年代層 */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-lg">ターゲット年代層</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-3">
-                <p className="text-sm text-muted-foreground">複数年代をまとめて指定できます。</p>
-                {targetAgeGroups.length > 0 && (
-                  <div className="space-y-2">
-                    <Label className="text-sm font-medium">選択中 ({targetAgeGroups.length}件)</Label>
-                    <div className="flex flex-wrap gap-2">
-                      {targetAgeGroups.map((age) => (
-                        <span
-                          key={age}
-                          className="flex items-center gap-1 rounded-full border border-primary/30 bg-primary/10 px-3 py-1 text-xs font-medium text-primary"
-                        >
-                          {age}
-                          <button
-                            type="button"
-                            aria-label={`${age} を削除`}
-                            className="rounded-full p-1 text-primary transition hover:bg-primary/20"
-                            onClick={() =>
-                              setTargetAgeGroups((prev) => prev.filter((item) => item !== age))
-                            }
-                          >
-                            <X className="h-3 w-3" />
-                          </button>
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                )}
-                <div className="grid grid-cols-2 gap-3">
-                  {AGE_OPTIONS.map((age) => {
-                    const selected = targetAgeGroups.includes(age);
-                    return (
-                      <label
-                        key={age}
-                        className={cn(
-                          "flex items-center space-x-2 rounded-lg border p-2 text-sm cursor-pointer transition",
-                          selected
-                            ? "border-primary bg-primary/10 text-primary shadow-sm"
-                            : "border-border hover:bg-muted"
-                        )}
-                      >
-                        <Checkbox
-                          checked={selected}
-                          onCheckedChange={() =>
-                            setTargetAgeGroups((prev) =>
-                              prev.includes(age) ? prev.filter((item) => item !== age) : [...prev, age]
-                            )
-                          }
-                        />
-                        <span>{age}</span>
-                      </label>
-                    );
-                  })}
-                </div>
-                {/* <div className="flex items-center justify-between text-xs text-muted-foreground">
-                  <span>
-                    {targetAgeGroups.length > 0
-                      ? `選択中: ${targetAgeGroups.join('、')}`
-                      : '未選択'}
-                  </span>
-                  {targetAgeGroups.length > 0 && (
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      className="h-6 px-2 text-xs"
-                      onClick={() => setTargetAgeGroups([])}
-                    >
-                      クリア
-                    </Button>
-                  )}
-                </div> */}
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Card6: ペルソナ */}
-          <Card className="md:col-span-2">
-            <CardHeader>
-              <CardTitle className="text-lg">ペルソナ設定</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-4">
-                <p className="text-sm text-muted-foreground">複数の想定読者像を組み合わせて指定できます。</p>
-                {selectedPersonaTypes.length > 0 && (
-                  <div className="space-y-2">
-                    <Label className="text-sm font-medium">選択中 ({selectedPersonaTypes.length}件)</Label>
-                    <div className="flex flex-wrap gap-2">
-                      {selectedPersonaTypes.map((persona) => {
-                        const chipLabel =
-                          persona === '会社設定' && company?.target_persona
-                            ? `会社設定: ${company.target_persona}`
-                            : persona === 'その他' && customPersona.trim()
-                              ? `その他: ${customPersona.trim()}`
-                              : persona;
-                        return (
-                          <span
-                            key={persona}
-                            className="flex items-center gap-1 rounded-full border border-primary/30 bg-primary/10 px-3 py-1 text-xs font-medium text-primary"
-                            title={chipLabel}
-                          >
-                            {chipLabel}
-                            <button
-                              type="button"
-                              aria-label={`${persona} を削除`}
-                              className="rounded-full p-1 text-primary transition hover:bg-primary/20"
-                              onClick={() =>
-                                setSelectedPersonaTypes((prev) => prev.filter((item) => item !== persona))
-                              }
-                            >
-                              <X className="h-3 w-3" />
-                            </button>
-                          </span>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
-                <div className="grid grid-cols-2 gap-3">
-                  {(hasCompany && company?.target_persona ? ['会社設定'] : []).concat(PERSONA_OPTIONS).map((persona) => {
-                    const selected = selectedPersonaTypes.includes(persona);
-                    const isCompanyOption = persona === '会社設定';
-                    const isDisabled = isCompanyOption && !company?.target_persona;
-                    return (
-                      <label
-                        key={persona}
-                        className={cn(
-                          "flex items-start space-x-2 rounded-lg border p-3 text-sm cursor-pointer transition",
-                          selected
-                            ? "border-primary bg-primary/10 text-primary shadow-sm"
-                            : "border-border hover:bg-muted",
-                          isDisabled && "cursor-not-allowed opacity-50"
-                        )}
-                      >
-                        <Checkbox
-                          checked={selected}
-                          disabled={isDisabled}
-                          onCheckedChange={() => {
-                            if (isDisabled) return;
-                            setSelectedPersonaTypes((prev) =>
-                              prev.includes(persona)
-                                ? prev.filter((item) => item !== persona)
-                                : [...prev, persona]
-                            );
-                          }}
-                        />
-                        <div className="space-y-1">
-                          <span className="font-medium">
-                            {isCompanyOption ? '事前設定済みのペルソナ（推奨）' : persona}
-                          </span>
-                          {isCompanyOption && company?.target_persona && (
-                            <p className="text-xs text-muted-foreground line-clamp-2">
-                              {company.target_persona}
-                            </p>
-                          )}
-                        </div>
-                      </label>
-                    );
-                  })}
-                </div>
-                {selectedPersonaTypes.includes('会社設定') && hasCompany && company?.target_persona && (
-                  <div className="p-3 bg-gray-50 border border-gray-200 rounded-lg">
-                    <div className="text-sm font-medium text-gray-900 mb-2">会社設定のペルソナ:</div>
-                    <div className="text-sm text-gray-800">{company.target_persona}</div>
-                  </div>
-                )}
-                {selectedPersonaTypes.includes('その他') && (
-                  <Textarea
-                    value={customPersona}
-                    onChange={(e) => setCustomPersona(e.target.value)}
-                    placeholder="独自のペルソナを詳しく入力してください（例: 札幌近郊で自然素材を使った家づくりに関心がある、小さな子供を持つ30代夫婦）"
-                    rows={3}
-                  />
-                )}
-              </div>
-            </CardContent>
-          </Card>
         </div>
 
         {/* 会社情報ステータス */}
@@ -699,34 +373,342 @@ export default function InputSection({ onStartGeneration, isConnected, isGenerat
             </Button>
           </CollapsibleTrigger>
         <CollapsibleContent>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 mb-6">
-              {/* 目標文字数 */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-lg">目標文字数</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-4">
-                    <div className="text-center text-xl font-bold text-primary">{targetLength.toLocaleString()}文字</div>
-                    <Slider
-                      value={[targetLength]}
-                      onValueChange={(value) => setTargetLength(value[0])}
-                      min={1000}
-                      max={10000}
-                      step={500}
-                      className="w-full"
-                    />
-                    <div className="flex justify-between text-sm text-gray-500">
-                      <span>1,000</span>
-                      <span>5,000</span>
-                      <span>10,000</span>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 gap-5 mb-6">
+            {/* 画像モード */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-lg flex items-center gap-2">
+                  <ImageIcon className="h-5 w-5" aria-hidden="true" />
+                  画像生成・挿入機能
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div className="space-y-1">
+                      <Label className="text-sm font-medium">有効にする</Label>
+                      <p className="text-sm text-muted-foreground">
+                        記事に画像プレースホルダーを挿入し、後から画像生成や画像アップロードができます
+                      </p>
                     </div>
+                    <Switch
+                      checked={imageMode}
+                      onCheckedChange={(value) => {
+                        console.log('🖼️ Image mode toggle changed:', value);
+                        setImageMode(value);
+                      }}
+                    />
                   </div>
+
+                  {imageMode && (
+                    <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                      <div className="flex items-start gap-3">
+                        <IoSparkles className="h-5 w-5 text-blue-600 mt-0.5" />
+                        <div className="space-y-2">
+                          <h4 className="text-sm font-medium text-blue-900">画像モードが有効です</h4>
+                          <p className="text-sm text-blue-800">
+                            AIが記事の適切な箇所に画像プレースホルダーを配置します。生成後の編集画面で：
+                          </p>
+                          <ul className="text-sm text-blue-800 list-disc list-inside ml-2 space-y-1">
+                            <li>Imagen 4.0で自動画像生成</li>
+                            <li>手動での画像アップロード</li>
+                          </ul>
+                          <p className="text-sm text-blue-800">
+                            などが可能です。
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
               </CardContent>
             </Card>
 
-            {/* 最終編集ステップ */}
+            {/* 記事スタイル設定 */}
             <Card>
+              <CardHeader>
+                <CardTitle className="text-lg flex items-center gap-2">
+                  <Palette className="h-5 w-5" />
+                  記事スタイル設定
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-4">
+                  <Select value={selectedStyleTemplate} onValueChange={setSelectedStyleTemplate}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="スタイルテンプレートを選択" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="default">デフォルトスタイル</SelectItem>
+                      {styleTemplates.map((template: any) => (
+                        <SelectItem key={template.id} value={template.id}>
+                          {template.name}
+                          {template.is_default && " (デフォルト)"}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+
+                  {selectedStyleTemplate && selectedStyleTemplate !== 'default' && (
+                    <div className="p-3 bg-purple-50 border border-purple-200 rounded-lg">
+                      {(() => {
+                        const template: any = styleTemplates.find((t: any) => t.id === selectedStyleTemplate);
+                        return template ? (
+                          <div className="space-y-2">
+                            <div className="text-sm font-medium text-purple-900">{template.name}</div>
+                            {template.description && (
+                              <div className="text-sm text-purple-800">{template.description}</div>
+                            )}
+                            <div className="text-xs text-purple-700 space-y-1">
+                              {template.settings?.tone && <div>トーン: {template.settings.tone}</div>}
+                              {template.settings?.style && <div>文体: {template.settings.style}</div>}
+                              {template.settings?.approach && <div>アプローチ: {template.settings.approach}</div>}
+                            </div>
+                          </div>
+                        ) : null;
+                      })()}
+                    </div>
+                  )}
+
+                  {(!selectedStyleTemplate || selectedStyleTemplate === 'default') && (
+                    <div className="p-3 bg-gray-50 border border-gray-200 rounded-lg">
+                      <div className="text-sm text-gray-800">
+                        デフォルトスタイル: 親しみやすく分かりやすい文章で、読者に寄り添うトーン
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="text-xs text-gray-500">
+                    <Link href="/company-settings/style-guide" className="text-blue-600 hover:text-blue-800 underline">
+                      記事スタイルのテンプレートを管理
+                    </Link>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* 記事タイトル候補数 */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-lg">記事タイトル候補数</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className="text-sm text-muted-foreground">
+                  ※オートモードの場合、タイトル候補は1つのみ作られます
+                </p>
+                <div className="space-y-4">
+                  <div className="space-y-3">
+                    <div className="text-center text-2xl font-bold text-primary">{themeCount}</div>
+                    <Slider
+                      value={[themeCount]}
+                      onValueChange={(value) => setThemeCount(value[0])}
+                      min={1}
+                      max={10}
+                      step={1}
+                      className="w-full"
+                    />
+                    <div className="flex justify-between text-sm text-gray-500">
+                      <span>1</span>
+                      <span>5</span>
+                      <span>10</span>
+                    </div>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* ターゲット年代層 */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-lg">ターゲット年代層</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-3">
+                  <p className="text-sm text-muted-foreground">複数年代をまとめて指定できます。</p>
+                  {targetAgeGroups.length > 0 && (
+                    <div className="space-y-2">
+                      <Label className="text-sm font-medium">選択中 ({targetAgeGroups.length}件)</Label>
+                      <div className="flex flex-wrap gap-2">
+                        {targetAgeGroups.map((age) => (
+                          <span
+                            key={age}
+                            className="flex items-center gap-1 rounded-full border border-primary/30 bg-primary/10 px-3 py-1 text-xs font-medium text-primary"
+                          >
+                            {age}
+                            <button
+                              type="button"
+                              aria-label={`${age} を削除`}
+                              className="rounded-full p-1 text-primary transition hover:bg-primary/20"
+                              onClick={() =>
+                                setTargetAgeGroups((prev) => prev.filter((item) => item !== age))
+                              }
+                            >
+                              <X className="h-3 w-3" />
+                            </button>
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  <div className="grid grid-cols-2 gap-3">
+                    {AGE_OPTIONS.map((age) => {
+                      const selected = targetAgeGroups.includes(age);
+                      return (
+                        <label
+                          key={age}
+                          className={cn(
+                            "flex items-center space-x-2 rounded-lg border p-2 text-sm cursor-pointer transition",
+                            selected
+                              ? "border-primary bg-primary/10 text-primary shadow-sm"
+                              : "border-border hover:bg-muted"
+                          )}
+                        >
+                          <Checkbox
+                            checked={selected}
+                            onCheckedChange={() =>
+                              setTargetAgeGroups((prev) =>
+                                prev.includes(age) ? prev.filter((item) => item !== age) : [...prev, age]
+                              )
+                            }
+                          />
+                          <span>{age}</span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* ペルソナ設定 */}
+            <Card className="md:col-span-2">
+              <CardHeader>
+                <CardTitle className="text-lg">ペルソナ設定</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-4">
+                  <p className="text-sm text-muted-foreground">複数の想定読者像を組み合わせて指定できます。</p>
+                  {selectedPersonaTypes.length > 0 && (
+                    <div className="space-y-2">
+                      <Label className="text-sm font-medium">選択中 ({selectedPersonaTypes.length}件)</Label>
+                      <div className="flex flex-wrap gap-2">
+                        {selectedPersonaTypes.map((persona) => {
+                          const chipLabel =
+                            persona === '会社設定' && company?.target_persona
+                              ? `会社設定: ${company.target_persona}`
+                              : persona === 'その他' && customPersona.trim()
+                                ? `その他: ${customPersona.trim()}`
+                                : persona;
+                          return (
+                            <span
+                              key={persona}
+                              className="flex items-center gap-1 rounded-full border border-primary/30 bg-primary/10 px-3 py-1 text-xs font-medium text-primary"
+                              title={chipLabel}
+                            >
+                              {chipLabel}
+                              <button
+                                type="button"
+                                aria-label={`${persona} を削除`}
+                                className="rounded-full p-1 text-primary transition hover:bg-primary/20"
+                                onClick={() =>
+                                  setSelectedPersonaTypes((prev) => prev.filter((item) => item !== persona))
+                                }
+                              >
+                                <X className="h-3 w-3" />
+                              </button>
+                            </span>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+                  <div className="grid grid-cols-2 gap-3">
+                    {(hasCompany && company?.target_persona ? ['会社設定'] : []).concat(PERSONA_OPTIONS).map((persona) => {
+                      const selected = selectedPersonaTypes.includes(persona);
+                      const isCompanyOption = persona === '会社設定';
+                      const isDisabled = isCompanyOption && !company?.target_persona;
+                      return (
+                        <label
+                          key={persona}
+                          className={cn(
+                            "flex items-start space-x-2 rounded-lg border p-3 text-sm cursor-pointer transition",
+                            selected
+                              ? "border-primary bg-primary/10 text-primary shadow-sm"
+                              : "border-border hover:bg-muted",
+                            isDisabled && "cursor-not-allowed opacity-50"
+                          )}
+                        >
+                          <Checkbox
+                            checked={selected}
+                            disabled={isDisabled}
+                            onCheckedChange={() => {
+                              if (isDisabled) return;
+                              setSelectedPersonaTypes((prev) =>
+                                prev.includes(persona)
+                                  ? prev.filter((item) => item !== persona)
+                                  : [...prev, persona]
+                              );
+                            }}
+                          />
+                          <div className="space-y-1">
+                            <span className="font-medium">
+                              {isCompanyOption ? '事前設定済みのペルソナ（推奨）' : persona}
+                            </span>
+                            {isCompanyOption && company?.target_persona && (
+                              <p className="text-xs text-muted-foreground line-clamp-2">
+                                {company.target_persona}
+                              </p>
+                            )}
+                          </div>
+                        </label>
+                      );
+                    })}
+                  </div>
+                  {selectedPersonaTypes.includes('会社設定') && hasCompany && company?.target_persona && (
+                    <div className="p-3 bg-gray-50 border border-gray-200 rounded-lg">
+                      <div className="text-sm font-medium text-gray-900 mb-2">会社設定のペルソナ:</div>
+                      <div className="text-sm text-gray-800">{company.target_persona}</div>
+                    </div>
+                  )}
+                  {selectedPersonaTypes.includes('その他') && (
+                    <Textarea
+                      value={customPersona}
+                      onChange={(e) => setCustomPersona(e.target.value)}
+                      placeholder="独自のペルソナを詳しく入力してください（例: 札幌近郊で自然素材を使った家づくりに関心がある、小さな子供を持つ30代夫婦）"
+                      rows={3}
+                    />
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* 目標文字数 */}
+            {/* <Card>
+              <CardHeader>
+                <CardTitle className="text-lg">目標文字数</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-4">
+                  <div className="text-center text-xl font-bold text-primary">{targetLength.toLocaleString()}文字</div>
+                  <Slider
+                    value={[targetLength]}
+                    onValueChange={(value) => setTargetLength(value[0])}
+                    min={1000}
+                    max={10000}
+                    step={500}
+                    className="w-full"
+                  />
+                  <div className="flex justify-between text-sm text-gray-500">
+                    <span>1,000</span>
+                    <span>5,000</span>
+                    <span>10,000</span>
+                  </div>
+                </div>
+              </CardContent>
+            </Card> */}
+
+            {/* 最終編集ステップ */}
+            {/* <Card>
               <CardHeader>
                 <CardTitle className="text-lg">最終編集ステップ</CardTitle>
                 <p className="text-sm text-muted-foreground">ONにすると記事生成後に編集エージェントで仕上げます。OFFならセクション執筆で完了し高速化します。</p>
@@ -744,152 +726,151 @@ export default function InputSection({ onStartGeneration, isConnected, isGenerat
                   />
                 </div>
               </CardContent>
+            </Card> */}
+
+            {/* リサーチクエリ数 */}
+            {/* <Card>
+              <CardHeader>
+                <CardTitle className="text-lg">リサーチクエリ数</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-4">
+                  <div className="text-center text-2xl font-bold text-primary">{researchQueries}</div>
+                  <Slider
+                    value={[researchQueries]}
+                    onValueChange={(value) => setResearchQueries(value[0])}
+                    min={1}
+                    max={10}
+                    step={1}
+                    className="w-full"
+                  />
+                  <div className="flex justify-between text-sm text-gray-500">
+                    <span>1</span>
+                    <span>5</span>
+                    <span>10</span>
+                  </div>
+                </div>
+              </CardContent>
+            </Card> */}
+
+            {/* 具体的なペルソナ生成数 */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-lg">ペルソナ生成数</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-4">
+                  <div className="text-center text-2xl font-bold text-primary">{personaExamples}</div>
+                  <Slider
+                    value={[personaExamples]}
+                    onValueChange={(value) => setPersonaExamples(value[0])}
+                    min={1}
+                    max={8}
+                    step={1}
+                    className="w-full"
+                  />
+                  <div className="flex justify-between text-sm text-gray-500">
+                    <span>1</span>
+                    <span>4</span>
+                    <span>8</span>
+                  </div>
+                </div>
+              </CardContent>
             </Card>
 
-              {/* リサーチクエリ数 */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-lg">リサーチクエリ数</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-4">
-                    <div className="text-center text-2xl font-bold text-primary">{researchQueries}</div>
-                    <Slider
-                      value={[researchQueries]}
-                      onValueChange={(value) => setResearchQueries(value[0])}
-                      min={1}
-                      max={10}
-                      step={1}
-                      className="w-full"
-                    />
-                    <div className="flex justify-between text-sm text-gray-500">
-                      <span>1</span>
-                      <span>5</span>
-                      <span>10</span>
+            {/* 高度アウトラインモード */}
+            {/* <Card>
+              <CardHeader>
+                <CardTitle className="text-lg flex items-center gap-2">
+                  <ListTree className="h-5 w-5" />
+                  高度アウトラインモード
+                </CardTitle>
+                <p className="text-sm text-muted-foreground">
+                  大見出しと小見出しを同時に生成し、階層構造を維持したままセクションライティングを行います。
+                </p>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div className="space-y-1">
+                      <Label className="text-sm font-medium">有効にする</Label>
+                      <p className="text-sm text-muted-foreground">
+                        階層化されたアウトラインを自動生成し、その構造を保持したまま執筆します。
+                      </p>
                     </div>
-                  </div>
-                </CardContent>
-              </Card>
-
-              {/* 具体的なペルソナ生成数 */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-lg">ペルソナ生成数</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-4">
-                    <div className="text-center text-2xl font-bold text-primary">{personaExamples}</div>
-                    <Slider
-                      value={[personaExamples]}
-                      onValueChange={(value) => setPersonaExamples(value[0])}
-                      min={1}
-                      max={8}
-                      step={1}
-                      className="w-full"
+                    <Switch
+                      checked={advancedOutlineMode}
+                      onCheckedChange={(value) => setAdvancedOutlineMode(value)}
+                      aria-label="高度アウトラインモードを有効にする"
                     />
-                    <div className="flex justify-between text-sm text-gray-500">
-                      <span>1</span>
-                      <span>4</span>
-                      <span>8</span>
-                    </div>
                   </div>
-                </CardContent>
-              </Card>
 
-              {/* 高度アウトラインモード（高度設定へ移動） */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-lg flex items-center gap-2">
-                    <ListTree className="h-5 w-5" />
-                    高度アウトラインモード
-                  </CardTitle>
-                  <p className="text-sm text-muted-foreground">
-                    大見出しと小見出しを同時に生成し、階層構造を維持したままセクションライティングを行います。
-                  </p>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-4">
-                    <div className="flex items-center justify-between">
-                      <div className="space-y-1">
-                        <Label className="text-sm font-medium">有効にする</Label>
-                        <p className="text-sm text-muted-foreground">
-                          階層化されたアウトラインを自動生成し、その構造を保持したまま執筆します。
+                  {advancedOutlineMode && (
+                    <div className="space-y-4 rounded-lg border border-blue-200 bg-blue-50 p-4">
+                      <div className="space-y-2">
+                        <Label className="text-sm font-medium">大見出しのレベルを選択</Label>
+                        <Select
+                          value={topLevelHeading}
+                          onValueChange={(value) => setTopLevelHeading(value as 'h2' | 'h3')}
+                        >
+                          <SelectTrigger>
+                            <SelectValue placeholder="トップレベル見出しを選択" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="h2">H2</SelectItem>
+                            <SelectItem value="h3">H3</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="space-y-1 text-xs text-blue-800">
+                        <p>
+                          大見出しをH2にするかH3にするかを選択できます。生成後のアウトライン編集でも、この階層構造に沿って各見出しを調整できます。
                         </p>
                       </div>
-                      <Switch
-                        checked={advancedOutlineMode}
-                        onCheckedChange={(value) => setAdvancedOutlineMode(value)}
-                        aria-label="高度アウトラインモードを有効にする"
-                      />
-                    </div>
-
-                    {advancedOutlineMode && (
-                      <div className="space-y-4 rounded-lg border border-blue-200 bg-blue-50 p-4">
-                        <div className="space-y-2">
-                          <Label className="text-sm font-medium">大見出しのレベルを選択</Label>
-                          <Select
-                            value={topLevelHeading}
-                            onValueChange={(value) => setTopLevelHeading(value as 'h2' | 'h3')}
-                          >
-                            <SelectTrigger>
-                              <SelectValue placeholder="トップレベル見出しを選択" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="h2">H2</SelectItem>
-                              <SelectItem value="h3">H3</SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </div>
-                        <div className="space-y-1 text-xs text-blue-800">
-                          <p>
-                            大見出しをH2にするかH3にするかを選択できます。生成後のアウトライン編集でも、この階層構造に沿って各見出しを調整できます。
-                          </p>
-                        </div>
-                      </div>
-                    )}
-
-                    {!advancedOutlineMode && (
-                      <p className="text-xs text-muted-foreground">
-                        標準モードでは H2 を大見出しとした構成案が生成されます。必要に応じてアウトライン編集で小見出しを追加できます。
-                      </p>
-                    )}
-                  </div>
-                </CardContent>
-              </Card>
-
-              {/* 記事生成フロー設定 */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-lg flex items-center gap-2">
-                    <Zap className="h-5 w-5" />
-                    記事生成フロー
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  <Select value={selectedFlowType} onValueChange={(value) => setSelectedFlowType(value as FlowType)}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="生成フローを選択" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {Object.entries(FLOW_METADATA).map(([key, meta]) => (
-                        <SelectItem key={key} value={key}>
-                          {meta.displayName}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  
-                  {selectedFlowType && (
-                    <div className="rounded-md border border-blue-200 bg-blue-50 p-3 text-sm leading-relaxed text-blue-900">
-                      <div className="font-medium">{FLOW_METADATA[selectedFlowType].displayName}</div>
-                      <div className="text-blue-800">{FLOW_METADATA[selectedFlowType].description}</div>
                     </div>
                   )}
-                </CardContent>
-              </Card>
 
-            </div>
-          </CollapsibleContent>
+                  {!advancedOutlineMode && (
+                    <p className="text-xs text-muted-foreground">
+                      標準モードでは H2 を大見出しとした構成案が生成されます。必要に応じてアウトライン編集で小見出しを追加できます。
+                    </p>
+                  )}
+                </div>
+              </CardContent>
+            </Card> */}
+
+            {/* 記事生成フロー設定 */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-lg flex items-center gap-2">
+                  <Zap className="h-5 w-5" />
+                  記事生成フロー
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <Select value={selectedFlowType} onValueChange={(value) => setSelectedFlowType(value as FlowType)}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="生成フローを選択" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {Object.entries(FLOW_METADATA).map(([key, meta]) => (
+                      <SelectItem key={key} value={key}>
+                        {meta.displayName}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+
+                {selectedFlowType && (
+                  <div className="rounded-md border border-blue-200 bg-blue-50 p-3 text-sm leading-relaxed text-blue-900">
+                    <div className="font-medium">{FLOW_METADATA[selectedFlowType].displayName}</div>
+                    <div className="text-blue-800">{FLOW_METADATA[selectedFlowType].description}</div>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+        </CollapsibleContent>
         </Collapsible>
         {/* ボタン（最下部に配置） */}
         <div className="mt-auto flex justify-center">

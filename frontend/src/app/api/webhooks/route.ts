@@ -9,7 +9,7 @@ interface StripeSubscriptionWithPeriod extends Stripe.Subscription {
 import { upsertUserSubscription } from '@/features/account/controllers/upsert-user-subscription';
 import { upsertPrice } from '@/features/pricing/controllers/upsert-price';
 import { upsertProduct } from '@/features/pricing/controllers/upsert-product';
-import { stripeAdmin } from '@/libs/stripe/stripe-admin';
+import { getStripeAdmin } from '@/libs/stripe/stripe-admin';
 import { getEnvVar } from '@/utils/get-env-var';
 
 const relevantEvents = new Set([
@@ -31,7 +31,7 @@ export async function POST(req: Request) {
 
   try {
     if (!sig || !webhookSecret) return;
-    event = stripeAdmin.webhooks.constructEvent(body, sig, webhookSecret);
+    event = getStripeAdmin().webhooks.constructEvent(body, sig, webhookSecret);
   } catch (error) {
     return Response.json(`Webhook Error: ${(error as any).message}`, { status: 400 });
   }
