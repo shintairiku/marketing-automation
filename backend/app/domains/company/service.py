@@ -317,7 +317,6 @@ class CompanyService:
         except Exception as e:
             logger.error(f"Failed to unset default companies for user {user_id}: {e}")
             raise
-
     @staticmethod
     async def auto_generate_company_data(request: AutoCompanyDataRequest, user_id: str) -> AutoCompanyDataResponse:
         """会社情報の自動生成"""
@@ -331,22 +330,39 @@ class CompanyService:
                 if host.startswith("www."):
                     allowed_domains.append(host[4:])
 
+            FIELD_TEXTS = {
+                "description": "- description: 会社概要、事業内容、実際の活動などをを分析して詳細に説明",
+                "usp": "- usp: 競合他社と差別化できる独自の強みを分析して具体的に説明",
+                "target_persona": "- target_persona: 年齢、性別、職業、収入、興味関心、課題など対象となる具体的な人物像を分析して詳細に記載",
+                "brand_slogan": "- brand_slogan: 指定ドメイン内からブランドスローガンやキャッチフレーズを抽出。見つからない場合はnullを返す",
+                "target_keywords": "- target_keywords: 指定ドメイン内の記事やブログ、コラムなどを分析して、記事に含めたい、含めるべきキーワードをカンマ区切りで記載",
+                "industry_terms": "- industry_terms: この業界でよく使われる専門用語をカンマ区切りで記載",
+                "avoid_terms": "- avoid_terms: 記事に含めたくない、ふくめるべきではない表現をカンマ区切りで記載",
+                "popular_articles": "- popular_articles: ドメイン内の記事やブログを分析して、過去の人気記事を（タイトル URL）の形式で記載",
+                "target_area": "- target_area: サービス提供エリアや対象地域を具体的に記載"
+            }
+
+            fields_block = "\n".join(
+                FIELD_TEXTS[f] for f in request.fields if f in FIELD_TEXTS
+            )
+
             prompt = f"""
 あなたは企業情報の調査・要約に長けたリサーチャーです。
-指定URLの内容を確認し、会社情報の不足項目を補完してください。
+指定URLの内容を確認し、以下の会社情報の項目を補完してください。
+以下以外の項目はnullで返してください。
 
-補完対象フィールド: {requested_fields}
+{fields_block}
+
 
 ルール:
-- 補完対象フィールドのみ出力すること（未指定フィールドは必ずnull）。
+- 対象フィールドのみ出力すること（未指定フィールドは必ずnull）。
 - 根拠が不十分な場合は推測せずnullにする。
-- 会社概要/USP/ペルソナは簡潔な日本語で、誇張表現は避ける。
+- 会社概要/USP/ペルソナは日本語で詳細に記載し、誇張表現は避ける。
 - キーワードや用語はカンマ区切りの文字列で返す。
 - 制限ドメイン内を分析して詳細な情報を返すこと。
 """.strip()
 
             client = OpenAI(api_key=settings.openai_api_key)
-
             tool_spec = {"type": "web_search"}
             if allowed_domains:
                 tool_spec["filters"] = {"allowed_domains": allowed_domains}
@@ -366,6 +382,7 @@ class CompanyService:
                     "余分なciteturn2view0turn1view0などは削除してください。"
                 ),
                 tools=[tool_spec],
+                tool_choice="required",
                 text={
                     "format": {
                         "type": "json_schema",
