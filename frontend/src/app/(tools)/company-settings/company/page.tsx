@@ -8,6 +8,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription,CardHeader, CardTitle } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -57,6 +58,8 @@ export default function CompanySettingsPage() {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [selectedFields, setSelectedFields] = useState<string[]>([]);
+  const [isAutoGenerating, setIsAutoGenerating] = useState(false);
 
   // フォームデータ
   const [formData, setFormData] = useState<CompanyFormData>({
@@ -73,6 +76,18 @@ export default function CompanySettingsPage() {
     popular_articles: "",
     target_area: ""
   });
+
+  const autoFillFields = [
+    { key: "description", label: "事業内容" },
+    { key: "usp", label: "USP・強み" },
+    { key: "target_persona", label: "ターゲット・ペルソナ" },
+    { key: "brand_slogan", label: "ブランドスローガン" },
+    { key: "target_keywords", label: "重要キーワード" },
+    { key: "industry_terms", label: "業界特有の専門用語" },
+    { key: "avoid_terms", label: "避けたい表現・NGワード" },
+    { key: "popular_articles", label: "人気記事・参考コンテンツ" },
+    { key: "target_area", label: "対象エリア" },
+  ] as const;
 
   // 会社一覧を取得
   const fetchCompanies = async () => {
@@ -117,6 +132,7 @@ export default function CompanySettingsPage() {
     setSelectedCompany(null);
     setIsEditing(false);
     setShowAdvanced(false);
+    setSelectedFields([]);
   };
 
   // 編集開始
@@ -138,6 +154,98 @@ export default function CompanySettingsPage() {
     });
     setIsEditing(true);
     setIsDialogOpen(true);
+    setSelectedFields([]);
+  };
+
+  const toggleField = (fieldKey: string, checked: boolean) => {
+    setSelectedFields(prev => {
+      if (checked) {
+        return prev.includes(fieldKey) ? prev : [...prev, fieldKey];
+      }
+      return prev.filter(key => key !== fieldKey);
+    });
+  };
+
+  const selectAllFields = () => {
+    setSelectedFields(autoFillFields.map(field => field.key));
+  };
+
+  const clearAllFields = () => {
+    setSelectedFields([]);
+  };
+
+  const runAutoGenerate = async () => {
+    if (!formData.website_url) {
+      toast.error('企業HP URLを入力してください');
+      return;
+    }
+
+    try {
+      new URL(formData.website_url);
+    } catch {
+      toast.error('有効なURL形式を入力してください（例: https://example.com）');
+      return;
+    }
+
+    if (selectedFields.length === 0) {
+      toast.error('自動入力したい項目を選択してください');
+      return;
+    }
+
+    try {
+      setIsAutoGenerating(true);
+      if (process.env.NODE_ENV !== "production") {
+        console.info("Auto-generate request payload:", {
+          website_url: formData.website_url,
+          fields: selectedFields,
+        });
+      }
+      const response = await fetch('/api/companies/auto-generate', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          website_url: formData.website_url,
+          fields: selectedFields,
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.detail || errorData.error || '自動入力に失敗しました');
+      }
+
+      const generated = await response.json();
+      const payload = (generated && typeof generated === "object" && "data" in generated)
+        ? (generated as { data?: Record<string, unknown> }).data
+        : generated;
+      setFormData(prev => {
+        const next = { ...prev } as CompanyFormData;
+        selectedFields.forEach(field => {
+          if (payload && Object.prototype.hasOwnProperty.call(payload, field)) {
+            const value = (payload as Record<string, unknown>)[field];
+            const normalized =
+              value == null
+                ? ""
+                : typeof value === "string"
+                  ? value
+                  : Array.isArray(value)
+                    ? value.join(", ")
+                    : String(value);
+            (next as unknown as Record<string, string>)[field] = normalized;
+          }
+        });
+        return next;
+      });
+
+      toast.success('自動入力が完了しました');
+    } catch (error) {
+      console.error('Error auto-generating company data:', error);
+      toast.error(error instanceof Error ? error.message : '自動入力に失敗しました');
+    } finally {
+      setIsAutoGenerating(false);
+    }
   };
 
   // 会社情報の保存
@@ -326,6 +434,52 @@ export default function CompanySettingsPage() {
                             onChange={(e) => setFormData({...formData, website_url: e.target.value})}
                             placeholder="https://example.com"
                           />
+                        </div>
+                      </div>
+
+                      <div className="space-y-3 rounded-lg border bg-muted/30 p-4">
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <p className="text-sm font-semibold">AIで一括自動入力</p>
+                            <p className="text-xs text-muted-foreground">
+                              企業HPの内容から、選択した項目を上書き入力します。
+                            </p>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <Button type="button" variant="outline" size="sm" onClick={selectAllFields}>
+                              全選択
+                            </Button>
+                            <Button type="button" variant="outline" size="sm" onClick={clearAllFields}>
+                              選択解除
+                            </Button>
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                          {autoFillFields.map(field => (
+                            <label key={field.key} className="flex items-center gap-2 text-sm">
+                              <Checkbox
+                                checked={selectedFields.includes(field.key)}
+                                onCheckedChange={(checked) => toggleField(field.key, checked === true)}
+                              />
+                              {field.label}
+                            </label>
+                          ))}
+                        </div>
+
+                        <div className="flex items-center justify-between gap-4">
+                          <p className="text-xs text-muted-foreground">
+                            {selectedFields.length === 0
+                              ? "項目を選択してください"
+                              : `${selectedFields.length}項目を選択中`}
+                          </p>
+                          <Button
+                            type="button"
+                            onClick={runAutoGenerate}
+                            disabled={isAutoGenerating || selectedFields.length === 0 || !formData.website_url}
+                          >
+                            {isAutoGenerating ? '生成中...' : '一括自動入力（上書き）'}
+                          </Button>
                         </div>
                       </div>
 
