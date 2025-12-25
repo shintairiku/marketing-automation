@@ -254,7 +254,19 @@ class ProcessPersistenceService:
             
             # Convert enum fields back from strings
             target_age_group = safe_convert_enum(context_dict.get("target_age_group"), AgeGroup)
+            raw_target_age_groups = context_dict.get("target_age_groups") or []
+            target_age_groups: List[AgeGroup] = []
+            for value in raw_target_age_groups:
+                converted = safe_convert_enum(value, AgeGroup)
+                if converted:
+                    target_age_groups.append(converted)
+            if not target_age_groups and target_age_group:
+                target_age_groups = [target_age_group]
+
             persona_type = safe_convert_enum(context_dict.get("persona_type"), PersonaType)
+            persona_types = context_dict.get("persona_types") or []
+            if not persona_types and persona_type:
+                persona_types = [persona_type.value]
             
             # Reconstruct ArticleContext from stored data
             raw_outline_level = context_dict.get("outline_top_level_heading", 2)
@@ -267,8 +279,8 @@ class ProcessPersistenceService:
 
             context = ArticleContext(
                 initial_keywords=context_dict.get("initial_keywords", []),
-                target_age_group=target_age_group,
-                persona_type=persona_type,
+                target_age_groups=target_age_groups,
+                persona_types=persona_types,
                 custom_persona=context_dict.get("custom_persona"),
                 target_length=context_dict.get("target_length"),
                 num_theme_proposals=context_dict.get("num_theme_proposals", 3),

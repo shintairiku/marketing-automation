@@ -19,8 +19,8 @@ class ArticleContext:
     """記事生成プロセス全体で共有されるコンテキスト (WebSocket対応)"""
     # --- ユーザー/API入力 ---
     initial_keywords: List[str] = field(default_factory=list)
-    target_age_group: Optional[AgeGroup] = None # 追加
-    persona_type: Optional[PersonaType] = None # 追加
+    target_age_groups: List[AgeGroup] = field(default_factory=list)
+    persona_types: List[str] = field(default_factory=list)
     custom_persona: Optional[str] = None # 追加 (target_persona の代わり)
     target_length: Optional[int] = None # 目標文字数
     num_theme_proposals: int = 3
@@ -142,6 +142,97 @@ class ArticleContext:
     enable_final_editing: bool = False  # 最終編集エージェントを実行するか
 
     # --- 以下、既存のメソッド ---
+    @staticmethod
+    def _dedup_str_list(items: List[str]) -> List[str]:
+        seen = set()
+        ordered: List[str] = []
+        for item in items:
+            if not item or item in seen:
+                continue
+            seen.add(item)
+            ordered.append(item)
+        return ordered
+
+    @staticmethod
+    def _normalize_age_group(value: Optional[Union[AgeGroup, str]]) -> Optional[str]:
+        if value is None:
+            return None
+        if isinstance(value, AgeGroup):
+            return value.value
+        return str(value)
+
+    def get_target_age_group_values(self) -> List[str]:
+        groups = self.target_age_groups or []
+        values = [self._normalize_age_group(group) for group in groups if group is not None]
+        if not values:
+            primary = self.target_age_group
+            if primary:
+                values = [self._normalize_age_group(primary)]
+        return self._dedup_str_list([v for v in values if v])
+
+    def get_target_age_groups_text(self) -> str:
+        return "、".join(self.get_target_age_group_values())
+
+    def get_persona_type_selections(self) -> List[str]:
+        selections = [str(item) for item in self.persona_types if item]
+        if not selections and self.persona_type:
+            label = self.persona_type.value if hasattr(self.persona_type, "value") else str(self.persona_type)
+            selections = [label]
+        return self._dedup_str_list(selections)
+
+    def get_persona_types_text(self) -> str:
+        return "、".join(self.get_persona_type_selections())
+
+    @property
+    def target_age_group(self) -> Optional[AgeGroup]:
+        if not self.target_age_groups:
+            return None
+        value = self.target_age_groups[0]
+        if isinstance(value, AgeGroup):
+            return value
+        try:
+            return AgeGroup(value)
+        except Exception:
+            return None
+
+    @target_age_group.setter
+    def target_age_group(self, value: Optional[Union[AgeGroup, str]]):
+        if not value:
+            self.target_age_groups = []
+            return
+        if not isinstance(value, AgeGroup):
+            try:
+                value = AgeGroup(value)
+            except Exception:
+                self.target_age_groups = []
+                return
+        self.target_age_groups = [value]
+
+    @property
+    def persona_type(self) -> Optional[PersonaType]:
+        if not self.persona_types:
+            return None
+        for candidate in self.persona_types:
+            try:
+                return PersonaType(candidate)
+            except Exception:
+                continue
+        return None
+
+    @persona_type.setter
+    def persona_type(self, value: Optional[Union[PersonaType, str]]):
+        if not value:
+            self.persona_types = []
+            return
+        if isinstance(value, PersonaType):
+            self.persona_types = [value.value]
+            return
+        try:
+            enum_value = PersonaType(value)
+            self.persona_types = [enum_value.value]
+        except Exception:
+            self.persona_types = [str(value)]
+
     def get_full_draft(self) -> str:
         return "\n".join(self.generated_sections_html)
 

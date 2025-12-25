@@ -13,6 +13,7 @@ import pytest
 
 from app.domains.seo_article.services.generation_service import ArticleGenerationService
 from app.domains.seo_article.context import ArticleContext
+from app.domains.seo_article.schemas import AgeGroup
 from app.domains.seo_article.agents.definitions import theme_agent
 from agents import RunContextWrapper
 
@@ -30,7 +31,7 @@ async def test_system_prompt_extraction():
     # テスト用のコンテキストを作成
     context = ArticleContext(
         initial_keywords=["リフォーム", "自然素材"],
-        target_age_group="30代",
+        target_age_groups=[AgeGroup.THIRTIES],
         num_theme_proposals=3,
         company_name="新大陸",
         company_description="地域企業・店舗の集客の仕組み化およびブランディング支援",
@@ -85,7 +86,7 @@ async def test_article_service_prompt_extraction():
         # テスト用のコンテキストを作成
         context = ArticleContext(
             initial_keywords=["リフォーム", "自然素材"],
-            target_age_group="30代",
+            target_age_groups=[AgeGroup.THIRTIES],
             num_theme_proposals=3,
             company_name="新大陸",
             company_description="地域企業・店舗の集客の仕組み化およびブランディング支援",

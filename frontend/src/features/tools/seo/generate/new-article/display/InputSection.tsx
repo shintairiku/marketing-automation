@@ -139,11 +139,6 @@ export default function InputSection({ onStartGeneration, isConnected, isGenerat
             return;
         }
 
-        if (targetAgeGroups.length === 0) {
-            alert('ターゲット年代層を選択してください');
-            return;
-        }
-
         // ペルソナ設定の処理
         const companyPersonaSelected =
           selectedPersonaTypes.includes('会社設定') && company?.target_persona ? company.target_persona : null;
@@ -167,7 +162,7 @@ export default function InputSection({ onStartGeneration, isConnected, isGenerat
 
         const requestData = {
             initial_keywords: seoKeywords,
-            target_age_group: targetAgeGroups[0],
+            target_age_group: targetAgeGroups[0] ?? null,
             target_age_groups: targetAgeGroups,
             num_theme_proposals: themeCount,
             num_research_queries: researchQueries,
@@ -520,11 +515,11 @@ export default function InputSection({ onStartGeneration, isConnected, isGenerat
             {/* ターゲット年代層 */}
             <Card>
               <CardHeader>
-                <CardTitle className="text-lg">ターゲット年代層</CardTitle>
+                <CardTitle className="text-lg">ターゲット年代層（任意）</CardTitle>
               </CardHeader>
               <CardContent>
                 <div className="space-y-3">
-                  <p className="text-sm text-muted-foreground">複数年代をまとめて指定できます。</p>
+                  <p className="text-sm text-muted-foreground">複数年代をまとめて指定できます。未選択の場合は年代指定なしで生成します。</p>
                   {targetAgeGroups.length > 0 && (
                     <div className="space-y-2">
                       <Label className="text-sm font-medium">選択中 ({targetAgeGroups.length}件)</Label>
@@ -876,7 +871,7 @@ export default function InputSection({ onStartGeneration, isConnected, isGenerat
         <div className="mt-auto flex justify-center">
           <Button
             onClick={handleStartGeneration}
-            disabled={!isConnected || isGenerating || seoKeywords.length === 0 || targetAgeGroups.length === 0}
+            disabled={!isConnected || isGenerating || seoKeywords.length === 0}
             className="w-full max-w-md"
             size="lg"
           >

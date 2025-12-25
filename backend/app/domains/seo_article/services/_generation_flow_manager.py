@@ -1317,6 +1317,9 @@ class GenerationFlowManager:
             try:
                 console.print(f"[green]Creating workflow logger for process {process_id} with user_id {user_id}[/green]")
                 console.print(f"[debug]Creating workflow logger for new process {process_id}[/debug]")
+                request_primary_age = request.primary_target_age_group() if hasattr(request, "primary_target_age_group") else None
+                request_primary_persona = request.primary_persona_type() if hasattr(request, "primary_persona_type") else None
+
                 workflow_logger = MultiAgentWorkflowLogger(
                     article_uuid=process_id,
                     user_id=user_id,
@@ -1327,9 +1330,13 @@ class GenerationFlowManager:
                         "image_mode_enabled": request.image_mode,
                         "article_style_info": getattr(context, 'style_template_settings', {}),
                         "generation_theme_count": request.num_theme_proposals,
-                        "target_age_group": request.target_age_group.value if request.target_age_group else None,
+                        "target_age_group": request_primary_age.value if request_primary_age else None,
+                        "target_age_groups": [
+                            getattr(age, "value", age) for age in getattr(request, "target_age_groups", [])
+                        ],
                         "persona_settings": {
-                            "persona_type": request.persona_type.value if request.persona_type else None,
+                            "persona_type": request_primary_persona.value if request_primary_persona else None,
+                            "persona_types": getattr(request, "persona_types", []),
                             "custom_persona": request.custom_persona,
                             "num_persona_examples": request.num_persona_examples
                         },

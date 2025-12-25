@@ -27,9 +27,9 @@ class PersonaType(str, Enum):
 class GenerateArticleRequest(BaseModel):
     """記事生成APIリクエストモデル"""
     initial_keywords: List[str] = Field(..., description="記事生成の元となるキーワードリスト", examples=[["札幌", "注文住宅", "自然素材", "子育て"]])
-    target_age_group: Optional[AgeGroup] = Field(None, description="ターゲット年代層")
-    persona_type: Optional[PersonaType] = Field(None, description="ペルソナ属性")
-    custom_persona: Optional[str] = Field(None, description="独自に設定したペルソナ（persona_typeがOTHERの場合に利用）", examples=["札幌近郊で自然素材を使った家づくりに関心がある、小さな子供を持つ30代夫婦"])
+    target_age_groups: List[AgeGroup] = Field(default_factory=list, description="ターゲット年代層（複数選択対応）")
+    persona_types: List[str] = Field(default_factory=list, description="選択されたペルソナ属性（複数選択対応、UI側の表示値）")
+    custom_persona: Optional[str] = Field(None, description="独自に設定したペルソナ（ペルソナ属性が「その他」の場合などに利用）", examples=["札幌近郊で自然素材を使った家づくりに関心がある、小さな子供を持つ30代夫婦"])
     target_length: Optional[int] = Field(None, description="目標文字数（目安）", examples=[3000])
     num_theme_proposals: int = Field(3, description="生成するテーマ案の数", ge=1)
     num_research_queries: int = Field(3, description="リサーチで使用する検索クエリ数", ge=1) # デフォルト値を3に設定
@@ -76,12 +76,23 @@ class GenerateArticleRequest(BaseModel):
         description="オートモード時に候補を選ぶ戦略（first: 先頭固定, best_match: コンテキストに最も合うもの）"
     )
 
+    def primary_target_age_group(self) -> Optional[AgeGroup]:
+        return self.target_age_groups[0] if self.target_age_groups else None
+
+    def primary_persona_type(self) -> Optional[PersonaType]:
+        for item in self.persona_types:
+            try:
+                return PersonaType(item)
+            except ValueError:
+                continue
+        return None
+
     class Config:
         json_schema_extra = {
             "example": {
                 "initial_keywords": ["札幌", "注文住宅", "自然素材", "子育て"],
-                "target_age_group": AgeGroup.THIRTIES,
-                "persona_type": PersonaType.HOUSEWIFE,
+                "target_age_groups": [AgeGroup.THIRTIES],
+                "persona_types": ["主婦"],
                 "custom_persona": "札幌近郊で自然素材を使った家づくりに関心がある、小さな子供を持つ30代夫婦",
                 "target_length": 3000,
                 "num_theme_proposals": 3,

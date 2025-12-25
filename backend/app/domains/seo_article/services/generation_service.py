@@ -16,6 +16,7 @@ from typing import Dict, Any, Optional, List
 from datetime import datetime, timezone
 
 from app.core.config import settings
+from app.domains.seo_article.schemas import AgeGroup, PersonaType
 
 # DEPRECATED: WebSocket functionality replaced by Supabase Realtime
 # from ._websocket_handler_deprecated import WebSocketHandler
@@ -167,12 +168,37 @@ class ArticleGenerationService:
             if outline_top_level not in (2, 3):
                 outline_top_level = 2
 
+            raw_target_age_groups = request_dict.get("target_age_groups") or []
+            target_age_groups: List[AgeGroup] = []
+            for value in raw_target_age_groups:
+                if isinstance(value, AgeGroup):
+                    target_age_groups.append(value)
+                    continue
+                try:
+                    target_age_groups.append(AgeGroup(value))
+                except Exception:
+                    continue
+            legacy_target_age = request_dict.get("target_age_group")
+            if not target_age_groups and legacy_target_age:
+                try:
+                    target_age_groups.append(AgeGroup(legacy_target_age))
+                except Exception:
+                    pass
+
+            persona_types = [str(item) for item in (request_dict.get("persona_types") or []) if item]
+            legacy_persona_type = request_dict.get("persona_type")
+            if legacy_persona_type and not persona_types:
+                if isinstance(legacy_persona_type, PersonaType):
+                    persona_types.append(legacy_persona_type.value)
+                else:
+                    persona_types.append(str(legacy_persona_type))
+
             # Create ArticleContext from request
             logger.info("🧠 [CREATE_PROCESS] Creating ArticleContext")
             context = ArticleContext(
                 initial_keywords=request_dict.get("initial_keywords", []),
-                target_age_group=request_dict.get("target_age_group"),
-                persona_type=request_dict.get("persona_type"),
+                target_age_groups=target_age_groups,
+                persona_types=persona_types,
                 custom_persona=request_dict.get("custom_persona"),
                 target_length=request_dict.get("target_length"),
                 num_theme_proposals=request_dict.get("num_theme_proposals", 3),

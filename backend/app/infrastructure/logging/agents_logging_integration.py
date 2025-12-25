@@ -43,6 +43,10 @@ class MultiAgentWorkflowLogger:
             return self.session_id
         
         try:
+            target_age_groups = self.initial_config.get("target_age_groups", [])
+            primary_age_group = self.initial_config.get("target_age_group")
+            if not primary_age_group and target_age_groups:
+                primary_age_group = target_age_groups[0]
             self.session_id = self.logging_service.create_log_session(
                 article_uuid=self.article_uuid,
                 user_id=self.user_id,
@@ -52,7 +56,8 @@ class MultiAgentWorkflowLogger:
                 image_mode_enabled=self.initial_config.get("image_mode_enabled", False),
                 article_style_info=self.initial_config.get("article_style_info", {}),
                 generation_theme_count=self.initial_config.get("generation_theme_count", 1),
-                target_age_group=self.initial_config.get("target_age_group"),
+                target_age_group=primary_age_group,
+                target_age_groups=target_age_groups,
                 persona_settings=self.initial_config.get("persona_settings", {}),
                 company_info=self.initial_config.get("company_info", {}),
                 session_metadata={"workflow_type": "seo_article_generation"}

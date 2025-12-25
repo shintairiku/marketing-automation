@@ -103,8 +103,8 @@ class GeneratedArticleStateRead(BaseModel):
 class FlowExecutionRequest(BaseModel):
     flow_id: str
     initial_keywords: List[str]
-    target_age_group: Optional[str] = None
-    persona_type: Optional[str] = None
+    target_age_groups: List[str] = Field(default_factory=list)
+    persona_types: List[str] = Field(default_factory=list)
     custom_persona: Optional[str] = None
     target_length: Optional[int] = None
     company_name: Optional[str] = None
@@ -477,8 +477,8 @@ class ArticleFlowService:
         """Create initial ArticleContext from request"""
         context_dict = {
             "initial_keywords": request.initial_keywords,
-            "target_age_group": request.target_age_group,
-            "persona_type": request.persona_type,
+            "target_age_groups": request.target_age_groups,
+            "persona_types": request.persona_types,
             "custom_persona": request.custom_persona,
             "target_length": request.target_length,
             "company_name": request.company_name,

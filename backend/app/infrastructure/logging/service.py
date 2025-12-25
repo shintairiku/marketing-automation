@@ -24,6 +24,7 @@ class LoggingService:
         article_style_info: Optional[Dict[str, Any]] = None,
         generation_theme_count: int = 1,
         target_age_group: Optional[str] = None,
+        target_age_groups: Optional[List[str]] = None,
         persona_settings: Optional[Dict[str, Any]] = None,
         company_info: Optional[Dict[str, Any]] = None,
         session_metadata: Optional[Dict[str, Any]] = None
@@ -46,6 +47,10 @@ class LoggingService:
                 "session_metadata": session_metadata or {},
                 "status": "started"
             }
+            if target_age_groups:
+                metadata = session_data["session_metadata"].copy()
+                metadata.setdefault("audience_preferences", {})["target_age_groups"] = target_age_groups
+                session_data["session_metadata"] = metadata
             
             logger.info(f"Inserting session data: {session_data}")
             result = supabase.table("agent_log_sessions").insert(session_data).execute()
