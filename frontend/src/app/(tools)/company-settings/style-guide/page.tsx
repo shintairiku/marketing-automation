@@ -7,6 +7,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -52,12 +53,24 @@ export default function StyleGuideSettingsPage() {
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingTemplate, setEditingTemplate] = useState<StyleTemplate | null>(null);
+  const [autoWebsiteUrl, setAutoWebsiteUrl] = useState("");
+  const [selectedFields, setSelectedFields] = useState<string[]>([]);
+  const [isAutoGenerating, setIsAutoGenerating] = useState(false);
   const [formData, setFormData] = useState({
     name: "",
     description: "",
     template_type: "custom",
     settings: DEFAULT_SETTINGS
   });
+
+  const autoFillFields = [
+    { key: "tone", label: "トーン・調子" },
+    { key: "style", label: "文体" },
+    { key: "approach", label: "アプローチ・方針" },
+    { key: "vocabulary", label: "語彙・表現の指針" },
+    { key: "structure", label: "記事構成の指針" },
+    { key: "special_instructions", label: "特別な指示" },
+  ] as const;
 
   const fetchTemplates = useCallback(async () => {
     try {
@@ -252,6 +265,8 @@ export default function StyleGuideSettingsPage() {
       template_type: template.template_type,
       settings: { ...DEFAULT_SETTINGS, ...template.settings }
     });
+    setAutoWebsiteUrl("");
+    setSelectedFields([]);
     setEditingTemplate(template);
     setDialogOpen(true);
   };
@@ -263,6 +278,122 @@ export default function StyleGuideSettingsPage() {
       template_type: "custom",
       settings: DEFAULT_SETTINGS
     });
+    setAutoWebsiteUrl("");
+    setSelectedFields([]);
+  };
+
+  const toggleField = (fieldKey: string, checked: boolean) => {
+    setSelectedFields(prev => {
+      if (checked) {
+        return prev.includes(fieldKey) ? prev : [...prev, fieldKey];
+      }
+      return prev.filter(key => key !== fieldKey);
+    });
+  };
+
+  const selectAllFields = () => {
+    setSelectedFields(autoFillFields.map(field => field.key));
+  };
+
+  const clearAllFields = () => {
+    setSelectedFields([]);
+  };
+
+  const runAutoGenerate = async () => {
+    if (!autoWebsiteUrl) {
+      toast({
+        title: "エラー",
+        description: "企業HP URLを入力してください",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    try {
+      new URL(autoWebsiteUrl);
+    } catch {
+      toast({
+        title: "エラー",
+        description: "有効なURL形式を入力してください（例: https://example.com）",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (selectedFields.length === 0) {
+      toast({
+        title: "エラー",
+        description: "自動入力したい項目を選択してください",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    try {
+      setIsAutoGenerating(true);
+      if (process.env.NODE_ENV !== "production") {
+        console.info("Style auto-generate request payload:", {
+          website_url: autoWebsiteUrl,
+          fields: selectedFields,
+        });
+      }
+
+      const response = await fetch('/api/style-templates/auto-generate', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          website_url: autoWebsiteUrl,
+          fields: selectedFields,
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.detail || errorData.error || '自動入力に失敗しました');
+      }
+
+      const generated = await response.json();
+      const payload = (generated && typeof generated === "object" && "data" in generated)
+        ? (generated as { data?: Record<string, unknown> }).data
+        : generated;
+
+      setFormData(prev => {
+        const nextSettings = { ...prev.settings } as Record<string, string>;
+        selectedFields.forEach(field => {
+          if (payload && Object.prototype.hasOwnProperty.call(payload, field)) {
+            const value = (payload as Record<string, unknown>)[field];
+            const normalized =
+              value == null
+                ? ""
+                : typeof value === "string"
+                  ? value
+                  : Array.isArray(value)
+                    ? value.join(", ")
+                    : String(value);
+            nextSettings[field] = normalized;
+          }
+        });
+        return {
+          ...prev,
+          settings: nextSettings,
+        };
+      });
+
+      toast({
+        title: "成功",
+        description: "自動入力が完了しました",
+      });
+    } catch (error) {
+      toast({
+        title: "エラー",
+        description: error instanceof Error ? error.message : "自動入力に失敗しました",
+        variant: "destructive",
+      });
+    } finally {
+      setIsAutoGenerating(false);
+    }
   };
 
   const getTypeLabel = (type: string) => {
@@ -439,6 +570,62 @@ export default function StyleGuideSettingsPage() {
                 placeholder="このテンプレートの説明"
                 rows={2}
               />
+            </div>
+
+            <div className="space-y-3 rounded-lg border bg-muted/30 p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-sm font-semibold">AIで一括自動入力</p>
+                  <p className="text-xs text-muted-foreground">
+                    企業HPの内容から、選択した項目を上書き入力します。
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Button type="button" variant="outline" size="sm" onClick={selectAllFields}>
+                    全選択
+                  </Button>
+                  <Button type="button" variant="outline" size="sm" onClick={clearAllFields}>
+                    選択解除
+                  </Button>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="auto_website_url">企業HP URL</Label>
+                <Input
+                  id="auto_website_url"
+                  value={autoWebsiteUrl}
+                  onChange={(e) => setAutoWebsiteUrl(e.target.value)}
+                  placeholder="https://example.com"
+                />
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                {autoFillFields.map(field => (
+                  <label key={field.key} className="flex items-center gap-2 text-sm">
+                    <Checkbox
+                      checked={selectedFields.includes(field.key)}
+                      onCheckedChange={(checked) => toggleField(field.key, checked === true)}
+                    />
+                    {field.label}
+                  </label>
+                ))}
+              </div>
+
+              <div className="flex items-center justify-between gap-4">
+                <p className="text-xs text-muted-foreground">
+                  {selectedFields.length === 0
+                    ? "項目を選択してください"
+                    : `${selectedFields.length}項目を選択中`}
+                </p>
+                <Button
+                  type="button"
+                  onClick={runAutoGenerate}
+                  disabled={isAutoGenerating || selectedFields.length === 0 || !autoWebsiteUrl}
+                >
+                  {isAutoGenerating ? '生成中...' : '一括自動入力（上書き）'}
+                </Button>
+              </div>
             </div>
             
             <div className="grid grid-cols-2 gap-4">
