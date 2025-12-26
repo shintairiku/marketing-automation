@@ -1122,9 +1122,12 @@ PERSONA_GENERATOR_AGENT_BASE_PROMPT = """
 def create_persona_generator_instructions(base_prompt: str) -> Callable[[RunContextWrapper[ArticleContext], Agent[ArticleContext]], Awaitable[str]]:
     async def dynamic_instructions_func(ctx: RunContextWrapper[ArticleContext], agent: Agent[ArticleContext]) -> str:
         # 初期入力からのペルソナ情報の組み立て (これは大まかな指定)
-        if ctx.context.persona_type == PersonaType.OTHER and ctx.context.custom_persona:
+        persona_types = getattr(ctx.context, "persona_types", None) or ([ctx.context.persona_type] if ctx.context.persona_type else [])
+        target_age_groups = getattr(ctx.context, "target_age_groups", None) or ([ctx.context.target_age_group] if ctx.context.target_age_group else [])
+
+        if PersonaType.OTHER in persona_types and ctx.context.custom_persona:
             pass
-        elif ctx.context.target_age_group and ctx.context.persona_type:
+        elif target_age_groups and persona_types:
             pass
         elif ctx.context.custom_persona: # 移行措置
             pass
@@ -1166,13 +1169,37 @@ def create_persona_generator_instructions(base_prompt: str) -> Callable[[RunCont
 {build_enhanced_company_context(ctx.context)}
 """
 
+        def _format_enum_values(value, fallback_single=None):
+            """Enum/文字列/リストを安全に文字列化（ネストをすべて平坦化）"""
+            candidates: Any = value if value not in (None, [], ()) else fallback_single
+            if candidates is None:
+                return "指定なし"
+
+            def flatten(items):
+                for item in items:
+                    if isinstance(item, (list, tuple, set)):
+                        yield from flatten(item)
+                    else:
+                        yield item
+
+            if not isinstance(candidates, (list, tuple, set)):
+                candidates = [candidates]
+
+            formatted: List[str] = []
+            for v in flatten(candidates):
+                try:
+                    formatted.append(v.value if hasattr(v, "value") else str(v))
+                except Exception:
+                    formatted.append(str(v))
+            return ", ".join(formatted) if formatted else "指定なし"
+
         full_prompt = f"""{base_prompt}
 
 --- 入力情報 ---
 SEOキーワード: {', '.join(ctx.context.initial_keywords)}
-ターゲット年代: {ctx.context.target_age_group.value if ctx.context.target_age_group else '指定なし'}
-ペルソナ属性（大分類）: {ctx.context.persona_type.value if ctx.context.persona_type else '指定なし'}
-（上記属性が「その他」の場合のユーザー指定ペルソナ: {ctx.context.custom_persona if ctx.context.persona_type == PersonaType.OTHER else '該当なし'}）
+ターゲット年代: {_format_enum_values(target_age_groups, ctx.context.target_age_group)}
+ペルソナ属性（大分類）: {_format_enum_values(persona_types, ctx.context.persona_type)}
+（上記属性が「その他」の場合のユーザー指定ペルソナ: {ctx.context.custom_persona if PersonaType.OTHER in persona_types else '該当なし'}）
 生成する具体的なペルソナの数: {ctx.context.num_persona_examples}
         {serp_analysis_block}
         {company_info_block}

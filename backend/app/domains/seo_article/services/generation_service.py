@@ -167,12 +167,23 @@ class ArticleGenerationService:
             if outline_top_level not in (2, 3):
                 outline_top_level = 2
 
+            # Normalize multi-select fields (keep primary for backward compatibility)
+            raw_age_groups = request_dict.get("target_age_group") or []
+            age_groups = raw_age_groups if isinstance(raw_age_groups, list) else [raw_age_groups]
+            primary_age_group = age_groups[0] if age_groups else None
+
+            raw_persona_types = request_dict.get("persona_type") or []
+            persona_types = raw_persona_types if isinstance(raw_persona_types, list) else [raw_persona_types]
+            primary_persona_type = persona_types[0] if persona_types else None
+
             # Create ArticleContext from request
             logger.info("🧠 [CREATE_PROCESS] Creating ArticleContext")
             context = ArticleContext(
                 initial_keywords=request_dict.get("initial_keywords", []),
-                target_age_group=request_dict.get("target_age_group"),
-                persona_type=request_dict.get("persona_type"),
+                target_age_group=primary_age_group,
+                target_age_groups=age_groups,
+                persona_type=primary_persona_type,
+                persona_types=persona_types,
                 custom_persona=request_dict.get("custom_persona"),
                 target_length=request_dict.get("target_length"),
                 num_theme_proposals=request_dict.get("num_theme_proposals", 3),

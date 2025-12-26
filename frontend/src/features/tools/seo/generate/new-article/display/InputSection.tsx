@@ -139,10 +139,6 @@ export default function InputSection({ onStartGeneration, isConnected, isGenerat
             return;
         }
 
-        if (targetAgeGroups.length === 0) {
-            alert('ターゲット年代層を選択してください');
-            return;
-        }
 
         // ペルソナ設定の処理
         const companyPersonaSelected =
@@ -152,7 +148,6 @@ export default function InputSection({ onStartGeneration, isConnected, isGenerat
         );
         const includesOtherPersona = selectedPersonaTypes.includes('その他');
 
-        let effectivePersonaType: string | null = primaryPersonaCandidates[0] || null;
         let effectiveCustomPersona = customPersona.trim() ? customPersona.trim() : null;
 
         if (companyPersonaSelected) {
@@ -161,19 +156,18 @@ export default function InputSection({ onStartGeneration, isConnected, isGenerat
               .join('\n\n') || companyPersonaSelected;
         }
 
-        if (!effectivePersonaType && (includesOtherPersona || companyPersonaSelected)) {
-            effectivePersonaType = 'その他';
-        }
+        const personaTypesPayload =
+          primaryPersonaCandidates.length > 0
+            ? primaryPersonaCandidates
+            : (includesOtherPersona || companyPersonaSelected ? ['その他'] : []);
 
         const requestData = {
             initial_keywords: seoKeywords,
-            target_age_group: targetAgeGroups[0],
-            target_age_groups: targetAgeGroups,
+            target_age_group: targetAgeGroups,
             num_theme_proposals: themeCount,
             num_research_queries: researchQueries,
             num_persona_examples: personaExamples,
-            persona_type: effectivePersonaType || null,
-            persona_types: selectedPersonaTypes,
+            persona_type: personaTypesPayload,
             custom_persona: effectiveCustomPersona || null,
             target_length: targetLength,
             // 会社情報をデフォルト会社から自動設定
@@ -876,7 +870,7 @@ export default function InputSection({ onStartGeneration, isConnected, isGenerat
         <div className="mt-auto flex justify-center">
           <Button
             onClick={handleStartGeneration}
-            disabled={!isConnected || isGenerating || seoKeywords.length === 0 || targetAgeGroups.length === 0}
+            disabled={!isConnected || isGenerating || seoKeywords.length === 0}
             className="w-full max-w-md"
             size="lg"
           >

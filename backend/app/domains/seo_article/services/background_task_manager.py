@@ -959,9 +959,9 @@ class BackgroundTaskManager:
 
         # persona metadata
         if getattr(context, "persona_type", None):
-            _add_tokens(str(context.persona_type))
+            _add_tokens(str(context.persona_types))
         if getattr(context, "target_age_group", None):
-            _add_tokens(str(context.target_age_group))
+            _add_tokens(str(context.target_age_groups))
 
         if include_serp:
             report = getattr(context, "serp_analysis_report", None)

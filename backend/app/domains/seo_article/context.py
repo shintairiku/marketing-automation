@@ -19,8 +19,11 @@ class ArticleContext:
     """記事生成プロセス全体で共有されるコンテキスト (WebSocket対応)"""
     # --- ユーザー/API入力 ---
     initial_keywords: List[str] = field(default_factory=list)
-    target_age_group: Optional[AgeGroup] = None # 追加
-    persona_type: Optional[PersonaType] = None # 追加
+    # 代表値（後方互換用）と複数指定の両方を保持
+    target_age_group: Optional[AgeGroup] = None
+    target_age_groups: List[AgeGroup] = field(default_factory=list)
+    persona_type: Optional[PersonaType] = None
+    persona_types: List[PersonaType] = field(default_factory=list)
     custom_persona: Optional[str] = None # 追加 (target_persona の代わり)
     target_length: Optional[int] = None # 目標文字数
     num_theme_proposals: int = 3
@@ -142,6 +145,20 @@ class ArticleContext:
     enable_final_editing: bool = False  # 最終編集エージェントを実行するか
 
     # --- 以下、既存のメソッド ---
+    def __post_init__(self):
+        # target_age_group / persona_type を代表値＋配列の両方に正規化
+        if isinstance(self.target_age_group, list):
+            self.target_age_groups = [v for v in self.target_age_group if v is not None]
+            self.target_age_group = self.target_age_groups[0] if self.target_age_groups else None
+        elif self.target_age_group and not self.target_age_groups:
+            self.target_age_groups = [self.target_age_group]
+
+        if isinstance(self.persona_type, list):
+            self.persona_types = [v for v in self.persona_type if v is not None]
+            self.persona_type = self.persona_types[0] if self.persona_types else None
+        elif self.persona_type and not self.persona_types:
+            self.persona_types = [self.persona_type]
+
     def get_full_draft(self) -> str:
         return "\n".join(self.generated_sections_html)
 
