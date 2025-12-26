@@ -4,6 +4,8 @@ from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any
 from app.common.database import supabase
 from app.common.auth import get_current_user_id_from_token
+from app.domains.style_template.schemas import AutoStyleTemplateRequest, AutoStyleTemplateResponse
+from app.domains.style_template.service import StyleTemplateService
 import logging
 import uuid
 
@@ -41,6 +43,15 @@ class StyleTemplateResponse(BaseModel):
     is_default: bool
     created_at: str
     updated_at: str
+
+
+@router.post("/auto-generate", response_model=AutoStyleTemplateResponse)
+async def auto_generate_style_template(
+    request: AutoStyleTemplateRequest,
+    user_id: str = Depends(get_current_user_id_from_token),
+):
+    """スタイルテンプレートの自動入力"""
+    return await StyleTemplateService.auto_generate_style_template(request, user_id)
 
 @router.get("", response_model=List[StyleTemplateResponse])
 @router.get("/", response_model=List[StyleTemplateResponse])
