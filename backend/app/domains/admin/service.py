@@ -35,12 +35,12 @@ class AdminService:
                     if primary_email:
                         email = primary_email.get("email_address")
                 
-                # Extract full name
+                # Extract full name (Japanese format: Last Name + First Name)
                 full_name = None
                 first_name = clerk_user.get("first_name")
                 last_name = clerk_user.get("last_name")
                 if first_name or last_name:
-                    full_name = f"{first_name or ''} {last_name or ''}".strip()
+                    full_name = f"{last_name or ''} {first_name or ''}".strip()
                 
                 # Extract created_at timestamp
                 created_at = None
