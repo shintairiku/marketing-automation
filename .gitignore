@@ -29,6 +29,7 @@ yarn-error.log*
 # local env files
 .env*.local
 .env
+.env.test
 # vercel
 .vercel
 
@@ -60,3 +61,8 @@ backend/marketing-automation-461305-f4cb0b7367b7.json
 backend/docs/Screenshot_20250727_234517_X.jpg
 
 backend/tests/text-edit-agent/test.html
+
+#test
+test-results/
+playwright/
+playwright-report/
