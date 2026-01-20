@@ -3,12 +3,11 @@
 Admin domain API endpoints
 """
 from fastapi import APIRouter, Depends
-from typing import List
 import logging
 
 from app.common.admin_auth import get_admin_user_email_from_token
 from app.domains.admin.service import admin_service
-from app.domains.admin.schemas import UserRead, UserListResponse
+from app.domains.admin.schemas import UserListResponse
 
 logger = logging.getLogger(__name__)
 

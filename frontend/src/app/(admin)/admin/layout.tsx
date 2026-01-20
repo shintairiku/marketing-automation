@@ -1,12 +1,12 @@
 'use client';
 
-import { PropsWithChildren, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import { Home, Users } from 'lucide-react';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
-import { Users, Home } from 'lucide-react';
-import { useUser } from '@clerk/nextjs';
+import { usePathname, useRouter } from 'next/navigation';
+import { PropsWithChildren, useEffect } from 'react';
+
 import { cn } from '@/utils/cn';
+import { useUser } from '@clerk/nextjs';
 
 const ADMIN_EMAIL_DOMAIN = '@shintairiku.jp';
 

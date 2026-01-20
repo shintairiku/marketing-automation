@@ -132,7 +132,7 @@ async def get_admin_user_email_from_token(
     
     try:
         token = authorization.credentials
-        logger.info(f"🔒 [ADMIN_AUTH] Processing JWT token for admin check")
+        logger.info("🔒 [ADMIN_AUTH] Processing JWT token for admin check")
         
         # Decode the JWT token without verification for now (for development)
         # In production, you should verify the token with Clerk's public key
