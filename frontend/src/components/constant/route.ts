@@ -34,13 +34,8 @@ export const groups: Group[] = [
           {
             title: 'ホーム',
             links: [
-              { href: '/dashboard', label: 'ダッシュボード' },
-            ],
-          },
-          {
-            title: 'コンテンツ管理',
-            links: [
-              { href: '/seo/manage/list', label: '生成コンテンツ一覧' },
+              // { href: '/dashboard', label: 'ダッシュボード' },
+              { href: '/seo/manage/list', label: 'ダッシュボード' }
             ],
           },
         ],
@@ -60,19 +55,19 @@ export const groups: Group[] = [
             links: [
               { href: '/seo/generate/new-article',     label: '新規SEO記事生成' },
             ],
-          },
-          {
-            title: '記事管理',
-            links: [
-              { href: '/seo/manage/list',     label: '記事管理' },
-            ],
-          },
-          {
-            title: '効果測定',
-            links: [
-              { href: '/seo/analyze/dashboard',      label: 'ダッシュボード' },
-            ],
-          },
+          }
+          // {
+          //   title: '記事管理',
+          //   links: [
+          //     { href: '/seo/manage/list',     label: '記事管理' },
+          //   ],
+          // },
+          // {
+          //   title: '効果測定',
+          //   links: [
+          //     { href: '/seo/analyze/dashboard',      label: 'ダッシュボード' },
+          //   ],
+          // },
         ],
       },
     ],

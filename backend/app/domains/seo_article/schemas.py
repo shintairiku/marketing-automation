@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-from pydantic import BaseModel, Field, ConfigDict
+from pydantic import BaseModel, Field, ConfigDict, field_validator
 from typing import List, Optional, Dict, Any, Union, Literal
 from enum import Enum
 from app.common.schemas import BasePayload
@@ -27,8 +27,8 @@ class PersonaType(str, Enum):
 class GenerateArticleRequest(BaseModel):
     """記事生成APIリクエストモデル"""
     initial_keywords: List[str] = Field(..., description="記事生成の元となるキーワードリスト", examples=[["札幌", "注文住宅", "自然素材", "子育て"]])
-    target_age_group: Optional[AgeGroup] = Field(None, description="ターゲット年代層")
-    persona_type: Optional[PersonaType] = Field(None, description="ペルソナ属性")
+    target_age_group: Optional[List[AgeGroup]] = Field(None, description="ターゲット年代層")
+    persona_type: Optional[List[PersonaType]] = Field(None, description="ペルソナ属性")
     custom_persona: Optional[str] = Field(None, description="独自に設定したペルソナ（persona_typeがOTHERの場合に利用）", examples=["札幌近郊で自然素材を使った家づくりに関心がある、小さな子供を持つ30代夫婦"])
     target_length: Optional[int] = Field(None, description="目標文字数（目安）", examples=[3000])
     num_theme_proposals: int = Field(3, description="生成するテーマ案の数", ge=1)
@@ -76,12 +76,20 @@ class GenerateArticleRequest(BaseModel):
         description="オートモード時に候補を選ぶ戦略（first: 先頭固定, best_match: コンテキストに最も合うもの）"
     )
 
+    @field_validator("target_age_group", "persona_type", mode="before")
+    @classmethod
+    def _coerce_to_list(cls, v):
+        """単一指定との後方互換のため、リスト以外はリストに包む"""
+        if v is None:
+            return None
+        return v if isinstance(v, list) else [v]
+
     class Config:
         json_schema_extra = {
             "example": {
                 "initial_keywords": ["札幌", "注文住宅", "自然素材", "子育て"],
-                "target_age_group": AgeGroup.THIRTIES,
-                "persona_type": PersonaType.HOUSEWIFE,
+                "target_age_group": [AgeGroup.THIRTIES],
+                "persona_type": [PersonaType.HOUSEWIFE],
                 "custom_persona": "札幌近郊で自然素材を使った家づくりに関心がある、小さな子供を持つ30代夫婦",
                 "target_length": 3000,
                 "num_theme_proposals": 3,

@@ -305,7 +305,42 @@ class GenerationFlowManager:
     async def handle_persona_generating_step(self, context: ArticleContext, run_config: RunConfig, process_id: Optional[str] = None, user_id: Optional[str] = None):
         """ペルソナ生成ステップの処理"""
         current_agent = persona_generator_agent
-        agent_input = f"キーワード: {context.initial_keywords}, 年代: {context.target_age_group}, 属性: {context.persona_type}, 独自ペルソナ: {context.custom_persona}, 生成数: {context.num_persona_examples}"
+
+        def _format_enum_or_list(values: Any, fallback_single: Any = None) -> str:
+            """Enum/リスト/ネストを平坦化して文字列化"""
+            candidates: Any = values if values not in (None, [], ()) else fallback_single
+            if candidates is None:
+                return "指定なし"
+            if not isinstance(candidates, (list, tuple, set)):
+                candidates = [candidates]
+
+            def flatten(items):
+                for item in items:
+                    if isinstance(item, (list, tuple, set)):
+                        yield from flatten(item)
+                    else:
+                        yield item
+
+            flattened = []
+            for v in flatten(candidates):
+                try:
+                    flattened.append(v.value if hasattr(v, "value") else str(v))
+                except Exception:
+                    flattened.append(str(v))
+            return ", ".join(flattened) if flattened else "指定なし"
+
+        age_groups_display = _format_enum_or_list(getattr(context, "target_age_groups", None), getattr(context, "target_age_group", None))
+        persona_types_display = _format_enum_or_list(getattr(context, "persona_types", None), getattr(context, "persona_type", None))
+        custom_persona_display = context.custom_persona or "なし"
+        keywords_display = ", ".join(context.initial_keywords)
+
+        agent_input = (
+            f"キーワード: {keywords_display}\n"
+            f"ターゲット年代: {age_groups_display}\n"
+            f"属性: {persona_types_display}\n"
+            f"独自ペルソナ: {custom_persona_display}\n"
+            f"生成数: {context.num_persona_examples}"
+        )
         console.print(f"🤖 {current_agent.name} に具体的なペルソナ生成を依頼します...")
         agent_output = await self.run_agent(current_agent, agent_input, context, run_config)
 
@@ -1213,20 +1248,38 @@ class GenerationFlowManager:
 
     def build_initial_config(self, context: ArticleContext) -> Dict[str, Any]:
         """ワークフローロガー用の初期設定を構築"""
+        def enum_or_list_to_values(value, fallback_single=None):
+            """Enum/文字列/リスト/ネストを平坦化して値リストに変換"""
+            candidates: Any = value if value not in (None, [], ()) else fallback_single
+            if candidates is None:
+                return None
+
+            def flatten(items):
+                for item in items:
+                    if isinstance(item, (list, tuple, set)):
+                        yield from flatten(item)
+                    else:
+                        yield item
+
+            if not isinstance(candidates, (list, tuple, set)):
+                candidates = [candidates]
+
+            return [v.value if hasattr(v, "value") else v for v in flatten(candidates)]
+
         return {
             "initial_input": {
                 "keywords": getattr(context, 'initial_keywords', []),
-                "persona_type": context.persona_type.value if hasattr(context, 'persona_type') and context.persona_type else None,
-                "target_age_group": context.target_age_group.value if hasattr(context, 'target_age_group') and context.target_age_group else None,
+                "persona_type": enum_or_list_to_values(getattr(context, 'persona_types', None), getattr(context, 'persona_type', None)),
+                "target_age_group": enum_or_list_to_values(getattr(context, 'target_age_groups', None), getattr(context, 'target_age_group', None)),
                 "custom_persona": getattr(context, 'custom_persona', "")
             },
             "seo_keywords": getattr(context, 'initial_keywords', []),
             "image_mode_enabled": getattr(context, 'image_mode', False),
             "article_style_info": getattr(context, 'style_template_settings', {}),
             "generation_theme_count": getattr(context, 'num_theme_proposals', 3),
-            "target_age_group": context.target_age_group.value if hasattr(context, 'target_age_group') and context.target_age_group else None,
+            "target_age_group": enum_or_list_to_values(getattr(context, 'target_age_groups', None), getattr(context, 'target_age_group', None)),
             "persona_settings": {
-                "persona_type": context.persona_type.value if hasattr(context, 'persona_type') and context.persona_type else None,
+                "persona_type": enum_or_list_to_values(getattr(context, 'persona_types', None), getattr(context, 'persona_type', None)),
                 "custom_persona": getattr(context, 'custom_persona', ""),
                 "num_persona_examples": getattr(context, 'num_persona_examples', 3)
             },
@@ -1317,6 +1370,15 @@ class GenerationFlowManager:
             try:
                 console.print(f"[green]Creating workflow logger for process {process_id} with user_id {user_id}[/green]")
                 console.print(f"[debug]Creating workflow logger for new process {process_id}[/debug]")
+                def enum_or_list_to_values(value, fallback_single=None):
+                    if value is None and fallback_single is not None:
+                        value = fallback_single
+                    if value is None:
+                        return None
+                    if isinstance(value, list):
+                        return [v.value if hasattr(v, "value") else v for v in value]
+                    return [value.value if hasattr(value, "value") else value]
+
                 workflow_logger = MultiAgentWorkflowLogger(
                     article_uuid=process_id,
                     user_id=user_id,
@@ -1327,9 +1389,9 @@ class GenerationFlowManager:
                         "image_mode_enabled": request.image_mode,
                         "article_style_info": getattr(context, 'style_template_settings', {}),
                         "generation_theme_count": request.num_theme_proposals,
-                        "target_age_group": request.target_age_group.value if request.target_age_group else None,
+                        "target_age_group": enum_or_list_to_values(request.target_age_group, getattr(context, 'target_age_group', None)),
                         "persona_settings": {
-                            "persona_type": request.persona_type.value if request.persona_type else None,
+                            "persona_type": enum_or_list_to_values(request.persona_type, getattr(context, 'persona_type', None)),
                             "custom_persona": request.custom_persona,
                             "num_persona_examples": request.num_persona_examples
                         },
@@ -3440,7 +3502,7 @@ class GenerationFlowManager:
             
             # Execute persona generation without WebSocket interaction
             current_agent = persona_generator_agent
-            agent_input = f"キーワード: {context.initial_keywords}, 年代: {context.target_age_group}, 属性: {context.persona_type}, 独自ペルソナ: {context.custom_persona}, 生成数: {context.num_persona_examples}"
+            agent_input = f"キーワード: {context.initial_keywords}, 年代: {context.target_age_groups}, 属性: {context.persona_types}, 独自ペルソナ: {context.custom_persona}, 生成数: {context.num_persona_examples}"
             logger.info("PersonaGeneratorAgent に具体的なペルソナ生成を依頼します...")
             
             agent_output = await self.run_agent(current_agent, agent_input, context, run_config)

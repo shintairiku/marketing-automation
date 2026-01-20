@@ -7,12 +7,12 @@ export default function ExplainDialog() {
     return (
         <div className="mb-6 flex justify-center">
             <Dialog>
-            <DialogTrigger asChild>
+            {/* <DialogTrigger asChild>
                 <Button variant="outline">
                 <IoInformationCircle className="w-4 h-4 mr-2" />
                 説明動画
                 </Button>
-            </DialogTrigger>
+            </DialogTrigger> */}
             <DialogContent>
                 <DialogHeader>
                 <DialogTitle>SEOタイトル生成の使い方説明動画</DialogTitle>

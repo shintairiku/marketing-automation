@@ -69,7 +69,7 @@ export default function NewArticleStartPage() {
                 animate={{ opacity: 1, y: 0 }}
                 className="text-center space-y-4"
             >
-                <h1 className="text-3xl font-bold text-gray-900">
+                <h1 className="text-3xl font-bold text-gray-900 font-sans">
                     新規SEO記事作成
                 </h1>
                 <p className="text-lg text-gray-600">

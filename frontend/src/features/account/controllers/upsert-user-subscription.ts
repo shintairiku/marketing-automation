@@ -6,7 +6,7 @@ interface StripeSubscriptionWithPeriod extends Stripe.Subscription {
   current_period_end: number;
 }
 
-import { stripeAdmin } from '@/libs/stripe/stripe-admin';
+import { getStripeAdmin } from '@/libs/stripe/stripe-admin';
 import { supabaseAdminClient } from '@/libs/supabase/supabase-admin';
 import type { Database } from '@/libs/supabase/types';
 import { toDateTime } from '@/utils/to-date-time';
@@ -35,7 +35,7 @@ export async function upsertUserSubscription({
     // デバッグ用にログを追加
     console.log('Retrieving subscription with ID:', subscriptionId);
     
-    const subscription = await stripeAdmin.subscriptions.retrieve(subscriptionId, {
+    const subscription = await getStripeAdmin().subscriptions.retrieve(subscriptionId, {
       expand: ['default_payment_method'],
     }) as unknown as StripeSubscriptionWithPeriod;
   
@@ -115,7 +115,7 @@ const copyBillingDetailsToCustomer = async (userId: string, paymentMethod: Strip
   const { name, phone, address } = paymentMethod.billing_details;
   if (!name || !phone || !address) return;
 
-  await stripeAdmin.customers.update(customer, { name, phone, address: address as AddressParam });
+  await getStripeAdmin().customers.update(customer, { name, phone, address: address as AddressParam });
 
   const { error } = await supabaseAdminClient
     .from('users')

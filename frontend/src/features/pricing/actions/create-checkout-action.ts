@@ -4,7 +4,7 @@ import { redirect } from 'next/navigation';
 
 import { getOrCreateCustomer } from '@/features/account/controllers/get-or-create-customer';
 import { Price } from '@/features/pricing/types';
-import { stripeAdmin } from '@/libs/stripe/stripe-admin';
+import { getStripeAdmin } from '@/libs/stripe/stripe-admin';
 import { getURL } from '@/utils/get-url';
 import { auth } from '@clerk/nextjs/server';
 
@@ -30,7 +30,7 @@ export async function createCheckoutAction({ price }: { price: Price }) {
   });
 
   // 3. Create a checkout session in Stripe
-  const checkoutSession = await stripeAdmin.checkout.sessions.create({
+  const checkoutSession = await getStripeAdmin().checkout.sessions.create({
     payment_method_types: ['card'],
     billing_address_collection: 'required',
     customer,

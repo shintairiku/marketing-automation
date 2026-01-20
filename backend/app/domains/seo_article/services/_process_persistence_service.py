@@ -2,6 +2,7 @@
 import logging
 from typing import List, Dict, Any, Optional
 from rich.console import Console
+from enum import Enum
 
 # 内部モジュールのインポート
 from app.core.config import settings
@@ -25,24 +26,19 @@ class ProcessPersistenceService:
             supabase = get_supabase_client()
             
             def safe_serialize_value(value):
-                """Recursively serialize any object to JSON-serializable format"""
                 if value is None:
                     return None
-                elif isinstance(value, (str, int, float, bool)):
-                    return value
-                elif isinstance(value, list):
-                    return [safe_serialize_value(item) for item in value]
-                elif isinstance(value, dict):
+                if isinstance(value, Enum):
+                    return value.value               # ★ Enumは値で保存
+                if isinstance(value, list):
+                    return [safe_serialize_value(v) for v in value]
+                if isinstance(value, dict):
                     return {k: safe_serialize_value(v) for k, v in value.items()}
-                elif hasattr(value, "model_dump"):
-                    # Pydantic models
+                if hasattr(value, "model_dump"):
                     return value.model_dump()
-                elif hasattr(value, "__dict__"):
-                    # Regular objects with attributes
+                if hasattr(value, "__dict__"):
                     return {k: safe_serialize_value(v) for k, v in value.__dict__.items()}
-                else:
-                    # Fallback to string representation
-                    return str(value)
+                return value
             
             # Convert context to dict (excluding WebSocket and asyncio objects)
             context_dict = {}
@@ -239,22 +235,34 @@ class ProcessPersistenceService:
             def safe_convert_enum(value, enum_class):
                 if value is None:
                     return None
+                # 配列なら要素ごとに再帰変換
+                if isinstance(value, list):
+                    return [v for v in (safe_convert_enum(v, enum_class) for v in value) if v is not None]
+                # 既にEnumならそのまま
+                if isinstance(value, enum_class):
+                    return value
                 try:
                     if isinstance(value, str):
-                        # Try to find enum by value
-                        for enum_item in enum_class:
-                            if enum_item.value == value:
-                                return enum_item
-                        # If not found, try direct conversion
-                        return enum_class(value)
-                    return value  # Already an enum or valid type
-                except (ValueError, TypeError) as e:
-                    logger.warning(f"Failed to convert {value} to {enum_class.__name__}: {e}")
+                        # 値一致または名前一致で解決
+                        for item in enum_class:
+                            if item.value == value or item.name == value:
+                                return item
+                    return enum_class(value)
+                except Exception:
                     return None
             
-            # Convert enum fields back from strings
-            target_age_group = safe_convert_enum(context_dict.get("target_age_group"), AgeGroup)
-            persona_type = safe_convert_enum(context_dict.get("persona_type"), PersonaType)
+            def normalize_to_list(value):
+                if value is None:
+                    return []
+                if isinstance(value, list):
+                    return value
+                return [value]
+
+            # Convert enum fields back from strings and normalize to list
+            target_age_groups = normalize_to_list(safe_convert_enum(context_dict.get("target_age_groups"), AgeGroup))
+            persona_types = normalize_to_list(safe_convert_enum(context_dict.get("persona_types"), PersonaType))
+            primary_age_group = target_age_groups[0] if target_age_groups else None
+            primary_persona_type = persona_types[0] if persona_types else None
             
             # Reconstruct ArticleContext from stored data
             raw_outline_level = context_dict.get("outline_top_level_heading", 2)
@@ -267,8 +275,10 @@ class ProcessPersistenceService:
 
             context = ArticleContext(
                 initial_keywords=context_dict.get("initial_keywords", []),
-                target_age_group=target_age_group,
-                persona_type=persona_type,
+                target_age_group=primary_age_group,
+                target_age_groups=target_age_groups,
+                persona_type=primary_persona_type,
+                persona_types=persona_types,
                 custom_persona=context_dict.get("custom_persona"),
                 target_length=context_dict.get("target_length"),
                 num_theme_proposals=context_dict.get("num_theme_proposals", 3),
