@@ -163,7 +163,7 @@ export default function PricingPage() {
 
             <CardContent className="text-center pb-6">
               <div className="mb-6">
-                <span className="text-5xl font-bold">¥2,980</span>
+                <span className="text-5xl font-bold">¥29,800</span>
                 <span className="text-muted-foreground">/月</span>
               </div>
               <p className="text-sm text-muted-foreground mb-6">
