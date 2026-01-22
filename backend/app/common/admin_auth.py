@@ -98,6 +98,9 @@ async def get_user_email_from_clerk_api(user_id: str) -> str:
             logger.info(f"🔒 [ADMIN_AUTH] Retrieved email from Clerk API: {email}")
             return email
             
+    except HTTPException:
+        # HTTPExceptionはそのまま再送出
+        raise
     except httpx.HTTPStatusError as e:
         logger.error(f"🔒 [ADMIN_AUTH] Clerk API error: {e.response.status_code} - {e.response.text}")
         raise HTTPException(
@@ -140,7 +143,11 @@ async def get_admin_user_email_from_token(
         # 共通のJWT検証関数を使用（署名検証あり）
         decoded_token = verify_clerk_token(token)
 
-        logger.debug(f"🔒 [ADMIN_AUTH] Decoded JWT token keys: {list(decoded_token.keys())}")
+        # デバッグ: JWTの内容をログ出力
+        user_id_from_jwt = decoded_token.get("sub")
+        logger.info(f"🔒 [ADMIN_AUTH] JWT verified, user_id from 'sub': {user_id_from_jwt}")
+        logger.info(f"🔒 [ADMIN_AUTH] JWT claims: iss={decoded_token.get('iss')}, azp={decoded_token.get('azp')}")
+        logger.info(f"🔒 [ADMIN_AUTH] Decoded JWT token keys: {list(decoded_token.keys())}")
         
         # Extract user_id from token - Clerk JWT has 'sub' field
         user_id = decoded_token.get("sub")

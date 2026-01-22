@@ -170,7 +170,9 @@ def verify_clerk_token(token: str) -> dict:
             }
         )
 
-        logger.debug(f"🔒 [AUTH] Token verified successfully for user: {decoded.get('sub', 'unknown')}")
+        user_id = decoded.get('sub', 'unknown')
+        logger.info(f"🔒 [AUTH] Token verified successfully for user: {user_id}")
+        logger.info(f"🔒 [AUTH] JWT claims: iss={decoded.get('iss')}, azp={decoded.get('azp')}, exp={decoded.get('exp')}")
         return decoded
 
     except jwt.ExpiredSignatureError:
