@@ -187,6 +187,72 @@ export type Database = {
         }
         Relationships: []
       }
+      user_subscriptions: {
+        Row: {
+          user_id: string
+          stripe_customer_id: string | null
+          stripe_subscription_id: string | null
+          status: Database["public"]["Enums"]["user_subscription_status"]
+          current_period_end: string | null
+          cancel_at_period_end: boolean
+          is_privileged: boolean
+          email: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          user_id: string
+          stripe_customer_id?: string | null
+          stripe_subscription_id?: string | null
+          status?: Database["public"]["Enums"]["user_subscription_status"]
+          current_period_end?: string | null
+          cancel_at_period_end?: boolean
+          is_privileged?: boolean
+          email?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          user_id?: string
+          stripe_customer_id?: string | null
+          stripe_subscription_id?: string | null
+          status?: Database["public"]["Enums"]["user_subscription_status"]
+          current_period_end?: string | null
+          cancel_at_period_end?: boolean
+          is_privileged?: boolean
+          email?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      subscription_events: {
+        Row: {
+          id: string
+          user_id: string
+          event_type: string
+          stripe_event_id: string | null
+          event_data: Json | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          user_id: string
+          event_type: string
+          stripe_event_id?: string | null
+          event_data?: Json | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          user_id?: string
+          event_type?: string
+          stripe_event_id?: string | null
+          event_data?: Json | null
+          created_at?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
@@ -206,6 +272,12 @@ export type Database = {
         | "past_due"
         | "unpaid"
         | "paused"
+      user_subscription_status:
+        | "active"
+        | "past_due"
+        | "canceled"
+        | "expired"
+        | "none"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -332,6 +404,13 @@ export const Constants = {
         "past_due",
         "unpaid",
         "paused",
+      ],
+      user_subscription_status: [
+        "active",
+        "past_due",
+        "canceled",
+        "expired",
+        "none",
       ],
     },
   },
