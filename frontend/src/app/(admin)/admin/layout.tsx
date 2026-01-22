@@ -1,9 +1,9 @@
 'use client';
 
-import { Home, Users } from 'lucide-react';
+import { PropsWithChildren, useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { PropsWithChildren, useEffect } from 'react';
+import { Home, Users } from 'lucide-react';
 
 import { cn } from '@/utils/cn';
 import { useUser } from '@clerk/nextjs';
