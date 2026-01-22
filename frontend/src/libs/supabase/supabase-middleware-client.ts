@@ -1,9 +1,25 @@
 // Ref: https://supabase.com/docs/guides/auth/server-side/nextjs
 
-import { type NextRequest,NextResponse } from 'next/server';
+import { type NextRequest, NextResponse } from 'next/server';
 
 import { getEnvVar } from '@/utils/get-env-var';
 import { createServerClient } from '@supabase/ssr';
+
+type CookieOptions = {
+  domain?: string;
+  expires?: Date;
+  httpOnly?: boolean;
+  maxAge?: number;
+  path?: string;
+  sameSite?: 'lax' | 'strict' | 'none';
+  secure?: boolean;
+};
+
+type CookieToSet = {
+  name: string;
+  value: string;
+  options?: CookieOptions;
+};
 
 export async function updateSession(request: NextRequest) {
   let supabaseResponse = NextResponse.next({
@@ -18,8 +34,8 @@ export async function updateSession(request: NextRequest) {
         getAll() {
           return request.cookies.getAll();
         },
-        setAll(cookiesToSet) {
-          for (const { name, value, options } of cookiesToSet) {
+        setAll(cookiesToSet: CookieToSet[]) {
+          for (const { name, value } of cookiesToSet) {
             request.cookies.set(name, value);
           }
 
