@@ -32,6 +32,8 @@ class Settings(BaseSettings):
     # Clerk設定 (optional)
     clerk_secret_key: str = Field(default_factory=lambda: os.getenv("CLERK_SECRET_KEY", ""))
     clerk_publishable_key: str = Field(default_factory=lambda: os.getenv("CLERK_PUBLISHABLE_KEY", ""))
+    # Clerk Frontend API URL（オプション: Publishable Keyから自動取得できない場合のフォールバック）
+    clerk_frontend_api: str = Field(default_factory=lambda: os.getenv("CLERK_FRONTEND_API", ""))
 
     # Stripe設定 (optional)
     stripe_secret_key: str = Field(default_factory=lambda: os.getenv("STRIPE_SECRET_KEY", ""))

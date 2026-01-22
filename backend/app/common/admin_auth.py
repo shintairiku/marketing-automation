@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
 """
 Admin authentication utilities for @shintairiku.jp email domain check
+
+管理者認証は通常のJWT検証に加えて、メールドメインの検証を行う
 """
 import jwt
 from fastapi import Depends, HTTPException, status
@@ -10,6 +12,7 @@ import logging
 import httpx
 
 from app.core.config import settings
+from app.common.auth import verify_clerk_token
 
 logger = logging.getLogger(__name__)
 
@@ -133,13 +136,11 @@ async def get_admin_user_email_from_token(
     try:
         token = authorization.credentials
         logger.info("🔒 [ADMIN_AUTH] Processing JWT token for admin check")
-        
-        # Decode the JWT token without verification for now (for development)
-        # In production, you should verify the token with Clerk's public key
-        decoded_token = jwt.decode(token, options={"verify_signature": False})
-        
-        logger.info(f"🔒 [ADMIN_AUTH] Decoded JWT token keys: {list(decoded_token.keys())}")
-        logger.info(f"🔒 [ADMIN_AUTH] Decoded JWT token (first 500 chars): {str(decoded_token)[:500]}")
+
+        # 共通のJWT検証関数を使用（署名検証あり）
+        decoded_token = verify_clerk_token(token)
+
+        logger.debug(f"🔒 [ADMIN_AUTH] Decoded JWT token keys: {list(decoded_token.keys())}")
         
         # Extract user_id from token - Clerk JWT has 'sub' field
         user_id = decoded_token.get("sub")
