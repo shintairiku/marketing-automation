@@ -239,7 +239,7 @@ class BlogGenerationService:
                     "process_id": process_id,
                     "user_id": user_id,
                     "site_id": wordpress_site["id"],
-                    "is_continuation": True,
+                    "is_continuation": "true",
                 }
             )
 
