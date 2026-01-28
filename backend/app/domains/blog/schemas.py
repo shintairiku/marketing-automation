@@ -137,6 +137,25 @@ class BlogGenerationStateResponse(BaseModel):
         from_attributes = True
 
 
+class BlogGenerationHistoryItem(BaseModel):
+    """ブログ生成履歴アイテム（軽量版 - 一覧表示用）"""
+    id: str
+    status: Literal["pending", "in_progress", "completed", "error", "user_input_required", "cancelled"]
+    current_step_name: Optional[str] = None
+    progress_percentage: int = 0
+    user_prompt: Optional[str] = None
+    reference_url: Optional[str] = None
+    draft_post_id: Optional[int] = None
+    draft_preview_url: Optional[str] = None
+    draft_edit_url: Optional[str] = None
+    error_message: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
 class BlogDraftResult(BaseModel):
     """ブログ下書き作成結果"""
     success: bool

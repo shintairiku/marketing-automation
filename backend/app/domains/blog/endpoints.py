@@ -31,6 +31,7 @@ from app.core.config import settings
 import logging
 from app.domains.blog.schemas import (
     BlogDraftResult,
+    BlogGenerationHistoryItem,
     BlogGenerationStartRequest,
     BlogGenerationStateResponse,
     BlogGenerationUserInput,
@@ -663,6 +664,61 @@ async def start_blog_generation(
     )
 
 
+# =====================================================
+# 生成履歴エンドポイント（{process_id}より前に定義すること）
+# =====================================================
+
+@router.get(
+    "/generation/history",
+    response_model=List[BlogGenerationHistoryItem],
+    summary="生成履歴取得",
+    description="ユーザーのブログ生成履歴を取得（軽量版）",
+)
+async def get_generation_history(
+    limit: int = Query(20, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    user_id: str = Depends(get_current_user),
+):
+    """生成履歴を取得（blog_context等の大きなフィールドを除外）"""
+    supabase = get_supabase_client()
+
+    # 必要なカラムだけ取得（blog_context, uploaded_images, conversation_history等を除外）
+    columns = (
+        "id, status, current_step_name, progress_percentage, "
+        "user_prompt, reference_url, "
+        "draft_post_id, draft_preview_url, draft_edit_url, "
+        "error_message, created_at, updated_at"
+    )
+
+    result = supabase.table("blog_generation_state").select(
+        columns
+    ).eq(
+        "user_id", user_id
+    ).order("created_at", desc=True).range(offset, offset + limit - 1).execute()
+
+    return [
+        BlogGenerationHistoryItem(
+            id=state["id"],
+            status=state["status"],
+            current_step_name=state.get("current_step_name"),
+            progress_percentage=state.get("progress_percentage", 0),
+            user_prompt=state.get("user_prompt"),
+            reference_url=state.get("reference_url"),
+            draft_post_id=state.get("draft_post_id"),
+            draft_preview_url=state.get("draft_preview_url"),
+            draft_edit_url=state.get("draft_edit_url"),
+            error_message=state.get("error_message"),
+            created_at=state["created_at"],
+            updated_at=state["updated_at"],
+        )
+        for state in result.data
+    ]
+
+
+# =====================================================
+# 生成状態取得エンドポイント
+# =====================================================
+
 @router.get(
     "/generation/{process_id}",
     response_model=BlogGenerationStateResponse,
@@ -919,48 +975,3 @@ async def upload_image(
     )
 
 
-# =====================================================
-# 生成履歴エンドポイント
-# =====================================================
-
-@router.get(
-    "/generation/history",
-    response_model=List[BlogGenerationStateResponse],
-    summary="生成履歴取得",
-    description="ユーザーのブログ生成履歴を取得",
-)
-async def get_generation_history(
-    limit: int = Query(20, ge=1, le=100),
-    offset: int = Query(0, ge=0),
-    user_id: str = Depends(get_current_user),
-):
-    """生成履歴を取得"""
-    supabase = get_supabase_client()
-
-    result = supabase.table("blog_generation_state").select("*").eq(
-        "user_id", user_id
-    ).order("created_at", desc=True).range(offset, offset + limit - 1).execute()
-
-    return [
-        BlogGenerationStateResponse(
-            id=state["id"],
-            user_id=state["user_id"],
-            wordpress_site_id=state.get("wordpress_site_id"),
-            status=state["status"],
-            current_step_name=state.get("current_step_name"),
-            progress_percentage=state.get("progress_percentage", 0),
-            is_waiting_for_input=state.get("is_waiting_for_input", False),
-            input_type=state.get("input_type"),
-            blog_context=state.get("blog_context", {}),
-            user_prompt=state.get("user_prompt"),
-            reference_url=state.get("reference_url"),
-            uploaded_images=state.get("uploaded_images", []),
-            draft_post_id=state.get("draft_post_id"),
-            draft_preview_url=state.get("draft_preview_url"),
-            draft_edit_url=state.get("draft_edit_url"),
-            error_message=state.get("error_message"),
-            created_at=state["created_at"],
-            updated_at=state["updated_at"],
-        )
-        for state in result.data
-    ]
