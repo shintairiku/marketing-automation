@@ -22,6 +22,18 @@ interface Group {
   links: MainLink[];
 }
 
+// 非特権ユーザーに表示するグループタイトル
+const NON_PRIVILEGED_GROUP_TITLES = ['Blog', 'Settings'];
+
+/**
+ * 非特権ユーザー向けにフィルタリングされたグループを返す
+ * Blog AI + Settings のみ表示
+ */
+export function getFilteredGroups(isPrivileged: boolean): Group[] {
+  if (isPrivileged) return groups;
+  return groups.filter((g) => NON_PRIVILEGED_GROUP_TITLES.includes(g.title));
+}
+
 export const groups: Group[] = [
   {
     title: 'Home',

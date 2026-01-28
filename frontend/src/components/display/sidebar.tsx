@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect } from 'react';
+import React, { useEffect, useMemo } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import clsx from 'clsx';
@@ -23,7 +23,7 @@ import {
 } from 'react-icons/io5';
 import { LuPanelLeftClose, LuPanelLeftOpen } from 'react-icons/lu';
 
-import { groups } from '@/components/constant/route';
+import { getFilteredGroups, groups } from '@/components/constant/route';
 import {
   Collapsible,
   CollapsibleContent,
@@ -37,7 +37,9 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 import { useSidebar } from '@/contexts/SidebarContext';
+import { isPrivilegedEmail } from '@/lib/subscription';
 import { cn } from '@/utils/cn';
+import { useUser } from '@clerk/nextjs';
 
 export const iconMap: Record<string, React.ReactElement<{ size?: number }>> = {
   '/dashboard':                        <IoHome size={20} />,
@@ -123,11 +125,16 @@ function isMenuActive(pathname: string, menuHref: string, subLinks?: { title: st
 
 export default function Sidebar() {
   const pathname = usePathname();
+  const { user } = useUser();
   const { isSidebarOpen, toggleSidebar, expandedMenu, setExpandedMenu, toggleMenu } = useSidebar();
+
+  // ユーザー権限に基づいてグループをフィルタリング
+  const isPrivileged = isPrivilegedEmail(user?.primaryEmailAddress?.emailAddress);
+  const filteredGroups = useMemo(() => getFilteredGroups(isPrivileged), [isPrivileged]);
 
   // パス変更時に対応するメニューを自動展開
   useEffect(() => {
-    const allLinks = groups.flatMap(g => g.links);
+    const allLinks = filteredGroups.flatMap(g => g.links);
     const activeMenu = allLinks.find(l => isMenuActive(pathname, l.href, l.subLinks));
     if (activeMenu && expandedMenu !== activeMenu.href) {
       setExpandedMenu(activeMenu.href);
@@ -159,7 +166,7 @@ export default function Sidebar() {
         {/* Navigation */}
         <ScrollArea className="flex-1">
           <nav className="py-2">
-            {groups.map((group) => (
+            {filteredGroups.map((group) => (
               <div key={group.title} className="mb-1">
                 {group.links.map((link) => {
                   const active = isMenuActive(pathname, link.href, link.subLinks);
