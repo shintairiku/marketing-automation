@@ -2,23 +2,34 @@
 """
 Blog AI Domain - Generation Service
 
-ブログ記事生成サービス（OpenAI Agents SDK Runner.run() を使用）
+ブログ記事生成サービス（OpenAI Agents SDK Runner.run_streamed() を使用）
 """
 
 import asyncio
 import json
 import re
-import uuid
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from agents import Runner, RunConfig
+from agents.stream_events import (
+    AgentUpdatedStreamEvent,
+    RawResponsesStreamEvent,
+    RunItemStreamEvent,
+)
+from agents.items import (
+    ToolCallItem,
+    ToolCallOutputItem,
+    ReasoningItem,
+    MessageOutputItem,
+)
 
 from app.common.database import supabase
 import logging
 
 from app.core.config import settings
 from app.domains.blog.agents.definitions import build_blog_writer_agent
+from app.domains.blog.agents.tools import UserInputRequiredException
 from app.domains.blog.services.wordpress_mcp_service import (
     clear_mcp_client_cache,
 )
@@ -26,12 +37,57 @@ from app.domains.blog.services.wordpress_mcp_service import (
 logger = logging.getLogger(__name__)
 
 
+# フロントエンドのステップキー（steps配列と一致させる）
+# { key: "初期化中", label: "初期化" },
+# { key: "参考記事分析中", label: "参考記事分析" },
+# { key: "情報収集中", label: "情報収集" },
+# { key: "記事生成中", label: "記事生成" },
+# { key: "下書き作成中", label: "下書き作成" },
+
+# ツール名 → (ステップフェーズ, フレンドリーメッセージ)
+TOOL_STEP_MAPPING: Dict[str, tuple[str, str]] = {
+    # 記事取得系 → 参考記事分析フェーズ
+    "wp_get_posts_by_category": ("参考記事分析中", "カテゴリの記事一覧を取得しています"),
+    "wp_get_post_block_structure": ("参考記事分析中", "記事のブロック構造を分析しています"),
+    "wp_get_post_raw_content": ("参考記事分析中", "記事のコンテンツを読み込んでいます"),
+    "wp_get_recent_posts": ("参考記事分析中", "最近の記事一覧を取得しています"),
+    "wp_get_post_by_url": ("参考記事分析中", "URLから記事を取得しています"),
+    "wp_analyze_category_format_patterns": ("参考記事分析中", "カテゴリの記事パターンを分析しています"),
+    # ブロック・テーマ系 → 情報収集フェーズ
+    "wp_extract_used_blocks": ("情報収集中", "使用されているブロックを分析しています"),
+    "wp_get_theme_styles": ("情報収集中", "テーマスタイルを取得しています"),
+    "wp_get_block_patterns": ("情報収集中", "ブロックパターン一覧を取得しています"),
+    "wp_get_reusable_blocks": ("情報収集中", "再利用ブロック一覧を取得しています"),
+    # 記事作成系 → 下書き作成フェーズ
+    "wp_create_draft_post": ("下書き作成中", "下書き記事を作成しています"),
+    "wp_update_post_content": ("下書き作成中", "記事コンテンツを更新しています"),
+    "wp_update_post_meta": ("下書き作成中", "記事メタ情報を更新しています"),
+    # バリデーション系 → 記事生成フェーズ
+    "wp_validate_block_content": ("記事生成中", "ブロック構文をチェックしています"),
+    "wp_check_regulation_compliance": ("記事生成中", "レギュレーション準拠をチェックしています"),
+    "wp_check_seo_requirements": ("記事生成中", "SEO要件をチェックしています"),
+    # メディア系 → 記事生成フェーズ
+    "wp_get_media_library": ("記事生成中", "メディアライブラリを取得しています"),
+    "wp_upload_media": ("記事生成中", "メディアをアップロードしています"),
+    "wp_set_featured_image": ("下書き作成中", "アイキャッチ画像を設定しています"),
+    # タクソノミー・サイト情報系 → 初期化/情報収集フェーズ
+    "wp_get_categories": ("情報収集中", "カテゴリ一覧を取得しています"),
+    "wp_get_tags": ("情報収集中", "タグ一覧を取得しています"),
+    "wp_create_term": ("記事生成中", "カテゴリ/タグを作成しています"),
+    "wp_get_site_info": ("初期化中", "サイト情報を取得しています"),
+    "wp_get_post_types": ("初期化中", "投稿タイプ一覧を取得しています"),
+    "wp_get_article_regulations": ("情報収集中", "レギュレーション設定を取得しています"),
+    # ユーザー質問
+    "ask_user_questions": ("情報収集中", "ユーザーに追加情報を確認しています"),
+}
+
+
 class BlogGenerationService:
     """
     ブログ記事生成サービス
 
-    OpenAI Agents SDK の Runner.run() を使用して、
-    エージェントベースでブログ記事を生成する。
+    OpenAI Agents SDK の Runner.run_streamed() を使用して、
+    エージェントベースでブログ記事を生成し、リアルタイムで進捗を通知する。
     """
 
     def __init__(self):
@@ -46,7 +102,7 @@ class BlogGenerationService:
         wordpress_site: Dict[str, Any],
     ) -> None:
         """
-        ブログ生成を実行
+        ブログ生成を実行（ストリーミング対応）
 
         Args:
             process_id: プロセスID（既にDBに作成済み）
@@ -56,19 +112,19 @@ class BlogGenerationService:
             wordpress_site: WordPressサイト情報
         """
         try:
-            # 状態を更新
+            # 状態を更新（フロントエンドの steps キーに合わせる）
             await self._update_state(
                 process_id,
                 status="in_progress",
-                current_step_name="分析中",
-                progress_percentage=10,
+                current_step_name="初期化中 - 記事生成を準備しています",
+                progress_percentage=5,
             )
 
             await self._publish_event(
                 process_id,
                 user_id,
                 "generation_started",
-                {"step": "analyzing"},
+                {"step": "initializing", "message": "記事生成を開始しました"},
             )
 
             # MCPクライアントキャッシュをクリア（新しいサイトIDで再接続）
@@ -81,20 +137,6 @@ class BlogGenerationService:
                 wordpress_site,
             )
 
-            # 進捗更新
-            await self._update_state(
-                process_id,
-                current_step_name="記事生成中",
-                progress_percentage=30,
-            )
-
-            await self._publish_event(
-                process_id,
-                user_id,
-                "step_started",
-                {"step": "generating_content"},
-            )
-
             # RunConfig設定
             run_config = RunConfig(
                 trace_metadata={
@@ -104,29 +146,79 @@ class BlogGenerationService:
                 }
             )
 
-            # Agent実行（max_turnsを設定で制御）
-            logger.info(f"Agent実行開始: process_id={process_id}")
-            result = await Runner.run(
+            # ストリーミング実行
+            logger.info(f"Agent実行開始（ストリーミング）: process_id={process_id}")
+
+            result = Runner.run_streamed(
                 self._agent,
                 input_message,
                 run_config=run_config,
-                max_turns=settings.blog_generation_max_turns,  # 環境変数で制御可能（デフォルト100）
+                max_turns=settings.blog_generation_max_turns,
             )
-            logger.info(f"Agent実行完了: process_id={process_id}")
 
-            # 結果を取得
-            output_text = result.final_output
-            logger.debug(f"Agent出力: {output_text[:500]}...")
+            tool_call_count = 0
+            total_estimated_tools = 10  # 推定ツール呼び出し数
+
+            async for event in result.stream_events():
+                await self._handle_stream_event(
+                    event,
+                    process_id,
+                    user_id,
+                    tool_call_count,
+                    total_estimated_tools,
+                )
+                if isinstance(event, RunItemStreamEvent):
+                    if isinstance(event.item, ToolCallItem):
+                        tool_call_count += 1
+
+            # 最終結果を取得
+            final_result = result.final_output
+            logger.info(f"Agent実行完了: process_id={process_id}")
+            logger.debug(f"Agent出力: {final_result[:500] if final_result else 'None'}...")
 
             # 進捗更新
             await self._update_state(
                 process_id,
-                current_step_name="結果処理中",
-                progress_percentage=80,
+                current_step_name="下書き作成中 - 結果を処理しています",
+                progress_percentage=90,
+            )
+
+            await self._publish_event(
+                process_id,
+                user_id,
+                "processing_result",
+                {"message": "結果を処理しています..."},
             )
 
             # 結果を解析してDBに保存
-            await self._process_result(process_id, user_id, output_text)
+            await self._process_result(process_id, user_id, final_result or "")
+
+        except UserInputRequiredException as e:
+            # ユーザー入力が必要な場合
+            logger.info(f"ユーザー入力待ち: process_id={process_id}, questions={len(e.questions)}")
+            await self._update_state(
+                process_id,
+                status="user_input_required",  # DBのステータスに合わせる
+                current_step_name="ユーザー入力待ち",
+                progress_percentage=40,
+                is_waiting_for_input=True,
+                input_type="questions",
+                blog_context={
+                    "ai_questions": e.questions,
+                    "question_context": e.context,
+                },
+            )
+
+            await self._publish_event(
+                process_id,
+                user_id,
+                "user_input_required",
+                {
+                    "questions": e.questions,
+                    "context": e.context,
+                    "message": e.context or "記事作成に必要な情報を入力してください",
+                },
+            )
 
         except Exception as e:
             logger.error(f"生成エラー: {e}", exc_info=True)
@@ -139,8 +231,109 @@ class BlogGenerationService:
                 process_id,
                 user_id,
                 "generation_error",
-                {"error": str(e)},
+                {"error": str(e), "message": f"エラーが発生しました: {str(e)}"},
             )
+
+    async def _handle_stream_event(
+        self,
+        event: Any,
+        process_id: str,
+        user_id: str,
+        tool_call_count: int,
+        total_estimated_tools: int,
+    ) -> None:
+        """ストリームイベントを処理して進捗を通知"""
+        try:
+            if isinstance(event, RunItemStreamEvent):
+                item = event.item
+
+                # ツール呼び出し開始
+                if isinstance(item, ToolCallItem):
+                    tool_name = getattr(item.raw_item, "name", None) or "unknown_tool"
+                    step_info = TOOL_STEP_MAPPING.get(
+                        tool_name, ("記事生成中", f"{tool_name}を実行しています")
+                    )
+                    step_phase, friendly_message = step_info
+
+                    # 進捗を計算（5%〜85%の範囲で分配）
+                    progress = min(
+                        5 + int((tool_call_count / max(total_estimated_tools, 1)) * 80),
+                        85
+                    )
+
+                    # current_step_name にフェーズ名を含める（フロントエンドのステップ表示に必要）
+                    step_display = f"{step_phase} - {friendly_message}"
+
+                    await self._update_state(
+                        process_id,
+                        current_step_name=step_display,
+                        progress_percentage=progress,
+                    )
+
+                    await self._publish_event(
+                        process_id,
+                        user_id,
+                        "tool_call_started",
+                        {
+                            "tool_name": tool_name,
+                            "step_phase": step_phase,
+                            "message": friendly_message,
+                            "progress": progress,
+                        },
+                    )
+                    logger.debug(f"ツール呼び出し開始: {tool_name} ({step_phase})")
+
+                # ツール呼び出し完了
+                elif isinstance(item, ToolCallOutputItem):
+                    call_id = getattr(item.raw_item, "call_id", None)
+                    await self._publish_event(
+                        process_id,
+                        user_id,
+                        "tool_call_completed",
+                        {
+                            "tool_call_id": call_id,
+                            "message": "処理が完了しました",
+                        },
+                    )
+
+                # AI思考中（Reasoning）
+                elif isinstance(item, ReasoningItem):
+                    await self._publish_event(
+                        process_id,
+                        user_id,
+                        "reasoning",
+                        {"message": "AIが考えています..."},
+                    )
+
+                # メッセージ出力
+                elif isinstance(item, MessageOutputItem):
+                    # 部分的なメッセージ内容を通知
+                    content = ""
+                    if hasattr(item, 'content') and item.content:
+                        for part in item.content:
+                            if hasattr(part, 'text'):
+                                content += part.text
+
+                    if content:
+                        await self._publish_event(
+                            process_id,
+                            user_id,
+                            "message_output",
+                            {"content": content[:500]},  # 最初の500文字のみ
+                        )
+
+            elif isinstance(event, AgentUpdatedStreamEvent):
+                # エージェント更新（マルチエージェントの場合）
+                agent_name = event.agent.name if hasattr(event, 'agent') else "Unknown"
+                await self._publish_event(
+                    process_id,
+                    user_id,
+                    "agent_updated",
+                    {"agent_name": agent_name},
+                )
+
+        except Exception as e:
+            logger.warning(f"ストリームイベント処理エラー: {e}")
 
     def _build_input_message(
         self,
@@ -197,6 +390,7 @@ class BlogGenerationService:
                     "draft_post_id": draft_info.get("post_id"),
                     "preview_url": draft_info.get("preview_url"),
                     "edit_url": draft_info.get("edit_url"),
+                    "message": "記事の下書きが作成されました！",
                 },
             )
         else:
@@ -281,6 +475,7 @@ class BlogGenerationService:
         draft_preview_url: Optional[str] = None,
         draft_edit_url: Optional[str] = None,
         error_message: Optional[str] = None,
+        blog_context: Optional[Dict[str, Any]] = None,
     ) -> None:
         """プロセス状態を更新"""
         update_data: Dict[str, Any] = {
@@ -305,6 +500,8 @@ class BlogGenerationService:
             update_data["draft_edit_url"] = draft_edit_url
         if error_message is not None:
             update_data["error_message"] = error_message
+        if blog_context is not None:
+            update_data["blog_context"] = blog_context
 
         supabase.table("blog_generation_state").update(
             update_data
@@ -380,6 +577,14 @@ class BlogGenerationService:
                 status="in_progress",
                 current_step_name="生成再開中",
                 progress_percentage=50,
+                is_waiting_for_input=False,
+            )
+
+            await self._publish_event(
+                process_id,
+                user_id,
+                "generation_resumed",
+                {"message": "追加情報を受け取りました。生成を再開します..."},
             )
 
             # 生成を再実行
@@ -427,7 +632,7 @@ class BlogGenerationService:
             process_id,
             user_id,
             "generation_cancelled",
-            {},
+            {"message": "記事生成がキャンセルされました"},
         )
 
         return True

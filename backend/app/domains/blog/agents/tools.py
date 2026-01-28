@@ -6,6 +6,7 @@ OpenAI Agents SDK の function_tool を使って WordPress MCP ツールをラ�
 
 参考: shintairiku-ai-agent/backend/app/infrastructure/chatkit/wordpress_tools.py
 """
+import json
 from typing import List, Literal, Optional
 
 from agents import function_tool
@@ -14,6 +15,66 @@ from app.domains.blog.services.wordpress_mcp_service import (
     call_wordpress_mcp_tool,
     MCP_LONG_TIMEOUT,
 )
+
+
+# ========== ユーザー質問例外 ==========
+
+class UserInputRequiredException(Exception):
+    """ユーザーからの入力が必要な場合に発生する例外"""
+
+    def __init__(self, questions: List[dict], context: Optional[str] = None):
+        """
+        Args:
+            questions: 質問リスト（フロントエンドスキーマ準拠）
+                [{"question_id": "q1", "question": "...", "input_type": "text|textarea|select", "options": [...]}]
+            context: 質問の文脈説明
+        """
+        self.questions = questions
+        self.context = context
+        super().__init__(f"User input required: {len(questions)} question(s)")
+
+
+# ========== ユーザー質問ツール ==========
+
+@function_tool
+async def ask_user_questions(
+    questions: List[str],
+    context: Optional[str] = None,
+) -> str:
+    """記事作成に必要な情報をユーザーに質問します。
+
+    このツールを使うと、ユーザーに質問を送信し、回答を待ちます。
+    インタビュー記事の場合のインタビュー対象者情報や、
+    記事に含めたい特定の情報がある場合に使用してください。
+
+    Args:
+        questions: ユーザーへの質問リスト（日本語で記述）
+            例: ["インタビュー対象者のお名前を教えてください", "記事に含めたいキーワードはありますか？"]
+        context: 質問の文脈説明（オプション）
+            例: "インタビュー記事を作成するために、以下の情報が必要です"
+
+    Returns:
+        ユーザー入力待ちの状態になったことを示すメッセージ
+
+    Note:
+        このツールを呼び出すと、生成プロセスは一時停止し、
+        ユーザーの回答を待ちます。ユーザーが回答すると、
+        その情報を使って記事生成を続行します。
+    """
+    # 質問を構造化（フロントエンドスキーマに合わせる）
+    structured_questions = []
+    for i, q in enumerate(questions):
+        structured_questions.append({
+            "question_id": f"q{i+1}",
+            "question": q,
+            "input_type": "textarea",  # デフォルトはテキストエリア
+        })
+
+    # 例外を発生させて生成を一時停止
+    raise UserInputRequiredException(
+        questions=structured_questions,
+        context=context,
+    )
 
 
 # ========== 記事取得系ツール ==========
@@ -446,6 +507,8 @@ async def wp_get_article_regulations(category_id: Optional[int] = None) -> str:
 # ========== 全ツールをエクスポート ==========
 
 ALL_WORDPRESS_TOOLS = [
+    # ユーザー対話系
+    ask_user_questions,
     # 記事取得系
     wp_get_posts_by_category,
     wp_get_post_block_structure,
