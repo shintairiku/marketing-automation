@@ -1,54 +1,86 @@
 'use client';
 
 import React,
-{ createContext, PropsWithChildren,useContext, useEffect, useState } from 'react';
+{ createContext, PropsWithChildren, useCallback, useContext, useEffect, useState } from 'react';
 
 interface SidebarContextType {
-  isSubSidebarOpen: boolean;
-  setIsSubSidebarOpen: React.Dispatch<React.SetStateAction<boolean>>;
+  isSidebarOpen: boolean;
+  setIsSidebarOpen: (value: boolean) => void;
+  toggleSidebar: () => void;
+  expandedMenu: string | null;
+  setExpandedMenu: (href: string | null) => void;
+  toggleMenu: (href: string) => void;
 }
 
 const SidebarContext = createContext<SidebarContextType | undefined>(undefined);
 
-const SIDEBAR_STORAGE_KEY = 'sub-sidebar-open';
+const SIDEBAR_OPEN_KEY = 'sidebar-open';
+const SIDEBAR_EXPANDED_KEY = 'sidebar-expanded-menu';
 
 export function SidebarProvider({ children }: PropsWithChildren) {
-  const [isSubSidebarOpen, setIsSubSidebarOpenState] = useState(true);
+  const [isSidebarOpen, setIsSidebarOpenState] = useState(true);
+  const [expandedMenu, setExpandedMenuState] = useState<string | null>(null);
   const [isInitialized, setIsInitialized] = useState(false);
 
-  // ローカルストレージから初期状態を読み込み
   useEffect(() => {
     try {
-      const savedState = localStorage.getItem(SIDEBAR_STORAGE_KEY);
-      if (savedState !== null) {
-        setIsSubSidebarOpenState(JSON.parse(savedState));
+      const savedOpen = localStorage.getItem(SIDEBAR_OPEN_KEY);
+      if (savedOpen !== null) {
+        setIsSidebarOpenState(JSON.parse(savedOpen));
+      }
+      const savedExpanded = localStorage.getItem(SIDEBAR_EXPANDED_KEY);
+      if (savedExpanded) {
+        setExpandedMenuState(savedExpanded);
       }
     } catch (error) {
-      console.warn('Failed to load sidebar state from localStorage:', error);
+      console.warn('Failed to load sidebar state:', error);
     }
     setIsInitialized(true);
   }, []);
 
-  // 状態変更時にローカルストレージに保存
-  const setIsSubSidebarOpen = (value: boolean | ((prev: boolean) => boolean)) => {
-    setIsSubSidebarOpenState(prevState => {
-      const newState = typeof value === 'function' ? value(prevState) : value;
-      try {
-        localStorage.setItem(SIDEBAR_STORAGE_KEY, JSON.stringify(newState));
-      } catch (error) {
-        console.warn('Failed to save sidebar state to localStorage:', error);
-      }
-      return newState;
-    });
-  };
+  const setIsSidebarOpen = useCallback((value: boolean) => {
+    setIsSidebarOpenState(value);
+    try {
+      localStorage.setItem(SIDEBAR_OPEN_KEY, JSON.stringify(value));
+    } catch (error) {
+      console.warn('Failed to save sidebar state:', error);
+    }
+  }, []);
 
-  // 初期化が完了するまでは空のdivを返す
+  const toggleSidebar = useCallback(() => {
+    setIsSidebarOpen(!isSidebarOpen);
+  }, [isSidebarOpen, setIsSidebarOpen]);
+
+  const setExpandedMenu = useCallback((href: string | null) => {
+    setExpandedMenuState(href);
+    try {
+      if (href) {
+        localStorage.setItem(SIDEBAR_EXPANDED_KEY, href);
+      } else {
+        localStorage.removeItem(SIDEBAR_EXPANDED_KEY);
+      }
+    } catch (error) {
+      console.warn('Failed to save sidebar expanded state:', error);
+    }
+  }, []);
+
+  const toggleMenu = useCallback((href: string) => {
+    setExpandedMenu(expandedMenu === href ? null : href);
+  }, [expandedMenu, setExpandedMenu]);
+
   if (!isInitialized) {
     return <div className="min-h-screen bg-background" />;
   }
 
   return (
-    <SidebarContext.Provider value={{ isSubSidebarOpen, setIsSubSidebarOpen }}>
+    <SidebarContext.Provider value={{
+      isSidebarOpen,
+      setIsSidebarOpen,
+      toggleSidebar,
+      expandedMenu,
+      setExpandedMenu,
+      toggleMenu,
+    }}>
       {children}
     </SidebarContext.Provider>
   );

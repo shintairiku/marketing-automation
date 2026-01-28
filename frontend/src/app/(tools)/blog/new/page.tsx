@@ -134,10 +134,6 @@ export default function BlogNewPage() {
           transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
           className="text-center mb-12"
         >
-          <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-amber-100/80 text-amber-800 text-sm font-medium mb-6 border border-amber-200/50">
-            <Sparkles className="w-4 h-4" />
-            <span>AI-Powered Blog Writer</span>
-          </div>
           <h1 className="text-4xl md:text-5xl font-bold text-stone-800 tracking-tight mb-4">
             新しいブログ記事を
             <br />
@@ -177,7 +173,7 @@ export default function BlogNewPage() {
                 <AlertCircle className="w-10 h-10 text-stone-400 mx-auto mb-3" />
                 <p className="text-stone-600 font-medium mb-2">WordPressサイトが連携されていません</p>
                 <p className="text-sm text-stone-500 mb-4">
-                  ブログAIを使用するには、まずWordPressサイトを連携してください
+                  ブログ記事を作成するには、まずWordPressサイトを連携してください
                 </p>
                 <Button
                   variant="outline"
@@ -274,7 +270,7 @@ export default function BlogNewPage() {
               className="h-12 rounded-2xl border-2 border-stone-200 bg-white/80 backdrop-blur-sm focus:border-amber-400 focus:ring-amber-100 placeholder:text-stone-400"
             />
             <p className="text-sm text-stone-500">
-              WordPressサイト内の記事URLを指定すると、そのスタイルを参考に記事を生成します
+              あなたのサイト内の記事URLを指定すると、そのスタイルやトーンを参考に記事を生成します
             </p>
           </div>
 

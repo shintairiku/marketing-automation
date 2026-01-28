@@ -12,7 +12,7 @@ import { useUser } from '@clerk/nextjs';
 function AppLayoutContent({ children }: PropsWithChildren) {
   const pathname = usePathname();
   const { isSignedIn } = useUser();
-  const { isSubSidebarOpen } = useSidebar();
+  const { isSidebarOpen } = useSidebar();
 
   const showSidebar = isSignedIn && !['/sign-in', '/sign-up', '/user-profile'].includes(pathname);
 
@@ -27,7 +27,7 @@ function AppLayoutContent({ children }: PropsWithChildren) {
         )}
         <main className={cn(
           "flex-1 p-5 transition-all duration-300 ease-in-out",
-          showSidebar ? (isSubSidebarOpen ? "ml-[314px]" : "ml-[128px]") : ""
+          showSidebar ? (isSidebarOpen ? "ml-[240px]" : "ml-[64px]") : ""
         )}>
           {children}
         </main>
