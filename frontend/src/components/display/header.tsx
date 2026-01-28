@@ -9,7 +9,7 @@ export default function Header() {
         <div className="flex items-center ">
           <div className="flex items-center gap-5">
               <Image src="/logo.png" alt="logo" width={32} height={32} />
-              <p className="text-white text-lg font-bold">SEO Tiger</p>
+              <p className="text-white text-lg font-bold">BlogAI</p>
           </div>
         </div>
         <div className="flex items-center gap-4">

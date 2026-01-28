@@ -24,8 +24,12 @@ const montserratAlternates = Montserrat_Alternates({
 });
 
 export const metadata: Metadata = {
-  title: '新大陸 - AI搭載SEO記事自動生成サービス',
-  description: 'AIを活用したSEO記事自動生成サービス。高品質なSEO記事を数分で作成。チャットベースの編集機能で簡単修正。',
+  title: 'BlogAI',
+  description: 'AIを活用したブログ記事自動生成サービス。あなたのWordPressサイトに最適な記事を生成します。',
+  icons: {
+    icon: '/logo.png',
+    apple: '/logo.png',
+  },
 };
 
 export default function RootLayout({
