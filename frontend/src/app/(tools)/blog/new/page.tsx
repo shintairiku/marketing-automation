@@ -1,0 +1,329 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import { AnimatePresence,motion } from "framer-motion";
+import {
+  AlertCircle,
+  CheckCircle2,
+  ChevronRight,
+  Globe,
+  Link2,
+  Loader2,
+  PenLine,
+  Sparkles} from "lucide-react";
+
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { useAuth } from "@clerk/nextjs";
+
+interface WordPressSite {
+  id: string;
+  site_url: string;
+  site_name: string | null;
+  connection_status: "connected" | "disconnected" | "error";
+  is_active: boolean;
+}
+
+export default function BlogNewPage() {
+  const router = useRouter();
+  const { getToken } = useAuth();
+
+  const [sites, setSites] = useState<WordPressSite[]>([]);
+  const [loadingSites, setLoadingSites] = useState(true);
+  const [selectedSiteId, setSelectedSiteId] = useState<string | null>(null);
+  const [userPrompt, setUserPrompt] = useState("");
+  const [referenceUrl, setReferenceUrl] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const fetchSites = async () => {
+      try {
+        const token = await getToken();
+        const response = await fetch("/api/proxy/blog/sites", {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (response.ok) {
+          const data = await response.json();
+          setSites(data.sites.filter((s: WordPressSite) => s.connection_status === "connected"));
+          // Auto-select active site
+          const activeSite = data.sites.find((s: WordPressSite) => s.is_active);
+          if (activeSite) {
+            setSelectedSiteId(activeSite.id);
+          }
+        }
+      } catch (err) {
+        console.error("Failed to fetch sites:", err);
+      } finally {
+        setLoadingSites(false);
+      }
+    };
+    fetchSites();
+  }, [getToken]);
+
+  const handleSubmit = async () => {
+    if (!selectedSiteId || !userPrompt.trim()) {
+      setError("WordPressサイトを選択し、記事の内容を入力してください");
+      return;
+    }
+
+    setIsSubmitting(true);
+    setError(null);
+
+    try {
+      const token = await getToken();
+      const response = await fetch("/api/proxy/blog/generation/start", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          wordpress_site_id: selectedSiteId,
+          user_prompt: userPrompt,
+          reference_url: referenceUrl || null,
+        }),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        router.push(`/blog/${data.id}`);
+      } else {
+        const errData = await response.json();
+        setError(errData.detail || "生成の開始に失敗しました");
+      }
+    } catch (err) {
+      setError("ネットワークエラーが発生しました");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const connectedSites = sites.filter(s => s.connection_status === "connected");
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-amber-50/50 via-white to-emerald-50/30">
+      {/* Decorative background elements */}
+      <div className="absolute inset-0 overflow-hidden pointer-events-none">
+        <div className="absolute top-20 right-20 w-72 h-72 bg-amber-200/20 rounded-full blur-3xl" />
+        <div className="absolute bottom-40 left-10 w-96 h-96 bg-emerald-200/20 rounded-full blur-3xl" />
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-gradient-radial from-orange-100/10 to-transparent rounded-full" />
+      </div>
+
+      <div className="relative max-w-3xl mx-auto px-6 py-12">
+        {/* Header */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
+          className="text-center mb-12"
+        >
+          <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-amber-100/80 text-amber-800 text-sm font-medium mb-6 border border-amber-200/50">
+            <Sparkles className="w-4 h-4" />
+            <span>AI-Powered Blog Writer</span>
+          </div>
+          <h1 className="text-4xl md:text-5xl font-bold text-stone-800 tracking-tight mb-4">
+            新しいブログ記事を
+            <br />
+            <span className="text-transparent bg-clip-text bg-gradient-to-r from-amber-600 to-emerald-600">
+              つくる
+            </span>
+          </h1>
+          <p className="text-lg text-stone-500 max-w-lg mx-auto leading-relaxed">
+            過去の記事スタイルを参考に、あなたのWordPressサイトにぴったりの記事を生成します
+          </p>
+        </motion.div>
+
+        {/* Main Form */}
+        <motion.div
+          initial={{ opacity: 0, y: 30 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.6, delay: 0.1, ease: [0.22, 1, 0.36, 1] }}
+          className="space-y-8"
+        >
+          {/* WordPress Site Selector */}
+          <div className="space-y-3">
+            <Label className="flex items-center gap-2 text-stone-700 font-medium">
+              <Globe className="w-4 h-4 text-emerald-600" />
+              投稿先のWordPressサイト
+            </Label>
+
+            {loadingSites ? (
+              <div className="flex items-center justify-center py-8">
+                <Loader2 className="w-6 h-6 animate-spin text-stone-400" />
+              </div>
+            ) : connectedSites.length === 0 ? (
+              <motion.div
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                className="p-6 rounded-2xl border-2 border-dashed border-stone-200 bg-stone-50/50 text-center"
+              >
+                <AlertCircle className="w-10 h-10 text-stone-400 mx-auto mb-3" />
+                <p className="text-stone-600 font-medium mb-2">WordPressサイトが連携されていません</p>
+                <p className="text-sm text-stone-500 mb-4">
+                  ブログAIを使用するには、まずWordPressサイトを連携してください
+                </p>
+                <Button
+                  variant="outline"
+                  onClick={() => router.push("/settings/integrations/wordpress")}
+                  className="rounded-xl"
+                >
+                  WordPress連携設定へ
+                  <ChevronRight className="w-4 h-4 ml-1" />
+                </Button>
+              </motion.div>
+            ) : (
+              <div className="grid gap-3">
+                <AnimatePresence mode="popLayout">
+                  {connectedSites.map((site, index) => (
+                    <motion.button
+                      key={site.id}
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: index * 0.05 }}
+                      onClick={() => setSelectedSiteId(site.id)}
+                      className={`
+                        relative w-full p-4 rounded-2xl border-2 text-left transition-all duration-200
+                        ${selectedSiteId === site.id
+                          ? "border-emerald-400 bg-emerald-50/50 shadow-lg shadow-emerald-100/50"
+                          : "border-stone-200 bg-white/80 hover:border-stone-300 hover:bg-white"
+                        }
+                      `}
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                          <div className={`
+                            w-10 h-10 rounded-xl flex items-center justify-center
+                            ${selectedSiteId === site.id ? "bg-emerald-500" : "bg-stone-200"}
+                          `}>
+                            <Globe className={`w-5 h-5 ${selectedSiteId === site.id ? "text-white" : "text-stone-500"}`} />
+                          </div>
+                          <div>
+                            <p className="font-medium text-stone-800">
+                              {site.site_name || site.site_url}
+                            </p>
+                            <p className="text-sm text-stone-500 truncate max-w-xs">
+                              {site.site_url}
+                            </p>
+                          </div>
+                        </div>
+                        {selectedSiteId === site.id && (
+                          <motion.div
+                            initial={{ scale: 0 }}
+                            animate={{ scale: 1 }}
+                            className="w-6 h-6 rounded-full bg-emerald-500 flex items-center justify-center"
+                          >
+                            <CheckCircle2 className="w-4 h-4 text-white" />
+                          </motion.div>
+                        )}
+                      </div>
+                    </motion.button>
+                  ))}
+                </AnimatePresence>
+              </div>
+            )}
+          </div>
+
+          {/* Main Prompt Input */}
+          <div className="space-y-3">
+            <Label className="flex items-center gap-2 text-stone-700 font-medium">
+              <PenLine className="w-4 h-4 text-amber-600" />
+              どんな記事を作りたいですか？
+            </Label>
+            <div className="relative">
+              <Textarea
+                value={userPrompt}
+                onChange={(e) => setUserPrompt(e.target.value)}
+                placeholder="例: 新入社員向けのビジネスマナー講座について、親しみやすいトーンで解説する記事を書きたい。具体的なシーン別の例を多く含めてほしい。"
+                className="min-h-[160px] text-base rounded-2xl border-2 border-stone-200 bg-white/80 backdrop-blur-sm resize-none focus:border-amber-400 focus:ring-amber-100 placeholder:text-stone-400 p-4"
+              />
+              <div className="absolute bottom-3 right-3 text-xs text-stone-400">
+                {userPrompt.length} / 2000
+              </div>
+            </div>
+          </div>
+
+          {/* Reference URL Input */}
+          <div className="space-y-3">
+            <Label className="flex items-center gap-2 text-stone-700 font-medium">
+              <Link2 className="w-4 h-4 text-stone-500" />
+              参考にする記事URL
+              <span className="text-xs font-normal text-stone-400 ml-1">(任意)</span>
+            </Label>
+            <Input
+              type="url"
+              value={referenceUrl}
+              onChange={(e) => setReferenceUrl(e.target.value)}
+              placeholder="https://your-wordpress.com/sample-article/"
+              className="h-12 rounded-2xl border-2 border-stone-200 bg-white/80 backdrop-blur-sm focus:border-amber-400 focus:ring-amber-100 placeholder:text-stone-400"
+            />
+            <p className="text-sm text-stone-500">
+              WordPressサイト内の記事URLを指定すると、そのスタイルを参考に記事を生成します
+            </p>
+          </div>
+
+          {/* Error Message */}
+          <AnimatePresence>
+            {error && (
+              <motion.div
+                initial={{ opacity: 0, y: -10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -10 }}
+                className="p-4 rounded-xl bg-red-50 border border-red-200 text-red-700 text-sm"
+              >
+                {error}
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          {/* Submit Button */}
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ delay: 0.3 }}
+            className="pt-4"
+          >
+            <Button
+              onClick={handleSubmit}
+              disabled={isSubmitting || !selectedSiteId || !userPrompt.trim() || loadingSites}
+              className={`
+                w-full h-14 text-lg font-medium rounded-2xl transition-all duration-300
+                ${isSubmitting || !selectedSiteId || !userPrompt.trim()
+                  ? "bg-stone-200 text-stone-500 cursor-not-allowed"
+                  : "bg-gradient-to-r from-amber-500 via-orange-500 to-emerald-500 text-white shadow-lg shadow-orange-200/50 hover:shadow-xl hover:shadow-orange-300/50 hover:scale-[1.02]"
+                }
+              `}
+            >
+              {isSubmitting ? (
+                <span className="flex items-center gap-2">
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                  生成を開始中...
+                </span>
+              ) : (
+                <span className="flex items-center gap-2">
+                  <Sparkles className="w-5 h-5" />
+                  ブログ記事を生成する
+                </span>
+              )}
+            </Button>
+          </motion.div>
+
+          {/* Info Footer */}
+          <motion.p
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ delay: 0.4 }}
+            className="text-center text-sm text-stone-400 pt-4"
+          >
+            AIが参考記事を分析し、必要に応じて追加情報をお聞きします。
+            <br />
+            最終的に下書きとしてWordPressに保存されます。
+          </motion.p>
+        </motion.div>
+      </div>
+    </div>
+  );
+}

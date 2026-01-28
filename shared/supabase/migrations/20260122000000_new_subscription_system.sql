@@ -245,7 +245,16 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
 -- ----------------------------------------------------------------------------
 -- 8. Realtime有効化
 -- ----------------------------------------------------------------------------
-ALTER PUBLICATION supabase_realtime ADD TABLE user_subscriptions;
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_publication_tables
+        WHERE pubname = 'supabase_realtime'
+        AND tablename = 'user_subscriptions'
+    ) THEN
+        ALTER PUBLICATION supabase_realtime ADD TABLE user_subscriptions;
+    END IF;
+END $$;
 
 -- ----------------------------------------------------------------------------
 -- 9. 初期データ（既存の@shintairiku.jpユーザーを特権化）

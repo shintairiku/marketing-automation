@@ -73,6 +73,31 @@ export const groups: Group[] = [
     ],
   },
   {
+    title: 'Blog',
+    links: [
+      {
+        href: '/blog/new',
+        label: 'ブログAI',
+        sublabel: 'Blog AI',
+        subLinks: [
+          {
+            title: 'ブログ作成',
+            links: [
+              { href: '/blog/new', label: '新規ブログ記事作成' },
+              { href: '/blog/history', label: '生成履歴' },
+            ],
+          },
+          {
+            title: '連携設定',
+            links: [
+              { href: '/settings/integrations/wordpress', label: 'WordPress連携設定' },
+            ],
+          },
+        ],
+      },
+    ],
+  },
+  {
     title: 'Company',
     links: [
       {
@@ -110,7 +135,7 @@ export const groups: Group[] = [
           {
             title: 'サービス連携設定',
             links: [
-              { href: '/settings/integrations/wordpress', label: 'ワードプレス連携設定', disabled: true },
+              { href: '/settings/integrations/wordpress', label: 'ワードプレス連携設定' },
               { href: '/settings/integrations/instagram', label: 'Instagram連携設定', disabled: true },
               { href: '/settings/integrations/line', label: 'LINE連携設定', disabled: true },
             ],
