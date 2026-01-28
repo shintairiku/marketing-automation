@@ -1,9 +1,10 @@
 'use client';
 
-import React, { useEffect, useMemo } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import clsx from 'clsx';
+import { createPortal } from 'react-dom';
 import {
   IoAnalytics, IoCalendar,
   IoCash,
@@ -174,27 +175,40 @@ export default function Sidebar() {
                   const hasSubLinks = link.subLinks && link.subLinks.length > 0;
                   const mainIcon = mainIconMap[link.href] || iconMap[link.href];
 
-                  // サイドバー折り畳み時: アイコンのみ + ツールチップ
+                  // サイドバー折り畳み時: アイコン + ホバーでサブメニューをフライアウト表示
                   if (!isSidebarOpen) {
+                    if (!hasSubLinks) {
+                      return (
+                        <Tooltip key={link.href}>
+                          <TooltipTrigger asChild>
+                            <Link
+                              href={link.href}
+                              className={clsx(
+                                'flex items-center justify-center h-11 mx-2 my-0.5 rounded-lg transition-colors',
+                                active
+                                  ? 'bg-primary/10 text-primary'
+                                  : 'text-stone-500 hover:bg-stone-100 hover:text-stone-700'
+                              )}
+                            >
+                              <span className={active ? 'text-primary' : ''}>{mainIcon}</span>
+                            </Link>
+                          </TooltipTrigger>
+                          <TooltipContent side="right" sideOffset={8}>
+                            <p className="font-medium">{link.label}</p>
+                          </TooltipContent>
+                        </Tooltip>
+                      );
+                    }
+
+                    // サブリンク付き: ホバーでフライアウトメニュー表示
                     return (
-                      <Tooltip key={link.href}>
-                        <TooltipTrigger asChild>
-                          <Link
-                            href={link.href}
-                            className={clsx(
-                              'flex items-center justify-center h-11 mx-2 my-0.5 rounded-lg transition-colors',
-                              active
-                                ? 'bg-primary/10 text-primary'
-                                : 'text-stone-500 hover:bg-stone-100 hover:text-stone-700'
-                            )}
-                          >
-                            <span className={active ? 'text-primary' : ''}>{mainIcon}</span>
-                          </Link>
-                        </TooltipTrigger>
-                        <TooltipContent side="right" sideOffset={8}>
-                          <p className="font-medium">{link.label}</p>
-                        </TooltipContent>
-                      </Tooltip>
+                      <CollapsedMenuFlyout
+                        key={link.href}
+                        link={link}
+                        active={active}
+                        mainIcon={mainIcon}
+                        pathname={pathname}
+                      />
                     );
                   }
 
@@ -303,5 +317,127 @@ export default function Sidebar() {
         </ScrollArea>
       </aside>
     </TooltipProvider>
+  );
+}
+
+/**
+ * 縮小サイドバー用フライアウトメニュー
+ * アイコンホバーで右側にサブメニューを Portal 経由でポップアウト表示
+ * （aside の overflow-hidden を回避するため body 直下に描画）
+ */
+function CollapsedMenuFlyout({
+  link,
+  active,
+  mainIcon,
+  pathname,
+}: {
+  link: { href: string; label: string; subLinks: { title: string; links: { href: string; label: string; disabled?: boolean }[] }[] };
+  active: boolean;
+  mainIcon: React.ReactNode;
+  pathname: string;
+}) {
+  const [isOpen, setIsOpen] = useState(false);
+  const [panelPos, setPanelPos] = useState<{ top: number; left: number } | null>(null);
+  const timeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const triggerRef = useRef<HTMLAnchorElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+
+  const open = useCallback(() => {
+    if (timeoutRef.current) clearTimeout(timeoutRef.current);
+    // アイコンの位置を取得してパネル座標を計算
+    if (triggerRef.current) {
+      const rect = triggerRef.current.getBoundingClientRect();
+      setPanelPos({ top: rect.top, left: rect.right + 6 });
+    }
+    setIsOpen(true);
+  }, []);
+
+  const close = useCallback(() => {
+    timeoutRef.current = setTimeout(() => setIsOpen(false), 150);
+  }, []);
+
+  const cancelClose = useCallback(() => {
+    if (timeoutRef.current) clearTimeout(timeoutRef.current);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (timeoutRef.current) clearTimeout(timeoutRef.current);
+    };
+  }, []);
+
+  return (
+    <>
+      {/* アイコンボタン */}
+      <Link
+        ref={triggerRef}
+        href={link.href}
+        className={clsx(
+          'flex items-center justify-center h-11 mx-2 my-0.5 rounded-lg transition-colors',
+          active
+            ? 'bg-primary/10 text-primary'
+            : 'text-stone-500 hover:bg-stone-100 hover:text-stone-700'
+        )}
+        onMouseEnter={open}
+        onMouseLeave={close}
+      >
+        <span className={active ? 'text-primary' : ''}>{mainIcon}</span>
+      </Link>
+
+      {/* フライアウトパネル — Portal で body 直下に描画 */}
+      {isOpen && panelPos && createPortal(
+        <div
+          ref={panelRef}
+          className="fixed z-[9999] min-w-[210px] py-2 bg-white rounded-xl border border-stone-200 shadow-xl animate-in fade-in slide-in-from-left-2 duration-150"
+          style={{ top: panelPos.top, left: panelPos.left }}
+          onMouseEnter={cancelClose}
+          onMouseLeave={close}
+        >
+          <p className="px-3 pb-1.5 text-xs font-semibold text-stone-500 border-b border-stone-100 mb-1">
+            {link.label}
+          </p>
+          {link.subLinks.map((section) => (
+            <div key={section.title} className="py-1">
+              {link.subLinks.length > 1 && (
+                <p className="px-3 py-1 text-[10px] font-semibold text-stone-400 uppercase tracking-wider">
+                  {section.title}
+                </p>
+              )}
+              {section.links.map((subLink) => {
+                if (subLink.disabled) {
+                  return (
+                    <div
+                      key={subLink.href || subLink.label}
+                      className="flex items-center gap-2 px-3 py-1.5 text-sm text-stone-300 cursor-not-allowed"
+                    >
+                      <span className="shrink-0 opacity-50">{iconMap[subLink.href]}</span>
+                      <span className="truncate">{subLink.label}</span>
+                    </div>
+                  );
+                }
+                const isSubActive = pathname === subLink.href;
+                return (
+                  <Link
+                    key={subLink.href}
+                    href={subLink.href}
+                    className={clsx(
+                      'flex items-center gap-2 px-3 py-1.5 text-sm transition-colors rounded-md mx-1',
+                      isSubActive
+                        ? 'text-primary font-medium bg-primary/5'
+                        : 'text-stone-600 hover:bg-stone-50 hover:text-stone-800'
+                    )}
+                    onClick={() => setIsOpen(false)}
+                  >
+                    <span className="shrink-0">{iconMap[subLink.href]}</span>
+                    <span className="truncate">{subLink.label}</span>
+                  </Link>
+                );
+              })}
+            </div>
+          ))}
+        </div>,
+        document.body,
+      )}
+    </>
   );
 }
