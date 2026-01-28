@@ -104,12 +104,13 @@ class BlogGenerationService:
                 }
             )
 
-            # Agent実行
+            # Agent実行（max_turnsを設定で制御）
             logger.info(f"Agent実行開始: process_id={process_id}")
             result = await Runner.run(
                 self._agent,
                 input_message,
                 run_config=run_config,
+                max_turns=settings.blog_generation_max_turns,  # 環境変数で制御可能（デフォルト100）
             )
             logger.info(f"Agent実行完了: process_id={process_id}")
 
