@@ -10,33 +10,11 @@ import json
 from typing import List, Literal, Optional
 
 from agents import function_tool
-from agents.exceptions import AgentsException
 
 from app.domains.blog.services.wordpress_mcp_service import (
     call_wordpress_mcp_tool,
     MCP_LONG_TIMEOUT,
 )
-
-
-# ========== ユーザー質問例外 ==========
-
-class UserInputRequiredException(AgentsException):
-    """ユーザーからの入力が必要な場合に発生する例外
-
-    AgentsExceptionを継承しているため、OpenAI Agents SDKのツール実行時に
-    UserErrorでラップされず、そのまま再送出される。
-    """
-
-    def __init__(self, questions: List[dict], context: Optional[str] = None):
-        """
-        Args:
-            questions: 質問リスト（フロントエンドスキーマ準拠）
-                [{"question_id": "q1", "question": "...", "input_type": "text|textarea|select", "options": [...]}]
-            context: 質問の文脈説明
-        """
-        self.questions = questions
-        self.context = context
-        super().__init__(f"User input required: {len(questions)} question(s)")
 
 
 # ========== ユーザー質問ツール ==========
@@ -49,8 +27,7 @@ async def ask_user_questions(
     """記事作成に必要な情報をユーザーに質問します。
 
     このツールを使うと、ユーザーに質問を送信し、回答を待ちます。
-    インタビュー記事の場合のインタビュー対象者情報や、
-    記事に含めたい特定の情報がある場合に使用してください。
+    質問数に制限はありません。記事に必要な情報を自由に聞いてください。
 
     Args:
         questions: ユーザーへの質問リスト（日本語で記述）
@@ -59,27 +36,15 @@ async def ask_user_questions(
             例: "インタビュー記事を作成するために、以下の情報が必要です"
 
     Returns:
-        ユーザー入力待ちの状態になったことを示すメッセージ
-
-    Note:
-        このツールを呼び出すと、生成プロセスは一時停止し、
-        ユーザーの回答を待ちます。ユーザーが回答すると、
-        その情報を使って記事生成を続行します。
+        質問送信成功メッセージ。このツール呼び出し後、
+        処理は一時停止しユーザーの回答を待ちます。
+        回答が届き次第、その情報を使って記事生成を続行します。
     """
-    # 質問を構造化（フロントエンドスキーマに合わせる）
-    structured_questions = []
-    for i, q in enumerate(questions):
-        structured_questions.append({
-            "question_id": f"q{i+1}",
-            "question": q,
-            "input_type": "textarea",  # デフォルトはテキストエリア
-        })
-
-    # 例外を発生させて生成を一時停止
-    raise UserInputRequiredException(
-        questions=structured_questions,
-        context=context,
-    )
+    return json.dumps({
+        "status": "questions_sent",
+        "question_count": len(questions),
+        "message": "質問をユーザーに送信しました。ユーザーの回答を待っています。これ以上の処理は行わないでください。",
+    }, ensure_ascii=False)
 
 
 # ========== 記事取得系ツール ==========

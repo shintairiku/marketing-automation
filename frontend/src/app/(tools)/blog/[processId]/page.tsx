@@ -16,6 +16,7 @@ import {
   MessageSquare,
   RefreshCw,
   Send,
+  SkipForward,
   Upload,
 } from "lucide-react";
 
@@ -42,7 +43,9 @@ interface BlogGenerationState {
       input_type: string;
       options?: string[];
     }>;
+    question_context?: string;
     user_answers?: Record<string, string>;
+    agent_message?: string;
   };
   user_prompt: string | null;
   reference_url: string | null;
@@ -137,10 +140,11 @@ export default function BlogProcessPage() {
     }
   }, [state, fetchState]);
 
-  const handleSubmitAnswers = async () => {
+  const handleSubmitAnswers = async (skip = false) => {
     setSubmittingAnswers(true);
     try {
       const token = await getToken();
+      const payload = skip ? { answers: {} } : { answers };
       const response = await fetch(
         `/api/proxy/blog/generation/${processId}/user-input`,
         {
@@ -149,7 +153,7 @@ export default function BlogProcessPage() {
             "Content-Type": "application/json",
             Authorization: `Bearer ${token}`,
           },
-          body: JSON.stringify({ answers }),
+          body: JSON.stringify(payload),
         }
       );
       if (response.ok) {
@@ -284,6 +288,17 @@ export default function BlogProcessPage() {
                   <p className="text-stone-600">
                     下書き記事がWordPressに保存されました。プレビューを確認して、必要に応じて編集してください。
                   </p>
+                  {state.blog_context.agent_message && (
+                    <div className="p-4 rounded-xl bg-white/70 border border-emerald-200">
+                      <p className="text-xs font-medium text-emerald-600 mb-2">
+                        <FileText className="w-3.5 h-3.5 inline mr-1" />
+                        AIからのメッセージ
+                      </p>
+                      <p className="text-sm text-stone-600 whitespace-pre-wrap leading-relaxed">
+                        {state.blog_context.agent_message}
+                      </p>
+                    </div>
+                  )}
                   <div className="flex gap-3">
                     {state.draft_preview_url && (
                       <Button asChild>
@@ -347,15 +362,30 @@ export default function BlogProcessPage() {
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2 text-amber-700">
                     <MessageSquare className="w-6 h-6" />
-                    追加情報が必要です
+                    より良い記事のために教えてください
                   </CardTitle>
+                  <p className="text-sm text-stone-500 mt-2">
+                    {state.blog_context.question_context ||
+                      "AIがサイトを分析しました。以下の質問に答えていただくと、より的確な記事を作成できます。"}
+                  </p>
                 </CardHeader>
-                <CardContent className="space-y-6">
-                  {state.blog_context.ai_questions?.map((question) => (
-                    <div key={question.question_id} className="space-y-2">
-                      <Label className="text-stone-700 font-medium">
-                        {question.question}
-                      </Label>
+                <CardContent className="space-y-5">
+                  {state.blog_context.ai_questions?.map((question, idx) => (
+                    <div
+                      key={question.question_id}
+                      className="space-y-2 p-4 rounded-xl bg-white/70 border border-stone-200"
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <Label className="text-stone-700 font-medium leading-relaxed">
+                          <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-amber-100 text-amber-700 text-xs font-bold mr-2">
+                            {idx + 1}
+                          </span>
+                          {question.question}
+                        </Label>
+                        <Badge variant="outline" className="text-xs text-stone-400 border-stone-200 shrink-0">
+                          任意
+                        </Badge>
+                      </div>
                       {question.input_type === "textarea" ? (
                         <Textarea
                           value={answers[question.question_id] || ""}
@@ -365,8 +395,8 @@ export default function BlogProcessPage() {
                               [question.question_id]: e.target.value,
                             })
                           }
-                          placeholder="回答を入力..."
-                          className="min-h-[100px]"
+                          placeholder="わかる範囲でお書きください..."
+                          className="min-h-[100px] bg-white border-stone-200 focus:border-amber-400 focus:ring-amber-100"
                         />
                       ) : question.input_type === "select" && question.options ? (
                         <div className="flex flex-wrap gap-2">
@@ -399,23 +429,37 @@ export default function BlogProcessPage() {
                               [question.question_id]: e.target.value,
                             })
                           }
-                          placeholder="回答を入力..."
+                          placeholder="わかる範囲でお書きください..."
+                          className="bg-white border-stone-200 focus:border-amber-400 focus:ring-amber-100"
                         />
                       )}
                     </div>
                   ))}
-                  <Button
-                    onClick={handleSubmitAnswers}
-                    disabled={submittingAnswers}
-                    className="w-full"
-                  >
-                    {submittingAnswers ? (
-                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                    ) : (
-                      <Send className="w-4 h-4 mr-2" />
-                    )}
-                    回答を送信
-                  </Button>
+                  <div className="flex gap-3 pt-2">
+                    <Button
+                      onClick={() => handleSubmitAnswers(false)}
+                      disabled={submittingAnswers}
+                      className="flex-1"
+                    >
+                      {submittingAnswers ? (
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      ) : (
+                        <Send className="w-4 h-4 mr-2" />
+                      )}
+                      回答を送信して続行
+                    </Button>
+                    <Button
+                      variant="outline"
+                      onClick={() => handleSubmitAnswers(true)}
+                      disabled={submittingAnswers}
+                    >
+                      <SkipForward className="w-4 h-4 mr-2" />
+                      スキップ
+                    </Button>
+                  </div>
+                  <p className="text-xs text-stone-400 text-center">
+                    すべての質問は任意です。スキップしてもリクエスト内容をもとに記事を作成します。
+                  </p>
                 </CardContent>
               </Card>
             </motion.div>
