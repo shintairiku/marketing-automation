@@ -42,7 +42,9 @@ from app.domains.blog.schemas import (
 from app.domains.blog.services.crypto_service import get_crypto_service
 from app.domains.blog.services.wordpress_mcp_service import (
     WordPressMcpService,
+    WordPressMcpClient,
     MCPError,
+    clear_mcp_client_cache,
 )
 from app.domains.blog.services.generation_service import BlogGenerationService
 
@@ -443,13 +445,13 @@ async def test_wordpress_connection(
 
     site = result.data
 
+    # MCPクライアントキャッシュをクリア（新鮮な接続でテスト）
+    clear_mcp_client_cache(site_id)
+
     # MCP接続テスト
     try:
-        mcp_service = await WordPressMcpService.from_site_credentials(
-            mcp_endpoint=site["mcp_endpoint"],
-            encrypted_credentials=site["encrypted_credentials"],
-        )
-        test_result = await mcp_service.test_connection()
+        mcp_client = WordPressMcpClient(site_id=site_id, user_id=user_id)
+        test_result = await mcp_client.test_connection()
 
         # 接続状態を更新
         now = datetime.utcnow().isoformat()

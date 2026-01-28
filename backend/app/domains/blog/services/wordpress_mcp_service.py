@@ -1,17 +1,21 @@
 # -*- coding: utf-8 -*-
 """
-Blog AI Domain - WordPress MCP Service
+WordPress MCP Client
+動的認証対応版 - DBに保存されたサイト情報を使用して接続
 
-WordPress MCPサーバーとの通信を管理するサービス
+参考: shintairiku-ai-agent/backend/app/infrastructure/chatkit/wordpress_mcp_client.py
+
+優先順位:
+1. site_id が指定されている場合 → そのサイトのクレデンシャルを使用
+2. site_id がない場合 → アクティブサイトのクレデンシャルを使用
 """
-
-import asyncio
-from typing import Any, Dict, List, Optional
-
+import json
 import logging
+from typing import Any, Dict, Optional
 
 import httpx
 
+from app.common.database import supabase
 from .crypto_service import get_crypto_service
 
 logger = logging.getLogger(__name__)
@@ -33,89 +37,79 @@ class MCPError(Exception):
         super().__init__(message)
 
 
-class WordPressMcpService:
-    """
-    WordPress MCPサーバーとの通信を管理するサービス
+class WordPressMcpClient:
+    """WordPress MCPクライアント（動的認証対応）"""
 
-    MCP（Model Context Protocol）を使用してWordPressと通信し、
-    記事の取得・作成・メディアアップロードなどを行う。
-    """
-
-    def __init__(
-        self,
-        mcp_endpoint: str,
-        access_token: str,
-        api_key: Optional[str] = None,
-        api_secret: Optional[str] = None,
-    ):
+    def __init__(self, site_id: Optional[str] = None, user_id: Optional[str] = None):
         """
         Args:
-            mcp_endpoint: MCPサーバーのエンドポイントURL
-            access_token: Bearer認証用アクセストークン
-            api_key: Basic認証用APIキー（オプション）
-            api_secret: Basic認証用APIシークレット（オプション）
+            site_id: 接続するWordPressサイトのID（省略時はアクティブサイトを使用）
+            user_id: ユーザーID（サイト検索時に使用）
         """
-        self.mcp_endpoint = mcp_endpoint
-        self.access_token = access_token
-        self.api_key = api_key
-        self.api_secret = api_secret
-        self.session_id: Optional[str] = None
+        self._site_id = site_id
+        self._user_id = user_id
+        self._url: Optional[str] = None
+        self._auth: Optional[str] = None
+        self._session_id: Optional[str] = None
         self._request_id = 0
+        self._credentials_loaded = False
 
-    @classmethod
-    async def from_site_credentials(
-        cls,
-        mcp_endpoint: str,
-        encrypted_credentials: str,
-    ) -> "WordPressMcpService":
+    async def _load_credentials(self) -> tuple[str, str]:
         """
-        暗号化された認証情報からサービスを作成
-
-        Args:
-            mcp_endpoint: MCPエンドポイント
-            encrypted_credentials: 暗号化された認証情報
+        クレデンシャルを読み込む
 
         Returns:
-            WordPressMcpServiceインスタンス
+            (mcp_endpoint, authorization_header) のタプル
         """
         crypto = get_crypto_service()
-        credentials = crypto.decrypt_credentials(encrypted_credentials)
 
-        return cls(
-            mcp_endpoint=mcp_endpoint,
-            access_token=credentials["access_token"],
-            api_key=credentials.get("api_key"),
-            api_secret=credentials.get("api_secret"),
-        )
+        # site_id が指定されている場合はそのサイトを使用
+        if self._site_id:
+            result = supabase.table("wordpress_sites").select(
+                "site_url, mcp_endpoint, encrypted_credentials"
+            ).eq("id", self._site_id).single().execute()
 
-    def _get_headers(self) -> Dict[str, str]:
-        """リクエストヘッダーを取得"""
-        headers = {
-            "Authorization": f"Bearer {self.access_token}",
-            "Content-Type": "application/json",
-        }
-        if self.session_id:
-            headers["Mcp-Session-Id"] = self.session_id
-        return headers
+            if result.data:
+                credentials = crypto.decrypt_credentials(result.data["encrypted_credentials"])
+                logger.info(f"Using WordPress site: {result.data['site_url']} (ID: {self._site_id[:8]}...)")
+                return result.data["mcp_endpoint"], f"Bearer {credentials['access_token']}"
+            else:
+                logger.warning(f"Site not found: {self._site_id}, falling back to active site")
 
-    def _next_request_id(self) -> int:
-        """次のリクエストIDを取得"""
+        # site_id がない場合はアクティブサイトを検索
+        query = supabase.table("wordpress_sites").select(
+            "id, site_url, mcp_endpoint, encrypted_credentials"
+        ).eq("is_active", True)
+
+        if self._user_id:
+            query = query.eq("user_id", self._user_id)
+
+        result = query.limit(1).execute()
+
+        if result.data and len(result.data) > 0:
+            active_site = result.data[0]
+            credentials = crypto.decrypt_credentials(active_site["encrypted_credentials"])
+            logger.info(f"Using active WordPress site: {active_site['site_url']}")
+            return active_site["mcp_endpoint"], f"Bearer {credentials['access_token']}"
+
+        raise MCPError("No WordPress site available. Please configure a WordPress site first.")
+
+    async def initialize(self) -> None:
+        """MCPセッションを初期化"""
+        # クレデンシャルを読み込み
+        if not self._credentials_loaded:
+            self._url, self._auth = await self._load_credentials()
+            self._credentials_loaded = True
+
         self._request_id += 1
-        return self._request_id
-
-    async def connect(self) -> Dict[str, Any]:
-        """
-        MCPセッションを初期化
-
-        Returns:
-            サーバー情報
-        """
-        logger.info(f"MCP接続を開始: {self.mcp_endpoint}")
 
         async with httpx.AsyncClient(timeout=MCP_TIMEOUT) as client:
             response = await client.post(
-                self.mcp_endpoint,
-                headers=self._get_headers(),
+                self._url,
+                headers={
+                    "Authorization": self._auth,
+                    "Content-Type": "application/json",
+                },
                 json={
                     "jsonrpc": "2.0",
                     "method": "initialize",
@@ -127,218 +121,87 @@ class WordPressMcpService:
                             "version": "1.0.0",
                         },
                     },
-                    "id": self._next_request_id(),
+                    "id": self._request_id,
                 },
             )
 
             # セッションIDを取得（大文字小文字両対応）
-            self.session_id = (
-                response.headers.get("Mcp-Session-Id")
-                or response.headers.get("mcp-session-id")
+            session_id = (
+                response.headers.get("mcp-session-id")
+                or response.headers.get("Mcp-Session-Id")
             )
+            if not session_id:
+                raise MCPError("Failed to get MCP session ID")
 
-            result = response.json()
-
-            if "error" in result:
-                raise MCPError(
-                    result["error"].get("message", "MCP初期化エラー"),
-                    result["error"].get("code"),
-                )
-
-            logger.info(f"MCP接続成功: session_id={self.session_id}")
-            return result.get("result", {})
-
-    async def _request(
-        self,
-        method: str,
-        params: Dict[str, Any],
-        timeout: float = MCP_TIMEOUT,
-    ) -> Dict[str, Any]:
-        """
-        MCPリクエストを送信
-
-        Args:
-            method: MCPメソッド名
-            params: パラメータ
-            timeout: タイムアウト（秒）
-
-        Returns:
-            レスポンス結果
-        """
-        if not self.session_id:
-            await self.connect()
-
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            response = await client.post(
-                self.mcp_endpoint,
-                headers=self._get_headers(),
-                json={
-                    "jsonrpc": "2.0",
-                    "method": method,
-                    "params": params,
-                    "id": self._next_request_id(),
-                },
-            )
-
-            result = response.json()
-
-            if "error" in result:
-                error = result["error"]
-                # セッションエラーの場合は再接続を試みる
-                if error.get("code") == -32600 or "session" in str(error.get("message", "")).lower():
-                    logger.warning("MCPセッションエラー、再接続を試みます")
-                    await self.connect()
-                    return await self._request(method, params, timeout)
-
-                raise MCPError(
-                    error.get("message", "MCPリクエストエラー"),
-                    error.get("code"),
-                )
-
-            return result.get("result", {})
-
-    async def list_tools(self) -> List[Dict[str, Any]]:
-        """利用可能なツール一覧を取得"""
-        result = await self._request("tools/list", {})
-        return result.get("tools", [])
+            self._session_id = session_id
+            logger.info(f"WordPress MCP initialized with session: {session_id[:8]}...")
 
     async def call_tool(
         self,
-        name: str,
-        arguments: Dict[str, Any],
+        tool_name: str,
+        args: Dict[str, Any] | None = None,
         timeout: float = MCP_TIMEOUT,
-    ) -> Dict[str, Any]:
+    ) -> str:
         """
         MCPツールを呼び出す
 
         Args:
-            name: ツール名
-            arguments: 引数
+            tool_name: ツール名
+            args: ツール引数
             timeout: タイムアウト（秒）
 
         Returns:
-            ツール実行結果
+            ツール実行結果（JSON文字列）
         """
-        logger.info(f"MCPツール呼び出し: {name}")
-        return await self._request(
-            "tools/call",
-            {"name": name, "arguments": arguments},
-            timeout,
-        )
+        if not self._session_id:
+            await self.initialize()
 
-    # =====================================================
-    # WordPress固有のヘルパーメソッド
-    # =====================================================
+        self._request_id += 1
+        args = args or {}
 
-    async def get_site_info(self) -> Dict[str, Any]:
-        """サイト情報を取得"""
-        return await self.call_tool("wp-mcp-get-site-info", {})
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            response = await client.post(
+                self._url,
+                headers={
+                    "Authorization": self._auth,
+                    "Content-Type": "application/json",
+                    "Mcp-Session-Id": self._session_id,
+                },
+                json={
+                    "jsonrpc": "2.0",
+                    "method": "tools/call",
+                    "params": {
+                        "name": tool_name,
+                        "arguments": args,
+                    },
+                    "id": self._request_id,
+                },
+            )
 
-    async def get_post(self, post_id: int) -> Dict[str, Any]:
-        """投稿を取得"""
-        return await self.call_tool("wp-mcp-get-post", {"post_id": post_id})
+            data = response.json()
 
-    async def get_post_by_url(self, url: str) -> Dict[str, Any]:
-        """URLから投稿を取得"""
-        return await self.call_tool("wp-mcp-get-post-by-url", {"url": url})
+            if "error" in data:
+                error = data["error"]
+                # セッションエラーの場合は再接続を試みる
+                if error.get("code") == -32600 or "session" in str(error.get("message", "")).lower():
+                    logger.warning("MCP session error, attempting to reconnect")
+                    self._session_id = None
+                    await self.initialize()
+                    return await self.call_tool(tool_name, args, timeout)
 
-    async def get_recent_posts(
-        self,
-        limit: int = 10,
-        post_type: str = "post",
-    ) -> List[Dict[str, Any]]:
-        """最近の投稿を取得"""
-        result = await self.call_tool(
-            "wp-mcp-get-recent-posts",
-            {"limit": limit, "post_type": post_type},
-        )
-        return result.get("posts", [])
+                raise MCPError(error.get("message", "Unknown MCP error"), error.get("code"))
 
-    async def create_draft_post(
-        self,
-        title: str,
-        content: str,
-        excerpt: Optional[str] = None,
-        categories: Optional[List[str]] = None,
-        tags: Optional[List[str]] = None,
-        featured_image_id: Optional[int] = None,
-    ) -> Dict[str, Any]:
-        """
-        下書き投稿を作成
+            result = data.get("result", {})
 
-        Args:
-            title: タイトル
-            content: 本文（Gutenbergブロック形式推奨）
-            excerpt: 抜粋
-            categories: カテゴリ
-            tags: タグ
-            featured_image_id: アイキャッチ画像のメディアID
+            # structuredContentがあればそれを返す、なければtextを返す
+            if result.get("structuredContent"):
+                return json.dumps(result["structuredContent"], ensure_ascii=False, indent=2)
 
-        Returns:
-            作成された投稿情報
-        """
-        arguments = {
-            "title": title,
-            "content": content,
-            "status": "draft",
-        }
+            content = result.get("content", [])
+            if content and len(content) > 0 and content[0].get("text"):
+                return content[0]["text"]
 
-        if excerpt:
-            arguments["excerpt"] = excerpt
-        if categories:
-            arguments["categories"] = categories
-        if tags:
-            arguments["tags"] = tags
-        if featured_image_id:
-            arguments["featured_media"] = featured_image_id
-
-        return await self.call_tool("wp-mcp-create-draft-post", arguments)
-
-    async def upload_media(
-        self,
-        file_data: bytes,
-        filename: str,
-        mime_type: str = "image/jpeg",
-        alt_text: Optional[str] = None,
-    ) -> Dict[str, Any]:
-        """
-        メディアをアップロード
-
-        Args:
-            file_data: ファイルデータ（バイト）
-            filename: ファイル名
-            mime_type: MIMEタイプ
-            alt_text: 代替テキスト
-
-        Returns:
-            アップロードされたメディア情報
-        """
-        import base64
-
-        arguments = {
-            "file_data": base64.b64encode(file_data).decode("utf-8"),
-            "filename": filename,
-            "mime_type": mime_type,
-        }
-
-        if alt_text:
-            arguments["alt_text"] = alt_text
-
-        return await self.call_tool(
-            "wp-mcp-upload-media",
-            arguments,
-            timeout=MCP_LONG_TIMEOUT,
-        )
-
-    async def get_categories(self) -> List[Dict[str, Any]]:
-        """カテゴリ一覧を取得"""
-        result = await self.call_tool("wp-mcp-get-categories", {})
-        return result.get("categories", [])
-
-    async def get_tags(self) -> List[Dict[str, Any]]:
-        """タグ一覧を取得"""
-        result = await self.call_tool("wp-mcp-get-tags", {})
-        return result.get("tags", [])
+            return json.dumps(result, ensure_ascii=False)
 
     async def test_connection(self) -> Dict[str, Any]:
         """
@@ -352,15 +215,14 @@ class WordPressMcpService:
             }
         """
         try:
-            server_info = await self.connect()
-            site_info = await self.get_site_info()
+            await self.initialize()
+            site_info_str = await self.call_tool("wp-mcp-get-site-info", {})
+            site_info = json.loads(site_info_str) if isinstance(site_info_str, str) else site_info_str
 
             return {
                 "success": True,
                 "message": "接続成功",
                 "server_info": {
-                    "name": server_info.get("serverInfo", {}).get("name"),
-                    "version": server_info.get("serverInfo", {}).get("version"),
                     "site_name": site_info.get("name"),
                     "site_url": site_info.get("url"),
                 },
@@ -377,3 +239,96 @@ class WordPressMcpService:
                 "message": f"接続エラー: {str(e)}",
                 "server_info": None,
             }
+
+
+# サイトIDごとのクライアントキャッシュ
+_mcp_clients: Dict[Optional[str], WordPressMcpClient] = {}
+
+
+def get_wordpress_mcp_client(
+    site_id: Optional[str] = None,
+    user_id: Optional[str] = None,
+) -> WordPressMcpClient:
+    """
+    WordPress MCPクライアントを取得
+
+    Args:
+        site_id: 接続するWordPressサイトのID（省略時はアクティブサイトを使用）
+        user_id: ユーザーID（サイト検索時に使用）
+
+    Returns:
+        WordPressMcpClient インスタンス
+    """
+    global _mcp_clients
+
+    # site_id ごとにクライアントをキャッシュ
+    cache_key = site_id
+    if cache_key not in _mcp_clients:
+        _mcp_clients[cache_key] = WordPressMcpClient(site_id, user_id)
+
+    return _mcp_clients[cache_key]
+
+
+def clear_mcp_client_cache(site_id: Optional[str] = None) -> None:
+    """
+    MCPクライアントキャッシュをクリア
+
+    Args:
+        site_id: クリアするサイトID（省略時は全キャッシュをクリア）
+    """
+    global _mcp_clients
+
+    if site_id is None:
+        _mcp_clients.clear()
+        logger.info("Cleared all MCP client cache")
+    elif site_id in _mcp_clients:
+        del _mcp_clients[site_id]
+        logger.info(f"Cleared MCP client cache for site: {site_id[:8]}...")
+
+
+async def call_wordpress_mcp_tool(
+    tool_name: str,
+    args: Dict[str, Any] | None = None,
+    site_id: Optional[str] = None,
+    user_id: Optional[str] = None,
+    timeout: float = MCP_TIMEOUT,
+) -> str:
+    """
+    WordPress MCPツールを呼び出す便利関数
+
+    Args:
+        tool_name: ツール名
+        args: ツール引数
+        site_id: 接続するWordPressサイトのID（省略時はアクティブサイトを使用）
+        user_id: ユーザーID
+        timeout: タイムアウト（秒）
+
+    Returns:
+        ツールの実行結果（JSON文字列）
+    """
+    client = get_wordpress_mcp_client(site_id, user_id)
+    return await client.call_tool(tool_name, args, timeout)
+
+
+# 後方互換性のためのエイリアス
+class WordPressMcpService(WordPressMcpClient):
+    """後方互換性のためのエイリアス（非推奨）"""
+
+    @classmethod
+    async def from_site_credentials(
+        cls,
+        mcp_endpoint: str,
+        encrypted_credentials: str,
+    ) -> "WordPressMcpService":
+        """
+        暗号化された認証情報からサービスを作成（後方互換性）
+        """
+        crypto = get_crypto_service()
+        credentials = crypto.decrypt_credentials(encrypted_credentials)
+
+        instance = cls()
+        instance._url = mcp_endpoint
+        instance._auth = f"Bearer {credentials['access_token']}"
+        instance._credentials_loaded = True
+
+        return instance
