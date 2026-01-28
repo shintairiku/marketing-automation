@@ -93,7 +93,20 @@ export default function BlogNewPage() {
         router.push(`/blog/${data.id}`);
       } else {
         const errData = await response.json();
-        setError(errData.detail || "生成の開始に失敗しました");
+        // FastAPIの422バリデーションエラーはdetailが配列
+        if (Array.isArray(errData.detail)) {
+          const messages = errData.detail.map(
+            (e: { msg?: string; loc?: string[] }) =>
+              e.msg || "バリデーションエラー"
+          );
+          setError(messages.join("、"));
+        } else {
+          setError(
+            typeof errData.detail === "string"
+              ? errData.detail
+              : "生成の開始に失敗しました"
+          );
+        }
       }
     } catch (err) {
       setError("ネットワークエラーが発生しました");

@@ -60,7 +60,6 @@ class BlogGenerationStartRequest(BaseModel):
     """ブログ生成開始リクエスト"""
     user_prompt: str = Field(
         ...,
-        min_length=10,
         max_length=2000,
         description="どんな記事を作りたいか"
     )

@@ -10,6 +10,7 @@ import json
 from typing import List, Literal, Optional
 
 from agents import function_tool
+from agents.exceptions import AgentsException
 
 from app.domains.blog.services.wordpress_mcp_service import (
     call_wordpress_mcp_tool,
@@ -19,8 +20,12 @@ from app.domains.blog.services.wordpress_mcp_service import (
 
 # ========== ユーザー質問例外 ==========
 
-class UserInputRequiredException(Exception):
-    """ユーザーからの入力が必要な場合に発生する例外"""
+class UserInputRequiredException(AgentsException):
+    """ユーザーからの入力が必要な場合に発生する例外
+
+    AgentsExceptionを継承しているため、OpenAI Agents SDKのツール実行時に
+    UserErrorでラップされず、そのまま再送出される。
+    """
 
     def __init__(self, questions: List[dict], context: Optional[str] = None):
         """
