@@ -81,6 +81,7 @@ class WordPressSiteRegisterRequest(BaseModel):
     access_token: str = Field(..., description="アクセストークン")
     api_key: Optional[str] = Field(None, description="APIキー")
     api_secret: Optional[str] = Field(None, description="APIシークレット")
+    organization_id: Optional[str] = Field(None, description="紐付ける組織ID（nullで個人サイト）")
 
 
 class WordPressRegistrationRequest(BaseModel):
@@ -91,6 +92,12 @@ class WordPressRegistrationRequest(BaseModel):
     register_endpoint: str = Field(..., description="WordPress登録エンドポイント")
     registration_code: str = Field(..., description="登録コード")
     callback_url: Optional[str] = Field(None, description="WordPressコールバックURL")
+    organization_id: Optional[str] = Field(None, description="紐付ける組織ID（nullで個人サイト）")
+
+
+class WordPressSiteOrganizationUpdateRequest(BaseModel):
+    """WordPressサイト組織変更リクエスト"""
+    organization_id: Optional[str] = Field(None, description="組織ID（nullで個人サイトに変更）")
 
 
 class WordPressSiteListResponse(BaseModel):
@@ -121,6 +128,38 @@ async def get_current_user(
             detail="認証が必要です",
         )
     return get_current_user_id_from_token(credentials)
+
+
+def _build_site_response(site: dict, org_name_map: Optional[Dict[str, str]] = None) -> WordPressSiteResponse:
+    """サイトデータからWordPressSiteResponseを構築"""
+    org_id = site.get("organization_id")
+    org_name = None
+    if org_id and org_name_map:
+        org_name = org_name_map.get(org_id)
+    return WordPressSiteResponse(
+        id=site["id"],
+        site_url=site["site_url"],
+        site_name=site.get("site_name"),
+        mcp_endpoint=site["mcp_endpoint"],
+        connection_status=site["connection_status"],
+        is_active=site.get("is_active", False),
+        user_id=site.get("user_id"),
+        organization_id=org_id,
+        organization_name=org_name,
+        last_connected_at=site.get("last_connected_at"),
+        last_used_at=site.get("last_used_at"),
+        last_error=site.get("last_error"),
+        created_at=site["created_at"],
+        updated_at=site["updated_at"],
+    )
+
+
+def _get_org_name_map(supabase, org_ids: List[str]) -> Dict[str, str]:
+    """組織IDリストから {org_id: org_name} マップを取得"""
+    if not org_ids:
+        return {}
+    result = supabase.table("organizations").select("id, name").in_("id", org_ids).execute()
+    return {org["id"]: org["name"] for org in (result.data or [])}
 
 
 def _get_org_site(supabase, site_id: str, user_id: str):
@@ -206,11 +245,19 @@ async def connect_wordpress(
         "api_secret": request.api_secret,
     })
 
-    # ユーザーの所属組織を検索して organization_id をセット
-    org_membership = supabase.table("organization_members").select(
-        "organization_id"
-    ).eq("user_id", user_id).limit(1).execute()
-    org_id = org_membership.data[0]["organization_id"] if org_membership.data else None
+    # リクエストで指定された organization_id を使用（指定なしは個人サイト）
+    org_id = request.organization_id
+
+    # 組織IDが指定された場合、ユーザーがその組織に所属しているか確認
+    if org_id:
+        org_check = supabase.table("organization_members").select(
+            "organization_id"
+        ).eq("user_id", user_id).eq("organization_id", org_id).execute()
+        if not org_check.data:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="指定された組織に所属していません",
+            )
 
     # 既存サイトを確認
     existing = supabase.table("wordpress_sites").select("id").eq(
@@ -261,20 +308,8 @@ async def connect_wordpress(
         )
 
     site_data = result.data[0]
-
-    return WordPressSiteResponse(
-        id=site_data["id"],
-        site_url=site_data["site_url"],
-        site_name=site_data.get("site_name"),
-        mcp_endpoint=site_data["mcp_endpoint"],
-        connection_status=site_data["connection_status"],
-        is_active=site_data.get("is_active", False),
-        last_connected_at=site_data.get("last_connected_at"),
-        last_used_at=site_data.get("last_used_at"),
-        last_error=site_data.get("last_error"),
-        created_at=site_data["created_at"],
-        updated_at=site_data["updated_at"],
-    )
+    org_name_map = _get_org_name_map(supabase, [org_id]) if org_id else {}
+    return _build_site_response(site_data, org_name_map)
 
 
 @router.post(
@@ -337,6 +372,20 @@ async def register_wordpress_site(
         "api_secret": register_data.get("api_secret"),
     })
 
+    # リクエストで指定された organization_id を使用（指定なしは個人サイト）
+    org_id = request.organization_id
+
+    # 組織IDが指定された場合、ユーザーがその組織に所属しているか確認
+    if org_id:
+        org_check = supabase.table("organization_members").select(
+            "organization_id"
+        ).eq("user_id", user_id).eq("organization_id", org_id).execute()
+        if not org_check.data:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="指定された組織に所属していません",
+            )
+
     # サイトを登録
     site_id = str(uuid.uuid4())
     now = datetime.utcnow().isoformat()
@@ -348,7 +397,7 @@ async def register_wordpress_site(
 
     if existing.data:
         site_id = existing.data[0]["id"]
-        result = supabase.table("wordpress_sites").update({
+        update_data = {
             "site_name": request.site_name,
             "mcp_endpoint": request.mcp_endpoint,
             "encrypted_credentials": encrypted_credentials,
@@ -356,9 +405,12 @@ async def register_wordpress_site(
             "last_connected_at": now,
             "last_error": None,
             "updated_at": now,
-        }).eq("id", site_id).execute()
+        }
+        if org_id is not None:
+            update_data["organization_id"] = org_id
+        result = supabase.table("wordpress_sites").update(update_data).eq("id", site_id).execute()
     else:
-        result = supabase.table("wordpress_sites").insert({
+        insert_data = {
             "id": site_id,
             "user_id": user_id,
             "site_url": request.site_url,
@@ -370,7 +422,10 @@ async def register_wordpress_site(
             "last_connected_at": now,
             "created_at": now,
             "updated_at": now,
-        }).execute()
+        }
+        if org_id:
+            insert_data["organization_id"] = org_id
+        result = supabase.table("wordpress_sites").insert(insert_data).execute()
 
     if not result.data:
         raise HTTPException(
@@ -395,20 +450,8 @@ async def register_wordpress_site(
             # コールバック失敗は無視（連携自体は成功）
 
     site_data = result.data[0]
-
-    return WordPressSiteResponse(
-        id=site_data["id"],
-        site_url=site_data["site_url"],
-        site_name=site_data.get("site_name"),
-        mcp_endpoint=site_data["mcp_endpoint"],
-        connection_status=site_data["connection_status"],
-        is_active=site_data.get("is_active", False),
-        last_connected_at=site_data.get("last_connected_at"),
-        last_used_at=site_data.get("last_used_at"),
-        last_error=site_data.get("last_error"),
-        created_at=site_data["created_at"],
-        updated_at=site_data["updated_at"],
-    )
+    org_name_map = _get_org_name_map(supabase, [org_id]) if org_id else {}
+    return _build_site_response(site_data, org_name_map)
 
 
 @router.get(
@@ -448,20 +491,16 @@ async def list_wordpress_sites(
                     all_sites_data.append(site)
                     seen_ids.add(site["id"])
 
+    # 組織名マップを構築
+    all_org_ids = list({
+        site.get("organization_id")
+        for site in all_sites_data
+        if site.get("organization_id")
+    })
+    org_name_map = _get_org_name_map(supabase, all_org_ids)
+
     sites = [
-        WordPressSiteResponse(
-            id=site["id"],
-            site_url=site["site_url"],
-            site_name=site.get("site_name"),
-            mcp_endpoint=site["mcp_endpoint"],
-            connection_status=site["connection_status"],
-            is_active=site.get("is_active", False),
-            last_connected_at=site.get("last_connected_at"),
-            last_used_at=site.get("last_used_at"),
-            last_error=site.get("last_error"),
-            created_at=site["created_at"],
-            updated_at=site["updated_at"],
-        )
+        _build_site_response(site, org_name_map)
         for site in all_sites_data
     ]
 
@@ -622,19 +661,65 @@ async def activate_wordpress_site(
         )
 
     site = result.data[0]
-    return WordPressSiteResponse(
-        id=site["id"],
-        site_url=site["site_url"],
-        site_name=site.get("site_name"),
-        mcp_endpoint=site["mcp_endpoint"],
-        connection_status=site["connection_status"],
-        is_active=site.get("is_active", False),
-        last_connected_at=site.get("last_connected_at"),
-        last_used_at=site.get("last_used_at"),
-        last_error=site.get("last_error"),
-        created_at=site["created_at"],
-        updated_at=site["updated_at"],
-    )
+    org_id = site.get("organization_id")
+    org_name_map = _get_org_name_map(supabase, [org_id]) if org_id else {}
+    return _build_site_response(site, org_name_map)
+
+
+@router.patch(
+    "/sites/{site_id}/organization",
+    response_model=WordPressSiteResponse,
+    summary="サイトの組織変更",
+    description="WordPressサイトの所属組織を変更（個人 ↔ 組織）",
+)
+async def update_site_organization(
+    site_id: str,
+    request: WordPressSiteOrganizationUpdateRequest,
+    user_id: str = Depends(get_current_user),
+):
+    """サイトの組織を変更（サイト所有者のみ）"""
+    logger.info(f"サイト組織変更: site_id={site_id}, org_id={request.organization_id}")
+
+    supabase = get_supabase_client()
+
+    # サイト所有者であることを確認（user_id一致）
+    site_result = supabase.table("wordpress_sites").select("*").eq(
+        "id", site_id
+    ).eq("user_id", user_id).execute()
+
+    if not site_result.data:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="サイトが見つかりません（所有者のみ変更可能）",
+        )
+
+    # 組織IDが指定された場合、ユーザーがその組織に所属しているか確認
+    if request.organization_id:
+        org_check = supabase.table("organization_members").select(
+            "organization_id"
+        ).eq("user_id", user_id).eq("organization_id", request.organization_id).execute()
+        if not org_check.data:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="指定された組織に所属していません",
+            )
+
+    now = datetime.utcnow().isoformat()
+    result = supabase.table("wordpress_sites").update({
+        "organization_id": request.organization_id,
+        "updated_at": now,
+    }).eq("id", site_id).execute()
+
+    if not result.data:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="組織変更に失敗しました",
+        )
+
+    site = result.data[0]
+    org_id = site.get("organization_id")
+    org_name_map = _get_org_name_map(supabase, [org_id]) if org_id else {}
+    return _build_site_response(site, org_name_map)
 
 
 # =====================================================

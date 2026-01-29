@@ -35,6 +35,9 @@ class WordPressSiteResponse(WordPressSiteBase):
     mcp_endpoint: str
     connection_status: Literal["connected", "disconnected", "error"]
     is_active: bool
+    user_id: Optional[str] = None
+    organization_id: Optional[str] = None
+    organization_name: Optional[str] = None
     last_connected_at: Optional[datetime] = None
     last_used_at: Optional[datetime] = None
     last_error: Optional[str] = None

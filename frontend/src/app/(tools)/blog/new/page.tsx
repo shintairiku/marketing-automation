@@ -1,17 +1,20 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AnimatePresence,motion } from "framer-motion";
 import {
   AlertCircle,
+  Building2,
   CheckCircle2,
   ChevronRight,
   Globe,
   Link2,
   Loader2,
   PenLine,
-  Sparkles} from "lucide-react";
+  Sparkles,
+  User,
+} from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -19,12 +22,23 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { useAuth } from "@clerk/nextjs";
 
+import { Badge } from "@/components/ui/badge";
+
 interface WordPressSite {
   id: string;
   site_url: string;
   site_name: string | null;
   connection_status: "connected" | "disconnected" | "error";
   is_active: boolean;
+  organization_id: string | null;
+  organization_name: string | null;
+}
+
+interface SiteGroup {
+  key: string;
+  label: string;
+  icon: "personal" | "org";
+  sites: WordPressSite[];
 }
 
 export default function BlogNewPage() {
@@ -117,6 +131,44 @@ export default function BlogNewPage() {
 
   const connectedSites = sites.filter(s => s.connection_status === "connected");
 
+  const siteGroups = useMemo((): SiteGroup[] => {
+    const personalSites: WordPressSite[] = [];
+    const orgMap = new Map<string, WordPressSite[]>();
+
+    for (const site of connectedSites) {
+      if (site.organization_id) {
+        const existing = orgMap.get(site.organization_id) || [];
+        existing.push(site);
+        orgMap.set(site.organization_id, existing);
+      } else {
+        personalSites.push(site);
+      }
+    }
+
+    const groups: SiteGroup[] = [];
+
+    if (personalSites.length > 0) {
+      groups.push({
+        key: "personal",
+        label: "個人のサイト",
+        icon: "personal",
+        sites: personalSites,
+      });
+    }
+
+    for (const [orgId, orgSites] of orgMap) {
+      const orgName = orgSites[0]?.organization_name || "組織";
+      groups.push({
+        key: orgId,
+        label: orgName,
+        icon: "org",
+        sites: orgSites,
+      });
+    }
+
+    return groups;
+  }, [connectedSites]);
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-amber-50/50 via-white to-emerald-50/30">
       {/* Decorative background elements */}
@@ -185,53 +237,79 @@ export default function BlogNewPage() {
                 </Button>
               </motion.div>
             ) : (
-              <div className="grid gap-3">
-                <AnimatePresence mode="popLayout">
-                  {connectedSites.map((site, index) => (
-                    <motion.button
-                      key={site.id}
-                      initial={{ opacity: 0, y: 10 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      transition={{ delay: index * 0.05 }}
-                      onClick={() => setSelectedSiteId(site.id)}
-                      className={`
-                        relative w-full p-4 rounded-2xl border-2 text-left transition-all duration-200
-                        ${selectedSiteId === site.id
-                          ? "border-emerald-400 bg-emerald-50/50 shadow-lg shadow-emerald-100/50"
-                          : "border-stone-200 bg-white/80 hover:border-stone-300 hover:bg-white"
-                        }
-                      `}
-                    >
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-3">
-                          <div className={`
-                            w-10 h-10 rounded-xl flex items-center justify-center
-                            ${selectedSiteId === site.id ? "bg-emerald-500" : "bg-stone-200"}
-                          `}>
-                            <Globe className={`w-5 h-5 ${selectedSiteId === site.id ? "text-white" : "text-stone-500"}`} />
-                          </div>
-                          <div>
-                            <p className="font-medium text-stone-800">
-                              {site.site_name || site.site_url}
-                            </p>
-                            <p className="text-sm text-stone-500 truncate max-w-xs">
-                              {site.site_url}
-                            </p>
-                          </div>
-                        </div>
-                        {selectedSiteId === site.id && (
-                          <motion.div
-                            initial={{ scale: 0 }}
-                            animate={{ scale: 1 }}
-                            className="w-6 h-6 rounded-full bg-emerald-500 flex items-center justify-center"
-                          >
-                            <CheckCircle2 className="w-4 h-4 text-white" />
-                          </motion.div>
+              <div className="space-y-4">
+                {siteGroups.map((group) => (
+                  <div key={group.key} className="space-y-2">
+                    {/* Group Header */}
+                    {siteGroups.length > 1 && (
+                      <div className="flex items-center gap-2 px-1">
+                        {group.icon === "personal" ? (
+                          <User className="w-3.5 h-3.5 text-stone-400" />
+                        ) : (
+                          <Building2 className="w-3.5 h-3.5 text-blue-500" />
                         )}
+                        <span className="text-xs font-semibold text-stone-400 uppercase tracking-wider">
+                          {group.label}
+                        </span>
                       </div>
-                    </motion.button>
-                  ))}
-                </AnimatePresence>
+                    )}
+                    <div className="grid gap-3">
+                      <AnimatePresence mode="popLayout">
+                        {group.sites.map((site, index) => (
+                          <motion.button
+                            key={site.id}
+                            initial={{ opacity: 0, y: 10 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            transition={{ delay: index * 0.05 }}
+                            onClick={() => setSelectedSiteId(site.id)}
+                            className={`
+                              relative w-full p-4 rounded-2xl border-2 text-left transition-all duration-200
+                              ${selectedSiteId === site.id
+                                ? "border-emerald-400 bg-emerald-50/50 shadow-lg shadow-emerald-100/50"
+                                : "border-stone-200 bg-white/80 hover:border-stone-300 hover:bg-white"
+                              }
+                            `}
+                          >
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-3">
+                                <div className={`
+                                  w-10 h-10 rounded-xl flex items-center justify-center
+                                  ${selectedSiteId === site.id ? "bg-emerald-500" : "bg-stone-200"}
+                                `}>
+                                  <Globe className={`w-5 h-5 ${selectedSiteId === site.id ? "text-white" : "text-stone-500"}`} />
+                                </div>
+                                <div>
+                                  <div className="flex items-center gap-2">
+                                    <p className="font-medium text-stone-800">
+                                      {site.site_name || site.site_url}
+                                    </p>
+                                    {site.organization_name && (
+                                      <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
+                                        {site.organization_name}
+                                      </Badge>
+                                    )}
+                                  </div>
+                                  <p className="text-sm text-stone-500 truncate max-w-xs">
+                                    {site.site_url}
+                                  </p>
+                                </div>
+                              </div>
+                              {selectedSiteId === site.id && (
+                                <motion.div
+                                  initial={{ scale: 0 }}
+                                  animate={{ scale: 1 }}
+                                  className="w-6 h-6 rounded-full bg-emerald-500 flex items-center justify-center"
+                                >
+                                  <CheckCircle2 className="w-4 h-4 text-white" />
+                                </motion.div>
+                              )}
+                            </div>
+                          </motion.button>
+                        ))}
+                      </AnimatePresence>
+                    </div>
+                  </div>
+                ))}
               </div>
             )}
           </div>
