@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
 import {
@@ -25,8 +25,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import ChatMarkdown from "@/features/tools/seo/generate/edit-article/components/ChatMarkdown";
-import supabase from "@/libs/supabase/supabase-client";
 import { useAuth } from "@clerk/nextjs";
+import { createClient } from "@supabase/supabase-js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -135,6 +135,26 @@ export default function BlogProcessPage() {
   const router = useRouter();
   const { getToken } = useAuth();
   const processId = params.processId as string;
+
+  // Ref to always hold the latest getToken so the accessToken callback stays fresh
+  const getTokenRef = useRef(getToken);
+  getTokenRef.current = getToken;
+
+  // Realtime-dedicated Supabase client with accessToken callback
+  // This ensures Realtime automatically gets fresh JWTs from Clerk
+  const realtimeClient = useMemo(() => {
+    return createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+      {
+        accessToken: async () => {
+          const token = await getTokenRef.current();
+          return token ?? null;
+        },
+      }
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const [state, setState] = useState<BlogGenerationState | null>(null);
   const [loading, setLoading] = useState(true);
@@ -291,122 +311,51 @@ export default function BlogProcessPage() {
     }
   }, [getToken, processId, convertEventToActivity]);
 
-  // ---- Realtime subscriptions with polling fallback on JWT expiry ----
+  // ---- Realtime subscriptions (accessToken callback handles JWT refresh) ----
   useEffect(() => {
     fetchState();
     fetchExistingEvents();
 
-    let stateChannel: ReturnType<typeof supabase.channel> | null = null;
-    let eventsChannel: ReturnType<typeof supabase.channel> | null = null;
-    let tokenRefreshInterval: ReturnType<typeof setInterval> | null = null;
-    let pollingInterval: ReturnType<typeof setInterval> | null = null;
-    let disposed = false;
-    let realtimeHealthy = true;
-
-    const refreshAuth = async () => {
-      try {
-        const token = await getToken();
-        if (token) {
-          (supabase as any).realtime.setAuth(token);
+    const stateChannel = realtimeClient
+      .channel(`blog_generation:${processId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "blog_generation_state",
+          filter: `id=eq.${processId}`,
+        },
+        (payload) => {
+          setState(payload.new as BlogGenerationState);
         }
-      } catch {
-        // next interval will retry
-      }
-    };
+      )
+      .subscribe();
 
-    // Polling fallback — fetches state + events when Realtime is down
-    const startPolling = () => {
-      if (pollingInterval || disposed) return;
-      console.warn("[Realtime] Starting polling fallback");
-      pollingInterval = setInterval(() => {
-        if (!disposed) {
-          fetchState();
-          fetchExistingEvents();
+    const eventsChannel = realtimeClient
+      .channel(`blog_events:${processId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "blog_process_events",
+          filter: `process_id=eq.${processId}`,
+        },
+        (payload) => {
+          const event = payload.new as ProcessEvent;
+          handleProcessEvent(event);
         }
-      }, 5_000);
-    };
-
-    const stopPolling = () => {
-      if (pollingInterval) {
-        clearInterval(pollingInterval);
-        pollingInterval = null;
-      }
-    };
-
-    const setupChannels = async () => {
-      await refreshAuth();
-
-      stateChannel = supabase
-        .channel(`blog_generation:${processId}`)
-        .on(
-          "postgres_changes",
-          {
-            event: "UPDATE",
-            schema: "public",
-            table: "blog_generation_state",
-            filter: `id=eq.${processId}`,
-          },
-          (payload) => {
-            setState(payload.new as BlogGenerationState);
-          }
-        )
-        .subscribe((status) => {
-          if (status === "SUBSCRIBED") {
-            realtimeHealthy = true;
-            stopPolling();
-          }
-          if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
-            realtimeHealthy = false;
-            startPolling();
-          }
-        });
-
-      eventsChannel = supabase
-        .channel(`blog_events:${processId}`)
-        .on(
-          "postgres_changes",
-          {
-            event: "INSERT",
-            schema: "public",
-            table: "blog_process_events",
-            filter: `process_id=eq.${processId}`,
-          },
-          (payload) => {
-            const event = payload.new as ProcessEvent;
-            handleProcessEvent(event);
-          }
-        )
-        .subscribe(async (status) => {
-          if (status === "SUBSCRIBED") {
-            realtimeHealthy = true;
-            stopPolling();
-            await fetchExistingEvents();
-          }
-          if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
-            realtimeHealthy = false;
-            startPolling();
-          }
-        });
-    };
-
-    // Proactive token refresh every 45 seconds (Clerk JWTs expire in ~60s)
-    tokenRefreshInterval = setInterval(async () => {
-      await refreshAuth();
-      // If Realtime is unhealthy, also fetch data
-      if (!realtimeHealthy && !disposed) {
-        fetchState();
-        fetchExistingEvents();
-      }
-    }, 45_000);
-
-    setupChannels();
+      )
+      .subscribe(async (status) => {
+        if (status === "SUBSCRIBED") {
+          await fetchExistingEvents();
+        }
+      });
 
     return () => {
-      disposed = true;
-      if (tokenRefreshInterval) clearInterval(tokenRefreshInterval);
-      stopPolling();
-      if (stateChannel) supabase.removeChannel(stateChannel);
-      if (eventsChannel) supabase.removeChannel(eventsChannel);
+      realtimeClient.removeChannel(stateChannel);
+      realtimeClient.removeChannel(eventsChannel);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [processId]);
@@ -457,13 +406,6 @@ export default function BlogProcessPage() {
       );
       if (response.ok) {
         setAnswers({});
-        // Refresh Realtime auth (JWT may have expired while user was answering)
-        try {
-          const freshToken = await getToken();
-          if (freshToken) {
-            (supabase as any).realtime.setAuth(freshToken);
-          }
-        } catch { /* next interval will retry */ }
         await fetchState();
         // Fetch events that may have been inserted during the transition
         await fetchExistingEvents();
