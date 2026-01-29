@@ -16,13 +16,12 @@ import {
   User,
 } from "lucide-react";
 
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { useAuth } from "@clerk/nextjs";
-
-import { Badge } from "@/components/ui/badge";
 
 interface WordPressSite {
   id: string;

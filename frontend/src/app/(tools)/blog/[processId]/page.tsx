@@ -164,6 +164,91 @@ export default function BlogProcessPage() {
     }
   }, [getToken, processId]);
 
+  // ---- Convert a single event to an ActivityEntry (or null) ----
+  const convertEventToActivity = useCallback(
+    (event: ProcessEvent): ActivityEntry | null => {
+      const { event_type, event_data, event_sequence, created_at, id } = event;
+
+      if (event_type === "tool_call_started") {
+        return {
+          id,
+          type: "tool",
+          message: event_data.message || event_data.tool_name || "処理中",
+          phase: event_data.step_phase,
+          status: "running",
+          timestamp: created_at,
+          sequence: event_sequence,
+        };
+      } else if (event_type === "reasoning") {
+        return {
+          id,
+          type: "thinking",
+          message: "分析・構成を検討中...",
+          status: "done",
+          timestamp: created_at,
+          sequence: event_sequence,
+        };
+      } else if (
+        event_type === "generation_started" ||
+        event_type === "generation_resumed"
+      ) {
+        return {
+          id,
+          type: "system",
+          message: event_data.message || "処理を開始しました",
+          status: "done",
+          timestamp: created_at,
+          sequence: event_sequence,
+        };
+      } else if (event_type === "generation_error") {
+        return {
+          id,
+          type: "system",
+          message: event_data.message || "エラーが発生しました",
+          status: "error",
+          timestamp: created_at,
+          sequence: event_sequence,
+        };
+      }
+      // tool_call_completed and others handled separately
+      return null;
+    },
+    []
+  );
+
+  // ---- Process event handler (for realtime INSERT) ----
+  const handleProcessEvent = useCallback(
+    (event: ProcessEvent) => {
+      if (event.event_type === "tool_call_completed") {
+        // Mark the most recent running tool as done
+        setActivities((prev) => {
+          const updated = [...prev];
+          for (let i = updated.length - 1; i >= 0; i--) {
+            if (
+              updated[i].type === "tool" &&
+              updated[i].status === "running"
+            ) {
+              updated[i] = { ...updated[i], status: "done" };
+              break;
+            }
+          }
+          return updated;
+        });
+        return;
+      }
+
+      const entry = convertEventToActivity(event);
+      if (entry) {
+        setActivities((prev) => {
+          // Deduplicate by id
+          if (prev.some((a) => a.id === entry.id)) return prev;
+          return [...prev, entry];
+        });
+      }
+    },
+    [convertEventToActivity]
+  );
+
   // ---- Fetch existing events (initial load + catch-up) ----
   const fetchExistingEvents = useCallback(async () => {
     try {
@@ -204,7 +289,7 @@ export default function BlogProcessPage() {
     } catch (err) {
       console.error("Failed to fetch existing events:", err);
     }
-  }, [getToken, processId]);
+  }, [getToken, processId, convertEventToActivity]);
 
   // ---- Refresh Realtime auth token ----
   const refreshRealtimeAuth = useCallback(async () => {
@@ -311,91 +396,6 @@ export default function BlogProcessPage() {
   useEffect(() => {
     activityEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [activities]);
-
-  // ---- Convert a single event to an ActivityEntry (or null) ----
-  const convertEventToActivity = useCallback(
-    (event: ProcessEvent): ActivityEntry | null => {
-      const { event_type, event_data, event_sequence, created_at, id } = event;
-
-      if (event_type === "tool_call_started") {
-        return {
-          id,
-          type: "tool",
-          message: event_data.message || event_data.tool_name || "処理中",
-          phase: event_data.step_phase,
-          status: "running",
-          timestamp: created_at,
-          sequence: event_sequence,
-        };
-      } else if (event_type === "reasoning") {
-        return {
-          id,
-          type: "thinking",
-          message: "分析・構成を検討中...",
-          status: "done",
-          timestamp: created_at,
-          sequence: event_sequence,
-        };
-      } else if (
-        event_type === "generation_started" ||
-        event_type === "generation_resumed"
-      ) {
-        return {
-          id,
-          type: "system",
-          message: event_data.message || "処理を開始しました",
-          status: "done",
-          timestamp: created_at,
-          sequence: event_sequence,
-        };
-      } else if (event_type === "generation_error") {
-        return {
-          id,
-          type: "system",
-          message: event_data.message || "エラーが発生しました",
-          status: "error",
-          timestamp: created_at,
-          sequence: event_sequence,
-        };
-      }
-      // tool_call_completed and others handled separately
-      return null;
-    },
-    []
-  );
-
-  // ---- Process event handler (for realtime INSERT) ----
-  const handleProcessEvent = useCallback(
-    (event: ProcessEvent) => {
-      if (event.event_type === "tool_call_completed") {
-        // Mark the most recent running tool as done
-        setActivities((prev) => {
-          const updated = [...prev];
-          for (let i = updated.length - 1; i >= 0; i--) {
-            if (
-              updated[i].type === "tool" &&
-              updated[i].status === "running"
-            ) {
-              updated[i] = { ...updated[i], status: "done" };
-              break;
-            }
-          }
-          return updated;
-        });
-        return;
-      }
-
-      const entry = convertEventToActivity(event);
-      if (entry) {
-        setActivities((prev) => {
-          // Deduplicate by id
-          if (prev.some((a) => a.id === entry.id)) return prev;
-          return [...prev, entry];
-        });
-      }
-    },
-    [convertEventToActivity]
-  );
 
   // ---- Submit answers ----
   const handleSubmitAnswers = async (skip = false) => {

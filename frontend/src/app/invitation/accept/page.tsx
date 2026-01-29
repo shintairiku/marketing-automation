@@ -26,7 +26,7 @@ export default function InvitationAcceptPage() {
   const searchParams = useSearchParams();
   const { isLoaded: isAuthLoaded, isSignedIn } = useAuth();
   const { userInvitations, isLoaded: isOrgListLoaded } = useOrganizationList({
-    userInvitations: { status: ['pending'] },
+    userInvitations: { status: 'pending' as const },
   });
 
   const [accepting, setAccepting] = useState<string | null>(null);

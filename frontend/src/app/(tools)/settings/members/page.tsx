@@ -35,9 +35,8 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { useUser } from "@clerk/nextjs";
-
 import { isPrivilegedEmail } from "@/lib/subscription";
+import { useUser } from "@clerk/nextjs";
 
 // ============================================
 // 型定義
