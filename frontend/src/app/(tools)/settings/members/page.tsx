@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Copy, Loader2, Plus, Trash2, Users } from "lucide-react";
+import { Loader2, Mail, Plus, Trash2, Users } from "lucide-react";
 import { toast } from "sonner";
 
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -54,9 +54,9 @@ interface Invitation {
   email: string;
   role: string;
   status: string;
-  token: string;
-  expires_at: string;
-  created_at: string;
+  token?: string;
+  expires_at: string | null;
+  created_at: string | null;
 }
 
 interface OrgSubscriptionInfo {
@@ -168,10 +168,12 @@ export default function MembersSettingsPage() {
 
   const fetchInvitations = useCallback(async () => {
     if (!selectedOrg) return;
-    // Note: バックエンドには組織の招待一覧APIがないので、
-    // 既存の GET /invitations はユーザーのメール宛招待。
-    // ここでは招待状態を追跡するため state で管理する。
-    // 将来的にバックエンドに GET /organizations/{id}/invitations を追加
+    try {
+      const data: Invitation[] = await apiFetch(`/${selectedOrg.id}/invitations`);
+      setInvitations(data);
+    } catch (e) {
+      console.error("Failed to fetch invitations:", e);
+    }
   }, [selectedOrg]);
 
   useEffect(() => {
@@ -212,13 +214,14 @@ export default function MembersSettingsPage() {
     if (!inviteEmail.trim() || !selectedOrg) return;
     setInviting(true);
     try {
-      const invitation: Invitation = await apiFetch(`/${selectedOrg.id}/invitations`, {
+      await apiFetch(`/${selectedOrg.id}/invitations`, {
         method: "POST",
         body: JSON.stringify({ email: inviteEmail.trim(), role: inviteRole }),
       });
-      setInvitations((prev) => [...prev, invitation]);
       setInviteEmail("");
-      toast.success(`${inviteEmail} に招待を送信しました`);
+      toast.success(`${inviteEmail} に招待メールを送信しました`);
+      // 招待一覧を再取得
+      fetchInvitations();
     } catch (e: unknown) {
       toast.error(`招待の送信に失敗しました: ${e instanceof Error ? e.message : String(e)}`);
     } finally {
@@ -237,12 +240,6 @@ export default function MembersSettingsPage() {
     } catch (e: unknown) {
       toast.error(`メンバーの削除に失敗しました: ${e instanceof Error ? e.message : String(e)}`);
     }
-  };
-
-  const handleCopyInviteLink = (invitation: Invitation) => {
-    const link = `${window.location.origin}/settings/invitations?token=${invitation.token}`;
-    navigator.clipboard.writeText(link);
-    toast.success("招待リンクをコピーしました");
   };
 
   // ============================================
@@ -446,7 +443,7 @@ export default function MembersSettingsPage() {
               <CardHeader>
                 <CardTitle>メンバーを招待</CardTitle>
                 <CardDescription>
-                  メールアドレスを入力して招待リンクを生成します。
+                  メールアドレスを入力して招待メールを送信します。
                   {totalSeats > 0 && remainingSeats === 0 && (
                     <span className="text-yellow-600 ml-1">
                       シートに空きがありません。追加購入が必要です。
@@ -475,7 +472,7 @@ export default function MembersSettingsPage() {
                   </Select>
                   <Button
                     onClick={handleInvite}
-                    disabled={inviting || !inviteEmail.trim()}
+                    disabled={inviting || !inviteEmail.trim() || (totalSeats > 0 && remainingSeats === 0)}
                   >
                     {inviting ? (
                       <Loader2 className="h-4 w-4 animate-spin" />
@@ -515,18 +512,12 @@ export default function MembersSettingsPage() {
                           <Badge variant="outline">{roleLabel(inv.role)}</Badge>
                         </TableCell>
                         <TableCell className="text-sm text-muted-foreground">
-                          {new Date(inv.expires_at).toLocaleDateString("ja-JP")}
+                          {inv.expires_at
+                            ? new Date(inv.expires_at).toLocaleDateString("ja-JP")
+                            : "-"}
                         </TableCell>
                         <TableCell>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-8 w-8"
-                            onClick={() => handleCopyInviteLink(inv)}
-                            title="招待リンクをコピー"
-                          >
-                            <Copy className="h-4 w-4" />
-                          </Button>
+                          <Mail className="h-4 w-4 text-muted-foreground" title="招待メール送信済み" />
                         </TableCell>
                       </TableRow>
                     ))}

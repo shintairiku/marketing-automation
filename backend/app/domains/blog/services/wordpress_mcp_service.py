@@ -92,6 +92,24 @@ class WordPressMcpClient:
             logger.info(f"Using active WordPress site: {active_site['site_url']}")
             return active_site["mcp_endpoint"], f"Bearer {credentials['access_token']}"
 
+        # ユーザー個人のサイトが見つからない場合、組織のアクティブサイトをフォールバック検索
+        if self._user_id:
+            org_memberships = supabase.table("organization_members").select(
+                "organization_id"
+            ).eq("user_id", self._user_id).execute()
+
+            if org_memberships.data:
+                org_ids = [m["organization_id"] for m in org_memberships.data]
+                org_site_result = supabase.table("wordpress_sites").select(
+                    "id, site_url, mcp_endpoint, encrypted_credentials"
+                ).in_("organization_id", org_ids).eq("is_active", True).limit(1).execute()
+
+                if org_site_result.data and len(org_site_result.data) > 0:
+                    org_site = org_site_result.data[0]
+                    credentials = crypto.decrypt_credentials(org_site["encrypted_credentials"])
+                    logger.info(f"Using organization WordPress site: {org_site['site_url']}")
+                    return org_site["mcp_endpoint"], f"Bearer {credentials['access_token']}"
+
         raise MCPError("No WordPress site available. Please configure a WordPress site first.")
 
     async def initialize(self) -> None:

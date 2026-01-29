@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-import { auth } from '@clerk/nextjs/server';
+import { auth, clerkClient } from '@clerk/nextjs/server';
 
 const BACKEND_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8080';
 
@@ -46,14 +46,27 @@ export async function GET() {
  */
 export async function POST(request: NextRequest) {
   try {
-    const { getToken } = await auth();
+    const { getToken, userId } = await auth();
     const token = await getToken();
 
-    if (!token) {
+    if (!token || !userId) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
     const body = await request.json();
+
+    // Clerk Organization を作成
+    const client = await clerkClient();
+    const clerkOrg = await client.organizations.createOrganization({
+      name: body.name,
+      createdBy: userId,
+    });
+
+    // clerk_organization_id をバックエンドに送信
+    const backendBody = {
+      ...body,
+      clerk_organization_id: clerkOrg.id,
+    };
 
     const response = await fetch(`${BACKEND_URL}/organizations/`, {
       method: 'POST',
@@ -61,7 +74,7 @@ export async function POST(request: NextRequest) {
         'Authorization': `Bearer ${token}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify(body),
+      body: JSON.stringify(backendBody),
     });
 
     if (!response.ok) {

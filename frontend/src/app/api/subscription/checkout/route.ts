@@ -79,11 +79,19 @@ export async function POST(request: Request) {
       if (!resolvedOrgId) {
         // 組織を自動作成
         const orgName = organizationName || `${userFullName || userEmail}の組織`;
+
+        // Clerk Organization を作成
+        const clerkOrg = await client.organizations.createOrganization({
+          name: orgName,
+          createdBy: userId,
+        });
+
         const { data: newOrg, error: orgError } = await supabase
           .from('organizations')
           .insert({
             name: orgName,
             owner_user_id: userId,
+            clerk_organization_id: clerkOrg.id,
           })
           .select()
           .single();

@@ -1,19 +1,29 @@
 'use client';
 
 /**
- * 新しいPricingページ
+ * Pricingページ
  *
- * シンプルな1プラン構成
- * - 有料プラン（月額サブスクリプション）
+ * 個人プランとチームプランの切り替え
+ * - 個人プラン: 月額サブスクリプション（1シート）
+ * - チームプラン: シート数選択可能（2〜50）
  * - @shintairiku.jp ユーザーは無料アクセス
  */
 
 import { useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { Check, Loader2, Sparkles, Zap } from 'lucide-react';
+import { Check, Loader2, Sparkles, Users, Zap } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { isPrivilegedEmail } from '@/lib/subscription';
 import { useAuth, useUser } from '@clerk/nextjs';
 
@@ -22,10 +32,19 @@ const PLAN_FEATURES = [
   'AI画像生成機能',
   'カスタムスタイルテンプレート',
   '会社情報の自動反映',
-  '複数組織の管理',
   'リアルタイム進捗表示',
   '優先サポート',
 ];
+
+const TEAM_EXTRA_FEATURES = [
+  'チームメンバーの招待・管理',
+  'WordPress接続の組織共有',
+  '組織レベルのアクセス管理',
+];
+
+const PRICE_PER_SEAT = 29800;
+
+type PlanTab = 'individual' | 'team';
 
 export default function PricingPage() {
   const router = useRouter();
@@ -34,6 +53,9 @@ export default function PricingPage() {
   const { user } = useUser();
   const [isLoading, setIsLoading] = useState(false);
   const [statusMessage, setStatusMessage] = useState<{ type: 'success' | 'error' | 'info'; message: string } | null>(null);
+  const [planTab, setPlanTab] = useState<PlanTab>('individual');
+  const [teamSeats, setTeamSeats] = useState(3);
+  const [organizationName, setOrganizationName] = useState('');
 
   // URLパラメータからステータスメッセージを取得
   useEffect(() => {
@@ -56,15 +78,13 @@ export default function PricingPage() {
   const isPrivileged = isPrivilegedEmail(userEmail);
 
   // チェックアウトへ進む
-  const handleCheckout = async () => {
+  const handleCheckout = async (isTeam: boolean) => {
     if (!isSignedIn) {
-      // 未ログインの場合はサインインページへ
       router.push('/sign-in?redirect_url=/pricing');
       return;
     }
 
     if (isPrivileged) {
-      // 特権ユーザーはダッシュボードへ
       router.push('/dashboard');
       return;
     }
@@ -73,15 +93,24 @@ export default function PricingPage() {
     setStatusMessage(null);
 
     try {
+      const body: Record<string, unknown> = {
+        successUrl: `${window.location.origin}/dashboard?subscription=success`,
+        cancelUrl: `${window.location.origin}/pricing?subscription=canceled`,
+      };
+
+      if (isTeam) {
+        body.quantity = teamSeats;
+        if (organizationName.trim()) {
+          body.organizationName = organizationName.trim();
+        }
+      }
+
       const response = await fetch('/api/subscription/checkout', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          successUrl: `${window.location.origin}/dashboard?subscription=success`,
-          cancelUrl: `${window.location.origin}/pricing?subscription=canceled`,
-        }),
+        body: JSON.stringify(body),
       });
 
       const data = await response.json();
@@ -90,7 +119,6 @@ export default function PricingPage() {
         throw new Error(data.error || 'チェックアウトの作成に失敗しました');
       }
 
-      // Stripe Checkoutページへリダイレクト
       if (data.url) {
         window.location.href = data.url;
       } else {
@@ -106,9 +134,11 @@ export default function PricingPage() {
     }
   };
 
+  const teamTotal = PRICE_PER_SEAT * teamSeats;
+
   return (
     <div className="min-h-screen py-16 px-4">
-      <div className="max-w-4xl mx-auto">
+      <div className="max-w-5xl mx-auto">
         {/* ヘッダー */}
         <div className="text-center mb-12">
           <h1 className="text-4xl font-bold mb-4">
@@ -147,64 +177,197 @@ export default function PricingPage() {
           </div>
         )}
 
+        {/* プラン切り替えタブ */}
+        <div className="flex justify-center mb-8">
+          <div className="inline-flex rounded-lg bg-muted p-1">
+            <button
+              className={`px-6 py-2 rounded-md text-sm font-medium transition-colors ${
+                planTab === 'individual'
+                  ? 'bg-background text-foreground shadow-sm'
+                  : 'text-muted-foreground hover:text-foreground'
+              }`}
+              onClick={() => setPlanTab('individual')}
+            >
+              個人プラン
+            </button>
+            <button
+              className={`px-6 py-2 rounded-md text-sm font-medium transition-colors ${
+                planTab === 'team'
+                  ? 'bg-background text-foreground shadow-sm'
+                  : 'text-muted-foreground hover:text-foreground'
+              }`}
+              onClick={() => setPlanTab('team')}
+            >
+              <Users className="h-4 w-4 inline mr-1" />
+              チームプラン
+            </button>
+          </div>
+        </div>
+
         {/* プランカード */}
         <div className="flex justify-center">
-          <Card className="w-full max-w-md border-2 border-primary shadow-lg">
-            <CardHeader className="text-center pb-4">
-              <div className="inline-flex items-center justify-center gap-2 bg-primary/10 text-primary px-3 py-1 rounded-full text-sm font-medium mb-4">
-                <Zap className="h-4 w-4" />
-                おすすめ
-              </div>
-              <CardTitle className="text-2xl">プロプラン</CardTitle>
-              <CardDescription>
-                すべての機能にアクセス
-              </CardDescription>
-            </CardHeader>
+          {planTab === 'individual' ? (
+            <Card className="w-full max-w-md border-2 border-primary shadow-lg">
+              <CardHeader className="text-center pb-4">
+                <div className="inline-flex items-center justify-center gap-2 bg-primary/10 text-primary px-3 py-1 rounded-full text-sm font-medium mb-4">
+                  <Zap className="h-4 w-4" />
+                  個人プラン
+                </div>
+                <CardTitle className="text-2xl">プロプラン</CardTitle>
+                <CardDescription>
+                  すべての機能にアクセス
+                </CardDescription>
+              </CardHeader>
 
-            <CardContent className="text-center pb-6">
-              <div className="mb-6">
-                <span className="text-5xl font-bold">¥29,800</span>
-                <span className="text-muted-foreground">/月</span>
-              </div>
-              <p className="text-sm text-muted-foreground mb-6">
-                税込み価格・いつでもキャンセル可能
-              </p>
+              <CardContent className="text-center pb-6">
+                <div className="mb-6">
+                  <span className="text-5xl font-bold">&yen;{PRICE_PER_SEAT.toLocaleString()}</span>
+                  <span className="text-muted-foreground">/月</span>
+                </div>
+                <p className="text-sm text-muted-foreground mb-6">
+                  税込み価格・いつでもキャンセル可能
+                </p>
 
-              <ul className="space-y-3 text-left">
-                {PLAN_FEATURES.map((feature, index) => (
-                  <li key={index} className="flex items-center gap-3">
-                    <Check className="h-5 w-5 text-green-600 flex-shrink-0" />
-                    <span className="text-sm">{feature}</span>
-                  </li>
-                ))}
-              </ul>
-            </CardContent>
+                <ul className="space-y-3 text-left">
+                  {PLAN_FEATURES.map((feature, index) => (
+                    <li key={index} className="flex items-center gap-3">
+                      <Check className="h-5 w-5 text-green-600 flex-shrink-0" />
+                      <span className="text-sm">{feature}</span>
+                    </li>
+                  ))}
+                </ul>
+              </CardContent>
 
-            <CardFooter>
-              <Button
-                className="w-full h-12 text-lg"
-                onClick={handleCheckout}
-                disabled={isLoading || !isAuthLoaded}
-              >
-                {isLoading ? (
-                  <>
+              <CardFooter>
+                <Button
+                  className="w-full h-12 text-lg"
+                  onClick={() => handleCheckout(false)}
+                  disabled={isLoading || !isAuthLoaded}
+                >
+                  {isLoading ? (
+                    <>
+                      <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+                      処理中...
+                    </>
+                  ) : !isAuthLoaded ? (
                     <Loader2 className="mr-2 h-5 w-5 animate-spin" />
-                    処理中...
-                  </>
-                ) : !isAuthLoaded ? (
-                  <Loader2 className="mr-2 h-5 w-5 animate-spin" />
-                ) : isSignedIn ? (
-                  isPrivileged ? (
-                    'ダッシュボードへ'
+                  ) : isSignedIn ? (
+                    isPrivileged ? (
+                      'ダッシュボードへ'
+                    ) : (
+                      '今すぐ始める'
+                    )
                   ) : (
-                    '今すぐ始める'
-                  )
-                ) : (
-                  'ログインして始める'
-                )}
-              </Button>
-            </CardFooter>
-          </Card>
+                    'ログインして始める'
+                  )}
+                </Button>
+              </CardFooter>
+            </Card>
+          ) : (
+            <Card className="w-full max-w-md border-2 border-primary shadow-lg">
+              <CardHeader className="text-center pb-4">
+                <div className="inline-flex items-center justify-center gap-2 bg-primary/10 text-primary px-3 py-1 rounded-full text-sm font-medium mb-4">
+                  <Users className="h-4 w-4" />
+                  チームプラン
+                </div>
+                <CardTitle className="text-2xl">チームプロ</CardTitle>
+                <CardDescription>
+                  チーム全員でフル機能を活用
+                </CardDescription>
+              </CardHeader>
+
+              <CardContent className="pb-6">
+                {/* シート数セレクター */}
+                <div className="mb-6">
+                  <Label htmlFor="team-seats" className="text-sm font-medium mb-2 block">
+                    シート数（メンバー数）
+                  </Label>
+                  <Select
+                    value={String(teamSeats)}
+                    onValueChange={(val) => setTeamSeats(Number(val))}
+                  >
+                    <SelectTrigger id="team-seats">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {Array.from({ length: 49 }, (_, i) => i + 2).map((n) => (
+                        <SelectItem key={n} value={String(n)}>
+                          {n}人
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {/* 組織名 */}
+                <div className="mb-6">
+                  <Label htmlFor="org-name" className="text-sm font-medium mb-2 block">
+                    組織名（任意）
+                  </Label>
+                  <Input
+                    id="org-name"
+                    placeholder="例: 株式会社〇〇"
+                    value={organizationName}
+                    onChange={(e) => setOrganizationName(e.target.value)}
+                  />
+                </div>
+
+                {/* 価格表示 */}
+                <div className="text-center mb-6 p-4 rounded-lg bg-muted/50">
+                  <div className="text-sm text-muted-foreground mb-1">
+                    &yen;{PRICE_PER_SEAT.toLocaleString()} &times; {teamSeats}シート
+                  </div>
+                  <div>
+                    <span className="text-4xl font-bold">&yen;{teamTotal.toLocaleString()}</span>
+                    <span className="text-muted-foreground">/月</span>
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    税込み価格・いつでもキャンセル可能
+                  </p>
+                </div>
+
+                <ul className="space-y-3 text-left">
+                  {PLAN_FEATURES.map((feature, index) => (
+                    <li key={index} className="flex items-center gap-3">
+                      <Check className="h-5 w-5 text-green-600 flex-shrink-0" />
+                      <span className="text-sm">{feature}</span>
+                    </li>
+                  ))}
+                  {TEAM_EXTRA_FEATURES.map((feature, index) => (
+                    <li key={`team-${index}`} className="flex items-center gap-3">
+                      <Check className="h-5 w-5 text-blue-600 flex-shrink-0" />
+                      <span className="text-sm font-medium">{feature}</span>
+                    </li>
+                  ))}
+                </ul>
+              </CardContent>
+
+              <CardFooter>
+                <Button
+                  className="w-full h-12 text-lg"
+                  onClick={() => handleCheckout(true)}
+                  disabled={isLoading || !isAuthLoaded}
+                >
+                  {isLoading ? (
+                    <>
+                      <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+                      処理中...
+                    </>
+                  ) : !isAuthLoaded ? (
+                    <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+                  ) : isSignedIn ? (
+                    isPrivileged ? (
+                      'ダッシュボードへ'
+                    ) : (
+                      'チームプランを始める'
+                    )
+                  ) : (
+                    'ログインして始める'
+                  )}
+                </Button>
+              </CardFooter>
+            </Card>
+          )}
         </div>
 
         {/* 追加情報 */}
@@ -218,21 +381,21 @@ export default function PricingPage() {
               </p>
             </div>
             <div className="p-4 bg-white rounded-lg shadow-sm">
+              <h3 className="font-medium mb-2">チームプランのシート数は変更できますか？</h3>
+              <p className="text-sm text-muted-foreground">
+                はい、いつでもシート数を増減できます。変更はすぐに反映され、料金は日割り計算されます。
+              </p>
+            </div>
+            <div className="p-4 bg-white rounded-lg shadow-sm">
               <h3 className="font-medium mb-2">支払い方法は何がありますか？</h3>
               <p className="text-sm text-muted-foreground">
                 クレジットカード（Visa、Mastercard、American Express、JCB）でお支払いいただけます。
               </p>
             </div>
             <div className="p-4 bg-white rounded-lg shadow-sm">
-              <h3 className="font-medium mb-2">領収書は発行されますか？</h3>
+              <h3 className="font-medium mb-2">チームメンバーの招待方法は？</h3>
               <p className="text-sm text-muted-foreground">
-                はい、毎月の支払い後に自動でメールにて領収書をお送りします。
-              </p>
-            </div>
-            <div className="p-4 bg-white rounded-lg shadow-sm">
-              <h3 className="font-medium mb-2">サポートはありますか？</h3>
-              <p className="text-sm text-muted-foreground">
-                有料プランのお客様には優先サポートをご提供しています。お問い合わせはダッシュボードから行えます。
+                チームプラン購入後、設定画面からメールアドレスを入力して招待できます。招待メールが自動送信されます。
               </p>
             </div>
           </div>

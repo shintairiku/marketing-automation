@@ -123,6 +123,23 @@ async def get_current_user(
     return get_current_user_id_from_token(credentials)
 
 
+def _get_org_site(supabase, site_id: str, user_id: str):
+    """組織メンバーとしてWordPressサイトにアクセスできるか確認"""
+    org_memberships = supabase.table("organization_members").select(
+        "organization_id"
+    ).eq("user_id", user_id).execute()
+
+    if org_memberships.data:
+        org_ids = [m["organization_id"] for m in org_memberships.data]
+        return supabase.table("wordpress_sites").select("*").eq(
+            "id", site_id
+        ).in_("organization_id", org_ids).execute()
+
+    class EmptyResult:
+        data = []
+    return EmptyResult()
+
+
 # =====================================================
 # WordPress連携エンドポイント
 # =====================================================
@@ -189,6 +206,12 @@ async def connect_wordpress(
         "api_secret": request.api_secret,
     })
 
+    # ユーザーの所属組織を検索して organization_id をセット
+    org_membership = supabase.table("organization_members").select(
+        "organization_id"
+    ).eq("user_id", user_id).limit(1).execute()
+    org_id = org_membership.data[0]["organization_id"] if org_membership.data else None
+
     # 既存サイトを確認
     existing = supabase.table("wordpress_sites").select("id").eq(
         "user_id", user_id
@@ -200,7 +223,7 @@ async def connect_wordpress(
     if existing.data:
         # 既存サイトを更新
         site_id = existing.data[0]["id"]
-        result = supabase.table("wordpress_sites").update({
+        update_data = {
             "site_name": request.site_name,
             "mcp_endpoint": request.mcp_endpoint,
             "encrypted_credentials": encrypted_credentials,
@@ -208,10 +231,13 @@ async def connect_wordpress(
             "last_connected_at": now,
             "last_error": None,
             "updated_at": now,
-        }).eq("id", site_id).execute()
+        }
+        if org_id:
+            update_data["organization_id"] = org_id
+        result = supabase.table("wordpress_sites").update(update_data).eq("id", site_id).execute()
     else:
         # 新規サイトを登録
-        result = supabase.table("wordpress_sites").insert({
+        insert_data = {
             "id": site_id,
             "user_id": user_id,
             "site_url": request.site_url,
@@ -223,7 +249,10 @@ async def connect_wordpress(
             "last_connected_at": now,
             "created_at": now,
             "updated_at": now,
-        }).execute()
+        }
+        if org_id:
+            insert_data["organization_id"] = org_id
+        result = supabase.table("wordpress_sites").insert(insert_data).execute()
 
     if not result.data:
         raise HTTPException(
@@ -391,12 +420,33 @@ async def register_wordpress_site(
 async def list_wordpress_sites(
     user_id: str = Depends(get_current_user),
 ):
-    """連携済みWordPressサイト一覧を取得"""
+    """連携済みWordPressサイト一覧を取得（自分のサイト + 所属組織のサイト）"""
     supabase = get_supabase_client()
 
-    result = supabase.table("wordpress_sites").select("*").eq(
+    # ユーザー自身のサイト
+    own_result = supabase.table("wordpress_sites").select("*").eq(
         "user_id", user_id
     ).order("created_at", desc=True).execute()
+
+    all_sites_data = list(own_result.data) if own_result.data else []
+    seen_ids = {site["id"] for site in all_sites_data}
+
+    # ユーザーの所属組織を検索
+    org_memberships = supabase.table("organization_members").select(
+        "organization_id"
+    ).eq("user_id", user_id).execute()
+
+    if org_memberships.data:
+        org_ids = [m["organization_id"] for m in org_memberships.data]
+        org_sites_result = supabase.table("wordpress_sites").select("*").in_(
+            "organization_id", org_ids
+        ).order("created_at", desc=True).execute()
+
+        if org_sites_result.data:
+            for site in org_sites_result.data:
+                if site["id"] not in seen_ids:
+                    all_sites_data.append(site)
+                    seen_ids.add(site["id"])
 
     sites = [
         WordPressSiteResponse(
@@ -412,7 +462,7 @@ async def list_wordpress_sites(
             created_at=site["created_at"],
             updated_at=site["updated_at"],
         )
-        for site in result.data
+        for site in all_sites_data
     ]
 
     return WordPressSiteListResponse(sites=sites, total=len(sites))
@@ -433,10 +483,14 @@ async def test_wordpress_connection(
 
     supabase = get_supabase_client()
 
-    # サイト情報を取得
+    # サイト情報を取得（ユーザー自身 or 組織メンバー）
     result = supabase.table("wordpress_sites").select("*").eq(
         "id", site_id
-    ).eq("user_id", user_id).single().execute()
+    ).eq("user_id", user_id).execute()
+
+    if not result.data:
+        # 組織経由のアクセスを確認
+        result = _get_org_site(supabase, site_id, user_id)
 
     if not result.data:
         raise HTTPException(
@@ -506,9 +560,16 @@ async def delete_wordpress_site(
 
     supabase = get_supabase_client()
 
+    # ユーザー自身のサイトを削除試行
     result = supabase.table("wordpress_sites").delete().eq(
         "id", site_id
     ).eq("user_id", user_id).execute()
+
+    if not result.data:
+        # 組織経由のアクセスを確認して削除
+        org_check = _get_org_site(supabase, site_id, user_id)
+        if org_check.data:
+            result = supabase.table("wordpress_sites").delete().eq("id", site_id).execute()
 
     if not result.data:
         raise HTTPException(
@@ -533,17 +594,26 @@ async def activate_wordpress_site(
     supabase = get_supabase_client()
     now = datetime.utcnow().isoformat()
 
-    # すべてのサイトを非アクティブに
+    # すべてのサイトを非アクティブに（自分のサイト）
     supabase.table("wordpress_sites").update({
         "is_active": False,
         "updated_at": now,
     }).eq("user_id", user_id).execute()
 
-    # 指定サイトをアクティブに
+    # 指定サイトをアクティブに（自分のサイト）
     result = supabase.table("wordpress_sites").update({
         "is_active": True,
         "updated_at": now,
     }).eq("id", site_id).eq("user_id", user_id).execute()
+
+    if not result.data:
+        # 組織経由のアクセスを確認
+        org_check = _get_org_site(supabase, site_id, user_id)
+        if org_check.data:
+            result = supabase.table("wordpress_sites").update({
+                "is_active": True,
+                "updated_at": now,
+            }).eq("id", site_id).execute()
 
     if not result.data:
         raise HTTPException(
@@ -587,10 +657,14 @@ async def start_blog_generation(
 
     supabase = get_supabase_client()
 
-    # WordPressサイトを確認
+    # WordPressサイトを確認（ユーザー自身 or 組織メンバー）
     site_result = supabase.table("wordpress_sites").select("*").eq(
         "id", request.wordpress_site_id
-    ).eq("user_id", user_id).single().execute()
+    ).eq("user_id", user_id).execute()
+
+    if not site_result.data:
+        # 組織経由のアクセスを確認
+        site_result = _get_org_site(supabase, request.wordpress_site_id, user_id)
 
     if not site_result.data:
         raise HTTPException(
@@ -598,7 +672,7 @@ async def start_blog_generation(
             detail="WordPressサイトが見つかりません",
         )
 
-    site = site_result.data
+    site = site_result.data[0]
 
     # 生成プロセスを作成
     process_id = str(uuid.uuid4())

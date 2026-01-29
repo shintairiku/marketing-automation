@@ -289,7 +289,7 @@ class OrganizationService:
             # Check if inviting user is owner or admin
             if not await self._user_is_org_admin(inviting_user_id, organization_id):
                 return None
-            
+
             # Check if user is already a member (by email)
             existing_members = self.supabase.table("organization_members").select("email").eq(
                 "organization_id", organization_id
@@ -298,15 +298,31 @@ class OrganizationService:
             for member in existing_members.data:
                 if member.get("email") and member["email"].lower() == invitation_data.email.lower():
                     return None  # User already a member
-            
+
             # Check if there's already a pending invitation
             existing_invitation = self.supabase.table("invitations").select("id").eq(
                 "organization_id", organization_id
             ).eq("email", invitation_data.email).eq("status", InvitationStatus.PENDING).execute()
-            
+
             if existing_invitation.data:
                 return None  # Invitation already exists
-            
+
+            # Seat limit check
+            member_count = len(existing_members.data)
+            pending_count_result = self.supabase.table("invitations").select(
+                "id", count="exact"
+            ).eq("organization_id", organization_id).eq("status", InvitationStatus.PENDING).execute()
+            pending_count = pending_count_result.count or 0
+
+            sub_result = self.supabase.table("organization_subscriptions").select(
+                "quantity"
+            ).eq("organization_id", organization_id).execute()
+            max_seats = sub_result.data[0]["quantity"] if sub_result.data else 0
+
+            if max_seats > 0 and (member_count + pending_count) >= max_seats:
+                logger.warning(f"Seat limit reached for org {organization_id}: {member_count} members + {pending_count} pending >= {max_seats} seats")
+                return None
+
             # Create invitation
             invitation_token = secrets.token_urlsafe(32)
             invitation_dict = {
