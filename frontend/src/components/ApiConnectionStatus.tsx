@@ -85,7 +85,7 @@ export function ApiConnectionStatus() {
         )}
 
         <div className="text-xs text-gray-500">
-          <p>API URL: {process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000'}</p>
+          <p>API URL: {process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8080'}</p>
         </div>
       </CardContent>
     </Card>

@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { useAuth } from '@clerk/nextjs';
 
-const RAW_API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? 'http://localhost:8000';
+const RAW_API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? 'http://localhost:8080';
 const API_BASE_URL = RAW_API_BASE_URL.replace(/\/+$/, '');
 const USE_PROXY = process.env.NEXT_PUBLIC_USE_PROXY === 'true' || process.env.NODE_ENV === 'production';
 
