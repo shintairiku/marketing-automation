@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import Image from 'next/image';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import clsx from 'clsx';
@@ -147,21 +148,36 @@ export default function Sidebar() {
     <TooltipProvider delayDuration={200}>
       <aside
         className={cn(
-          'flex flex-col h-full bg-white border-r border-stone-200 transition-all duration-300 ease-in-out overflow-hidden',
+          'flex flex-col h-screen bg-white border-r border-stone-200 transition-all duration-300 ease-in-out overflow-hidden',
           isSidebarOpen ? 'w-[240px]' : 'w-[64px]'
         )}
       >
-        {/* Toggle button */}
+        {/* Logo + Toggle */}
         <div className={cn(
-          'flex items-center h-12 border-b border-stone-100 shrink-0',
-          isSidebarOpen ? 'justify-end px-3' : 'justify-center'
+          'flex items-center h-14 border-b border-stone-100 shrink-0',
+          isSidebarOpen ? 'px-3 justify-between' : 'justify-center'
         )}>
-          <button
-            onClick={toggleSidebar}
-            className="p-1.5 rounded-md text-stone-400 hover:text-stone-600 hover:bg-stone-100 transition-colors"
-          >
-            {isSidebarOpen ? <LuPanelLeftClose size={18} /> : <LuPanelLeftOpen size={18} />}
-          </button>
+          {isSidebarOpen ? (
+            <>
+              <div className="flex items-center gap-3">
+                <Image src="/logo.png" alt="BlogAI" width={32} height={32} className="shrink-0" />
+                <span className="text-lg font-bold text-stone-800 tracking-tight">BlogAI</span>
+              </div>
+              <button
+                onClick={toggleSidebar}
+                className="p-1.5 rounded-md text-stone-400 hover:text-stone-600 hover:bg-stone-100 transition-colors"
+              >
+                <LuPanelLeftClose size={18} />
+              </button>
+            </>
+          ) : (
+            <button
+              onClick={toggleSidebar}
+              className="p-1.5 rounded-md text-stone-400 hover:text-stone-600 hover:bg-stone-100 transition-colors"
+            >
+              <LuPanelLeftOpen size={18} />
+            </button>
+          )}
         </div>
 
         {/* Navigation */}
@@ -315,6 +331,7 @@ export default function Sidebar() {
             ))}
           </nav>
         </ScrollArea>
+
       </aside>
     </TooltipProvider>
   );

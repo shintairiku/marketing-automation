@@ -18,20 +18,18 @@ function AppLayoutContent({ children }: PropsWithChildren) {
 
   return (
     <div className="min-h-screen bg-background">
+      {showSidebar && (
+        <div className="fixed left-0 top-0 h-screen z-40">
+          <Sidebar />
+        </div>
+      )}
       {showSidebar && <Header />}
-      <div className="flex mt-[45px]">
-        {showSidebar && (
-          <div className="fixed left-0 top-[45px] h-[calc(100vh-45px)] z-30">
-            <Sidebar />
-          </div>
-        )}
-        <main className={cn(
-          "flex-1 p-5 transition-all duration-300 ease-in-out",
-          showSidebar ? (isSidebarOpen ? "ml-[240px]" : "ml-[64px]") : ""
-        )}>
-          {children}
-        </main>
-      </div>
+      <main className={cn(
+        "flex-1 p-5 transition-all duration-300 ease-in-out",
+        showSidebar ? cn("mt-[45px]", isSidebarOpen ? "ml-[240px]" : "ml-[64px]") : ""
+      )}>
+        {children}
+      </main>
     </div>
   );
 }
