@@ -97,7 +97,7 @@ export default function AdminUsersPage() {
       setError(null);
       const token = await getToken();
 
-      const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000';
+      const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8080';
       const USE_PROXY = process.env.NODE_ENV === 'production';
       const baseURL = USE_PROXY ? '/api/proxy' : API_BASE_URL;
 
@@ -166,7 +166,7 @@ export default function AdminUsersPage() {
     setUpdating(true);
     try {
       const token = await getToken();
-      const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000';
+      const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8080';
       const USE_PROXY = process.env.NODE_ENV === 'production';
       const baseURL = USE_PROXY ? '/api/proxy' : API_BASE_URL;
 

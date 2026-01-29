@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 
 import { auth } from '@clerk/nextjs/server';
 
-const BACKEND_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000';
+const BACKEND_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8080';
 
 export async function GET() {
   try {
@@ -13,7 +13,7 @@ export async function GET() {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const response = await fetch(`${BACKEND_URL}/companies/`, {
+    const response = await fetch(`${BACKEND_URL}/companies`, {
       headers: {
         'Authorization': `Bearer ${token}`,
         'Content-Type': 'application/json',
@@ -54,7 +54,7 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     console.log('Company creation request body:', JSON.stringify(body, null, 2));
 
-    const response = await fetch(`${BACKEND_URL}/companies/`, {
+    const response = await fetch(`${BACKEND_URL}/companies`, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${token}`,
