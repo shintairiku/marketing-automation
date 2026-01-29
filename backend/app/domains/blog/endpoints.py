@@ -935,6 +935,39 @@ async def get_generation_state(
     )
 
 
+@router.get(
+    "/generation/{process_id}/events",
+    summary="生成イベント取得",
+    description="ブログ生成プロセスのイベント一覧を取得",
+)
+async def get_generation_events(
+    process_id: str,
+    user_id: str = Depends(get_current_user),
+):
+    """生成プロセスのイベント一覧を取得（アクティビティフィード用）"""
+    supabase = get_supabase_client()
+
+    # プロセスの所有権を確認
+    process_check = supabase.table("blog_generation_state").select("id").eq(
+        "id", process_id
+    ).eq("user_id", user_id).execute()
+
+    if not process_check.data:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="生成プロセスが見つかりません",
+        )
+
+    # イベントを取得（event_sequence順）
+    result = supabase.table("blog_process_events").select(
+        "id, process_id, event_type, event_data, event_sequence, created_at"
+    ).eq(
+        "process_id", process_id
+    ).order("event_sequence").execute()
+
+    return result.data or []
+
+
 @router.post(
     "/generation/{process_id}/user-input",
     response_model=BlogGenerationStateResponse,
