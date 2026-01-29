@@ -291,7 +291,7 @@ export default function BlogProcessPage() {
     }
   }, [getToken, processId, convertEventToActivity]);
 
-  // ---- Realtime subscriptions with auto-reconnect on JWT expiry ----
+  // ---- Realtime subscriptions with polling fallback on JWT expiry ----
   useEffect(() => {
     fetchState();
     fetchExistingEvents();
@@ -299,7 +299,9 @@ export default function BlogProcessPage() {
     let stateChannel: ReturnType<typeof supabase.channel> | null = null;
     let eventsChannel: ReturnType<typeof supabase.channel> | null = null;
     let tokenRefreshInterval: ReturnType<typeof setInterval> | null = null;
+    let pollingInterval: ReturnType<typeof setInterval> | null = null;
     let disposed = false;
+    let realtimeHealthy = true;
 
     const refreshAuth = async () => {
       try {
@@ -312,8 +314,26 @@ export default function BlogProcessPage() {
       }
     };
 
-    const createChannels = async () => {
-      // Fresh token before subscribing
+    // Polling fallback — fetches state + events when Realtime is down
+    const startPolling = () => {
+      if (pollingInterval || disposed) return;
+      console.warn("[Realtime] Starting polling fallback");
+      pollingInterval = setInterval(() => {
+        if (!disposed) {
+          fetchState();
+          fetchExistingEvents();
+        }
+      }, 5_000);
+    };
+
+    const stopPolling = () => {
+      if (pollingInterval) {
+        clearInterval(pollingInterval);
+        pollingInterval = null;
+      }
+    };
+
+    const setupChannels = async () => {
       await refreshAuth();
 
       stateChannel = supabase
@@ -330,7 +350,16 @@ export default function BlogProcessPage() {
             setState(payload.new as BlogGenerationState);
           }
         )
-        .subscribe();
+        .subscribe((status) => {
+          if (status === "SUBSCRIBED") {
+            realtimeHealthy = true;
+            stopPolling();
+          }
+          if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
+            realtimeHealthy = false;
+            startPolling();
+          }
+        });
 
       eventsChannel = supabase
         .channel(`blog_events:${processId}`)
@@ -349,40 +378,33 @@ export default function BlogProcessPage() {
         )
         .subscribe(async (status) => {
           if (status === "SUBSCRIBED") {
+            realtimeHealthy = true;
+            stopPolling();
             await fetchExistingEvents();
           }
-          // CHANNEL_ERROR or CLOSED = JWT likely expired → reconnect
-          if (
-            (status === "CHANNEL_ERROR" || status === "CLOSED" || status === "TIMED_OUT") &&
-            !disposed
-          ) {
-            console.warn("[Realtime] Channel error/closed, reconnecting...");
-            await reconnect();
+          if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
+            realtimeHealthy = false;
+            startPolling();
           }
         });
     };
 
-    const reconnect = async () => {
-      if (disposed) return;
-      // Remove old channels
-      if (stateChannel) { supabase.removeChannel(stateChannel); stateChannel = null; }
-      if (eventsChannel) { supabase.removeChannel(eventsChannel); eventsChannel = null; }
-      // Re-fetch missed data, then re-subscribe
-      await fetchState();
-      await fetchExistingEvents();
-      await createChannels();
-    };
-
-    // Proactive token refresh every 45 seconds to prevent expiry
+    // Proactive token refresh every 45 seconds (Clerk JWTs expire in ~60s)
     tokenRefreshInterval = setInterval(async () => {
       await refreshAuth();
+      // If Realtime is unhealthy, also fetch data
+      if (!realtimeHealthy && !disposed) {
+        fetchState();
+        fetchExistingEvents();
+      }
     }, 45_000);
 
-    createChannels();
+    setupChannels();
 
     return () => {
       disposed = true;
       if (tokenRefreshInterval) clearInterval(tokenRefreshInterval);
+      stopPolling();
       if (stateChannel) supabase.removeChannel(stateChannel);
       if (eventsChannel) supabase.removeChannel(eventsChannel);
     };
