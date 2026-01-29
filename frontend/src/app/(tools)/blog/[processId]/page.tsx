@@ -26,6 +26,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import ChatMarkdown from "@/features/tools/seo/generate/edit-article/components/ChatMarkdown";
 import { useAuth } from "@clerk/nextjs";
 import { createClient } from "@supabase/supabase-js";
 
@@ -294,9 +295,10 @@ export default function BlogProcessPage() {
                         <FileText className="w-3.5 h-3.5 inline mr-1" />
                         AIからのメッセージ
                       </p>
-                      <p className="text-sm text-stone-600 whitespace-pre-wrap leading-relaxed">
-                        {state.blog_context.agent_message}
-                      </p>
+                      <ChatMarkdown
+                        content={state.blog_context.agent_message}
+                        className="text-stone-600"
+                      />
                     </div>
                   )}
                   <div className="flex gap-3">
