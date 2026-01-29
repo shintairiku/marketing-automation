@@ -206,6 +206,18 @@ export default function BlogProcessPage() {
     }
   }, [getToken, processId]);
 
+  // ---- Refresh Realtime auth token ----
+  const refreshRealtimeAuth = useCallback(async () => {
+    try {
+      const token = await getToken();
+      if (token) {
+        (supabase as any).realtime.setAuth(token);
+      }
+    } catch {
+      // Silently ignore refresh failures; next interval will retry
+    }
+  }, [getToken]);
+
   // ---- Realtime subscriptions ----
   useEffect(() => {
     fetchState();
@@ -213,17 +225,14 @@ export default function BlogProcessPage() {
 
     let stateChannel: ReturnType<typeof supabase.channel> | null = null;
     let eventsChannel: ReturnType<typeof supabase.channel> | null = null;
+    let tokenRefreshInterval: ReturnType<typeof setInterval> | null = null;
 
     const setupRealtime = async () => {
       // Set Clerk JWT for Realtime RLS authentication
-      try {
-        const token = await getToken();
-        if (token) {
-          (supabase as any).realtime.setAuth(token);
-        }
-      } catch (authErr) {
-        console.warn("Failed to set Realtime auth token:", authErr);
-      }
+      await refreshRealtimeAuth();
+
+      // Refresh token every 50 seconds (Clerk JWTs expire in ~60s)
+      tokenRefreshInterval = setInterval(refreshRealtimeAuth, 50_000);
 
       // 1) State updates
       stateChannel = supabase
@@ -269,6 +278,7 @@ export default function BlogProcessPage() {
     setupRealtime();
 
     return () => {
+      if (tokenRefreshInterval) clearInterval(tokenRefreshInterval);
       if (stateChannel) supabase.removeChannel(stateChannel);
       if (eventsChannel) supabase.removeChannel(eventsChannel);
     };
@@ -406,7 +416,11 @@ export default function BlogProcessPage() {
       );
       if (response.ok) {
         setAnswers({});
+        // Refresh Realtime auth (JWT may have expired while user was answering)
+        await refreshRealtimeAuth();
         await fetchState();
+        // Fetch events that may have been inserted during the transition
+        await fetchExistingEvents();
       }
     } catch (err) {
       console.error("Failed to submit answers:", err);
