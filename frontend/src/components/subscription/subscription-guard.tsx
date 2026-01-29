@@ -136,19 +136,19 @@ export function SubscriptionGuard({
 
 // アップグレード促進バナー
 export function SubscriptionBanner() {
-  const { subscription, hasAccess, isLoading } = useSubscription();
+  const { subscription, orgSubscription, hasAccess, isLoading } = useSubscription();
 
   // ローディング中または特権ユーザーは表示しない
   if (isLoading || subscription?.is_privileged) {
     return null;
   }
 
-  // アクティブなサブスクリプションがある場合は表示しない
-  if (hasAccess && subscription?.status === 'active') {
+  // 個人または組織のいずれかでアクティブならバナー不要
+  if (hasAccess && (subscription?.status === 'active' || orgSubscription?.status === 'active')) {
     return null;
   }
 
-  // キャンセル予定の場合
+  // 個人サブスクのキャンセル予定
   if (subscription?.cancel_at_period_end && subscription.current_period_end) {
     const endDate = new Date(subscription.current_period_end).toLocaleDateString('ja-JP');
     return (
@@ -167,8 +167,24 @@ export function SubscriptionBanner() {
     );
   }
 
-  // 支払い遅延の場合
-  if (subscription?.status === 'past_due') {
+  // 組織サブスクのキャンセル予定
+  if (orgSubscription?.cancel_at_period_end && orgSubscription.current_period_end) {
+    const endDate = new Date(orgSubscription.current_period_end).toLocaleDateString('ja-JP');
+    return (
+      <div className="bg-yellow-50 border-l-4 border-yellow-400 p-4 mb-4">
+        <div className="flex">
+          <div className="ml-3">
+            <p className="text-sm text-yellow-700">
+              チームプランは {endDate} に終了予定です。
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // 支払い遅延の場合（個人または組織）
+  if (subscription?.status === 'past_due' || orgSubscription?.status === 'past_due') {
     return (
       <div className="bg-red-50 border-l-4 border-red-400 p-4 mb-4">
         <div className="flex">
