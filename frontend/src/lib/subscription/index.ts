@@ -78,6 +78,39 @@ export function isPrivilegedEmail(email: string | null | undefined): boolean {
   return email.toLowerCase().endsWith('@shintairiku.jp');
 }
 
+// 組織サブスクリプション情報
+export interface OrgSubscription {
+  id: string;
+  organization_id: string;
+  status: SubscriptionStatus;
+  quantity: number;
+  current_period_end: string | null;
+  cancel_at_period_end: boolean;
+}
+
+// 組織アクセス権の判定
+export function hasActiveOrgAccess(orgSubscription: OrgSubscription | null | undefined): boolean {
+  if (!orgSubscription) return false;
+
+  // アクティブなサブスクリプション
+  if (orgSubscription.status === 'active') return true;
+
+  // キャンセル済みでも期間内
+  if (orgSubscription.status === 'canceled' && orgSubscription.current_period_end) {
+    const periodEnd = new Date(orgSubscription.current_period_end);
+    if (periodEnd > new Date()) return true;
+  }
+
+  // 支払い遅延でも3日間の猶予
+  if (orgSubscription.status === 'past_due' && orgSubscription.current_period_end) {
+    const periodEnd = new Date(orgSubscription.current_period_end);
+    const gracePeriod = new Date(periodEnd.getTime() + 3 * 24 * 60 * 60 * 1000);
+    if (gracePeriod > new Date()) return true;
+  }
+
+  return false;
+}
+
 // Stripe Checkout Session作成のパラメータ
 export interface CreateCheckoutSessionParams {
   userId: string;

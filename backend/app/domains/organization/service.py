@@ -57,11 +57,10 @@ class OrganizationMemberRead(BaseModel):
     organization_id: str
     user_id: str
     role: str
-    clerk_membership_id: Optional[str]
+    clerk_membership_id: Optional[str] = None
+    display_name: Optional[str] = None
+    email: Optional[str] = None
     joined_at: datetime
-    # User details (joined from auth.users if needed)
-    user_email: Optional[str] = None
-    user_full_name: Optional[str] = None
 
 class InvitationCreate(BaseModel):
     email: EmailStr
@@ -81,6 +80,8 @@ class InvitationRead(BaseModel):
 class InvitationResponse(BaseModel):
     accepted: bool
     token: str
+    display_name: Optional[str] = None
+    email: Optional[str] = None
 
 class OrganizationService:
     """Service class for organization operations"""
@@ -88,7 +89,10 @@ class OrganizationService:
     def __init__(self):
         self.supabase = get_supabase_client()
     
-    async def create_organization(self, user_id: str, organization_data: OrganizationCreate) -> OrganizationRead:
+    async def create_organization(
+        self, user_id: str, organization_data: OrganizationCreate,
+        owner_email: Optional[str] = None, owner_display_name: Optional[str] = None,
+    ) -> OrganizationRead:
         """Create a new organization with the user as owner"""
         try:
             # Create organization
@@ -97,17 +101,30 @@ class OrganizationService:
                 "owner_user_id": user_id,
                 "clerk_organization_id": organization_data.clerk_organization_id
             }
-            
+
             result = self.supabase.table("organizations").insert(org_data).execute()
-            
+
             if not result.data:
                 raise Exception("Failed to create organization")
-            
+
             organization = result.data[0]
-            logger.info(f"Created organization {organization['id']} for user {user_id}")
-            
+            org_id = organization["id"]
+            logger.info(f"Created organization {org_id} for user {user_id}")
+
+            # DB トリガーがオーナーを organization_members に挿入するが、
+            # email / display_name は未設定なので、ここで更新する
+            if owner_email or owner_display_name:
+                update_data: Dict[str, Any] = {}
+                if owner_email:
+                    update_data["email"] = owner_email
+                if owner_display_name:
+                    update_data["display_name"] = owner_display_name
+                self.supabase.table("organization_members").update(
+                    update_data
+                ).eq("organization_id", org_id).eq("user_id", user_id).execute()
+
             return OrganizationRead(**organization)
-            
+
         except Exception as e:
             logger.error(f"Error creating organization: {e}")
             raise
@@ -133,13 +150,23 @@ class OrganizationService:
     async def get_user_organizations(self, user_id: str) -> List[OrganizationRead]:
         """Get all organizations where user is a member"""
         try:
-            # Query organizations where user is a member
-            result = self.supabase.table("organizations").select("*").in_("id", 
-                self.supabase.table("organization_members").select("organization_id").eq("user_id", user_id)
+            # First get org IDs where user is a member
+            member_result = self.supabase.table("organization_members").select(
+                "organization_id"
+            ).eq("user_id", user_id).execute()
+
+            if not member_result.data:
+                return []
+
+            org_ids = [m["organization_id"] for m in member_result.data]
+
+            # Then get organization details
+            result = self.supabase.table("organizations").select("*").in_(
+                "id", org_ids
             ).execute()
-            
+
             return [OrganizationRead(**org) for org in result.data]
-            
+
         except Exception as e:
             logger.error(f"Error getting organizations for user {user_id}: {e}")
             raise
@@ -192,26 +219,13 @@ class OrganizationService:
             # Check if user has access to organization
             if not await self._user_has_access_to_org(user_id, organization_id):
                 return []
-            
-            # Get members with user details
+
+            # Get members (display_name, email are stored directly on organization_members)
             result = self.supabase.table("organization_members").select(
-                "*, users:user_id(email, full_name)"
+                "*"
             ).eq("organization_id", organization_id).execute()
-            
-            members = []
-            for member_data in result.data:
-                member = OrganizationMemberRead(
-                    organization_id=member_data["organization_id"],
-                    user_id=member_data["user_id"],
-                    role=member_data["role"],
-                    clerk_membership_id=member_data["clerk_membership_id"],
-                    joined_at=member_data["joined_at"],
-                    user_email=member_data["users"]["email"] if member_data["users"] else None,
-                    user_full_name=member_data["users"]["full_name"] if member_data["users"] else None
-                )
-                members.append(member)
-            
-            return members
+
+            return [OrganizationMemberRead(**m) for m in result.data]
             
         except Exception as e:
             logger.error(f"Error getting members for organization {organization_id}: {e}")
@@ -276,18 +290,14 @@ class OrganizationService:
             if not await self._user_is_org_admin(inviting_user_id, organization_id):
                 return None
             
-            # Check if user is already a member
-            existing_member = self.supabase.table("organization_members").select("user_id").eq(
+            # Check if user is already a member (by email)
+            existing_members = self.supabase.table("organization_members").select("email").eq(
                 "organization_id", organization_id
             ).execute()
-            
-            # Get user ID by email to check if already member
-            user_result = self.supabase.table("users").select("id").eq("email", invitation_data.email).execute()
-            if user_result.data:
-                existing_user_id = user_result.data[0]["id"]
-                for member in existing_member.data:
-                    if member["user_id"] == existing_user_id:
-                        return None  # User already a member
+
+            for member in existing_members.data:
+                if member.get("email") and member["email"].lower() == invitation_data.email.lower():
+                    return None  # User already a member
             
             # Check if there's already a pending invitation
             existing_invitation = self.supabase.table("invitations").select("id").eq(
@@ -350,19 +360,21 @@ class OrganizationService:
                 self.supabase.table("invitations").update({"status": InvitationStatus.EXPIRED}).eq("id", invitation["id"]).execute()
                 return False
             
-            # Verify user email matches invitation
-            user_result = self.supabase.table("users").select("email").eq("id", user_id).execute()
-            if not user_result.data or user_result.data[0]["email"] != invitation["email"]:
-                return False
-            
+            # Note: email verification is handled by the frontend (Clerk)
+            # The frontend passes the user_id of the authenticated user
+
             if response.accepted:
                 # Add user to organization
                 member_data = {
                     "organization_id": invitation["organization_id"],
                     "user_id": user_id,
-                    "role": invitation["role"]
+                    "role": invitation["role"],
+                    "email": response.email or invitation["email"],
+                    "display_name": response.display_name,
                 }
-                
+                # Remove None values
+                member_data = {k: v for k, v in member_data.items() if v is not None}
+
                 self.supabase.table("organization_members").insert(member_data).execute()
                 
                 # Mark invitation as accepted

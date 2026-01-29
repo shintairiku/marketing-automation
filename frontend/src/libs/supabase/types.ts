@@ -226,6 +226,180 @@ export type Database = {
         }
         Relationships: []
       }
+      organizations: {
+        Row: {
+          id: string
+          name: string
+          owner_user_id: string
+          clerk_organization_id: string | null
+          stripe_customer_id: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          name: string
+          owner_user_id: string
+          clerk_organization_id?: string | null
+          stripe_customer_id?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          name?: string
+          owner_user_id?: string
+          clerk_organization_id?: string | null
+          stripe_customer_id?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      organization_members: {
+        Row: {
+          organization_id: string
+          user_id: string
+          role: Database["public"]["Enums"]["organization_role"]
+          clerk_membership_id: string | null
+          display_name: string | null
+          email: string | null
+          joined_at: string
+        }
+        Insert: {
+          organization_id: string
+          user_id: string
+          role?: Database["public"]["Enums"]["organization_role"]
+          clerk_membership_id?: string | null
+          display_name?: string | null
+          email?: string | null
+          joined_at?: string
+        }
+        Update: {
+          organization_id?: string
+          user_id?: string
+          role?: Database["public"]["Enums"]["organization_role"]
+          clerk_membership_id?: string | null
+          display_name?: string | null
+          email?: string | null
+          joined_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "organization_members_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      organization_subscriptions: {
+        Row: {
+          id: string
+          organization_id: string
+          status: Database["public"]["Enums"]["subscription_status"]
+          metadata: Json | null
+          price_id: string | null
+          quantity: number
+          cancel_at_period_end: boolean
+          created: string
+          current_period_start: string
+          current_period_end: string
+          ended_at: string | null
+          cancel_at: string | null
+          canceled_at: string | null
+          trial_start: string | null
+          trial_end: string | null
+        }
+        Insert: {
+          id: string
+          organization_id: string
+          status: Database["public"]["Enums"]["subscription_status"]
+          metadata?: Json | null
+          price_id?: string | null
+          quantity?: number
+          cancel_at_period_end?: boolean
+          created?: string
+          current_period_start?: string | null
+          current_period_end?: string | null
+          ended_at?: string | null
+          cancel_at?: string | null
+          canceled_at?: string | null
+          trial_start?: string | null
+          trial_end?: string | null
+        }
+        Update: {
+          id?: string
+          organization_id?: string
+          status?: Database["public"]["Enums"]["subscription_status"]
+          metadata?: Json | null
+          price_id?: string | null
+          quantity?: number
+          cancel_at_period_end?: boolean
+          created?: string
+          current_period_start?: string | null
+          current_period_end?: string | null
+          ended_at?: string | null
+          cancel_at?: string | null
+          canceled_at?: string | null
+          trial_start?: string | null
+          trial_end?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "organization_subscriptions_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      invitations: {
+        Row: {
+          id: string
+          organization_id: string
+          email: string
+          role: Database["public"]["Enums"]["organization_role"]
+          status: Database["public"]["Enums"]["invitation_status"]
+          invited_by_user_id: string
+          token: string
+          expires_at: string
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          organization_id: string
+          email: string
+          role?: Database["public"]["Enums"]["organization_role"]
+          status?: Database["public"]["Enums"]["invitation_status"]
+          invited_by_user_id: string
+          token?: string
+          expires_at?: string
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          organization_id?: string
+          email?: string
+          role?: Database["public"]["Enums"]["organization_role"]
+          status?: Database["public"]["Enums"]["invitation_status"]
+          invited_by_user_id?: string
+          token?: string
+          expires_at?: string
+          created_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "invitations_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       subscription_events: {
         Row: {
           id: string
@@ -261,6 +435,8 @@ export type Database = {
       [_ in never]: never
     }
     Enums: {
+      organization_role: "owner" | "admin" | "member"
+      invitation_status: "pending" | "accepted" | "declined" | "expired"
       pricing_plan_interval: "day" | "week" | "month" | "year"
       pricing_type: "one_time" | "recurring"
       subscription_status:
@@ -393,6 +569,8 @@ export type CompositeTypes<
 export const Constants = {
   public: {
     Enums: {
+      organization_role: ["owner", "admin", "member"],
+      invitation_status: ["pending", "accepted", "declined", "expired"],
       pricing_plan_interval: ["day", "week", "month", "year"],
       pricing_type: ["one_time", "recurring"],
       subscription_status: [

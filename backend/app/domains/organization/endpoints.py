@@ -27,23 +27,67 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 # Import proper authentication
-from app.common.auth import get_current_user_id_from_token
+from app.common.auth import get_current_user_id_from_token, verify_clerk_token
 
-# Use proper Clerk JWT authentication
-async def get_current_user_email() -> str:
-    """Get current user email from authentication token"""
-    # This is a placeholder - implement proper JWT validation
-    return "user@example.com"
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+
+_security = HTTPBearer(auto_error=False)
+
+
+async def get_current_user_email(
+    authorization: HTTPAuthorizationCredentials = Depends(_security),
+) -> str:
+    """Clerk JWT トークンからユーザーのメールアドレスを取得する"""
+    if not authorization:
+        raise HTTPException(status_code=401, detail="Authorization header required")
+    try:
+        decoded = verify_clerk_token(authorization.credentials)
+        # Clerk JWT には email が含まれる場合がある
+        email = decoded.get("email")
+        if email:
+            return email
+        # email が JWT に含まれない場合は Clerk Backend API で取得
+        # ここではひとまず JWT の sub (user_id) を返す
+        # フロントエンドがメールアドレスをクエリパラメータで渡す方法も検討
+        user_id = decoded.get("sub", "")
+        if not user_id:
+            raise HTTPException(status_code=401, detail="Invalid token: no user ID")
+        # Clerk Backend API でメール取得
+        import httpx
+        import os
+        clerk_secret = os.getenv("CLERK_SECRET_KEY", "")
+        if clerk_secret:
+            async with httpx.AsyncClient() as client:
+                resp = await client.get(
+                    f"https://api.clerk.com/v1/users/{user_id}",
+                    headers={"Authorization": f"Bearer {clerk_secret}"},
+                )
+                if resp.status_code == 200:
+                    user_data = resp.json()
+                    addresses = user_data.get("email_addresses", [])
+                    if addresses:
+                        return addresses[0].get("email_address", "")
+        raise HTTPException(status_code=400, detail="Could not determine user email")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting user email from token: {e}")
+        raise HTTPException(status_code=500, detail="Failed to get user email")
 
 # Organization endpoints
 @router.post("/", response_model=OrganizationRead, status_code=status.HTTP_201_CREATED)
 async def create_organization(
     organization_data: OrganizationCreate,
-    current_user_id: str = Depends(get_current_user_id_from_token)
+    current_user_id: str = Depends(get_current_user_id_from_token),
+    current_user_email: str = Depends(get_current_user_email),
 ):
     """Create a new organization with the current user as owner"""
     try:
-        organization = await organization_service.create_organization(current_user_id, organization_data)
+        organization = await organization_service.create_organization(
+            current_user_id,
+            organization_data,
+            owner_email=current_user_email,
+        )
         return organization
     except Exception as e:
         logger.error(f"Error creating organization: {e}")

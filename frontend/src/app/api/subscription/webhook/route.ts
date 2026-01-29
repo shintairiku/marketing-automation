@@ -4,6 +4,7 @@
  * POST /api/subscription/webhook
  *
  * Stripeからのイベントを受信し、サブスクリプション状態を更新する
+ * 個人サブスク（user_subscriptions）と組織サブスク（organization_subscriptions）の両方に対応
  *
  * 処理するイベント:
  * - checkout.session.completed: チェックアウト完了
@@ -130,6 +131,13 @@ export async function POST(request: Request) {
   }
 }
 
+// ============================================
+// ヘルパー: metadata から organization_id を取得
+// ============================================
+function getOrgIdFromMetadata(metadata: Record<string, string> | null | undefined): string | undefined {
+  return metadata?.organization_id || undefined;
+}
+
 // イベントからユーザーIDを取得
 function getUserIdFromEvent(event: Stripe.Event): string {
   const data = event.data.object as unknown as Record<string, unknown>;
@@ -152,7 +160,29 @@ function getUserIdFromEvent(event: Stripe.Event): string {
   return 'unknown';
 }
 
-// チェックアウト完了時の処理
+// ============================================
+// ステータスマッピング
+// ============================================
+function mapStripeStatus(stripeStatus: Stripe.Subscription.Status): 'active' | 'past_due' | 'canceled' | 'expired' | 'none' {
+  switch (stripeStatus) {
+    case 'active':
+    case 'trialing':
+      return 'active';
+    case 'past_due':
+      return 'past_due';
+    case 'canceled':
+      return 'canceled';
+    case 'unpaid':
+    case 'incomplete_expired':
+      return 'expired';
+    default:
+      return 'none';
+  }
+}
+
+// ============================================
+// チェックアウト完了
+// ============================================
 async function handleCheckoutCompleted(
   supabase: typeof supabaseAdminClient,
   session: Stripe.Checkout.Session
@@ -165,25 +195,48 @@ async function handleCheckoutCompleted(
 
   const customerId = session.customer as string;
   const subscriptionId = session.subscription as string;
+  const organizationId = getOrgIdFromMetadata(session.metadata as Record<string, string>);
 
-  // 顧客IDとサブスクリプションIDを保存
-  await supabase.from('user_subscriptions').upsert(
-    {
-      user_id: userId,
-      stripe_customer_id: customerId,
-      stripe_subscription_id: subscriptionId,
-      status: 'active',
-      email: session.customer_email || null,
-    },
-    {
-      onConflict: 'user_id',
-    }
-  );
+  if (organizationId) {
+    // ============ 組織サブスク ============
+    // organizations テーブルに stripe_customer_id を保存
+    await supabase
+      .from('organizations')
+      .update({ stripe_customer_id: customerId })
+      .eq('id', organizationId);
 
-  console.log(`Checkout completed for user ${userId}`);
+    // organization_subscriptions に upsert
+    await supabase.from('organization_subscriptions').upsert(
+      {
+        id: subscriptionId,
+        organization_id: organizationId,
+        status: 'active',
+        metadata: session.metadata ? JSON.parse(JSON.stringify(session.metadata)) : null,
+      },
+      { onConflict: 'id' }
+    );
+
+    console.log(`Org checkout completed: org=${organizationId}, sub=${subscriptionId}`);
+  } else {
+    // ============ 個人サブスク（従来通り） ============
+    await supabase.from('user_subscriptions').upsert(
+      {
+        user_id: userId,
+        stripe_customer_id: customerId,
+        stripe_subscription_id: subscriptionId,
+        status: 'active',
+        email: session.customer_email || null,
+      },
+      { onConflict: 'user_id' }
+    );
+
+    console.log(`Checkout completed for user ${userId}`);
+  }
 }
 
-// サブスクリプション変更時の処理
+// ============================================
+// サブスクリプション変更（作成/更新）
+// ============================================
 async function handleSubscriptionChange(
   supabase: typeof supabaseAdminClient,
   subscription: Stripe.Subscription
@@ -195,52 +248,68 @@ async function handleSubscriptionChange(
   }
 
   const customerId = subscription.customer as string;
-
-  // ステータスをマッピング
-  let status: 'active' | 'past_due' | 'canceled' | 'expired' | 'none';
-  switch (subscription.status) {
-    case 'active':
-    case 'trialing':
-      status = 'active';
-      break;
-    case 'past_due':
-      status = 'past_due';
-      break;
-    case 'canceled':
-      status = 'canceled';
-      break;
-    case 'unpaid':
-    case 'incomplete_expired':
-      status = 'expired';
-      break;
-    default:
-      status = 'none';
-  }
+  const userStatus = mapStripeStatus(subscription.status);
+  const organizationId = getOrgIdFromMetadata(subscription.metadata as Record<string, string>);
 
   // Stripe v18: current_period_end is on subscription items
   const currentPeriodEnd = subscription.items?.data?.[0]?.current_period_end;
+  const currentPeriodStart = subscription.items?.data?.[0]?.current_period_start;
   const periodEndDate = currentPeriodEnd
     ? new Date(currentPeriodEnd * 1000).toISOString()
     : null;
+  const periodStartDate = currentPeriodStart
+    ? new Date(currentPeriodStart * 1000).toISOString()
+    : null;
 
-  await supabase.from('user_subscriptions').upsert(
-    {
-      user_id: userId,
-      stripe_customer_id: customerId,
-      stripe_subscription_id: subscription.id,
-      status,
-      current_period_end: periodEndDate,
-      cancel_at_period_end: subscription.cancel_at_period_end,
-    },
-    {
-      onConflict: 'user_id',
-    }
-  );
+  if (organizationId) {
+    // ============ 組織サブスク ============
+    // organization_subscriptions は subscription_status enum を使用（Stripe ネイティブ値）
+    const orgStatus = subscription.status as 'active' | 'trialing' | 'canceled' | 'incomplete' | 'incomplete_expired' | 'past_due' | 'unpaid' | 'paused';
+    const quantity = subscription.items?.data?.[0]?.quantity || 1;
 
-  console.log(`Subscription ${subscription.id} updated for user ${userId}: ${status}`);
+    await supabase.from('organization_subscriptions').upsert(
+      {
+        id: subscription.id,
+        organization_id: organizationId,
+        status: orgStatus,
+        quantity,
+        price_id: subscription.items?.data?.[0]?.price?.id || null,
+        cancel_at_period_end: subscription.cancel_at_period_end,
+        current_period_start: periodStartDate,
+        current_period_end: periodEndDate,
+        metadata: subscription.metadata ? JSON.parse(JSON.stringify(subscription.metadata)) : null,
+        canceled_at: subscription.canceled_at
+          ? new Date(subscription.canceled_at * 1000).toISOString()
+          : null,
+        ended_at: subscription.ended_at
+          ? new Date(subscription.ended_at * 1000).toISOString()
+          : null,
+      },
+      { onConflict: 'id' }
+    );
+
+    console.log(`Org subscription ${subscription.id} updated: org=${organizationId}, status=${orgStatus}, qty=${quantity}`);
+  } else {
+    // ============ 個人サブスク（従来通り） ============
+    await supabase.from('user_subscriptions').upsert(
+      {
+        user_id: userId,
+        stripe_customer_id: customerId,
+        stripe_subscription_id: subscription.id,
+        status: userStatus,
+        current_period_end: periodEndDate,
+        cancel_at_period_end: subscription.cancel_at_period_end,
+      },
+      { onConflict: 'user_id' }
+    );
+
+    console.log(`Subscription ${subscription.id} updated for user ${userId}: ${userStatus}`);
+  }
 }
 
-// サブスクリプション削除時の処理
+// ============================================
+// サブスクリプション削除
+// ============================================
 async function handleSubscriptionDeleted(
   supabase: typeof supabaseAdminClient,
   subscription: Stripe.Subscription
@@ -251,18 +320,37 @@ async function handleSubscriptionDeleted(
     return;
   }
 
-  await supabase
-    .from('user_subscriptions')
-    .update({
-      status: 'expired',
-      stripe_subscription_id: null,
-    })
-    .eq('user_id', userId);
+  const organizationId = getOrgIdFromMetadata(subscription.metadata as Record<string, string>);
 
-  console.log(`Subscription deleted for user ${userId}`);
+  if (organizationId) {
+    // ============ 組織サブスク ============
+    // subscription_status enum には 'expired' がないので 'canceled' を使用
+    await supabase
+      .from('organization_subscriptions')
+      .update({
+        status: 'canceled' as const,
+        ended_at: new Date().toISOString(),
+      })
+      .eq('id', subscription.id);
+
+    console.log(`Org subscription deleted: org=${organizationId}`);
+  } else {
+    // ============ 個人サブスク（従来通り） ============
+    await supabase
+      .from('user_subscriptions')
+      .update({
+        status: 'expired',
+        stripe_subscription_id: null,
+      })
+      .eq('user_id', userId);
+
+    console.log(`Subscription deleted for user ${userId}`);
+  }
 }
 
-// 支払い成功時の処理
+// ============================================
+// 支払い成功
+// ============================================
 async function handlePaymentSucceeded(
   supabase: typeof supabaseAdminClient,
   invoice: Stripe.Invoice
@@ -274,12 +362,12 @@ async function handlePaymentSucceeded(
     : subscriptionRef?.id;
   if (!subscriptionId) return;
 
-  // サブスクリプションの詳細を取得してuser_idを確認
   const stripe = getStripe();
   const subscription = await stripe.subscriptions.retrieve(subscriptionId);
   const userId = subscription.metadata?.user_id;
-
   if (!userId) return;
+
+  const organizationId = getOrgIdFromMetadata(subscription.metadata as Record<string, string>);
 
   // Stripe v18: current_period_end is on subscription items
   const currentPeriodEnd = subscription.items?.data?.[0]?.current_period_end;
@@ -287,18 +375,34 @@ async function handlePaymentSucceeded(
     ? new Date(currentPeriodEnd * 1000).toISOString()
     : null;
 
-  await supabase
-    .from('user_subscriptions')
-    .update({
-      status: 'active',
-      current_period_end: periodEndDate,
-    })
-    .eq('user_id', userId);
+  if (organizationId) {
+    // ============ 組織サブスク ============
+    await supabase
+      .from('organization_subscriptions')
+      .update({
+        status: 'active',
+        current_period_end: periodEndDate,
+      })
+      .eq('id', subscriptionId);
 
-  console.log(`Payment succeeded for user ${userId}`);
+    console.log(`Org payment succeeded: org=${organizationId}`);
+  } else {
+    // ============ 個人サブスク（従来通り） ============
+    await supabase
+      .from('user_subscriptions')
+      .update({
+        status: 'active',
+        current_period_end: periodEndDate,
+      })
+      .eq('user_id', userId);
+
+    console.log(`Payment succeeded for user ${userId}`);
+  }
 }
 
-// 支払い失敗時の処理
+// ============================================
+// 支払い失敗
+// ============================================
 async function handlePaymentFailed(
   supabase: typeof supabaseAdminClient,
   invoice: Stripe.Invoice
@@ -310,19 +414,28 @@ async function handlePaymentFailed(
     : subscriptionRef?.id;
   if (!subscriptionId) return;
 
-  // サブスクリプションの詳細を取得してuser_idを確認
   const stripe = getStripe();
   const subscription = await stripe.subscriptions.retrieve(subscriptionId);
   const userId = subscription.metadata?.user_id;
-
   if (!userId) return;
 
-  await supabase
-    .from('user_subscriptions')
-    .update({
-      status: 'past_due',
-    })
-    .eq('user_id', userId);
+  const organizationId = getOrgIdFromMetadata(subscription.metadata as Record<string, string>);
 
-  console.log(`Payment failed for user ${userId}`);
+  if (organizationId) {
+    // ============ 組織サブスク ============
+    await supabase
+      .from('organization_subscriptions')
+      .update({ status: 'past_due' })
+      .eq('id', subscriptionId);
+
+    console.log(`Org payment failed: org=${organizationId}`);
+  } else {
+    // ============ 個人サブスク（従来通り） ============
+    await supabase
+      .from('user_subscriptions')
+      .update({ status: 'past_due' })
+      .eq('user_id', userId);
+
+    console.log(`Payment failed for user ${userId}`);
+  }
 }

@@ -5,6 +5,10 @@
  *
  * サブスクリプション購入のためのCheckout Sessionを作成し、
  * StripeのCheckoutページURLを返す
+ *
+ * 個人サブスクと組織サブスクの両方に対応:
+ * - organizationId を指定すると組織サブスクとして処理
+ * - quantity でシート数を指定可能（デフォルト: 1）
  */
 
 import { NextResponse } from 'next/server';
@@ -31,6 +35,7 @@ export async function POST(request: Request) {
     const client = await clerkClient();
     const user = await client.users.getUser(userId);
     const userEmail = user.emailAddresses?.[0]?.emailAddress;
+    const userFullName = `${user.firstName || ''} ${user.lastName || ''}`.trim();
 
     if (!userEmail) {
       return NextResponse.json(
@@ -56,20 +61,107 @@ export async function POST(request: Request) {
       );
     }
 
-    // 5. リクエストボディからURLを取得
+    // 5. リクエストボディから情報を取得
     const body = await request.json().catch(() => ({}));
-    const successUrl = body.successUrl || `${process.env.NEXT_PUBLIC_APP_URL}/dashboard?subscription=success`;
+    const successUrl = body.successUrl || `${process.env.NEXT_PUBLIC_APP_URL}/blog/new?subscription=success`;
     const cancelUrl = body.cancelUrl || `${process.env.NEXT_PUBLIC_APP_URL}/pricing?subscription=canceled`;
+    const quantity: number = Math.max(1, Math.min(50, body.quantity || 1));
+    const organizationId: string | undefined = body.organizationId;
+    const organizationName: string | undefined = body.organizationName;
 
-    // 6. 既存のStripe顧客を確認
     const supabase = supabaseAdminClient;
+
+    // 6. 組織サブスクの場合: 組織を作成 or 既存を確認
+    let resolvedOrgId = organizationId;
+
+    if (quantity > 1 || organizationId || organizationName) {
+      // 組織サブスク
+      if (!resolvedOrgId) {
+        // 組織を自動作成
+        const orgName = organizationName || `${userFullName || userEmail}の組織`;
+        const { data: newOrg, error: orgError } = await supabase
+          .from('organizations')
+          .insert({
+            name: orgName,
+            owner_user_id: userId,
+          })
+          .select()
+          .single();
+
+        if (orgError) {
+          console.error('Error creating organization:', orgError);
+          return NextResponse.json(
+            { error: 'Failed to create organization' },
+            { status: 500 }
+          );
+        }
+
+        resolvedOrgId = newOrg.id;
+
+        // オーナーの email と display_name をメンバーテーブルに更新
+        // (トリガーで owner が自動追加されるが email/display_name は入らない)
+        await supabase
+          .from('organization_members')
+          .update({ email: userEmail, display_name: userFullName || null })
+          .eq('organization_id', resolvedOrgId)
+          .eq('user_id', userId);
+      }
+
+      // 既存組織の Stripe 顧客IDを確認
+      const { data: existingOrg } = await supabase
+        .from('organizations')
+        .select('stripe_customer_id')
+        .eq('id', resolvedOrgId)
+        .single();
+
+      // 7. Stripe Checkout Session作成（組織）
+      const stripe = getStripe();
+
+      const sessionParams: Stripe.Checkout.SessionCreateParams = {
+        mode: 'subscription',
+        payment_method_types: ['card'],
+        line_items: [
+          {
+            price: SUBSCRIPTION_PRICE_ID,
+            quantity,
+          },
+        ],
+        success_url: successUrl,
+        cancel_url: cancelUrl,
+        metadata: {
+          user_id: userId,
+          organization_id: resolvedOrgId,
+        },
+        subscription_data: {
+          metadata: {
+            user_id: userId,
+            organization_id: resolvedOrgId,
+          },
+        },
+        automatic_tax: { enabled: true },
+        billing_address_collection: 'required',
+        customer_email: existingOrg?.stripe_customer_id ? undefined : userEmail,
+        customer: existingOrg?.stripe_customer_id || undefined,
+        allow_promotion_codes: true,
+        locale: 'ja',
+      };
+
+      const session = await stripe.checkout.sessions.create(sessionParams);
+
+      return NextResponse.json({
+        url: session.url,
+        sessionId: session.id,
+        organizationId: resolvedOrgId,
+      });
+    }
+
+    // 8. 個人サブスク（従来通り）
     const { data: existingSubscription } = await supabase
       .from('user_subscriptions')
       .select('stripe_customer_id')
       .eq('user_id', userId)
       .single();
 
-    // 7. Stripe Checkout Session作成
     const stripe = getStripe();
 
     const sessionParams: Stripe.Checkout.SessionCreateParams = {
@@ -91,25 +183,16 @@ export async function POST(request: Request) {
           user_id: userId,
         },
       },
-      // 日本円の場合は税金計算を有効化
-      automatic_tax: {
-        enabled: true,
-      },
-      // 請求先住所を収集
+      automatic_tax: { enabled: true },
       billing_address_collection: 'required',
-      // 顧客メールを設定
       customer_email: existingSubscription?.stripe_customer_id ? undefined : userEmail,
-      // 既存顧客がいる場合はそれを使用
       customer: existingSubscription?.stripe_customer_id || undefined,
-      // プロモーションコードを許可
       allow_promotion_codes: true,
-      // ロケール設定（日本語）
       locale: 'ja',
     };
 
     const session = await stripe.checkout.sessions.create(sessionParams);
 
-    // 8. Checkout URLを返す
     return NextResponse.json({
       url: session.url,
       sessionId: session.id,

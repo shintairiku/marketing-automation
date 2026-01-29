@@ -10,12 +10,13 @@
 import { createContext, type ReactNode,useCallback, useContext, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 
-import { hasActiveAccess, isPrivilegedEmail,type UserSubscription } from '@/lib/subscription';
+import { hasActiveAccess, hasActiveOrgAccess, isPrivilegedEmail, type OrgSubscription, type UserSubscription } from '@/lib/subscription';
 import { useAuth, useUser } from '@clerk/nextjs';
 
 // サブスクリプションコンテキスト
 interface SubscriptionContextType {
   subscription: UserSubscription | null;
+  orgSubscription: OrgSubscription | null;
   hasAccess: boolean;
   isLoading: boolean;
   refetch: () => Promise<void>;
@@ -23,6 +24,7 @@ interface SubscriptionContextType {
 
 const SubscriptionContext = createContext<SubscriptionContextType>({
   subscription: null,
+  orgSubscription: null,
   hasAccess: false,
   isLoading: true,
   refetch: async () => {},
@@ -37,11 +39,13 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
   const { isLoaded: isAuthLoaded, userId } = useAuth();
   const { user } = useUser();
   const [subscription, setSubscription] = useState<UserSubscription | null>(null);
+  const [orgSubscription, setOrgSubscription] = useState<OrgSubscription | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   const fetchSubscription = useCallback(async () => {
     if (!userId) {
       setSubscription(null);
+      setOrgSubscription(null);
       setIsLoading(false);
       return;
     }
@@ -51,6 +55,7 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
       if (response.ok) {
         const data = await response.json();
         setSubscription(data.subscription);
+        setOrgSubscription(data.orgSubscription || null);
       }
     } catch (error) {
       console.error('Error fetching subscription:', error);
@@ -65,16 +70,18 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
     }
   }, [isAuthLoaded, fetchSubscription]);
 
-  // アクセス権の判定
+  // アクセス権の判定（個人 OR 組織のいずれかで有効ならアクセス可）
   const userEmail = user?.primaryEmailAddress?.emailAddress;
   const hasAccess =
-    isPrivilegedEmail(userEmail) || // @shintairiku.jp
-    hasActiveAccess(subscription);   // サブスクリプション
+    isPrivilegedEmail(userEmail) ||        // @shintairiku.jp
+    hasActiveAccess(subscription) ||       // 個人サブスクリプション
+    hasActiveOrgAccess(orgSubscription);   // 組織サブスクリプション
 
   return (
     <SubscriptionContext.Provider
       value={{
         subscription,
+        orgSubscription,
         hasAccess,
         isLoading: !isAuthLoaded || isLoading,
         refetch: fetchSubscription,
