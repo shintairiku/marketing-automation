@@ -145,7 +145,7 @@ export async function POST(
       emailAddress: email,
       role: clerkRole,
       inviterUserId: userId,
-      redirectUrl: `${appUrl}/sign-up`,
+      redirectUrl: `${appUrl}/invitation/accept`,
     });
 
     // バックエンドにも記録（追跡用）

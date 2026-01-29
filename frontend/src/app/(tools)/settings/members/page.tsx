@@ -8,8 +8,10 @@ import {
   Loader2,
   Mail,
   Plus,
+  RefreshCw,
   Trash2,
   Users,
+  X,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -34,6 +36,8 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { useUser } from "@clerk/nextjs";
+
+import { isPrivilegedEmail } from "@/lib/subscription";
 
 // ============================================
 // 型定義
@@ -139,6 +143,13 @@ export default function MembersSettingsPage() {
   const [inviteRole, setInviteRole] = useState<string>("member");
   const [inviting, setInviting] = useState(false);
 
+  // 組織作成（特権ユーザー用）
+  const [orgName, setOrgName] = useState("");
+  const [creatingOrg, setCreatingOrg] = useState(false);
+
+  const userEmail = user?.primaryEmailAddress?.emailAddress;
+  const isPrivileged = isPrivilegedEmail(userEmail);
+
   // ============================================
   // データ取得
   // ============================================
@@ -212,6 +223,74 @@ export default function MembersSettingsPage() {
     }
   };
 
+  const handleCreateOrg = async () => {
+    if (!orgName.trim()) return;
+    setCreatingOrg(true);
+    try {
+      const res = await fetch("/api/organizations", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: orgName.trim() }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: "Failed" }));
+        throw new Error(err.error || err.detail || `HTTP ${res.status}`);
+      }
+      setOrgName("");
+      toast.success("組織を作成しました");
+      fetchOrganizations();
+    } catch (e: unknown) {
+      toast.error(`組織の作成に失敗しました: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setCreatingOrg(false);
+    }
+  };
+
+  const [resending, setResending] = useState<string | null>(null);
+  const [revoking, setRevoking] = useState<string | null>(null);
+
+  const handleResendInvitation = async (invitationId: string) => {
+    if (!selectedOrg) return;
+    setResending(invitationId);
+    try {
+      await fetch(`/api/organizations/${selectedOrg.id}/invitations/${invitationId}`, {
+        method: "POST",
+      }).then(async (res) => {
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({ error: "Failed" }));
+          throw new Error(err.error || `HTTP ${res.status}`);
+        }
+      });
+      toast.success("招待メールを再送しました");
+      fetchInvitations();
+    } catch (e: unknown) {
+      toast.error(`再送に失敗しました: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setResending(null);
+    }
+  };
+
+  const handleRevokeInvitation = async (invitationId: string) => {
+    if (!selectedOrg) return;
+    setRevoking(invitationId);
+    try {
+      await fetch(`/api/organizations/${selectedOrg.id}/invitations/${invitationId}`, {
+        method: "DELETE",
+      }).then(async (res) => {
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({ error: "Failed" }));
+          throw new Error(err.error || `HTTP ${res.status}`);
+        }
+      });
+      toast.success("招待を取り消しました");
+      fetchInvitations();
+    } catch (e: unknown) {
+      toast.error(`取り消しに失敗しました: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setRevoking(null);
+    }
+  };
+
   const handleRemoveMember = async (memberId: string) => {
     if (!selectedOrg) return;
     try {
@@ -260,26 +339,67 @@ export default function MembersSettingsPage() {
         </p>
       </div>
 
-      {/* 状態A: 組織なし → チームプラン購入を促す */}
+      {/* 状態A: 組織なし */}
       {organizations.length === 0 ? (
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Users className="h-5 w-5" />
-              チームプラン
-            </CardTitle>
-            <CardDescription>
-              チームでBlogAIを利用するには、チームプランの購入が必要です。
-              チームプランを購入すると、組織が自動的に作成され、メンバーを招待できるようになります。
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Button onClick={() => router.push("/pricing")} className="gap-2">
-              <ExternalLink className="h-4 w-4" />
-              チームプランを購入する
-            </Button>
-          </CardContent>
-        </Card>
+        isPrivileged ? (
+          /* 特権ユーザー: 組織作成フォーム */
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Users className="h-5 w-5" />
+                組織を作成
+              </CardTitle>
+              <CardDescription>
+                組織を作成して、メンバーを招待したりWordPressサイトを共有できます。
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="flex gap-3">
+                <Input
+                  type="text"
+                  placeholder="組織名"
+                  value={orgName}
+                  onChange={(e) => setOrgName(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && orgName.trim() && handleCreateOrg()}
+                  className="flex-1"
+                />
+                <Button
+                  onClick={handleCreateOrg}
+                  disabled={creatingOrg || !orgName.trim()}
+                >
+                  {creatingOrg ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <>
+                      <Plus className="h-4 w-4 mr-1" />
+                      作成
+                    </>
+                  )}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        ) : (
+          /* 一般ユーザー: チームプラン購入を促す */
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Users className="h-5 w-5" />
+                チームプラン
+              </CardTitle>
+              <CardDescription>
+                チームでBlogAIを利用するには、チームプランの購入が必要です。
+                チームプランを購入すると、組織が自動的に作成され、メンバーを招待できるようになります。
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Button onClick={() => router.push("/pricing")} className="gap-2">
+                <ExternalLink className="h-4 w-4" />
+                チームプランを購入する
+              </Button>
+            </CardContent>
+          </Card>
+        )
       ) : (
         <>
           {/* 組織選択（複数所属の場合） */}
@@ -504,6 +624,9 @@ export default function MembersSettingsPage() {
             <Card>
               <CardHeader>
                 <CardTitle>保留中の招待</CardTitle>
+                <CardDescription>
+                  招待メールが届いていない場合は再送できます
+                </CardDescription>
               </CardHeader>
               <CardContent>
                 <Table>
@@ -512,13 +635,18 @@ export default function MembersSettingsPage() {
                       <TableHead>メールアドレス</TableHead>
                       <TableHead>ロール</TableHead>
                       <TableHead>有効期限</TableHead>
-                      <TableHead className="w-[80px]" />
+                      <TableHead className="w-[120px]" />
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {invitations.map((inv) => (
                       <TableRow key={inv.id}>
-                        <TableCell>{inv.email}</TableCell>
+                        <TableCell>
+                          <div className="flex items-center gap-2">
+                            <Mail className="h-4 w-4 text-muted-foreground shrink-0" />
+                            {inv.email}
+                          </div>
+                        </TableCell>
                         <TableCell>
                           <Badge variant="outline">{roleLabel(inv.role)}</Badge>
                         </TableCell>
@@ -528,9 +656,38 @@ export default function MembersSettingsPage() {
                             : "-"}
                         </TableCell>
                         <TableCell>
-                          <span title="招待メール送信済み">
-                            <Mail className="h-4 w-4 text-muted-foreground" />
-                          </span>
+                          {canManage && (
+                            <div className="flex items-center gap-1">
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8"
+                                title="招待を再送"
+                                disabled={resending === inv.id}
+                                onClick={() => handleResendInvitation(inv.id)}
+                              >
+                                {resending === inv.id ? (
+                                  <Loader2 className="h-4 w-4 animate-spin" />
+                                ) : (
+                                  <RefreshCw className="h-4 w-4" />
+                                )}
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8 text-destructive hover:text-destructive"
+                                title="招待を取り消し"
+                                disabled={revoking === inv.id}
+                                onClick={() => handleRevokeInvitation(inv.id)}
+                              >
+                                {revoking === inv.id ? (
+                                  <Loader2 className="h-4 w-4 animate-spin" />
+                                ) : (
+                                  <X className="h-4 w-4" />
+                                )}
+                              </Button>
+                            </div>
+                          )}
                         </TableCell>
                       </TableRow>
                     ))}
