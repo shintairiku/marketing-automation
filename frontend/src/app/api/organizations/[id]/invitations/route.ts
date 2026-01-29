@@ -151,7 +151,7 @@ export async function POST(
     // バックエンドにも記録（追跡用）
     try {
       await fetch(
-        `${BACKEND_URL}/organizations/${id}/invitations/`,
+        `${BACKEND_URL}/organizations/${id}/invitations`,
         {
           method: 'POST',
           headers: {
