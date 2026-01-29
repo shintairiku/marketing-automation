@@ -271,8 +271,8 @@ export default function StyleGuideSettingsPage() {
 
   return (
     <>
-      <div className="container mx-auto p-6 space-y-6">
-            <div className="flex justify-between items-start">
+      <div className="container mx-auto px-4 py-4 md:p-6 space-y-4 md:space-y-6">
+            <div className="flex flex-col gap-4 sm:flex-row sm:justify-between sm:items-start">
               <div className="space-y-2">
                 <h1 className="text-3xl font-bold">記事スタイル設定</h1>
                 <p className="text-muted-foreground">
@@ -400,7 +400,7 @@ export default function StyleGuideSettingsPage() {
           </DialogHeader>
           
           <div className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="name">テンプレート名</Label>
                 <Input
@@ -441,7 +441,7 @@ export default function StyleGuideSettingsPage() {
               />
             </div>
             
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="tone">トーン・調子</Label>
                 <Input
