@@ -32,6 +32,8 @@ class Settings(BaseSettings):
     # Clerk設定 (optional)
     clerk_secret_key: str = Field(default_factory=lambda: os.getenv("CLERK_SECRET_KEY", ""))
     clerk_publishable_key: str = Field(default_factory=lambda: os.getenv("CLERK_PUBLISHABLE_KEY", ""))
+    # Clerk Frontend API URL（オプション: Publishable Keyから自動取得できない場合のフォールバック）
+    clerk_frontend_api: str = Field(default_factory=lambda: os.getenv("CLERK_FRONTEND_API", ""))
 
     # Stripe設定 (optional)
     stripe_secret_key: str = Field(default_factory=lambda: os.getenv("STRIPE_SECRET_KEY", ""))
@@ -112,6 +114,13 @@ class Settings(BaseSettings):
             str(Path(tempfile.gettempdir()) / "openai-agent-sessions")
         )
     )
+
+    # Blog AI設定
+    blog_generation_model: str = Field(default_factory=lambda: os.getenv("BLOG_GENERATION_MODEL", "gpt-5.2"))
+    blog_generation_max_turns: int = Field(default_factory=lambda: int(os.getenv("BLOG_GENERATION_MAX_TURNS", "100")))
+    credential_encryption_key: str = Field(default_factory=lambda: os.getenv("CREDENTIAL_ENCRYPTION_KEY", ""))
+    temp_upload_dir: str = Field(default_factory=lambda: os.getenv("TEMP_UPLOAD_DIR", "/tmp/blog_uploads"))
+    frontend_url: str = Field(default_factory=lambda: os.getenv("FRONTEND_URL", "http://localhost:3000"))
 
     model_config = SettingsConfigDict(
         env_file=[
