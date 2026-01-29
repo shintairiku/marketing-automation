@@ -172,18 +172,18 @@ export default function BlogNewPage() {
     <div className="min-h-screen bg-gradient-to-br from-amber-50/50 via-white to-emerald-50/30">
       {/* Decorative background elements */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
-        <div className="absolute top-20 right-20 w-72 h-72 bg-amber-200/20 rounded-full blur-3xl" />
-        <div className="absolute bottom-40 left-10 w-96 h-96 bg-emerald-200/20 rounded-full blur-3xl" />
-        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-gradient-radial from-orange-100/10 to-transparent rounded-full" />
+        <div className="hidden md:block absolute top-20 right-20 w-72 h-72 bg-amber-200/20 rounded-full blur-3xl" />
+        <div className="hidden md:block absolute bottom-40 left-10 w-96 h-96 bg-emerald-200/20 rounded-full blur-3xl" />
+        <div className="hidden md:block absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-gradient-radial from-orange-100/10 to-transparent rounded-full" />
       </div>
 
-      <div className="relative max-w-3xl mx-auto px-6 py-12">
+      <div className="relative max-w-3xl mx-auto px-4 py-6 md:px-6 md:py-12">
         {/* Header */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
-          className="text-center mb-12"
+          className="text-center mb-8 md:mb-12"
         >
           <h1 className="text-4xl md:text-5xl font-bold text-stone-800 tracking-tight mb-4">
             新しいブログ記事を

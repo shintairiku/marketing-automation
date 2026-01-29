@@ -10,6 +10,10 @@ interface SidebarContextType {
   expandedMenu: string | null;
   setExpandedMenu: (href: string | null) => void;
   toggleMenu: (href: string) => void;
+  isMobile: boolean;
+  isMobileMenuOpen: boolean;
+  setMobileMenuOpen: (value: boolean) => void;
+  toggleMobileMenu: () => void;
 }
 
 const SidebarContext = createContext<SidebarContextType | undefined>(undefined);
@@ -21,6 +25,8 @@ export function SidebarProvider({ children }: PropsWithChildren) {
   const [isSidebarOpen, setIsSidebarOpenState] = useState(true);
   const [expandedMenu, setExpandedMenuState] = useState<string | null>(null);
   const [isInitialized, setIsInitialized] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
+  const [isMobileMenuOpen, setMobileMenuOpenState] = useState(false);
 
   useEffect(() => {
     try {
@@ -36,6 +42,22 @@ export function SidebarProvider({ children }: PropsWithChildren) {
       console.warn('Failed to load sidebar state:', error);
     }
     setIsInitialized(true);
+  }, []);
+
+  // モバイル検知
+  useEffect(() => {
+    const mql = window.matchMedia('(max-width: 767px)');
+    const handler = (e: MediaQueryListEvent) => {
+      setIsMobile(e.matches);
+      if (e.matches) {
+        setMobileMenuOpenState(false);
+      } else {
+        setMobileMenuOpenState(false);
+      }
+    };
+    setIsMobile(mql.matches);
+    mql.addEventListener('change', handler);
+    return () => mql.removeEventListener('change', handler);
   }, []);
 
   const setIsSidebarOpen = useCallback((value: boolean) => {
@@ -68,6 +90,14 @@ export function SidebarProvider({ children }: PropsWithChildren) {
     setExpandedMenu(expandedMenu === href ? null : href);
   }, [expandedMenu, setExpandedMenu]);
 
+  const setMobileMenuOpen = useCallback((value: boolean) => {
+    setMobileMenuOpenState(value);
+  }, []);
+
+  const toggleMobileMenu = useCallback(() => {
+    setMobileMenuOpenState(prev => !prev);
+  }, []);
+
   if (!isInitialized) {
     return <div className="min-h-screen bg-background" />;
   }
@@ -80,6 +110,10 @@ export function SidebarProvider({ children }: PropsWithChildren) {
       expandedMenu,
       setExpandedMenu,
       toggleMenu,
+      isMobile,
+      isMobileMenuOpen,
+      setMobileMenuOpen,
+      toggleMobileMenu,
     }}>
       {children}
     </SidebarContext.Provider>

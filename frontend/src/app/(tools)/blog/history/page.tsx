@@ -163,12 +163,12 @@ export default function BlogHistoryPage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-amber-50/50 via-white to-emerald-50/30">
-      <div className="max-w-4xl mx-auto px-6 py-10">
+      <div className="max-w-4xl mx-auto px-4 py-6 md:px-6 md:py-10">
         {/* Header */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          className="flex items-center justify-between mb-8"
+          className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between mb-6 md:mb-8"
         >
           <div>
             <h1 className="text-3xl font-bold text-stone-800 mb-1">生成履歴</h1>
@@ -338,7 +338,7 @@ function HistoryCard({
       className="bg-white rounded-2xl border border-stone-200 p-5 hover:border-stone-300 hover:shadow-md transition-all cursor-pointer group"
       onClick={onClick}
     >
-      <div className="flex items-start justify-between gap-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
         <div className="flex-1 min-w-0">
           {/* ステータス + 日時 */}
           <div className="flex items-center gap-2 mb-2.5">
@@ -404,7 +404,7 @@ function HistoryCard({
         </div>
 
         {/* アクションボタン */}
-        <div className="flex items-center gap-1.5 flex-shrink-0">
+        <div className="flex items-center gap-1.5 flex-shrink-0 flex-wrap">
           {item.status === "completed" && item.draft_preview_url && (
             <Button
               variant="outline"

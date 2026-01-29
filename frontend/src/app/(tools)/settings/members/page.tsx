@@ -330,7 +330,7 @@ export default function MembersSettingsPage() {
   }
 
   return (
-    <div className="container mx-auto p-6 space-y-6 max-w-4xl">
+    <div className="container mx-auto px-4 py-4 md:p-6 space-y-4 md:space-y-6 max-w-4xl">
       <div className="space-y-2">
         <h1 className="text-3xl font-bold">メンバー設定</h1>
         <p className="text-muted-foreground">
@@ -353,7 +353,7 @@ export default function MembersSettingsPage() {
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="flex gap-3">
+              <div className="flex flex-col gap-2 sm:flex-row sm:gap-3">
                 <Input
                   type="text"
                   placeholder="組織名"
@@ -414,7 +414,7 @@ export default function MembersSettingsPage() {
                       if (org) setSelectedOrg(org);
                     }}
                   >
-                    <SelectTrigger className="w-[300px]">
+                    <SelectTrigger className="w-full sm:w-[300px]">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -497,6 +497,7 @@ export default function MembersSettingsPage() {
               {members.length === 0 ? (
                 <p className="text-muted-foreground text-center py-8">メンバーはまだいません</p>
               ) : (
+                <div className="overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-0">
                 <Table>
                   <TableHeader>
                     <TableRow>
@@ -555,6 +556,7 @@ export default function MembersSettingsPage() {
                     ))}
                   </TableBody>
                 </Table>
+                </div>
               )}
             </CardContent>
           </Card>
@@ -581,7 +583,7 @@ export default function MembersSettingsPage() {
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                <div className="flex gap-3">
+                <div className="flex flex-col gap-2 sm:flex-row sm:gap-3">
                   <Input
                     type="email"
                     placeholder="メールアドレス"
@@ -628,6 +630,7 @@ export default function MembersSettingsPage() {
                 </CardDescription>
               </CardHeader>
               <CardContent>
+                <div className="overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-0">
                 <Table>
                   <TableHeader>
                     <TableRow>
@@ -692,6 +695,7 @@ export default function MembersSettingsPage() {
                     ))}
                   </TableBody>
                 </Table>
+                </div>
               </CardContent>
             </Card>
           )}

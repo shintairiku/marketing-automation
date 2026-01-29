@@ -278,8 +278,8 @@ export default function CompanySettingsPage() {
   const defaultCompany = companies.find(c => c.is_default);
 
   return (
-    <div className="container mx-auto p-6 space-y-6">
-            <div className="flex justify-between items-center">
+    <div className="container mx-auto px-4 py-4 md:p-6 space-y-4 md:space-y-6">
+            <div className="flex flex-col gap-4 sm:flex-row sm:justify-between sm:items-center">
               <div className="space-y-2">
                 <h1 className="text-3xl font-bold">会社情報設定</h1>
                 <p className="text-muted-foreground">
@@ -533,7 +533,7 @@ export default function CompanySettingsPage() {
                 {companies.map((company) => (
                   <Card key={company.id} className={company.is_default ? "border-primary" : ""}>
                     <CardHeader>
-                      <div className="flex justify-between items-start">
+                      <div className="flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-start">
                         <div className="space-y-2">
                           <div className="flex items-center gap-2">
                             <Building2 className="h-5 w-5 text-primary" />
@@ -549,7 +549,7 @@ export default function CompanySettingsPage() {
                             最終更新: {new Date(company.updated_at).toLocaleDateString('ja-JP')}
                           </p>
                         </div>
-                        <div className="flex gap-2">
+                        <div className="flex flex-wrap gap-2">
                           {!company.is_default && (
                             <Button
                               variant="outline"

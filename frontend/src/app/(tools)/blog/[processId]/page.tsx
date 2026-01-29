@@ -471,7 +471,7 @@ export default function BlogProcessPage() {
   // ---------------------------------------------------------------------------
   return (
     <div className="min-h-screen bg-gradient-to-br from-amber-50/50 via-white to-emerald-50/30">
-      <div className="max-w-3xl mx-auto px-6 py-10">
+      <div className="max-w-3xl mx-auto px-4 py-6 md:px-6 md:py-10">
         {/* ---- Back nav ---- */}
         <motion.div
           initial={{ opacity: 0, y: 12 }}
@@ -585,7 +585,7 @@ export default function BlogProcessPage() {
               )}
 
               {/* Action buttons */}
-              <div className="flex gap-3">
+              <div className="flex flex-col gap-2 sm:flex-row sm:gap-3">
                 {state.draft_preview_url && (
                   <Button
                     asChild
@@ -796,7 +796,7 @@ export default function BlogProcessPage() {
 
               {/* Activity feed */}
               <div className="rounded-2xl border border-stone-200/60 bg-white/50 backdrop-blur-sm overflow-hidden">
-                <div className="max-h-[420px] overflow-y-auto overscroll-contain">
+                <div className="max-h-[300px] md:max-h-[420px] overflow-y-auto overscroll-contain">
                   {activities.length === 0 ? (
                     <div className="px-5 py-10 text-center">
                       <Loader2 className="w-5 h-5 animate-spin text-stone-300 mx-auto mb-3" />

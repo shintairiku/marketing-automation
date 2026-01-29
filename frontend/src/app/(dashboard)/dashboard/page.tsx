@@ -56,7 +56,7 @@ export default function DashboardPage() {
   return (
     <div className="space-y-6">
       {/* ウェルカムセクション */}
-      <div className="bg-white rounded-xl shadow-lg p-8">
+      <div className="bg-white rounded-xl shadow-lg p-4 md:p-8">
         <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-6">
           <div>
             <h1 className="text-3xl font-bold text-gray-900 mb-2">

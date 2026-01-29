@@ -128,7 +128,10 @@ function isMenuActive(pathname: string, menuHref: string, subLinks?: { title: st
 export default function Sidebar() {
   const pathname = usePathname();
   const { user } = useUser();
-  const { isSidebarOpen, toggleSidebar, expandedMenu, setExpandedMenu, toggleMenu } = useSidebar();
+  const { isSidebarOpen, toggleSidebar, expandedMenu, setExpandedMenu, toggleMenu, isMobile } = useSidebar();
+
+  // モバイル時はSheet内で常に展開表示
+  const effectiveOpen = isMobile ? true : isSidebarOpen;
 
   // ユーザー権限に基づいてグループをフィルタリング
   const isPrivileged = isPrivilegedEmail(user?.primaryEmailAddress?.emailAddress);
@@ -149,26 +152,28 @@ export default function Sidebar() {
       <aside
         className={cn(
           'flex flex-col h-screen bg-white border-r border-stone-200 transition-all duration-300 ease-in-out overflow-hidden',
-          isSidebarOpen ? 'w-[240px]' : 'w-[64px]'
+          effectiveOpen ? 'w-[240px]' : 'w-[64px]'
         )}
       >
         {/* Logo + Toggle */}
         <div className={cn(
           'flex items-center h-14 border-b border-stone-100 shrink-0',
-          isSidebarOpen ? 'px-3 justify-between' : 'justify-center'
+          effectiveOpen ? 'px-3 justify-between' : 'justify-center'
         )}>
-          {isSidebarOpen ? (
+          {effectiveOpen ? (
             <>
               <div className="flex items-center gap-3">
                 <Image src="/logo.png" alt="BlogAI" width={32} height={32} className="shrink-0" />
                 <span className="text-lg font-bold text-stone-800 tracking-tight">BlogAI</span>
               </div>
-              <button
-                onClick={toggleSidebar}
-                className="p-1.5 rounded-md text-stone-400 hover:text-stone-600 hover:bg-stone-100 transition-colors"
-              >
-                <LuPanelLeftClose size={18} />
-              </button>
+              {!isMobile && (
+                <button
+                  onClick={toggleSidebar}
+                  className="p-1.5 rounded-md text-stone-400 hover:text-stone-600 hover:bg-stone-100 transition-colors"
+                >
+                  <LuPanelLeftClose size={18} />
+                </button>
+              )}
             </>
           ) : (
             <button
@@ -192,7 +197,7 @@ export default function Sidebar() {
                   const mainIcon = mainIconMap[link.href] || iconMap[link.href];
 
                   // サイドバー折り畳み時: アイコン + ホバーでサブメニューをフライアウト表示
-                  if (!isSidebarOpen) {
+                  if (!effectiveOpen) {
                     if (!hasSubLinks) {
                       return (
                         <Tooltip key={link.href}>

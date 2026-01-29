@@ -330,7 +330,7 @@ export default function WordPressIntegrationPage() {
   };
 
   return (
-    <div className="container mx-auto p-6 space-y-6">
+    <div className="container mx-auto px-4 py-4 md:p-6 space-y-4 md:space-y-6">
       <div className="space-y-2">
         <h1 className="text-3xl font-bold flex items-center gap-2">
           WordPress連携設定
@@ -429,7 +429,7 @@ export default function WordPressIntegrationPage() {
                     {group.sites.map((site) => (
                       <div
                         key={site.id}
-                        className={`flex items-center justify-between p-4 border rounded-lg transition-colors ${
+                        className={`flex flex-col gap-3 p-3 sm:p-4 sm:flex-row sm:items-center sm:justify-between border rounded-lg transition-colors ${
                           site.is_active
                             ? "border-primary bg-primary/5"
                             : "hover:bg-muted/30"
@@ -468,7 +468,7 @@ export default function WordPressIntegrationPage() {
                             最終接続: {formatDate(site.last_connected_at)}
                           </p>
                         </div>
-                        <div className="flex items-center gap-2 ml-4 flex-shrink-0">
+                        <div className="flex items-center gap-2 flex-wrap sm:ml-4 flex-shrink-0">
                           {/* Organization Sharing Dropdown - only for site owners */}
                           {isOwnSite(site) && organizations.length > 0 && (
                             <DropdownMenu>
