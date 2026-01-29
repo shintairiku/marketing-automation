@@ -32,6 +32,7 @@ from app.core.config import settings
 from app.domains.blog.agents.definitions import build_blog_writer_agent
 from app.domains.blog.services.wordpress_mcp_service import (
     clear_mcp_client_cache,
+    set_mcp_context,
 )
 
 logger = logging.getLogger(__name__)
@@ -133,8 +134,9 @@ class BlogGenerationService:
                 {"step": "initializing", "message": "記事生成を開始しました"},
             )
 
-            # MCPクライアントキャッシュをクリア
+            # MCPクライアントキャッシュをクリアし、コンテキストを設定
             clear_mcp_client_cache(wordpress_site["id"])
+            set_mcp_context(site_id=wordpress_site["id"], user_id=user_id)
 
             # 入力メッセージを構築
             input_message = self._build_input_message(
@@ -223,8 +225,9 @@ class BlogGenerationService:
                 {"message": "追加情報を受け取りました。生成を再開します..."},
             )
 
-            # MCPクライアントキャッシュをクリア
+            # MCPクライアントキャッシュをクリアし、コンテキストを設定
             clear_mcp_client_cache(wordpress_site["id"])
+            set_mcp_context(site_id=wordpress_site["id"], user_id=user_id)
 
             # ユーザーの回答メッセージを構築
             answer_text = self._build_user_answer_message(

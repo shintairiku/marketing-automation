@@ -358,6 +358,15 @@ async def register_wordpress_site(
                     detail="WordPressからアクセストークンを取得できませんでした",
                 )
 
+            # デバッグ: トークンのハッシュをログに記録
+            import hashlib
+            token_hash = hashlib.sha256(access_token.encode()).hexdigest()
+            logger.info(
+                f"WordPress登録成功: token_prefix={access_token[:8]}..., "
+                f"token_sha256={token_hash[:16]}..., "
+                f"token_len={len(access_token)}"
+            )
+
     except httpx.RequestError as e:
         logger.error(f"WordPress登録リクエストエラー: {e}")
         raise HTTPException(
@@ -567,6 +576,7 @@ async def test_wordpress_connection(
             success=test_result["success"],
             message=test_result["message"],
             server_info=test_result.get("server_info"),
+            steps=test_result.get("steps", []),
         )
     except Exception as e:
         logger.error(f"接続テストエラー: {e}")
@@ -581,6 +591,7 @@ async def test_wordpress_connection(
             success=False,
             message=f"接続エラー: {str(e)}",
             server_info=None,
+            steps=[],
         )
 
 

@@ -48,11 +48,22 @@ class WordPressSiteResponse(WordPressSiteBase):
         from_attributes = True
 
 
+class WordPressConnectionTestStep(BaseModel):
+    """接続テストの個別ステップ結果"""
+    name: str = Field(..., description="ステップ名")
+    label: str = Field(..., description="表示用ラベル")
+    status: Literal["success", "error", "skipped"] = Field(..., description="ステップの結果")
+    message: str = Field(..., description="結果メッセージ")
+    detail: Optional[str] = Field(None, description="詳細情報（デバッグ用）")
+    duration_ms: Optional[int] = Field(None, description="実行時間（ミリ秒）")
+
+
 class WordPressConnectionTestResult(BaseModel):
     """WordPress接続テスト結果"""
     success: bool
     message: str
     server_info: Optional[Dict[str, Any]] = None
+    steps: List[WordPressConnectionTestStep] = Field(default_factory=list, description="個別テストステップ結果")
 
 
 # =====================================================

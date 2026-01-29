@@ -5,9 +5,11 @@ import {
   AlertCircle,
   Building2,
   CheckCircle2,
+  Clock,
   ExternalLink,
   Globe,
   Loader2,
+  MinusCircle,
   RefreshCw,
   Share2,
   Star,
@@ -44,6 +46,13 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useAuth, useUser } from "@clerk/nextjs";
 
@@ -76,6 +85,22 @@ interface SiteGroup {
   sites: WordPressSite[];
 }
 
+interface TestStep {
+  name: string;
+  label: string;
+  status: "success" | "error" | "skipped";
+  message: string;
+  detail: string | null;
+  duration_ms: number | null;
+}
+
+interface TestResult {
+  success: boolean;
+  message: string;
+  server_info: Record<string, unknown> | null;
+  steps: TestStep[];
+}
+
 export default function WordPressIntegrationPage() {
   const { getToken } = useAuth();
   const { user } = useUser();
@@ -83,6 +108,8 @@ export default function WordPressIntegrationPage() {
   const [organizations, setOrganizations] = useState<Organization[]>([]);
   const [loading, setLoading] = useState(true);
   const [testingId, setTestingId] = useState<string | null>(null);
+  const [testResult, setTestResult] = useState<TestResult | null>(null);
+  const [testDialogOpen, setTestDialogOpen] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [updatingOrgId, setUpdatingOrgId] = useState<string | null>(null);
 
@@ -126,6 +153,8 @@ export default function WordPressIntegrationPage() {
 
   const handleTestConnection = async (siteId: string) => {
     setTestingId(siteId);
+    setTestResult(null);
+    setTestDialogOpen(true);
     try {
       const token = await getToken();
       const response = await fetch(`/api/proxy/blog/sites/${siteId}/test`, {
@@ -135,10 +164,25 @@ export default function WordPressIntegrationPage() {
         },
       });
       if (response.ok) {
+        const data: TestResult = await response.json();
+        setTestResult(data);
         await fetchSites();
+      } else {
+        setTestResult({
+          success: false,
+          message: `APIエラー: HTTP ${response.status}`,
+          server_info: null,
+          steps: [],
+        });
       }
     } catch (error) {
       console.error("Connection test failed:", error);
+      setTestResult({
+        success: false,
+        message: `通信エラー: ${error instanceof Error ? error.message : String(error)}`,
+        server_info: null,
+        steps: [],
+      });
     } finally {
       setTestingId(null);
     }
@@ -559,6 +603,97 @@ export default function WordPressIntegrationPage() {
           )}
         </CardContent>
       </Card>
+
+      {/* 接続テスト結果ダイアログ */}
+      <Dialog open={testDialogOpen} onOpenChange={setTestDialogOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <RefreshCw className="w-5 h-5" />
+              接続テスト結果
+            </DialogTitle>
+            <DialogDescription>
+              WordPress MCP接続の各ステップをテストしました
+            </DialogDescription>
+          </DialogHeader>
+
+          {!testResult ? (
+            <div className="flex items-center justify-center py-8">
+              <Loader2 className="w-6 h-6 animate-spin mr-2" />
+              テスト実行中...
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {/* 総合結果 */}
+              <div
+                className={`flex items-center gap-2 p-3 rounded-lg ${
+                  testResult.success
+                    ? "bg-green-50 dark:bg-green-950/30 text-green-700 dark:text-green-400"
+                    : "bg-red-50 dark:bg-red-950/30 text-red-700 dark:text-red-400"
+                }`}
+              >
+                {testResult.success ? (
+                  <CheckCircle2 className="w-5 h-5 flex-shrink-0" />
+                ) : (
+                  <XCircle className="w-5 h-5 flex-shrink-0" />
+                )}
+                <span className="font-medium text-sm">
+                  {testResult.message}
+                </span>
+              </div>
+
+              {/* ステップ詳細 */}
+              {testResult.steps.length > 0 && (
+                <div className="space-y-2">
+                  {testResult.steps.map((step, idx) => (
+                    <div
+                      key={idx}
+                      className="border rounded-lg p-3 space-y-1"
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          {step.status === "success" && (
+                            <CheckCircle2 className="w-4 h-4 text-green-500" />
+                          )}
+                          {step.status === "error" && (
+                            <XCircle className="w-4 h-4 text-red-500" />
+                          )}
+                          {step.status === "skipped" && (
+                            <MinusCircle className="w-4 h-4 text-muted-foreground" />
+                          )}
+                          <span className="font-medium text-sm">
+                            {step.label}
+                          </span>
+                        </div>
+                        {step.duration_ms != null && (
+                          <span className="text-xs text-muted-foreground flex items-center gap-1">
+                            <Clock className="w-3 h-3" />
+                            {step.duration_ms}ms
+                          </span>
+                        )}
+                      </div>
+                      <p
+                        className={`text-sm ${
+                          step.status === "error"
+                            ? "text-red-600 dark:text-red-400"
+                            : "text-muted-foreground"
+                        }`}
+                      >
+                        {step.message}
+                      </p>
+                      {step.detail && (
+                        <pre className="text-xs bg-muted/50 p-2 rounded overflow-x-auto whitespace-pre-wrap break-all font-mono">
+                          {step.detail}
+                        </pre>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
