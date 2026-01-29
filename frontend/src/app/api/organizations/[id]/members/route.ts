@@ -21,7 +21,7 @@ export async function GET(
     }
 
     const { id } = await params;
-    const response = await fetch(`${BACKEND_URL}/organizations/${id}/members/`, {
+    const response = await fetch(`${BACKEND_URL}/organizations/${id}/members`, {
       headers: {
         'Authorization': `Bearer ${token}`,
         'Content-Type': 'application/json',

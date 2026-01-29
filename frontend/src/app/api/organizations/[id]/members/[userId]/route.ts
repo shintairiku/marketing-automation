@@ -22,7 +22,7 @@ export async function DELETE(
 
     const { id, userId } = await params;
     const response = await fetch(
-      `${BACKEND_URL}/organizations/${id}/members/${userId}/`,
+      `${BACKEND_URL}/organizations/${id}/members/${userId}`,
       {
         method: 'DELETE',
         headers: {
