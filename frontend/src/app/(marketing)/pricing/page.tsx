@@ -3,16 +3,26 @@
 /**
  * Pricingページ
  *
- * 個人プランとチームプランの切り替え
- * - 個人プラン: 月額サブスクリプション（1シート）
- * - チームプラン: シート数選択可能（2〜50）
- * - @shintairiku.jp ユーザーは無料アクセス
+ * 現在のプラン状態を表示し、適切なアクション（購入/アップグレード/管理）を提供
+ * - 未契約 → 個人プラン or チームプランを購入
+ * - 個人プラン契約中 → チームプランへアップグレード or 管理
+ * - チームプラン契約中 → 管理（Stripe Customer Portal）
+ * - @shintairiku.jp → 無料アクセス
  */
 
 import { useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { Check, Loader2, Sparkles, Users, Zap } from 'lucide-react';
+import {
+  Check,
+  ExternalLink,
+  Loader2,
+  Settings,
+  Sparkles,
+  Users,
+  Zap,
+} from 'lucide-react';
 
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -27,6 +37,38 @@ import {
 import { isPrivilegedEmail } from '@/lib/subscription';
 import { useAuth, useUser } from '@clerk/nextjs';
 
+// ============================================
+// 型定義
+// ============================================
+interface UserSubscription {
+  user_id: string;
+  stripe_customer_id: string | null;
+  stripe_subscription_id: string | null;
+  status: string;
+  current_period_end: string | null;
+  cancel_at_period_end: boolean;
+  is_privileged: boolean;
+  email: string | null;
+}
+
+interface OrgSubscription {
+  id: string;
+  organization_id: string;
+  status: string;
+  quantity: number;
+  current_period_end: string | null;
+  cancel_at_period_end: boolean;
+}
+
+interface SubscriptionStatusResponse {
+  subscription: UserSubscription;
+  orgSubscription: OrgSubscription | null;
+  hasAccess: boolean;
+}
+
+// ============================================
+// 定数
+// ============================================
 const PLAN_FEATURES = [
   'SEO最適化記事の無制限生成',
   'AI画像生成機能',
@@ -46,6 +88,9 @@ const PRICE_PER_SEAT = 29800;
 
 type PlanTab = 'individual' | 'team';
 
+// ============================================
+// メインコンポーネント
+// ============================================
 export default function PricingPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -57,10 +102,19 @@ export default function PricingPage() {
   const [teamSeats, setTeamSeats] = useState(3);
   const [organizationName, setOrganizationName] = useState('');
 
+  // 現在のサブスクリプション状態
+  const [subStatus, setSubStatus] = useState<SubscriptionStatusResponse | null>(null);
+  const [loadingStatus, setLoadingStatus] = useState(false);
+
   // URLパラメータからステータスメッセージを取得
   useEffect(() => {
     const subscription = searchParams.get('subscription');
-    if (subscription === 'canceled') {
+    if (subscription === 'success') {
+      setStatusMessage({
+        type: 'success',
+        message: 'サブスクリプションの購入が完了しました！',
+      });
+    } else if (subscription === 'canceled') {
       setStatusMessage({
         type: 'info',
         message: 'チェックアウトがキャンセルされました。いつでも再度お申し込みいただけます。',
@@ -73,19 +127,50 @@ export default function PricingPage() {
     }
   }, [searchParams]);
 
-  // ユーザーのメールアドレス
+  // 現在のサブスク状態を取得
+  useEffect(() => {
+    if (!isSignedIn) return;
+    setLoadingStatus(true);
+    fetch('/api/subscription/status')
+      .then((res) => res.json())
+      .then((data: SubscriptionStatusResponse) => setSubStatus(data))
+      .catch((err) => console.error('Failed to fetch subscription status:', err))
+      .finally(() => setLoadingStatus(false));
+  }, [isSignedIn]);
+
   const userEmail = user?.primaryEmailAddress?.emailAddress;
   const isPrivileged = isPrivilegedEmail(userEmail);
 
-  // チェックアウトへ進む
+  // 現在のプラン判定
+  const hasIndividualPlan = subStatus?.subscription?.status === 'active';
+  const hasTeamPlan = subStatus?.orgSubscription?.status === 'active';
+  const hasAnyPlan = hasIndividualPlan || hasTeamPlan;
+
+  // Stripe Customer Portalへ
+  const handleManageSubscription = async () => {
+    setIsLoading(true);
+    try {
+      const response = await fetch('/api/subscription/portal', { method: 'POST' });
+      const data = await response.json();
+      if (data.url) {
+        window.location.href = data.url;
+      }
+    } catch (error) {
+      console.error('Portal error:', error);
+      setStatusMessage({ type: 'error', message: 'ポータルへのアクセスに失敗しました' });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // チェックアウトへ
   const handleCheckout = async (isTeam: boolean) => {
     if (!isSignedIn) {
       router.push('/sign-in?redirect_url=/pricing');
       return;
     }
-
     if (isPrivileged) {
-      router.push('/dashboard');
+      router.push('/blog/new');
       return;
     }
 
@@ -94,7 +179,7 @@ export default function PricingPage() {
 
     try {
       const body: Record<string, unknown> = {
-        successUrl: `${window.location.origin}/dashboard?subscription=success`,
+        successUrl: `${window.location.origin}/pricing?subscription=success`,
         cancelUrl: `${window.location.origin}/pricing?subscription=canceled`,
       };
 
@@ -107,9 +192,7 @@ export default function PricingPage() {
 
       const response = await fetch('/api/subscription/checkout', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       });
 
@@ -177,6 +260,68 @@ export default function PricingPage() {
           </div>
         )}
 
+        {/* 現在のプラン状態 */}
+        {isSignedIn && !isPrivileged && (hasAnyPlan || loadingStatus) && (
+          <div className="mb-8">
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2 text-lg">
+                  <Settings className="h-5 w-5" />
+                  現在のプラン
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                {loadingStatus ? (
+                  <div className="flex items-center gap-2 text-muted-foreground">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    読み込み中...
+                  </div>
+                ) : hasTeamPlan && subStatus?.orgSubscription ? (
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <Badge variant="default">チームプラン</Badge>
+                        <Badge variant="secondary">{subStatus.orgSubscription.quantity}シート</Badge>
+                      </div>
+                      <p className="text-sm text-muted-foreground mt-1">
+                        &yen;{(PRICE_PER_SEAT * subStatus.orgSubscription.quantity).toLocaleString()}/月
+                        {subStatus.orgSubscription.current_period_end && (
+                          <> ・ 次回更新: {new Date(subStatus.orgSubscription.current_period_end).toLocaleDateString('ja-JP')}</>
+                        )}
+                      </p>
+                    </div>
+                    <Button variant="outline" onClick={handleManageSubscription} disabled={isLoading} className="gap-1">
+                      <ExternalLink className="h-4 w-4" />
+                      管理
+                    </Button>
+                  </div>
+                ) : hasIndividualPlan && subStatus?.subscription ? (
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <Badge variant="default">個人プラン</Badge>
+                        {subStatus.subscription.cancel_at_period_end && (
+                          <Badge variant="destructive">キャンセル予定</Badge>
+                        )}
+                      </div>
+                      <p className="text-sm text-muted-foreground mt-1">
+                        &yen;{PRICE_PER_SEAT.toLocaleString()}/月
+                        {subStatus.subscription.current_period_end && (
+                          <> ・ 次回更新: {new Date(subStatus.subscription.current_period_end).toLocaleDateString('ja-JP')}</>
+                        )}
+                      </p>
+                    </div>
+                    <Button variant="outline" onClick={handleManageSubscription} disabled={isLoading} className="gap-1">
+                      <ExternalLink className="h-4 w-4" />
+                      管理
+                    </Button>
+                  </div>
+                ) : null}
+              </CardContent>
+            </Card>
+          </div>
+        )}
+
         {/* プラン切り替えタブ */}
         <div className="flex justify-center mb-8">
           <div className="inline-flex rounded-lg bg-muted p-1">
@@ -239,28 +384,30 @@ export default function PricingPage() {
               </CardContent>
 
               <CardFooter>
-                <Button
-                  className="w-full h-12 text-lg"
-                  onClick={() => handleCheckout(false)}
-                  disabled={isLoading || !isAuthLoaded}
-                >
-                  {isLoading ? (
-                    <>
+                {hasIndividualPlan ? (
+                  <Button className="w-full h-12 text-lg" variant="outline" onClick={handleManageSubscription} disabled={isLoading}>
+                    <Settings className="mr-2 h-5 w-5" />
+                    サブスクリプションを管理
+                  </Button>
+                ) : (
+                  <Button
+                    className="w-full h-12 text-lg"
+                    onClick={() => handleCheckout(false)}
+                    disabled={isLoading || !isAuthLoaded || hasTeamPlan}
+                  >
+                    {isLoading ? (
+                      <><Loader2 className="mr-2 h-5 w-5 animate-spin" />処理中...</>
+                    ) : !isAuthLoaded ? (
                       <Loader2 className="mr-2 h-5 w-5 animate-spin" />
-                      処理中...
-                    </>
-                  ) : !isAuthLoaded ? (
-                    <Loader2 className="mr-2 h-5 w-5 animate-spin" />
-                  ) : isSignedIn ? (
-                    isPrivileged ? (
-                      'ダッシュボードへ'
-                    ) : (
+                    ) : isSignedIn ? (
+                      isPrivileged ? 'ダッシュボードへ' :
+                      hasTeamPlan ? 'チームプラン契約中' :
                       '今すぐ始める'
-                    )
-                  ) : (
-                    'ログインして始める'
-                  )}
-                </Button>
+                    ) : (
+                      'ログインして始める'
+                    )}
+                  </Button>
+                )}
               </CardFooter>
             </Card>
           ) : (
@@ -285,6 +432,7 @@ export default function PricingPage() {
                   <Select
                     value={String(teamSeats)}
                     onValueChange={(val) => setTeamSeats(Number(val))}
+                    disabled={hasTeamPlan}
                   >
                     <SelectTrigger id="team-seats">
                       <SelectValue />
@@ -299,18 +447,27 @@ export default function PricingPage() {
                   </Select>
                 </div>
 
-                {/* 組織名 */}
-                <div className="mb-6">
-                  <Label htmlFor="org-name" className="text-sm font-medium mb-2 block">
-                    組織名（任意）
-                  </Label>
-                  <Input
-                    id="org-name"
-                    placeholder="例: 株式会社〇〇"
-                    value={organizationName}
-                    onChange={(e) => setOrganizationName(e.target.value)}
-                  />
-                </div>
+                {/* 組織名（チームプラン未購入時のみ） */}
+                {!hasTeamPlan && (
+                  <div className="mb-6">
+                    <Label htmlFor="org-name" className="text-sm font-medium mb-2 block">
+                      組織名（任意）
+                    </Label>
+                    <Input
+                      id="org-name"
+                      placeholder="例: 株式会社〇〇"
+                      value={organizationName}
+                      onChange={(e) => setOrganizationName(e.target.value)}
+                    />
+                  </div>
+                )}
+
+                {/* 個人プランからのアップグレード注意 */}
+                {hasIndividualPlan && !hasTeamPlan && (
+                  <div className="mb-6 p-3 rounded-lg bg-blue-50 border border-blue-200 text-sm text-blue-800">
+                    現在の個人プランは、チームプラン購入後に自動的にキャンセルされます。
+                  </div>
+                )}
 
                 {/* 価格表示 */}
                 <div className="text-center mb-6 p-4 rounded-lg bg-muted/50">
@@ -343,34 +500,36 @@ export default function PricingPage() {
               </CardContent>
 
               <CardFooter>
-                <Button
-                  className="w-full h-12 text-lg"
-                  onClick={() => handleCheckout(true)}
-                  disabled={isLoading || !isAuthLoaded}
-                >
-                  {isLoading ? (
-                    <>
+                {hasTeamPlan ? (
+                  <Button className="w-full h-12 text-lg" variant="outline" onClick={handleManageSubscription} disabled={isLoading}>
+                    <Settings className="mr-2 h-5 w-5" />
+                    サブスクリプションを管理
+                  </Button>
+                ) : (
+                  <Button
+                    className="w-full h-12 text-lg"
+                    onClick={() => handleCheckout(true)}
+                    disabled={isLoading || !isAuthLoaded}
+                  >
+                    {isLoading ? (
+                      <><Loader2 className="mr-2 h-5 w-5 animate-spin" />処理中...</>
+                    ) : !isAuthLoaded ? (
                       <Loader2 className="mr-2 h-5 w-5 animate-spin" />
-                      処理中...
-                    </>
-                  ) : !isAuthLoaded ? (
-                    <Loader2 className="mr-2 h-5 w-5 animate-spin" />
-                  ) : isSignedIn ? (
-                    isPrivileged ? (
-                      'ダッシュボードへ'
-                    ) : (
+                    ) : isSignedIn ? (
+                      isPrivileged ? 'ダッシュボードへ' :
+                      hasIndividualPlan ? '個人→チームにアップグレード' :
                       'チームプランを始める'
-                    )
-                  ) : (
-                    'ログインして始める'
-                  )}
-                </Button>
+                    ) : (
+                      'ログインして始める'
+                    )}
+                  </Button>
+                )}
               </CardFooter>
             </Card>
           )}
         </div>
 
-        {/* 追加情報 */}
+        {/* FAQ */}
         <div className="mt-12 text-center">
           <h2 className="text-xl font-semibold mb-4">よくある質問</h2>
           <div className="grid md:grid-cols-2 gap-6 text-left max-w-3xl mx-auto">
@@ -383,19 +542,19 @@ export default function PricingPage() {
             <div className="p-4 bg-white rounded-lg shadow-sm">
               <h3 className="font-medium mb-2">チームプランのシート数は変更できますか？</h3>
               <p className="text-sm text-muted-foreground">
-                はい、いつでもシート数を増減できます。変更はすぐに反映され、料金は日割り計算されます。
+                はい、サブスクリプション管理画面からシート数を変更できます。料金は日割り計算されます。
               </p>
             </div>
             <div className="p-4 bg-white rounded-lg shadow-sm">
-              <h3 className="font-medium mb-2">支払い方法は何がありますか？</h3>
+              <h3 className="font-medium mb-2">個人プランからチームプランへ変更できますか？</h3>
               <p className="text-sm text-muted-foreground">
-                クレジットカード（Visa、Mastercard、American Express、JCB）でお支払いいただけます。
+                はい、チームプランを購入すると、個人プランは自動的にキャンセルされます。
               </p>
             </div>
             <div className="p-4 bg-white rounded-lg shadow-sm">
               <h3 className="font-medium mb-2">チームメンバーの招待方法は？</h3>
               <p className="text-sm text-muted-foreground">
-                チームプラン購入後、設定画面からメールアドレスを入力して招待できます。招待メールが自動送信されます。
+                チームプラン購入後、設定画面のメンバー設定からメールアドレスで招待できます。招待メールが自動送信されます。
               </p>
             </div>
           </div>
@@ -405,12 +564,7 @@ export default function PricingPage() {
         <div className="mt-12 text-center">
           <p className="text-sm text-muted-foreground">
             安全な決済は{' '}
-            <a
-              href="https://stripe.com"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-primary hover:underline"
-            >
+            <a href="https://stripe.com" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">
               Stripe
             </a>
             {' '}によって処理されます

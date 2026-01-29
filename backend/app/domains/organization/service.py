@@ -315,13 +315,22 @@ class OrganizationService:
             pending_count = pending_count_result.count or 0
 
             sub_result = self.supabase.table("organization_subscriptions").select(
-                "quantity"
+                "quantity, status"
             ).eq("organization_id", organization_id).execute()
-            max_seats = sub_result.data[0]["quantity"] if sub_result.data else 0
 
-            if max_seats > 0 and (member_count + pending_count) >= max_seats:
+            # チームプラン未購入 or 無効な場合は招待不可
+            active_sub = next(
+                (s for s in (sub_result.data or []) if s.get("status") in ("active", "trialing")),
+                None
+            )
+            if not active_sub or (active_sub.get("quantity") or 0) == 0:
+                logger.warning(f"No active team plan for org {organization_id}")
+                raise ValueError("チームプランが必要です。Pricingページからチームプランを購入してください。")
+
+            max_seats = active_sub["quantity"]
+            if (member_count + pending_count) >= max_seats:
                 logger.warning(f"Seat limit reached for org {organization_id}: {member_count} members + {pending_count} pending >= {max_seats} seats")
-                return None
+                raise ValueError("シートに空きがありません。追加購入が必要です。")
 
             # Create invitation
             invitation_token = secrets.token_urlsafe(32)

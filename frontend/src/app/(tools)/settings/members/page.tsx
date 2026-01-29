@@ -1,7 +1,16 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Loader2, Mail, Plus, Trash2, Users } from "lucide-react";
+import { useRouter } from "next/navigation";
+import {
+  AlertTriangle,
+  ExternalLink,
+  Loader2,
+  Mail,
+  Plus,
+  Trash2,
+  Users,
+} from "lucide-react";
 import { toast } from "sonner";
 
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -9,7 +18,6 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
@@ -70,8 +78,6 @@ interface OrgSubscriptionInfo {
 // ============================================
 // API ヘルパー
 // ============================================
-// Companies と同じパターン: 専用サーバーサイドAPIルート経由
-// /api/organizations/* → auth() でサーバー側トークン取得 → バックエンド直接呼び出し
 async function apiFetch(path: string, options?: RequestInit) {
   const res = await fetch(`/api/organizations${path}`, {
     ...options,
@@ -119,6 +125,7 @@ function roleLabel(role: string): string {
 // ============================================
 export default function MembersSettingsPage() {
   const { user } = useUser();
+  const router = useRouter();
 
   const [organizations, setOrganizations] = useState<Organization[]>([]);
   const [selectedOrg, setSelectedOrg] = useState<Organization | null>(null);
@@ -131,10 +138,6 @@ export default function MembersSettingsPage() {
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteRole, setInviteRole] = useState<string>("member");
   const [inviting, setInviting] = useState(false);
-
-  // 組織作成フォーム
-  const [newOrgName, setNewOrgName] = useState("");
-  const [creatingOrg, setCreatingOrg] = useState(false);
 
   // ============================================
   // データ取得
@@ -191,25 +194,6 @@ export default function MembersSettingsPage() {
   // ============================================
   // アクション
   // ============================================
-  const handleCreateOrg = async () => {
-    if (!newOrgName.trim()) return;
-    setCreatingOrg(true);
-    try {
-      const org: Organization = await apiFetch("", {
-        method: "POST",
-        body: JSON.stringify({ name: newOrgName.trim() }),
-      });
-      setOrganizations((prev) => [...prev, org]);
-      setSelectedOrg(org);
-      setNewOrgName("");
-      toast.success("組織を作成しました");
-    } catch (e: unknown) {
-      toast.error(`組織の作成に失敗しました: ${e instanceof Error ? e.message : String(e)}`);
-    } finally {
-      setCreatingOrg(false);
-    }
-  };
-
   const handleInvite = async () => {
     if (!inviteEmail.trim() || !selectedOrg) return;
     setInviting(true);
@@ -220,7 +204,6 @@ export default function MembersSettingsPage() {
       });
       setInviteEmail("");
       toast.success(`${inviteEmail} に招待メールを送信しました`);
-      // 招待一覧を再取得
       fetchInvitations();
     } catch (e: unknown) {
       toast.error(`招待の送信に失敗しました: ${e instanceof Error ? e.message : String(e)}`);
@@ -252,6 +235,7 @@ export default function MembersSettingsPage() {
   );
   const canManage = isOwner || isAdmin;
 
+  const hasActiveTeamPlan = orgSubscription?.status === "active";
   const totalSeats = orgSubscription?.quantity || 0;
   const usedSeats = members.length;
   const remainingSeats = Math.max(0, totalSeats - usedSeats);
@@ -276,30 +260,24 @@ export default function MembersSettingsPage() {
         </p>
       </div>
 
-      {/* 組織がない場合: 作成フォーム */}
+      {/* 状態A: 組織なし → チームプラン購入を促す */}
       {organizations.length === 0 ? (
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <Users className="h-5 w-5" />
-              組織を作成
+              チームプラン
             </CardTitle>
             <CardDescription>
-              チームでBlogAIを利用するには、まず組織を作成してください。
+              チームでBlogAIを利用するには、チームプランの購入が必要です。
+              チームプランを購入すると、組織が自動的に作成され、メンバーを招待できるようになります。
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="flex gap-3">
-              <Input
-                placeholder="組織名（例: 株式会社〇〇）"
-                value={newOrgName}
-                onChange={(e) => setNewOrgName(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && handleCreateOrg()}
-              />
-              <Button onClick={handleCreateOrg} disabled={creatingOrg || !newOrgName.trim()}>
-                {creatingOrg ? <Loader2 className="h-4 w-4 animate-spin" /> : "作成"}
-              </Button>
-            </div>
+            <Button onClick={() => router.push("/pricing")} className="gap-2">
+              <ExternalLink className="h-4 w-4" />
+              チームプランを購入する
+            </Button>
           </CardContent>
         </Card>
       ) : (
@@ -309,7 +287,7 @@ export default function MembersSettingsPage() {
             <Card>
               <CardContent className="pt-6">
                 <div className="flex items-center gap-3">
-                  <Label>組織:</Label>
+                  <label className="text-sm font-medium">組織:</label>
                   <Select
                     value={selectedOrg?.id || ""}
                     onValueChange={(id) => {
@@ -334,34 +312,59 @@ export default function MembersSettingsPage() {
           )}
 
           {/* プラン状況 */}
-          {orgSubscription && (
-            <Card>
-              <CardHeader>
-                <CardTitle>プラン状況</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="grid grid-cols-3 gap-4">
-                  <div className="text-center p-4 rounded-lg bg-muted/50">
-                    <div className="text-3xl font-bold">{totalSeats}</div>
-                    <div className="text-sm text-muted-foreground mt-1">シート数</div>
+          <Card>
+            <CardHeader>
+              <CardTitle>プラン状況</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {hasActiveTeamPlan ? (
+                <>
+                  <div className="grid grid-cols-3 gap-4">
+                    <div className="text-center p-4 rounded-lg bg-muted/50">
+                      <div className="text-3xl font-bold">{totalSeats}</div>
+                      <div className="text-sm text-muted-foreground mt-1">シート数</div>
+                    </div>
+                    <div className="text-center p-4 rounded-lg bg-muted/50">
+                      <div className="text-3xl font-bold">{usedSeats}</div>
+                      <div className="text-sm text-muted-foreground mt-1">使用中</div>
+                    </div>
+                    <div className="text-center p-4 rounded-lg bg-muted/50">
+                      <div className="text-3xl font-bold text-green-600">{remainingSeats}</div>
+                      <div className="text-sm text-muted-foreground mt-1">残り</div>
+                    </div>
                   </div>
-                  <div className="text-center p-4 rounded-lg bg-muted/50">
-                    <div className="text-3xl font-bold">{usedSeats}</div>
-                    <div className="text-sm text-muted-foreground mt-1">使用中</div>
+                  {orgSubscription?.current_period_end && (
+                    <p className="text-sm text-muted-foreground mt-3">
+                      次回更新日: {new Date(orgSubscription.current_period_end).toLocaleDateString("ja-JP")}
+                    </p>
+                  )}
+                </>
+              ) : (
+                <div className="flex items-center gap-3 p-4 rounded-lg bg-yellow-50 border border-yellow-200">
+                  <AlertTriangle className="h-5 w-5 text-yellow-600 shrink-0" />
+                  <div className="flex-1">
+                    <p className="font-medium text-yellow-800">
+                      {orgSubscription
+                        ? `チームプランのステータス: ${orgSubscription.status}`
+                        : "チームプランが有効ではありません"}
+                    </p>
+                    <p className="text-sm text-yellow-700 mt-1">
+                      メンバーの招待にはアクティブなチームプランが必要です。
+                    </p>
                   </div>
-                  <div className="text-center p-4 rounded-lg bg-muted/50">
-                    <div className="text-3xl font-bold text-green-600">{remainingSeats}</div>
-                    <div className="text-sm text-muted-foreground mt-1">残り</div>
-                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => router.push("/pricing")}
+                    className="shrink-0 gap-1"
+                  >
+                    <ExternalLink className="h-3.5 w-3.5" />
+                    プランを更新
+                  </Button>
                 </div>
-                {orgSubscription.status !== "active" && (
-                  <div className="mt-4 p-3 rounded-lg bg-yellow-50 text-yellow-800 text-sm">
-                    サブスクリプションの状態: <Badge variant="outline">{orgSubscription.status}</Badge>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          )}
+              )}
+            </CardContent>
+          </Card>
 
           {/* メンバー一覧 */}
           <Card>
@@ -437,16 +440,23 @@ export default function MembersSettingsPage() {
             </CardContent>
           </Card>
 
-          {/* 招待フォーム */}
+          {/* 招待フォーム — アクティブなチームプランが必要 */}
           {canManage && (
             <Card>
               <CardHeader>
                 <CardTitle>メンバーを招待</CardTitle>
                 <CardDescription>
-                  メールアドレスを入力して招待メールを送信します。
-                  {totalSeats > 0 && remainingSeats === 0 && (
-                    <span className="text-yellow-600 ml-1">
-                      シートに空きがありません。追加購入が必要です。
+                  {hasActiveTeamPlan ? (
+                    remainingSeats === 0 ? (
+                      <span className="text-yellow-600">
+                        シートに空きがありません。シートの追加購入が必要です。
+                      </span>
+                    ) : (
+                      `メールアドレスを入力して招待メールを送信します。残り${remainingSeats}シート`
+                    )
+                  ) : (
+                    <span className="text-muted-foreground">
+                      メンバーの招待にはアクティブなチームプランが必要です。
                     </span>
                   )}
                 </CardDescription>
@@ -458,10 +468,11 @@ export default function MembersSettingsPage() {
                     placeholder="メールアドレス"
                     value={inviteEmail}
                     onChange={(e) => setInviteEmail(e.target.value)}
-                    onKeyDown={(e) => e.key === "Enter" && handleInvite()}
+                    onKeyDown={(e) => e.key === "Enter" && hasActiveTeamPlan && remainingSeats > 0 && handleInvite()}
                     className="flex-1"
+                    disabled={!hasActiveTeamPlan}
                   />
-                  <Select value={inviteRole} onValueChange={setInviteRole}>
+                  <Select value={inviteRole} onValueChange={setInviteRole} disabled={!hasActiveTeamPlan}>
                     <SelectTrigger className="w-[120px]">
                       <SelectValue />
                     </SelectTrigger>
@@ -472,7 +483,7 @@ export default function MembersSettingsPage() {
                   </Select>
                   <Button
                     onClick={handleInvite}
-                    disabled={inviting || !inviteEmail.trim() || (totalSeats > 0 && remainingSeats === 0)}
+                    disabled={inviting || !inviteEmail.trim() || !hasActiveTeamPlan || remainingSeats === 0}
                   >
                     {inviting ? (
                       <Loader2 className="h-4 w-4 animate-spin" />
@@ -517,7 +528,9 @@ export default function MembersSettingsPage() {
                             : "-"}
                         </TableCell>
                         <TableCell>
-                          <Mail className="h-4 w-4 text-muted-foreground" title="招待メール送信済み" />
+                          <span title="招待メール送信済み">
+                            <Mail className="h-4 w-4 text-muted-foreground" />
+                          </span>
                         </TableCell>
                       </TableRow>
                     ))}

@@ -216,6 +216,26 @@ async function handleCheckoutCompleted(
       { onConflict: 'id' }
     );
 
+    // 個人サブスクリプションが残っている場合はキャンセル（チームプランへの移行）
+    // チェックアウト完了後にキャンセルすることで、途中離脱時のプラン喪失を防ぐ
+    const { data: existingUserSub } = await supabase
+      .from('user_subscriptions')
+      .select('stripe_subscription_id, status')
+      .eq('user_id', userId)
+      .single();
+
+    if (existingUserSub?.stripe_subscription_id && existingUserSub.status === 'active') {
+      try {
+        const stripe = getStripe();
+        await stripe.subscriptions.cancel(existingUserSub.stripe_subscription_id, {
+          prorate: true,
+        });
+        console.log(`Individual sub ${existingUserSub.stripe_subscription_id} canceled after team plan checkout`);
+      } catch (cancelError) {
+        console.warn('Failed to cancel individual subscription during upgrade:', cancelError);
+      }
+    }
+
     console.log(`Org checkout completed: org=${organizationId}, sub=${subscriptionId}`);
   } else {
     // ============ 個人サブスク（従来通り） ============

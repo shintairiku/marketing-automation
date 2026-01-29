@@ -272,6 +272,11 @@ async def create_invitation(
         return invitation
     except HTTPException:
         raise
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=str(e)
+        )
     except Exception as e:
         logger.error(f"Error creating invitation: {e}")
         raise HTTPException(

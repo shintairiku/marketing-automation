@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-import { auth, clerkClient } from '@clerk/nextjs/server';
-
 import { supabaseAdminClient } from '@/libs/supabase/supabase-admin';
+import { auth, clerkClient } from '@clerk/nextjs/server';
 
 const BACKEND_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8080';
 
@@ -121,7 +120,15 @@ export async function POST(
     const pendingCount = pendingInvResult.count || 0;
     const maxSeats = subResult.data?.quantity || 0;
 
-    if (maxSeats > 0 && (memberCount + pendingCount) >= maxSeats) {
+    // チームプラン未購入の場合は招待不可
+    if (!subResult.data || maxSeats === 0) {
+      return NextResponse.json(
+        { error: 'チームプランが必要です。Pricingページからチームプランを購入してください。' },
+        { status: 403 }
+      );
+    }
+
+    if ((memberCount + pendingCount) >= maxSeats) {
       return NextResponse.json(
         { error: 'シートに空きがありません。追加購入が必要です。' },
         { status: 400 }
@@ -132,11 +139,13 @@ export async function POST(
     const client = await clerkClient();
     const clerkRole = role === 'admin' ? 'org:admin' : 'org:member';
 
+    const appUrl = process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000';
     const clerkInvitation = await client.organizations.createOrganizationInvitation({
       organizationId: org.clerk_organization_id,
       emailAddress: email,
       role: clerkRole,
       inviterUserId: userId,
+      redirectUrl: `${appUrl}/sign-up`,
     });
 
     // バックエンドにも記録（追跡用）

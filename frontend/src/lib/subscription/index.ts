@@ -18,7 +18,7 @@ export function getStripe(): Stripe {
       throw new Error('STRIPE_SECRET_KEY is not set');
     }
     stripeClient = new Stripe(secretKey, {
-      apiVersion: '2025-08-27.basil',
+      apiVersion: '2025-03-31.basil',
       appInfo: {
         name: 'Marketing Automation Platform',
         version: '2.0.0',

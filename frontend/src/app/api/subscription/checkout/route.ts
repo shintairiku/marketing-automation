@@ -115,6 +115,8 @@ export async function POST(request: Request) {
           .eq('user_id', userId);
       }
 
+      const stripe = getStripe();
+
       // 既存組織の Stripe 顧客IDを確認
       const { data: existingOrg } = await supabase
         .from('organizations')
@@ -122,9 +124,34 @@ export async function POST(request: Request) {
         .eq('id', resolvedOrgId)
         .single();
 
-      // 7. Stripe Checkout Session作成（組織）
-      const stripe = getStripe();
+      // 組織用の Stripe Customer を確保
+      // 既存の個人用 Customer と分離するため、組織専用の Customer を作成
+      let orgStripeCustomerId = existingOrg?.stripe_customer_id;
 
+      if (!orgStripeCustomerId) {
+        const newCustomer = await stripe.customers.create({
+          email: userEmail,
+          name: organizationName || `Organization ${resolvedOrgId}`,
+          metadata: {
+            organization_id: resolvedOrgId,
+            created_by: userId,
+          },
+        });
+        orgStripeCustomerId = newCustomer.id;
+
+        // 組織に Stripe Customer ID を保存
+        await supabase
+          .from('organizations')
+          .update({ stripe_customer_id: orgStripeCustomerId })
+          .eq('id', resolvedOrgId);
+
+        console.log(`Created new Stripe customer ${orgStripeCustomerId} for org ${resolvedOrgId}`);
+      }
+
+      // 7. Stripe Checkout Session作成（組織）
+      // 注: 個人サブスクのキャンセルはWebhook（checkout.session.completed）で行う
+      // チェックアウト未完了時に個人プランが失われるのを防ぐため
+      // 組織専用の Stripe Customer を使用（個人用とは別）
       const sessionParams: Stripe.Checkout.SessionCreateParams = {
         mode: 'subscription',
         payment_method_types: ['card'],
@@ -136,6 +163,7 @@ export async function POST(request: Request) {
         ],
         success_url: successUrl,
         cancel_url: cancelUrl,
+        customer: orgStripeCustomerId,
         metadata: {
           user_id: userId,
           organization_id: resolvedOrgId,
@@ -147,9 +175,10 @@ export async function POST(request: Request) {
           },
         },
         automatic_tax: { enabled: true },
+        customer_update: {
+          address: 'auto',
+        },
         billing_address_collection: 'required',
-        customer_email: existingOrg?.stripe_customer_id ? undefined : userEmail,
-        customer: existingOrg?.stripe_customer_id || undefined,
         allow_promotion_codes: true,
         locale: 'ja',
       };
