@@ -291,19 +291,7 @@ export default function BlogProcessPage() {
     }
   }, [getToken, processId, convertEventToActivity]);
 
-  // ---- Refresh Realtime auth token ----
-  const refreshRealtimeAuth = useCallback(async () => {
-    try {
-      const token = await getToken();
-      if (token) {
-        (supabase as any).realtime.setAuth(token);
-      }
-    } catch {
-      // Silently ignore refresh failures; next interval will retry
-    }
-  }, [getToken]);
-
-  // ---- Realtime subscriptions ----
+  // ---- Realtime subscriptions with auto-reconnect on JWT expiry ----
   useEffect(() => {
     fetchState();
     fetchExistingEvents();
@@ -311,15 +299,23 @@ export default function BlogProcessPage() {
     let stateChannel: ReturnType<typeof supabase.channel> | null = null;
     let eventsChannel: ReturnType<typeof supabase.channel> | null = null;
     let tokenRefreshInterval: ReturnType<typeof setInterval> | null = null;
+    let disposed = false;
 
-    const setupRealtime = async () => {
-      // Set Clerk JWT for Realtime RLS authentication
-      await refreshRealtimeAuth();
+    const refreshAuth = async () => {
+      try {
+        const token = await getToken();
+        if (token) {
+          (supabase as any).realtime.setAuth(token);
+        }
+      } catch {
+        // next interval will retry
+      }
+    };
 
-      // Refresh token every 50 seconds (Clerk JWTs expire in ~60s)
-      tokenRefreshInterval = setInterval(refreshRealtimeAuth, 50_000);
+    const createChannels = async () => {
+      // Fresh token before subscribing
+      await refreshAuth();
 
-      // 1) State updates
       stateChannel = supabase
         .channel(`blog_generation:${processId}`)
         .on(
@@ -336,7 +332,6 @@ export default function BlogProcessPage() {
         )
         .subscribe();
 
-      // 2) Process events (tool calls, reasoning, etc.)
       eventsChannel = supabase
         .channel(`blog_events:${processId}`)
         .on(
@@ -354,15 +349,39 @@ export default function BlogProcessPage() {
         )
         .subscribe(async (status) => {
           if (status === "SUBSCRIBED") {
-            // Re-fetch events to catch any inserted during subscription setup
             await fetchExistingEvents();
+          }
+          // CHANNEL_ERROR or CLOSED = JWT likely expired → reconnect
+          if (
+            (status === "CHANNEL_ERROR" || status === "CLOSED" || status === "TIMED_OUT") &&
+            !disposed
+          ) {
+            console.warn("[Realtime] Channel error/closed, reconnecting...");
+            await reconnect();
           }
         });
     };
 
-    setupRealtime();
+    const reconnect = async () => {
+      if (disposed) return;
+      // Remove old channels
+      if (stateChannel) { supabase.removeChannel(stateChannel); stateChannel = null; }
+      if (eventsChannel) { supabase.removeChannel(eventsChannel); eventsChannel = null; }
+      // Re-fetch missed data, then re-subscribe
+      await fetchState();
+      await fetchExistingEvents();
+      await createChannels();
+    };
+
+    // Proactive token refresh every 45 seconds to prevent expiry
+    tokenRefreshInterval = setInterval(async () => {
+      await refreshAuth();
+    }, 45_000);
+
+    createChannels();
 
     return () => {
+      disposed = true;
       if (tokenRefreshInterval) clearInterval(tokenRefreshInterval);
       if (stateChannel) supabase.removeChannel(stateChannel);
       if (eventsChannel) supabase.removeChannel(eventsChannel);
@@ -417,7 +436,12 @@ export default function BlogProcessPage() {
       if (response.ok) {
         setAnswers({});
         // Refresh Realtime auth (JWT may have expired while user was answering)
-        await refreshRealtimeAuth();
+        try {
+          const freshToken = await getToken();
+          if (freshToken) {
+            (supabase as any).realtime.setAuth(freshToken);
+          }
+        } catch { /* next interval will retry */ }
         await fetchState();
         // Fetch events that may have been inserted during the transition
         await fetchExistingEvents();
