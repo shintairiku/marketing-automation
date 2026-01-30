@@ -61,13 +61,22 @@ export async function POST(
     }
 
     // 新しい招待を作成（再送）
-    const appUrl = process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000';
+    const appUrl = process.env.NEXT_PUBLIC_SITE_URL || process.env.NEXT_PUBLIC_APP_URL || process.env.VERCEL_URL;
+    if (!appUrl) {
+      return NextResponse.json(
+        { error: 'サーバー設定エラー: サイトURLが設定されていません' },
+        { status: 500 }
+      );
+    }
+    const baseUrl = appUrl.startsWith('http') ? appUrl : `https://${appUrl}`;
+    const redirectUrl = `${baseUrl.replace(/\/+$/, '')}/invitation/accept`;
+
     const newInvitation = await client.organizations.createOrganizationInvitation({
       organizationId: org.clerk_organization_id,
       emailAddress: email,
       role,
       inviterUserId: userId,
-      redirectUrl: `${appUrl}/invitation/accept`,
+      redirectUrl,
     });
 
     return NextResponse.json({
