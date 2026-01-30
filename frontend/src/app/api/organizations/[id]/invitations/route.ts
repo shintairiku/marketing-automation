@@ -139,13 +139,25 @@ export async function POST(
     const client = await clerkClient();
     const clerkRole = role === 'admin' ? 'org:admin' : 'org:member';
 
-    const appUrl = process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000';
+    const appUrl = process.env.NEXT_PUBLIC_SITE_URL || process.env.NEXT_PUBLIC_APP_URL || process.env.VERCEL_URL;
+    if (!appUrl) {
+      console.error('No site URL configured. Set NEXT_PUBLIC_SITE_URL or NEXT_PUBLIC_APP_URL.');
+      return NextResponse.json(
+        { error: 'サーバー設定エラー: サイトURLが設定されていません' },
+        { status: 500 }
+      );
+    }
+    const baseUrl = appUrl.startsWith('http') ? appUrl : `https://${appUrl}`;
+    const redirectUrl = `${baseUrl.replace(/\/+$/, '')}/invitation/accept`;
+
+    console.log('[Invitation] Creating invitation with redirectUrl:', redirectUrl);
+
     const clerkInvitation = await client.organizations.createOrganizationInvitation({
       organizationId: org.clerk_organization_id,
       emailAddress: email,
       role: clerkRole,
       inviterUserId: userId,
-      redirectUrl: `${appUrl}/invitation/accept`,
+      redirectUrl,
     });
 
     // バックエンドにも記録（追跡用）
@@ -173,8 +185,15 @@ export async function POST(
       role,
       status: clerkInvitation.status,
     }, { status: 201 });
-  } catch (error) {
+  } catch (error: unknown) {
     console.error('Failed to create invitation:', error);
+
+    // Clerk APIエラーの詳細をログ出力
+    if (error && typeof error === 'object' && 'errors' in error) {
+      const clerkErr = error as { errors: Array<{ message: string; longMessage?: string; code: string }> };
+      console.error('Clerk API error details:', JSON.stringify(clerkErr.errors, null, 2));
+    }
+
     const message = error instanceof Error ? error.message : 'Failed to create invitation';
     return NextResponse.json(
       { error: message },
