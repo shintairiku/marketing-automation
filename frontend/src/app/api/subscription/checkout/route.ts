@@ -7,14 +7,15 @@
  * StripeのCheckoutページURLを返す
  *
  * 個人サブスクと組織サブスクの両方に対応:
- * - organizationId を指定すると組織サブスクとして処理
+ * - 既に個人サブスクがある場合のチーム移行は /api/subscription/upgrade-to-team を使用
+ * - organizationId を指定すると新規組織サブスクとして処理（ユーザーの Stripe Customer を使用）
  * - quantity でシート数を指定可能（デフォルト: 1）
  */
 
 import { NextResponse } from 'next/server';
 import type Stripe from 'stripe';
 
-import { getStripe, isPrivilegedEmail,SUBSCRIPTION_PRICE_ID } from '@/lib/subscription';
+import { getStripe, isPrivilegedEmail, SUBSCRIPTION_PRICE_ID } from '@/lib/subscription';
 import { supabaseAdminClient } from '@/libs/supabase/supabase-admin';
 import { auth, clerkClient } from '@clerk/nextjs/server';
 
@@ -71,14 +72,34 @@ export async function POST(request: Request) {
 
     const supabase = supabaseAdminClient;
 
-    // 6. 組織サブスクの場合: 組織を作成 or 既存を確認
-    let resolvedOrgId = organizationId;
+    // 6. 既存の個人サブスクリプションを確認
+    const { data: existingUserSub } = await supabase
+      .from('user_subscriptions')
+      .select('stripe_customer_id, stripe_subscription_id, status')
+      .eq('user_id', userId)
+      .single();
 
-    if (quantity > 1 || organizationId || organizationName) {
-      // 組織サブスク
+    const isTeamRequest = quantity > 1 || organizationId || organizationName;
+
+    // 7. チームプランへのアップグレード: 既に個人サブスクがある場合
+    if (isTeamRequest && existingUserSub?.stripe_subscription_id && existingUserSub.status === 'active') {
+      // upgrade-to-team エンドポイントを使うように誘導
+      return NextResponse.json(
+        {
+          error: 'Use /api/subscription/upgrade-to-team for upgrading from individual to team plan',
+          redirect: '/api/subscription/upgrade-to-team',
+          hasActiveSubscription: true,
+        },
+        { status: 409 }
+      );
+    }
+
+    // 8. 新規チームプラン（個人サブスクなし）: ユーザー自身の Stripe Customer を使用
+    if (isTeamRequest) {
+      let resolvedOrgId = organizationId;
+
       if (!resolvedOrgId) {
-        // 組織を自動作成
-        const orgName = organizationName || `${userFullName || userEmail}の組織`;
+        const orgName = organizationName || `${userFullName || userEmail}のチーム`;
 
         // Clerk Organization を作成
         const clerkOrg = await client.organizations.createOrganization({
@@ -92,6 +113,7 @@ export async function POST(request: Request) {
             name: orgName,
             owner_user_id: userId,
             clerk_organization_id: clerkOrg.id,
+            billing_user_id: userId,
           })
           .select()
           .single();
@@ -106,8 +128,6 @@ export async function POST(request: Request) {
 
         resolvedOrgId = newOrg.id;
 
-        // オーナーの email と display_name をメンバーテーブルに更新
-        // (トリガーで owner が自動追加されるが email/display_name は入らない)
         await supabase
           .from('organization_members')
           .update({ email: userEmail, display_name: userFullName || null })
@@ -117,41 +137,29 @@ export async function POST(request: Request) {
 
       const stripe = getStripe();
 
-      // 既存組織の Stripe 顧客IDを確認
-      const { data: existingOrg } = await supabase
-        .from('organizations')
-        .select('stripe_customer_id')
-        .eq('id', resolvedOrgId)
-        .single();
+      // ユーザー自身の Stripe Customer を使用（組織用に別 Customer は作成しない）
+      let stripeCustomerId = existingUserSub?.stripe_customer_id;
 
-      // 組織用の Stripe Customer を確保
-      // 既存の個人用 Customer と分離するため、組織専用の Customer を作成
-      let orgStripeCustomerId = existingOrg?.stripe_customer_id;
-
-      if (!orgStripeCustomerId) {
+      if (!stripeCustomerId) {
         const newCustomer = await stripe.customers.create({
           email: userEmail,
-          name: organizationName || `Organization ${resolvedOrgId}`,
+          name: userFullName || userEmail,
           metadata: {
-            organization_id: resolvedOrgId,
-            created_by: userId,
+            user_id: userId,
           },
         });
-        orgStripeCustomerId = newCustomer.id;
-
-        // 組織に Stripe Customer ID を保存
-        await supabase
-          .from('organizations')
-          .update({ stripe_customer_id: orgStripeCustomerId })
-          .eq('id', resolvedOrgId);
-
-        console.log(`Created new Stripe customer ${orgStripeCustomerId} for org ${resolvedOrgId}`);
+        stripeCustomerId = newCustomer.id;
       }
 
-      // 7. Stripe Checkout Session作成（組織）
-      // 注: 個人サブスクのキャンセルはWebhook（checkout.session.completed）で行う
-      // チェックアウト未完了時に個人プランが失われるのを防ぐため
-      // 組織専用の Stripe Customer を使用（個人用とは別）
+      // 組織に stripe_customer_id を保存（ユーザーと同一の Customer）
+      await supabase
+        .from('organizations')
+        .update({
+          stripe_customer_id: stripeCustomerId,
+          billing_user_id: userId,
+        })
+        .eq('id', resolvedOrgId);
+
       const sessionParams: Stripe.Checkout.SessionCreateParams = {
         mode: 'subscription',
         payment_method_types: ['card'],
@@ -163,7 +171,7 @@ export async function POST(request: Request) {
         ],
         success_url: successUrl,
         cancel_url: cancelUrl,
-        customer: orgStripeCustomerId,
+        customer: stripeCustomerId,
         metadata: {
           user_id: userId,
           organization_id: resolvedOrgId,
@@ -192,13 +200,7 @@ export async function POST(request: Request) {
       });
     }
 
-    // 8. 個人サブスク（従来通り）
-    const { data: existingSubscription } = await supabase
-      .from('user_subscriptions')
-      .select('stripe_customer_id')
-      .eq('user_id', userId)
-      .single();
-
+    // 9. 個人サブスク（従来通り）
     const stripe = getStripe();
 
     const sessionParams: Stripe.Checkout.SessionCreateParams = {
@@ -222,8 +224,8 @@ export async function POST(request: Request) {
       },
       automatic_tax: { enabled: true },
       billing_address_collection: 'required',
-      customer_email: existingSubscription?.stripe_customer_id ? undefined : userEmail,
-      customer: existingSubscription?.stripe_customer_id || undefined,
+      customer_email: existingUserSub?.stripe_customer_id ? undefined : userEmail,
+      customer: existingUserSub?.stripe_customer_id || undefined,
       allow_promotion_codes: true,
       locale: 'ja',
     };

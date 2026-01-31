@@ -178,6 +178,41 @@ export default function PricingPage() {
     setStatusMessage(null);
 
     try {
+      // 個人プラン契約中 → チームへアップグレード: upgrade-to-team API を使用
+      // Stripe 公式推奨: 既存サブスクの items を更新 (日割り自動適用)
+      if (isTeam && hasIndividualPlan) {
+        const response = await fetch('/api/subscription/upgrade-to-team', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            quantity: teamSeats,
+            organizationName: organizationName.trim() || undefined,
+          }),
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+          if (response.status === 402) {
+            throw new Error('お支払いに失敗しました。支払い方法を更新してください。');
+          }
+          throw new Error(data.error || 'アップグレードに失敗しました');
+        }
+
+        setStatusMessage({
+          type: 'success',
+          message: `チームプラン（${teamSeats}シート）にアップグレードしました！差額は日割り計算で請求されます。`,
+        });
+
+        // サブスク状態を再取得
+        const statusRes = await fetch('/api/subscription/status');
+        const statusData = await statusRes.json();
+        setSubStatus(statusData);
+        setIsLoading(false);
+        return;
+      }
+
+      // 通常のチェックアウト（新規購入）
       const body: Record<string, unknown> = {
         successUrl: `${window.location.origin}/pricing?subscription=success`,
         cancelUrl: `${window.location.origin}/pricing?subscription=canceled`,
@@ -465,7 +500,7 @@ export default function PricingPage() {
                 {/* 個人プランからのアップグレード注意 */}
                 {hasIndividualPlan && !hasTeamPlan && (
                   <div className="mb-6 p-3 rounded-lg bg-blue-50 border border-blue-200 text-sm text-blue-800">
-                    現在の個人プランは、チームプラン購入後に自動的にキャンセルされます。
+                    個人プランの未使用分は日割り計算で差し引かれ、チームプランとの差額のみが請求されます。
                   </div>
                 )}
 
@@ -548,7 +583,7 @@ export default function PricingPage() {
             <div className="p-4 bg-white rounded-lg shadow-sm">
               <h3 className="font-medium mb-2">個人プランからチームプランへ変更できますか？</h3>
               <p className="text-sm text-muted-foreground">
-                はい、チームプランを購入すると、個人プランは自動的にキャンセルされます。
+                はい、ワンクリックでアップグレードできます。個人プランの未使用分は日割り計算で差し引かれ、差額のみが請求されます。
               </p>
             </div>
             <div className="p-4 bg-white rounded-lg shadow-sm">
