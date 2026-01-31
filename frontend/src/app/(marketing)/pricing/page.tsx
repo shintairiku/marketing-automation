@@ -10,9 +10,10 @@
  * - @shintairiku.jp → 無料アクセス
  */
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import {
+  ArrowRight,
   Check,
   ExternalLink,
   Loader2,
@@ -25,6 +26,14 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
@@ -66,6 +75,16 @@ interface SubscriptionStatusResponse {
   hasAccess: boolean;
 }
 
+interface UpgradePreview {
+  amountDue: number;
+  currency: string;
+  lines: { description: string; amount: number; proration: boolean }[];
+  currentQuantity: number;
+  newQuantity: number;
+  currentPeriodEnd: string | null;
+  prorationDate: number;
+}
+
 // ============================================
 // 定数
 // ============================================
@@ -105,6 +124,12 @@ export default function PricingPage() {
   // 現在のサブスクリプション状態
   const [subStatus, setSubStatus] = useState<SubscriptionStatusResponse | null>(null);
   const [loadingStatus, setLoadingStatus] = useState(false);
+
+  // アップグレード確認モーダル
+  const [showUpgradeConfirm, setShowUpgradeConfirm] = useState(false);
+  const [upgradePreview, setUpgradePreview] = useState<UpgradePreview | null>(null);
+  const [loadingPreview, setLoadingPreview] = useState(false);
+  const [upgrading, setUpgrading] = useState(false);
 
   // URLパラメータからステータスメッセージを取得
   useEffect(() => {
@@ -163,6 +188,83 @@ export default function PricingPage() {
     }
   };
 
+  // アップグレードプレビューを取得してモーダル表示
+  const handleUpgradePreview = useCallback(async () => {
+    setLoadingPreview(true);
+    setStatusMessage(null);
+
+    try {
+      const response = await fetch('/api/subscription/preview-upgrade', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ quantity: teamSeats }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'プレビューの取得に失敗しました');
+      }
+
+      setUpgradePreview(data);
+      setShowUpgradeConfirm(true);
+    } catch (error) {
+      console.error('Preview error:', error);
+      setStatusMessage({
+        type: 'error',
+        message: error instanceof Error ? error.message : 'プレビューの取得に失敗しました',
+      });
+    } finally {
+      setLoadingPreview(false);
+    }
+  }, [teamSeats]);
+
+  // アップグレードを実行（モーダル内の確認ボタンから呼ばれる）
+  const handleConfirmUpgrade = async () => {
+    setUpgrading(true);
+
+    try {
+      const response = await fetch('/api/subscription/upgrade-to-team', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          quantity: teamSeats,
+          organizationName: organizationName.trim() || undefined,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        if (response.status === 402) {
+          throw new Error('お支払いに失敗しました。支払い方法を更新してください。');
+        }
+        throw new Error(data.error || 'アップグレードに失敗しました');
+      }
+
+      setShowUpgradeConfirm(false);
+      setUpgradePreview(null);
+      setStatusMessage({
+        type: 'success',
+        message: `チームプラン（${teamSeats}シート）にアップグレードしました！`,
+      });
+
+      // サブスク状態を再取得
+      const statusRes = await fetch('/api/subscription/status');
+      const statusData = await statusRes.json();
+      setSubStatus(statusData);
+    } catch (error) {
+      console.error('Upgrade error:', error);
+      setStatusMessage({
+        type: 'error',
+        message: error instanceof Error ? error.message : 'アップグレードに失敗しました',
+      });
+      setShowUpgradeConfirm(false);
+    } finally {
+      setUpgrading(false);
+    }
+  };
+
   // チェックアウトへ
   const handleCheckout = async (isTeam: boolean) => {
     if (!isSignedIn) {
@@ -174,44 +276,16 @@ export default function PricingPage() {
       return;
     }
 
+    // 個人プラン契約中 → チームへアップグレード: プレビューモーダルを表示
+    if (isTeam && hasIndividualPlan) {
+      handleUpgradePreview();
+      return;
+    }
+
     setIsLoading(true);
     setStatusMessage(null);
 
     try {
-      // 個人プラン契約中 → チームへアップグレード: upgrade-to-team API を使用
-      // Stripe 公式推奨: 既存サブスクの items を更新 (日割り自動適用)
-      if (isTeam && hasIndividualPlan) {
-        const response = await fetch('/api/subscription/upgrade-to-team', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            quantity: teamSeats,
-            organizationName: organizationName.trim() || undefined,
-          }),
-        });
-
-        const data = await response.json();
-
-        if (!response.ok) {
-          if (response.status === 402) {
-            throw new Error('お支払いに失敗しました。支払い方法を更新してください。');
-          }
-          throw new Error(data.error || 'アップグレードに失敗しました');
-        }
-
-        setStatusMessage({
-          type: 'success',
-          message: `チームプラン（${teamSeats}シート）にアップグレードしました！差額は日割り計算で請求されます。`,
-        });
-
-        // サブスク状態を再取得
-        const statusRes = await fetch('/api/subscription/status');
-        const statusData = await statusRes.json();
-        setSubStatus(statusData);
-        setIsLoading(false);
-        return;
-      }
-
       // 通常のチェックアウト（新規購入）
       const body: Record<string, unknown> = {
         successUrl: `${window.location.origin}/pricing?subscription=success`,
@@ -544,9 +618,9 @@ export default function PricingPage() {
                   <Button
                     className="w-full h-12 text-lg"
                     onClick={() => handleCheckout(true)}
-                    disabled={isLoading || !isAuthLoaded}
+                    disabled={isLoading || loadingPreview || !isAuthLoaded}
                   >
-                    {isLoading ? (
+                    {isLoading || loadingPreview ? (
                       <><Loader2 className="mr-2 h-5 w-5 animate-spin" />処理中...</>
                     ) : !isAuthLoaded ? (
                       <Loader2 className="mr-2 h-5 w-5 animate-spin" />
@@ -606,6 +680,95 @@ export default function PricingPage() {
           </p>
         </div>
       </div>
+
+      {/* アップグレード確認モーダル */}
+      <Dialog open={showUpgradeConfirm} onOpenChange={(open) => {
+        if (!upgrading) {
+          setShowUpgradeConfirm(open);
+          if (!open) setUpgradePreview(null);
+        }
+      }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>チームプランへのアップグレード</DialogTitle>
+            <DialogDescription>
+              個人プランからチームプランへ変更します。以下の内容をご確認ください。
+            </DialogDescription>
+          </DialogHeader>
+
+          {upgradePreview ? (
+            <div className="space-y-4 py-2">
+              {/* プラン変更サマリー */}
+              <div className="flex items-center justify-between p-3 rounded-lg bg-muted/50">
+                <div className="text-sm">
+                  <div className="text-muted-foreground">個人プラン（{upgradePreview.currentQuantity}シート）</div>
+                </div>
+                <ArrowRight className="h-4 w-4 text-muted-foreground mx-2" />
+                <div className="text-sm font-medium">
+                  <div>チームプラン（{upgradePreview.newQuantity}シート）</div>
+                </div>
+              </div>
+
+              {/* 料金明細 */}
+              <div className="border rounded-lg divide-y">
+                {upgradePreview.lines.map((line, i) => (
+                  <div key={i} className="flex items-center justify-between px-3 py-2 text-sm">
+                    <span className={`flex-1 ${line.proration ? 'text-muted-foreground' : ''}`}>
+                      {line.description}
+                    </span>
+                    <span className={`font-mono ${line.amount < 0 ? 'text-green-600' : ''}`}>
+                      {line.amount < 0 ? '-' : ''}&yen;{Math.abs(line.amount).toLocaleString()}
+                    </span>
+                  </div>
+                ))}
+              </div>
+
+              {/* 合計 */}
+              <div className="flex items-center justify-between p-3 rounded-lg bg-primary/5 border border-primary/20">
+                <span className="font-medium">今回の請求額</span>
+                <span className="text-xl font-bold">
+                  &yen;{upgradePreview.amountDue.toLocaleString()}
+                </span>
+              </div>
+
+              {upgradePreview.currentPeriodEnd && (
+                <p className="text-xs text-muted-foreground">
+                  次回更新日: {new Date(upgradePreview.currentPeriodEnd).toLocaleDateString('ja-JP')} 以降は
+                  &yen;{(PRICE_PER_SEAT * upgradePreview.newQuantity).toLocaleString()}/月で自動更新されます。
+                </p>
+              )}
+            </div>
+          ) : (
+            <div className="flex items-center justify-center py-8">
+              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+              <span className="ml-2 text-muted-foreground">料金を計算中...</span>
+            </div>
+          )}
+
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button
+              variant="outline"
+              onClick={() => {
+                setShowUpgradeConfirm(false);
+                setUpgradePreview(null);
+              }}
+              disabled={upgrading}
+            >
+              キャンセル
+            </Button>
+            <Button
+              onClick={handleConfirmUpgrade}
+              disabled={upgrading || !upgradePreview}
+            >
+              {upgrading ? (
+                <><Loader2 className="mr-2 h-4 w-4 animate-spin" />処理中...</>
+              ) : (
+                'アップグレードを確定'
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
