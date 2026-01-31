@@ -1,5 +1,11 @@
 # CLAUDE.md - 永続メモリ & 自己改善ログ
 
+> ## **【最重要】記憶の更新は絶対に忘れるな**
+> **作業の開始時・途中・完了時に必ずこのファイルを確認・更新せよ。**
+> コード変更、設計変更、新しい知見、バグ修正、アーキテクチャ変更 — どんな小さな変更でも、発生したらその場で即座にこのファイルに記録すること。
+> **ユーザーに「記憶を更新して」と言われる前に、自分から更新するのが当たり前。言われてからでは遅い。**
+> これは最優先の義務であり、他のどんなタスクよりも優先される。
+
 > **このファイルはClaude Codeの永続メモリであり、自己改善の記録である。**
 > セッションをまたいで知識を保持し、過去の失敗・学び・判断を蓄積して次のセッションの自分をより賢くするためのファイルである。
 >
@@ -142,20 +148,25 @@ marketing-automation/
 │       ├── app/
 │       │   ├── layout.tsx            # ルートレイアウト (ClerkProvider, Noto Sans JP)
 │       │   ├── auth/page.tsx         # 認証選択画面
-│       │   ├── (marketing)/          # ランディングページ・pricing
+│       │   ├── (marketing)/          # ランディングページ・pricing（リダイレクト）
 │       │   ├── (dashboard)/          # ダッシュボード (特権のみ)
-│       │   ├── (tools)/              # メインツール群
+│       │   ├── (tools)/              # メインツール群 (SubscriptionGuard有)
 │       │   │   ├── blog/             # Blog AI
 │       │   │   ├── seo/              # SEO記事生成
-│       │   │   ├── settings/         # ユーザー設定・課金・連携
 │       │   │   ├── company-settings/ # 会社情報・スタイルガイド
 │       │   │   ├── instagram/        # Instagram連携 (placeholder)
 │       │   │   └── help/             # ヘルプ
+│       │   ├── (settings)/           # 設定群 (SubscriptionGuardなし、未課金でもアクセス可)
+│       │   │   └── settings/         # /settings/* ページ
+│       │   │       ├── account/      # アカウント設定
+│       │   │       ├── billing/      # 請求&プラン管理（旧pricing統合）
+│       │   │       ├── members/      # チームメンバー管理
+│       │   │       └── integrations/ # WordPress/Instagram/LINE連携
 │       │   ├── (admin)/              # 管理者画面 (特権のみ)
 │       │   ├── sign-in/              # Clerk サインイン
 │       │   ├── sign-up/              # Clerk サインアップ
 │       │   ├── invitation/           # 組織招待受諾
-│       │   ├── pricing/              # 料金プラン
+│       │   ├── pricing/              # → 認証済み:/settings/billing、未認証:/auth へリダイレクト
 │       │   └── api/                  # Next.js API Routes
 │       │       ├── proxy/[...path]/  # バックエンドAPIプロキシ
 │       │       ├── subscription/     # Stripe checkout/portal/status/webhook
@@ -338,17 +349,21 @@ marketing-automation/
 | `/auth` | サインイン/サインアップ選択画面 |
 | `/sign-in` | Clerk サインイン |
 | `/sign-up` | Clerk サインアップ |
-| `/pricing` | 料金プラン (個人¥29,800/月, チーム¥29,800/席) |
+| `/pricing` | リダイレクト: 認証済み→`/settings/billing`、未認証→`/auth` |
 | `/invitation/accept` | 組織招待受諾 |
 
-### Protected Routes (認証必須 + サブスクリプション必須)
+### Protected Routes (認証必須 + サブスクリプション必須) — `(tools)` レイアウト
 | Path | 概要 |
 |------|------|
 | `/blog/new` | 新規ブログ記事生成 |
 | `/blog/[processId]` | ブログ生成進捗・編集 |
 | `/blog/history` | ブログ生成履歴 |
+
+### Protected Routes (認証必須、サブスク不要) — `(settings)` レイアウト
+| Path | 概要 |
+|------|------|
 | `/settings/account` | アカウント設定 |
-| `/settings/billing` | 課金管理 |
+| `/settings/billing` | 請求&プラン管理（プラン購入/変更/シート変更/Stripe Portal） |
 | `/settings/members` | チームメンバー管理 |
 | `/settings/integrations/wordpress` | WordPress連携 |
 | `/settings/integrations/wordpress/connect` | WordPress接続 |
@@ -477,7 +492,7 @@ marketing-automation/
 ### サブスクリプション
 - **個人プラン**: ¥29,800/月 (Stripe)
 - **チームプラン**: ¥29,800/席/月 (組織単位、2-50席)
-- `SubscriptionGuard` コンポーネントがUI側でアクセス制御
+- `SubscriptionGuard` コンポーネントがUI側でアクセス制御（`(tools)` レイアウト内のみ。`(settings)` は未課金でもアクセス可）
 - `past_due` は3日間の猶予期間
 - `canceled` は期間終了まで有効
 - **個人→チーム移行**: `stripe.subscriptions.update()` で同一サブスク内の quantity 変更（日割り自動適用）
@@ -800,6 +815,29 @@ docker compose logs -f backend                        # ログ確認
   - シート変更確認モーダル: プレビュー → 明細表示 → 確認後に実行
   - シート削減時はクレジット表示（次回請求から差し引き）
 
+### 6. Pricing → Settings/Billing 移行
+- **新規**: `frontend/src/app/(settings)/layout.tsx`
+  - `(tools)` レイアウトと同じだが **`SubscriptionGuard` なし**。`SubscriptionProvider` + `AppLayoutClient` + `SubscriptionBanner` のみ
+  - 未課金ユーザーも `/settings/*` にアクセス可能に
+- **移動**: `(tools)/settings/*` → `(settings)/settings/*`
+  - `account`, `billing`, `members`, `integrations/*` すべて移動
+  - URL パスは変更なし（Next.js route group はURLに影響しない）
+  - `(tools)/settings/` ディレクトリは削除
+- **リライト**: `frontend/src/app/(settings)/settings/billing/page.tsx`
+  - 旧 pricing ページ (999行) の全機能を統合した請求&プラン管理ページ
+  - プラン選択タブ、シート数セレクター、Checkout フロー、アップグレード確認モーダル、シート変更確認モーダル、FAQ、Stripe Portal
+  - `successUrl`/`cancelUrl` を `/settings/billing?subscription=...` に変更
+  - 現在のプラン状態表示（ステータスバッジ、期間情報、シート変更UI）
+- **変換**: `frontend/src/app/(marketing)/pricing/page.tsx`
+  - 999行 → サーバーコンポーネントのリダイレクト（認証済み→`/settings/billing`、未認証→`/auth`）
+- **更新**: 全 `/pricing` 参照を `/settings/billing` に変更
+  - `subscription-guard.tsx` (redirectTo, バナーリンク)
+  - `members/page.tsx` (チームプラン購入ボタン)
+  - `checkout/route.ts` (デフォルト cancelUrl)
+  - `navigation.tsx` (モバイルナビ)
+  - `sidebar.tsx` (サイドバーリンク)
+- **修正**: `auth/page.tsx` — ESLint import順序エラー修正
+
 ---
 
 ## 自己改善ログ
@@ -812,3 +850,13 @@ docker compose logs -f backend                        # ログ確認
 - **Stripe `pending_if_incomplete` の制限見落とし**: `payment_behavior: 'pending_if_incomplete'` と `metadata` を同時に渡して `StripeInvalidRequestError` が発生。**Stripe APIパラメータの組み合わせ制限は公式ドキュメント (pending-updates-reference) で事前に確認すべき。**
 - **環境変数フォールバック不足**: `NEXT_PUBLIC_APP_URL` 未設定で Portal の `return_url` が空文字列になりStripeエラー。**環境変数を使うURLは必ずフォールバック値を設定すべき。**
 - **即時決済のUX問題**: アップグレードボタン押下で即座に決済が走る実装は、ユーザーに確認の余地がなかった。**課金を伴うアクションは必ず確認ステップを挟むべき。** `invoices.createPreview()` でプレビューを見せてから実行する設計が適切。
+- **ビルドコマンド**: フロントエンドのビルドは `bun run build` を使う。`npx next build` ではなく。`.next` キャッシュの削除は通常不要（ルートグループ変更時等の特殊ケースのみ）。
+- **記憶の更新忘れ**: 作業完了後は必ず CLAUDE.md を更新する。ユーザーに言われる前に自主的に行うべき。
+
+---
+
+> ## **【最重要・再掲】記憶の更新は絶対に忘れるな**
+> **このファイルの冒頭にも書いたが、改めて念押しする。**
+> 作業が完了したら、コミットする前に、必ずこのファイルに変更内容を記録せよ。
+> 新しいファイルを作成した、既存ファイルを変更した、設計を変更した、バグを見つけた、知見を得た — すべて記録対象。
+> **「後で更新しよう」は禁止。今すぐ更新せよ。**

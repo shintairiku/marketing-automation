@@ -4,8 +4,9 @@ import { useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 
-import { useAuth } from '@clerk/nextjs';
 import { LogIn, UserPlus } from 'lucide-react';
+
+import { useAuth } from '@clerk/nextjs';
 
 export default function AuthPage() {
   const { isLoaded, isSignedIn } = useAuth();

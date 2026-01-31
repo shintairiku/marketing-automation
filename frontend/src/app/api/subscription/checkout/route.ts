@@ -65,7 +65,7 @@ export async function POST(request: Request) {
     // 5. リクエストボディから情報を取得
     const body = await request.json().catch(() => ({}));
     const successUrl = body.successUrl || `${process.env.NEXT_PUBLIC_APP_URL}/blog/new?subscription=success`;
-    const cancelUrl = body.cancelUrl || `${process.env.NEXT_PUBLIC_APP_URL}/pricing?subscription=canceled`;
+    const cancelUrl = body.cancelUrl || `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/settings/billing?subscription=canceled`;
     const quantity: number = Math.max(1, Math.min(50, body.quantity || 1));
     const organizationId: string | undefined = body.organizationId;
     const organizationName: string | undefined = body.organizationName;

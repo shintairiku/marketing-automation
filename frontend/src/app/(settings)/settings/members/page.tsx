@@ -392,7 +392,7 @@ export default function MembersSettingsPage() {
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <Button onClick={() => router.push("/pricing")} className="gap-2">
+              <Button onClick={() => router.push("/settings/billing")} className="gap-2">
                 <ExternalLink className="h-4 w-4" />
                 チームプランを購入する
               </Button>
@@ -474,7 +474,7 @@ export default function MembersSettingsPage() {
                   <Button
                     variant="outline"
                     size="sm"
-                    onClick={() => router.push("/pricing")}
+                    onClick={() => router.push("/settings/billing")}
                     className="shrink-0 gap-1"
                   >
                     <ExternalLink className="h-3.5 w-3.5" />

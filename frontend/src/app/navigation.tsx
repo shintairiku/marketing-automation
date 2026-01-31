@@ -42,7 +42,7 @@ export function Navigation() {
                   <Button variant='sexy' className='w-full'>無料ではじめる</Button>
                 </SignUpButton>
                 <Button variant='ghost' asChild className='w-full'>
-                  <Link href='/pricing'>料金プラン</Link>
+                  <Link href='/settings/billing'>料金プラン</Link>
                 </Button>
                 <Button variant='ghost' asChild className='w-full'>
                   <Link href='/features'>機能紹介</Link>
