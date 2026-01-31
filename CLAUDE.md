@@ -386,6 +386,8 @@ marketing-automation/
 | `/api/subscription/status` | GET | サブスクリプション状態取得 |
 | `/api/subscription/checkout` | POST | Stripe Checkout Session作成 (新規契約用) |
 | `/api/subscription/upgrade-to-team` | POST | 個人→チームプラン アップグレード (日割り対応) |
+| `/api/subscription/update-seats` | POST | チームプラン シート数変更 (増減両対応、日割り対応) |
+| `/api/subscription/preview-upgrade` | POST | サブスク変更料金プレビュー (個人→チーム / シート変更 両対応) |
 | `/api/subscription/portal` | POST | Stripe Customer Portal |
 | `/api/subscription/webhook` | POST | Stripe Webhook受信 |
 | `/api/organizations/` | GET, POST | 組織CRUD |
@@ -722,9 +724,23 @@ docker compose logs -f backend                        # ログ確認
 | `stripe.subscriptions.cancel()` | 即時キャンセル。返金は手動 |
 | `cancel_at: timestamp` | カスタム日時キャンセル。クレジット自動生成（返金不可、残高のみ） |
 
+### `pending_if_incomplete` の制限事項
+> **情報ソース**: https://docs.stripe.com/billing/subscriptions/pending-updates-reference
+- `payment_behavior: 'pending_if_incomplete'` 使用時、同時に更新できるパラメータは **items, proration_behavior, proration_date, billing_cycle_anchor, trial_end** 等に限定される
+- **`metadata` は同時更新不可**。items 更新と metadata 更新は2回に分けて `subscriptions.update()` を呼ぶ必要がある
+- サポートされないパラメータを渡すと `StripeInvalidRequestError` が発生する
+
+### `invoices.createPreview` によるプロレーション事前計算
+> **情報ソース**: https://docs.stripe.com/api/invoices/create_preview
+- `subscription` + `subscription_details.items` で quantity 変更後の請求額をプレビュー可能
+- `subscription_details.proration_date` を渡すと正確なプロレーション計算ができる
+- Stripe v18 では明細の `proration` フラグは `line.parent.subscription_item_details.proration` に移動
+
 ### 本プロジェクトでの適用
 - **個人→チーム移行**: `subscriptions.update()` で quantity を 1→N に変更
 - **パラメータ**: `proration_behavior: 'always_invoice'` + `payment_behavior: 'pending_if_incomplete'`
+- **2段階更新**: items 更新（pending_if_incomplete）→ metadata 更新（別呼び出し）の順で実行
+- **料金プレビュー**: アップグレード実行前に `invoices.createPreview()` で差額を表示する確認モーダルを挟む
 - **結果**: 未使用分の個人プラン料金がクレジットとして差し引かれ、チームプランとの差額のみ即座に請求
 - **Stripe Customer**: 個人もチームも同一 Customer を共有。`organizations.billing_user_id` で課金者を追跡
 
@@ -758,6 +774,32 @@ docker compose logs -f backend                        # ログ確認
   - `user_subscriptions.upgraded_to_org_id` (uuid) — チーム移行追跡
 - **NOTE**: マイグレーション適用前は Supabase 型定義に新カラムが含まれないため、`Record<string, unknown>` 型アサーションで対応中。`bun run generate-types` で型再生成が必要
 
+### 4. アップグレード確認モーダル & Stripeエラー修正
+- **新規**: `frontend/src/app/api/subscription/preview-upgrade/route.ts`
+  - `stripe.invoices.createPreview()` で日割り差額を事前計算するAPI
+  - プロレーション明細（クレジット・新料金）と合計請求額を返却
+- **改修**: `pricing/page.tsx` — アップグレードボタン押下時に即時決済せず、確認モーダルを表示
+  - プレビューAPIで差額取得 → モーダルに明細表示 → ユーザー確認後に実行
+  - `Dialog` コンポーネント使用、プラン変更サマリー・料金明細・合計額を表示
+- **修正**: `upgrade-to-team/route.ts`
+  - `pending_if_incomplete` と `metadata` の同時更新はStripe非対応 → `subscriptions.update()` を2回に分離
+  - エラーハンドリング: `error.message.includes('pending')` → Stripeエラー型による正確な判定に変更
+- **修正**: `portal/route.ts`
+  - `NEXT_PUBLIC_APP_URL` 未設定時のフォールバック `http://localhost:3000` を追加
+
+### 5. チームプラン シート数変更機能
+- **新規**: `frontend/src/app/api/subscription/update-seats/route.ts`
+  - `stripe.subscriptions.update()` で既存チームプランの quantity を変更
+  - owner/admin のみ実行可能（role チェック）
+  - 増減両方に対応。日割り自動適用（`always_invoice` + `pending_if_incomplete`）
+- **改修**: `frontend/src/app/api/subscription/preview-upgrade/route.ts`
+  - 個人→チームのアップグレードプレビューに加え、チームプラン内のシート変更プレビューにも対応
+  - チームプランが存在する場合は `organization_subscriptions` 経由でプレビュー
+- **改修**: `pricing/page.tsx`
+  - 「現在のプラン」カードにシート数変更UI追加（Select + 変更ボタン）
+  - シート変更確認モーダル: プレビュー → 明細表示 → 確認後に実行
+  - シート削減時はクレジット表示（次回請求から差し引き）
+
 ---
 
 ## 自己改善ログ
@@ -767,3 +809,6 @@ docker compose logs -f backend                        # ログ確認
 ### 2026-02-01
 - **Next.js キャッシュ問題**: フォント変更後に `.next` キャッシュが古いビルドを参照し `montserrat is not defined` エラーが発生。ファイル内容は正しかったが `.next` 削除+再起動が必要だった。コード変更後にランタイムエラーが出た場合は、まずキャッシュクリアを確認すべき。
 - **Stripe 設計の初期実装ミス**: 個人と組織で別々の Stripe Customer を作成する設計は、Stripe 公式の推奨に反していた。日割りクレジットが別 Customer に滞留し実質機能しない問題があった。**外部 API 連携の設計時は、必ず公式ドキュメントの推奨パターンを先に調査すべき。**
+- **Stripe `pending_if_incomplete` の制限見落とし**: `payment_behavior: 'pending_if_incomplete'` と `metadata` を同時に渡して `StripeInvalidRequestError` が発生。**Stripe APIパラメータの組み合わせ制限は公式ドキュメント (pending-updates-reference) で事前に確認すべき。**
+- **環境変数フォールバック不足**: `NEXT_PUBLIC_APP_URL` 未設定で Portal の `return_url` が空文字列になりStripeエラー。**環境変数を使うURLは必ずフォールバック値を設定すべき。**
+- **即時決済のUX問題**: アップグレードボタン押下で即座に決済が走る実装は、ユーザーに確認の余地がなかった。**課金を伴うアクションは必ず確認ステップを挟むべき。** `invoices.createPreview()` でプレビューを見せてから実行する設計が適切。

@@ -1,10 +1,14 @@
 /**
- * アップグレード料金プレビュー API
+ * サブスクリプション変更 料金プレビュー API
  *
  * POST /api/subscription/preview-upgrade
  *
  * Stripe invoices.createPreview() を使用して、
- * 個人→チームプランへのアップグレード時の日割り差額を事前に計算する
+ * サブスクリプション変更時の日割り差額を事前に計算する
+ *
+ * 対応パターン:
+ * 1. 個人→チームプランへのアップグレード（user_subscriptions 経由）
+ * 2. チームプランのシート数変更（organization_subscriptions 経由）
  */
 
 import { NextResponse } from 'next/server';
@@ -38,27 +42,71 @@ export async function POST(request: Request) {
     }
 
     const body = await request.json().catch(() => ({}));
-    const quantity: number = Math.max(2, Math.min(50, body.quantity || 2));
+    const quantity: number = Math.max(1, Math.min(50, body.quantity || 2));
 
     const supabase = supabaseAdminClient;
     const stripe = getStripe();
 
-    // 既存の個人サブスクリプションを確認
-    const { data: existingUserSub } = await supabase
-      .from('user_subscriptions')
-      .select('stripe_customer_id, stripe_subscription_id, status')
-      .eq('user_id', userId)
-      .single();
+    // まずチームプランのサブスクを確認（シート変更のケース）
+    const { data: memberships } = await supabase
+      .from('organization_members')
+      .select('organization_id')
+      .eq('user_id', userId);
 
-    if (!existingUserSub?.stripe_subscription_id || existingUserSub.status !== 'active') {
+    let stripeCustomerId: string | null = null;
+    let stripeSubscriptionId: string | null = null;
+
+    if (memberships && memberships.length > 0) {
+      const orgIds = memberships.map((m) => m.organization_id);
+      const { data: orgSub } = await supabase
+        .from('organization_subscriptions')
+        .select('id, organization_id, quantity')
+        .in('organization_id', orgIds)
+        .eq('status', 'active')
+        .limit(1)
+        .single();
+
+      if (orgSub) {
+        // チームプランのシート変更プレビュー
+        const { data: org } = await supabase
+          .from('organizations')
+          .select('stripe_customer_id')
+          .eq('id', orgSub.organization_id)
+          .single();
+
+        stripeCustomerId = org?.stripe_customer_id || null;
+        stripeSubscriptionId = orgSub.id;
+      }
+    }
+
+    // チームプランがなければ個人サブスクをチェック（アップグレードのケース）
+    if (!stripeSubscriptionId) {
+      const { data: existingUserSub } = await supabase
+        .from('user_subscriptions')
+        .select('stripe_customer_id, stripe_subscription_id, status')
+        .eq('user_id', userId)
+        .single();
+
+      if (!existingUserSub?.stripe_subscription_id || existingUserSub.status !== 'active') {
+        return NextResponse.json(
+          { error: 'No active subscription found' },
+          { status: 400 }
+        );
+      }
+
+      stripeCustomerId = existingUserSub.stripe_customer_id;
+      stripeSubscriptionId = existingUserSub.stripe_subscription_id;
+    }
+
+    if (!stripeCustomerId || !stripeSubscriptionId) {
       return NextResponse.json(
-        { error: 'Active individual subscription required' },
+        { error: 'Subscription not found' },
         { status: 400 }
       );
     }
 
     // Stripe からサブスク情報を取得
-    const currentSub = await stripe.subscriptions.retrieve(existingUserSub.stripe_subscription_id);
+    const currentSub = await stripe.subscriptions.retrieve(stripeSubscriptionId);
     const existingItem = currentSub.items.data[0];
 
     if (!existingItem) {
@@ -72,8 +120,8 @@ export async function POST(request: Request) {
     const proration_date = Math.floor(Date.now() / 1000);
 
     const preview = await stripe.invoices.createPreview({
-      customer: existingUserSub.stripe_customer_id!,
-      subscription: existingUserSub.stripe_subscription_id,
+      customer: stripeCustomerId,
+      subscription: stripeSubscriptionId,
       subscription_details: {
         items: [
           {
@@ -101,17 +149,12 @@ export async function POST(request: Request) {
       : null;
 
     return NextResponse.json({
-      // 即座に請求される金額（円）
       amountDue: preview.amount_due,
-      // 通貨
       currency: preview.currency,
-      // 明細
       lines,
-      // 現在のプラン情報
       currentQuantity: existingItem.quantity || 1,
       newQuantity: quantity,
       currentPeriodEnd: periodEndDate,
-      // proration_date を返す（実際のアップグレード時に使用可能）
       prorationDate: proration_date,
     });
   } catch (error) {

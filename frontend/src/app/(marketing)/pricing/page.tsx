@@ -131,6 +131,13 @@ export default function PricingPage() {
   const [loadingPreview, setLoadingPreview] = useState(false);
   const [upgrading, setUpgrading] = useState(false);
 
+  // シート変更モーダル
+  const [showSeatChangeConfirm, setShowSeatChangeConfirm] = useState(false);
+  const [seatChangePreview, setSeatChangePreview] = useState<UpgradePreview | null>(null);
+  const [newSeatCount, setNewSeatCount] = useState(0);
+  const [loadingSeatPreview, setLoadingSeatPreview] = useState(false);
+  const [changingSeats, setChangingSeats] = useState(false);
+
   // URLパラメータからステータスメッセージを取得
   useEffect(() => {
     const subscription = searchParams.get('subscription');
@@ -265,6 +272,81 @@ export default function PricingPage() {
     }
   };
 
+  // シート変更プレビューを取得してモーダル表示
+  const handleSeatChangePreview = useCallback(async (seats: number) => {
+    setLoadingSeatPreview(true);
+    setStatusMessage(null);
+    setNewSeatCount(seats);
+
+    try {
+      const response = await fetch('/api/subscription/preview-upgrade', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ quantity: seats }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'プレビューの取得に失敗しました');
+      }
+
+      setSeatChangePreview(data);
+      setShowSeatChangeConfirm(true);
+    } catch (error) {
+      console.error('Seat preview error:', error);
+      setStatusMessage({
+        type: 'error',
+        message: error instanceof Error ? error.message : 'プレビューの取得に失敗しました',
+      });
+    } finally {
+      setLoadingSeatPreview(false);
+    }
+  }, []);
+
+  // シート変更を実行
+  const handleConfirmSeatChange = async () => {
+    setChangingSeats(true);
+
+    try {
+      const response = await fetch('/api/subscription/update-seats', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ quantity: newSeatCount }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        if (response.status === 402) {
+          throw new Error('お支払いに失敗しました。支払い方法を更新してください。');
+        }
+        throw new Error(data.error || 'シート数の変更に失敗しました');
+      }
+
+      setShowSeatChangeConfirm(false);
+      setSeatChangePreview(null);
+      setStatusMessage({
+        type: 'success',
+        message: `シート数を${data.previousQuantity}から${data.newQuantity}に変更しました！`,
+      });
+
+      // サブスク状態を再取得
+      const statusRes = await fetch('/api/subscription/status');
+      const statusData = await statusRes.json();
+      setSubStatus(statusData);
+    } catch (error) {
+      console.error('Seat change error:', error);
+      setStatusMessage({
+        type: 'error',
+        message: error instanceof Error ? error.message : 'シート数の変更に失敗しました',
+      });
+      setShowSeatChangeConfirm(false);
+    } finally {
+      setChangingSeats(false);
+    }
+  };
+
   // チェックアウトへ
   const handleCheckout = async (isTeam: boolean) => {
     if (!isSignedIn) {
@@ -386,23 +468,62 @@ export default function PricingPage() {
                     読み込み中...
                   </div>
                 ) : hasTeamPlan && subStatus?.orgSubscription ? (
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <Badge variant="default">チームプラン</Badge>
-                        <Badge variant="secondary">{subStatus.orgSubscription.quantity}シート</Badge>
+                  <div className="space-y-4">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <Badge variant="default">チームプラン</Badge>
+                          <Badge variant="secondary">{subStatus.orgSubscription.quantity}シート</Badge>
+                        </div>
+                        <p className="text-sm text-muted-foreground mt-1">
+                          &yen;{(PRICE_PER_SEAT * subStatus.orgSubscription.quantity).toLocaleString()}/月
+                          {subStatus.orgSubscription.current_period_end && (
+                            <> ・ 次回更新: {new Date(subStatus.orgSubscription.current_period_end).toLocaleDateString('ja-JP')}</>
+                          )}
+                        </p>
                       </div>
-                      <p className="text-sm text-muted-foreground mt-1">
-                        &yen;{(PRICE_PER_SEAT * subStatus.orgSubscription.quantity).toLocaleString()}/月
-                        {subStatus.orgSubscription.current_period_end && (
-                          <> ・ 次回更新: {new Date(subStatus.orgSubscription.current_period_end).toLocaleDateString('ja-JP')}</>
-                        )}
-                      </p>
+                      <Button variant="outline" onClick={handleManageSubscription} disabled={isLoading} className="gap-1">
+                        <ExternalLink className="h-4 w-4" />
+                        管理
+                      </Button>
                     </div>
-                    <Button variant="outline" onClick={handleManageSubscription} disabled={isLoading} className="gap-1">
-                      <ExternalLink className="h-4 w-4" />
-                      管理
-                    </Button>
+                    {/* シート数変更 */}
+                    <div className="flex items-center gap-3 pt-3 border-t">
+                      <Label htmlFor="change-seats" className="text-sm whitespace-nowrap">
+                        シート数変更:
+                      </Label>
+                      <Select
+                        value={String(newSeatCount || subStatus.orgSubscription.quantity)}
+                        onValueChange={(val) => setNewSeatCount(Number(val))}
+                      >
+                        <SelectTrigger id="change-seats" className="w-24">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {Array.from({ length: 49 }, (_, i) => i + 2).map((n) => (
+                            <SelectItem key={n} value={String(n)}>
+                              {n}人
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        onClick={() => handleSeatChangePreview(newSeatCount || subStatus.orgSubscription!.quantity)}
+                        disabled={
+                          loadingSeatPreview ||
+                          !newSeatCount ||
+                          newSeatCount === subStatus.orgSubscription.quantity
+                        }
+                      >
+                        {loadingSeatPreview ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          '変更'
+                        )}
+                      </Button>
+                    </div>
                   </div>
                 ) : hasIndividualPlan && subStatus?.subscription ? (
                   <div className="flex items-center justify-between">
@@ -764,6 +885,109 @@ export default function PricingPage() {
                 <><Loader2 className="mr-2 h-4 w-4 animate-spin" />処理中...</>
               ) : (
                 'アップグレードを確定'
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* シート変更確認モーダル */}
+      <Dialog open={showSeatChangeConfirm} onOpenChange={(open) => {
+        if (!changingSeats) {
+          setShowSeatChangeConfirm(open);
+          if (!open) setSeatChangePreview(null);
+        }
+      }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>シート数の変更</DialogTitle>
+            <DialogDescription>
+              チームプランのシート数を変更します。以下の内容をご確認ください。
+            </DialogDescription>
+          </DialogHeader>
+
+          {seatChangePreview ? (
+            <div className="space-y-4 py-2">
+              {/* シート数変更サマリー */}
+              <div className="flex items-center justify-between p-3 rounded-lg bg-muted/50">
+                <div className="text-sm">
+                  <div className="text-muted-foreground">{seatChangePreview.currentQuantity}シート</div>
+                  <div className="text-xs text-muted-foreground">
+                    &yen;{(PRICE_PER_SEAT * seatChangePreview.currentQuantity).toLocaleString()}/月
+                  </div>
+                </div>
+                <ArrowRight className="h-4 w-4 text-muted-foreground mx-2" />
+                <div className="text-sm font-medium">
+                  <div>{seatChangePreview.newQuantity}シート</div>
+                  <div className="text-xs text-muted-foreground">
+                    &yen;{(PRICE_PER_SEAT * seatChangePreview.newQuantity).toLocaleString()}/月
+                  </div>
+                </div>
+              </div>
+
+              {/* 料金明細 */}
+              <div className="border rounded-lg divide-y">
+                {seatChangePreview.lines.map((line, i) => (
+                  <div key={i} className="flex items-center justify-between px-3 py-2 text-sm">
+                    <span className={`flex-1 ${line.proration ? 'text-muted-foreground' : ''}`}>
+                      {line.description}
+                    </span>
+                    <span className={`font-mono ${line.amount < 0 ? 'text-green-600' : ''}`}>
+                      {line.amount < 0 ? '-' : ''}&yen;{Math.abs(line.amount).toLocaleString()}
+                    </span>
+                  </div>
+                ))}
+              </div>
+
+              {/* 合計 */}
+              <div className="flex items-center justify-between p-3 rounded-lg bg-primary/5 border border-primary/20">
+                <span className="font-medium">
+                  {seatChangePreview.amountDue >= 0 ? '今回の請求額' : '今回のクレジット'}
+                </span>
+                <span className={`text-xl font-bold ${seatChangePreview.amountDue < 0 ? 'text-green-600' : ''}`}>
+                  {seatChangePreview.amountDue < 0 ? '-' : ''}&yen;{Math.abs(seatChangePreview.amountDue).toLocaleString()}
+                </span>
+              </div>
+
+              {seatChangePreview.newQuantity < seatChangePreview.currentQuantity && (
+                <p className="text-xs text-muted-foreground">
+                  シート削減分のクレジットは次回請求から差し引かれます。
+                </p>
+              )}
+
+              {seatChangePreview.currentPeriodEnd && (
+                <p className="text-xs text-muted-foreground">
+                  次回更新日: {new Date(seatChangePreview.currentPeriodEnd).toLocaleDateString('ja-JP')} 以降は
+                  &yen;{(PRICE_PER_SEAT * seatChangePreview.newQuantity).toLocaleString()}/月で自動更新されます。
+                </p>
+              )}
+            </div>
+          ) : (
+            <div className="flex items-center justify-center py-8">
+              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+              <span className="ml-2 text-muted-foreground">料金を計算中...</span>
+            </div>
+          )}
+
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button
+              variant="outline"
+              onClick={() => {
+                setShowSeatChangeConfirm(false);
+                setSeatChangePreview(null);
+              }}
+              disabled={changingSeats}
+            >
+              キャンセル
+            </Button>
+            <Button
+              onClick={handleConfirmSeatChange}
+              disabled={changingSeats || !seatChangePreview}
+            >
+              {changingSeats ? (
+                <><Loader2 className="mr-2 h-4 w-4 animate-spin" />処理中...</>
+              ) : (
+                'シート数を変更'
               )}
             </Button>
           </DialogFooter>
