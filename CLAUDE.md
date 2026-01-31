@@ -838,6 +838,13 @@ docker compose logs -f backend                        # ログ確認
   - `sidebar.tsx` (サイドバーリンク)
 - **修正**: `auth/page.tsx` — ESLint import順序エラー修正
 
+### 7. サイドバー整理
+- **ファイル**: `frontend/src/components/constant/route.ts`
+- Blog グループから「連携設定」セクション（WordPress連携リンク）を削除 — WordPress連携は Settings のみに集約
+- Settings「メンバー設定」→「チームメンバー設定」に文言変更
+- Settings「ワードプレス連携設定」→「WordPress連携設定」に文言変更
+- Settings から Instagram連携設定・LINE連携設定を削除（disabled だったものを完全除去）
+
 ---
 
 ## 自己改善ログ

@@ -99,12 +99,6 @@ export const groups: Group[] = [
               { href: '/blog/history', label: '生成履歴' },
             ],
           },
-          {
-            title: '連携設定',
-            links: [
-              { href: '/settings/integrations/wordpress', label: 'WordPress連携設定' },
-            ],
-          },
         ],
       },
     ],
@@ -140,16 +134,14 @@ export const groups: Group[] = [
             title: '基本設定',
             links: [
               { href: '/settings/account', label: 'アカウント設定' },
-              { href: '/settings/members', label: 'メンバー設定' },
+              { href: '/settings/members', label: 'チームメンバー設定' },
               { href: '/settings/billing', label: '請求&契約設定' },
             ],
           },
           {
             title: 'サービス連携設定',
             links: [
-              { href: '/settings/integrations/wordpress', label: 'ワードプレス連携設定' },
-              { href: '/settings/integrations/instagram', label: 'Instagram連携設定', disabled: true },
-              { href: '/settings/integrations/line', label: 'LINE連携設定', disabled: true },
+              { href: '/settings/integrations/wordpress', label: 'WordPress連携設定' },
             ],
           },
         ],
