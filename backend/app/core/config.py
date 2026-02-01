@@ -61,6 +61,9 @@ class Settings(BaseSettings):
     ai_content_generation_reasoning_effort: str = os.getenv("AI_CONTENT_GENERATION_REASONING_EFFORT", "low")
     ai_content_enable_web_search: bool = os.getenv("AI_CONTENT_ENABLE_WEB_SEARCH", "true").lower() == "true"
 
+    # Reasoning summary translation
+    reasoning_translate_model: str = os.getenv("REASONING_TRANSLATE_MODEL", "gpt-5-nano")
+
     # Scraping settings
     scraping_timeout: int = int(os.getenv("SCRAPING_TIMEOUT", "5"))
     scraping_delay: float = float(os.getenv("SCRAPING_DELAY", "0.2"))

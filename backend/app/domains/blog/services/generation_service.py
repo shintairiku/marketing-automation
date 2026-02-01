@@ -26,6 +26,8 @@ from agents.items import (
     MessageOutputItem,
 )
 
+from openai import AsyncOpenAI
+
 from app.common.database import supabase
 from app.domains.usage.service import usage_service
 import logging
@@ -729,6 +731,11 @@ class BlogGenerationService:
                         texts = [s.text for s in item.raw_item.summary if hasattr(s, 'text') and s.text]
                         if texts:
                             summary_text = " ".join(texts)
+
+                    # 英語 summary → 日本語に翻訳
+                    if summary_text:
+                        summary_text = await self._translate_to_japanese(summary_text)
+
                     await self._publish_event(
                         process_id, user_id,
                         "reasoning",
@@ -1542,6 +1549,23 @@ class BlogGenerationService:
         supabase.table("blog_generation_state").update(
             update_data
         ).eq("id", process_id).execute()
+
+    async def _translate_to_japanese(self, text: str) -> str:
+        """英語の reasoning summary を gpt-5-nano で日本語に翻訳"""
+        try:
+            client = AsyncOpenAI(api_key=settings.openai_api_key)
+            response = await client.responses.create(
+                model=settings.reasoning_translate_model,
+                instructions="Translate the following text to Japanese. Output ONLY the translated text, nothing else. Keep any markdown formatting intact.",
+                input=text,
+                reasoning={"effort": "minimal", "summary": None},
+                text={"verbosity": "low"},
+                store=False,
+            )
+            return response.output_text or text
+        except Exception as e:
+            logger.warning(f"Reasoning summary 翻訳失敗、原文を使用: {e}")
+            return text
 
     async def _publish_event(
         self,

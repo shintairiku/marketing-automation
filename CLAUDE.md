@@ -1082,13 +1082,22 @@ docker compose logs -f backend                        # ログ確認
 - `bun run generate-types` 実行後、`(supabase as any)` キャストを通常の型付きクエリに戻す必要あり
 - `frontend/src/app/api/subscription/status/route.ts` も `usage_tracking` クエリに `any` キャスト追加（ビルドエラー回避）
 
-### 13. Reasoning Summary フロントエンド表示修正
+### 13. Reasoning Summary フロントエンド表示修正 + 日本語翻訳
 
-**問題**: Blog AI エージェントの reasoning summary がフロントエンドで表示されず、常に「分析・構成を検討中...」のハードコード文字列が表示されていた。バックエンドは `event_data.message` に正しく summary テキストを送信していたが、フロントエンドが無視していた。
+**問題**: Blog AI エージェントの reasoning summary がフロントエンドで表示されず、常に「分析・構成を検討中...」のハードコード文字列が表示されていた。また、summaryは英語で返ってくるため日本語翻訳が必要。
 
-**修正**: `frontend/src/app/(tools)/blog/[processId]/page.tsx`
-1. `convertEventToActivity()` の reasoning 分岐: `"分析・構成を検討中..."` → `event_data.message || "分析・構成を検討中..."` に変更（バックエンドの summary テキストを使用）
-2. thinking タイプのスタイル: `text-sm` → `text-xs` に変更し、他のアクティビティエントリより小さく控えめに表示
+**修正（3ファイル）**:
+
+1. **`backend/app/core/config.py`** — `reasoning_translate_model` 設定追加（デフォルト: `gpt-5-nano`）
+2. **`backend/app/domains/blog/services/generation_service.py`**:
+   - `AsyncOpenAI` インポート追加
+   - `_translate_to_japanese()` メソッド追加: gpt-5-nano + `reasoning.effort="minimal"` + `text.verbosity="low"` で翻訳（111トークン/回）
+   - ReasoningItem 処理で summary 抽出後に `_translate_to_japanese()` を呼び出し
+   - 翻訳失敗時は英語テキストをそのまま使用（生成フローに影響しない）
+3. **`frontend/src/app/(tools)/blog/[processId]/page.tsx`**:
+   - `convertEventToActivity()`: ハードコード文字列 → `event_data.message` 使用
+   - thinking エントリ表示: `<p>` → `<ChatMarkdown>` でMarkdownレンダリング
+   - Tailwind arbitrary variants で ChatMarkdown 内部のスタイルを `text-xs` + stone-400 に上書き
 
 ---
 

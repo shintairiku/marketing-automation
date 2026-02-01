@@ -961,17 +961,24 @@ export default function BlogProcessPage() {
 
                           {/* Content */}
                           <div className="flex-1 min-w-0">
-                            <p
-                              className={`leading-snug ${
-                                entry.type === "thinking"
-                                  ? "text-xs text-stone-400 italic"
-                                  : entry.status === "running"
-                                    ? "text-sm text-stone-700"
-                                    : "text-sm text-stone-500"
-                              }`}
-                            >
-                              {entry.message}
-                            </p>
+                            {entry.type === "thinking" ? (
+                              <div className="text-xs text-stone-400 italic [&_p]:my-0.5 [&_ul]:my-1 [&_ol]:my-1 [&_*]:text-xs [&_p]:text-stone-400 [&_strong]:text-stone-500 [&_li]:text-stone-400 [&_.prose]:text-xs">
+                                <ChatMarkdown
+                                  content={entry.message}
+                                  className="!text-xs !leading-snug"
+                                />
+                              </div>
+                            ) : (
+                              <p
+                                className={`text-sm leading-snug ${
+                                  entry.status === "running"
+                                    ? "text-stone-700"
+                                    : "text-stone-500"
+                                }`}
+                              >
+                                {entry.message}
+                              </p>
+                            )}
                             {entry.phase && entry.type === "tool" && (
                               <p className="text-[11px] text-stone-300 mt-0.5">
                                 {entry.phase}
