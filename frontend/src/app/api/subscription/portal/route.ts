@@ -43,7 +43,8 @@ export async function POST(request: Request) {
 
     // 3. リクエストボディからURLを取得
     const body = await request.json().catch(() => ({}));
-    const returnUrl = body.returnUrl || `${process.env.NEXT_PUBLIC_APP_URL}/dashboard`;
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+    const returnUrl = body.returnUrl || `${appUrl}/dashboard`;
 
     // 4. Stripe Customer Portal Session作成
     const stripe = getStripe();

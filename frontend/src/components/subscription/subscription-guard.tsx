@@ -102,7 +102,7 @@ interface SubscriptionGuardProps {
 export function SubscriptionGuard({
   children,
   fallback,
-  redirectTo = '/pricing',
+  redirectTo = '/settings/billing',
 }: SubscriptionGuardProps) {
   const router = useRouter();
   const { hasAccess, isLoading } = useSubscription();
@@ -209,7 +209,7 @@ export function SubscriptionBanner() {
           <div className="ml-3">
             <p className="text-sm text-blue-700">
               すべての機能を利用するにはプランにご登録ください。
-              <a href="/pricing" className="font-medium underline ml-2">
+              <a href="/settings/billing" className="font-medium underline ml-2">
                 プランを見る
               </a>
             </p>

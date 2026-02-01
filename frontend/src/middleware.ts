@@ -32,8 +32,8 @@ const isPrivilegedOnlyRoute = createRouteMatcher([
 
 // Define routes that should be public (accessible without authentication)
 const isPublicRoute = createRouteMatcher([
-  '/',
   '/pricing',
+  '/auth',
   '/sign-in(.*)',
   '/sign-up(.*)',
   '/invitation(.*)',
@@ -62,7 +62,21 @@ async function getUserEmail(userId: string): Promise<string | undefined> {
   }
 }
 
+// ルートパス `/` のマッチャー
+const isRootRoute = createRouteMatcher(['/']);
+
 export default clerkMiddleware(async (authObject, req) => {
+  // ルート `/` へのアクセス: 認証状態に応じてリダイレクト
+  if (isRootRoute(req)) {
+    const { userId } = await authObject();
+    if (userId) {
+      // ログイン済み → /blog/new（SubscriptionGuardが課金チェックを行う）
+      return NextResponse.redirect(new URL('/blog/new', req.url));
+    }
+    // 未ログイン → /auth（サインイン/サインアップ選択画面）
+    return NextResponse.redirect(new URL('/auth', req.url));
+  }
+
   // Protected route check (認証 + 特権ルート制御)
   if (!isPublicRoute(req) && isProtectedRoute(req)) {
     const { userId } = await authObject();

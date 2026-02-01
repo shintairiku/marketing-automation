@@ -216,25 +216,11 @@ async function handleCheckoutCompleted(
       { onConflict: 'id' }
     );
 
-    // 個人サブスクリプションが残っている場合はキャンセル（チームプランへの移行）
-    // チェックアウト完了後にキャンセルすることで、途中離脱時のプラン喪失を防ぐ
-    const { data: existingUserSub } = await supabase
-      .from('user_subscriptions')
-      .select('stripe_subscription_id, status')
-      .eq('user_id', userId)
-      .single();
-
-    if (existingUserSub?.stripe_subscription_id && existingUserSub.status === 'active') {
-      try {
-        const stripe = getStripe();
-        await stripe.subscriptions.cancel(existingUserSub.stripe_subscription_id, {
-          prorate: true,
-        });
-        console.log(`Individual sub ${existingUserSub.stripe_subscription_id} canceled after team plan checkout`);
-      } catch (cancelError) {
-        console.warn('Failed to cancel individual subscription during upgrade:', cancelError);
-      }
-    }
+    // 組織に billing_user_id を設定（課金ユーザーの追跡）
+    await supabase
+      .from('organizations')
+      .update({ billing_user_id: userId, stripe_customer_id: customerId })
+      .eq('id', organizationId);
 
     console.log(`Org checkout completed: org=${organizationId}, sub=${subscriptionId}`);
   } else {
@@ -307,6 +293,19 @@ async function handleSubscriptionChange(
       },
       { onConflict: 'id' }
     );
+
+    // 同一サブスクが個人→組織に遷移した場合、user_subscriptions も更新
+    // (upgrade-to-team で quantity を変更した場合、同じ subscription ID のまま organization_id が付与される)
+    // Note: upgraded_to_org_id はマイグレーション適用後に有効。型生成前は型アサーションで対応。
+    await supabase
+      .from('user_subscriptions')
+      .update({
+        status: userStatus,
+        current_period_end: periodEndDate,
+        cancel_at_period_end: subscription.cancel_at_period_end,
+        upgraded_to_org_id: organizationId,
+      } as Record<string, unknown>)
+      .eq('user_id', userId);
 
     console.log(`Org subscription ${subscription.id} updated: org=${organizationId}, status=${orgStatus}, qty=${quantity}`);
   } else {

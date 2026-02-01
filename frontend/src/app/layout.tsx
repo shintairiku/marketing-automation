@@ -1,5 +1,5 @@
 import type { Metadata } from 'next';
-import { Montserrat, Montserrat_Alternates } from 'next/font/google';
+import { Noto_Sans_JP } from 'next/font/google';
 import { Toaster as SonnerToaster } from 'sonner';
 
 import { Toaster } from '@/components/ui/toaster';
@@ -12,15 +12,10 @@ import '@/styles/globals.css';
 
 export const dynamic = 'force-dynamic';
 
-const montserrat = Montserrat({
-  variable: '--font-montserrat',
+const notoSansJP = Noto_Sans_JP({
+  variable: '--font-noto-sans-jp',
   subsets: ['latin'],
-});
-
-const montserratAlternates = Montserrat_Alternates({
-  variable: '--font-montserrat-alternates',
-  weight: ['500', '600', '700'],
-  subsets: ['latin'],
+  weight: ['400', '500', '600', '700'],
 });
 
 export const metadata: Metadata = {
@@ -40,7 +35,7 @@ export default function RootLayout({
   return (
     <ClerkProvider localization={jaJP}>
       <html lang='ja'>
-        <body className={cn('font-sans antialiased', montserrat.variable, montserratAlternates.variable)}>
+        <body className={cn('font-sans antialiased', notoSansJP.variable)}>
           {children}
           <Toaster />
           <SonnerToaster position="top-right" />

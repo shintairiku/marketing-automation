@@ -1,15 +1,8 @@
 import Stripe from 'stripe';
 
-// Stripeの型定義を拡張
-interface StripeSubscriptionWithPeriod extends Stripe.Subscription {
-  current_period_start: number;
-  current_period_end: number;
-}
-
 import { getStripeAdmin } from '@/libs/stripe/stripe-admin';
 import { supabaseAdminClient } from '@/libs/supabase/supabase-admin';
 import type { Database } from '@/libs/supabase/types';
-import { toDateTime } from '@/utils/to-date-time';
 import { AddressParam } from '@stripe/stripe-js';
 
 export async function upsertUserSubscription({
@@ -37,19 +30,12 @@ export async function upsertUserSubscription({
     
     const subscription = await getStripeAdmin().subscriptions.retrieve(subscriptionId, {
       expand: ['default_payment_method'],
-    }) as unknown as StripeSubscriptionWithPeriod;
-  
-  // デバッグ用にタイムスタンプ情報をログ出力
-  console.log('Subscription timestamps:', {
-    subscription_id: subscription.id,
-    raw_data: JSON.stringify(subscription),
-    current_period_start: subscription.current_period_start,
-    current_period_end: subscription.current_period_end,
-    created: subscription.created,
-    type_current_period_start: typeof subscription.current_period_start,
-    type_current_period_end: typeof subscription.current_period_end,
-    type_created: typeof subscription.created
-  });
+    });
+
+    // Stripe v18+: current_period_start/end はサブスクリプションアイテムに移動
+    const firstItem = subscription.items.data[0];
+    const itemPeriodStart = firstItem?.current_period_start;
+    const itemPeriodEnd = firstItem?.current_period_end;
 
   // 安全に日付文字列を取得する関数
   const safeISOString = (timestamp: number | null | undefined): string | null => {
@@ -79,8 +65,8 @@ export async function upsertUserSubscription({
     cancel_at_period_end: subscription.cancel_at_period_end,
     cancel_at: subscription.cancel_at ? safeISOString(subscription.cancel_at) : null,
     canceled_at: subscription.canceled_at ? safeISOString(subscription.canceled_at) : null,
-    current_period_start: safeISOString(subscription.current_period_start) || new Date().toISOString(),
-    current_period_end: safeISOString(subscription.current_period_end) || new Date().toISOString(),
+    current_period_start: safeISOString(itemPeriodStart) || new Date().toISOString(),
+    current_period_end: safeISOString(itemPeriodEnd) || new Date().toISOString(),
     created: safeISOString(subscription.created) || new Date().toISOString(),
     ended_at: subscription.ended_at ? safeISOString(subscription.ended_at) : null,
     trial_start: subscription.trial_start ? safeISOString(subscription.trial_start) : null,

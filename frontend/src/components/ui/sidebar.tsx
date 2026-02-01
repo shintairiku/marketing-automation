@@ -108,7 +108,7 @@ export function Sidebar({ className }: SidebarProps) {
           </div>
           <div className="mt-1 flex justify-between text-xs text-muted-foreground">
             <span>5/10記事</span>
-            <Link href="/pricing" className="hover:text-indigo-400 hover:underline">
+            <Link href="/settings/billing" className="hover:text-indigo-400 hover:underline">
               プロプランに変更
             </Link>
           </div>
