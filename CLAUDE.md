@@ -855,13 +855,14 @@ docker compose logs -f backend                        # ログ確認
 - `lucide-react` 0.474.0 → 0.563.0
 - `react` / `react-dom` 19.2.1 → 19.2.4
 - `stripe` 18.5.0 → 20.3.0 (MAJOR)
-- `tailwind-merge` 2.6.0 → 3.4.0 (MAJOR)
+- `tailwind-merge` 2.6.0 → 2.6.1 (v3はTailwind CSS v4専用のためダウングレード)
 - `next-route-handler-pipe` 1.0.5 → 2.0.0 (MAJOR)
 - `@types/react` 19.0.4 → 19.2.10, `@types/react-dom` 19.0.2 → 19.2.3
 - `prettier` 2.8.8 → 3.8.1, `prettier-plugin-tailwindcss` 0.3.0 → 0.7.2 (MAJOR)
 - `eslint-config-prettier` 8.10.2 → 10.1.8, `eslint-plugin-simple-import-sort` 10.0.0 → 12.1.1 (MAJOR)
 - `env-cmd` 10.1.0 → 11.0.0, `supabase` 2.72.9 → 2.74.5, `autoprefixer` 10.4.23 → 10.4.24
 - **据え置き**: Next.js 15 (16は設定形式変更)、Tailwind 3 (4はCSS設定方式)、ESLint 8 (9はflat config)、Zod 3 (4はAPI変更)
+- **ダウングレード**: `tailwind-merge` v3→v2.6.1 (v3はTailwind CSS v4専用。プロジェクトはTW v3なのでv2系が必須)
 
 #### Backend (uv)
 - `fastapi` 0.116.2 → 0.128.0
@@ -905,6 +906,8 @@ docker compose logs -f backend                        # ログ確認
 - **即時決済のUX問題**: アップグレードボタン押下で即座に決済が走る実装は、ユーザーに確認の余地がなかった。**課金を伴うアクションは必ず確認ステップを挟むべき。** `invoices.createPreview()` でプレビューを見せてから実行する設計が適切。
 - **ビルドコマンド**: フロントエンドのビルドは `bun run build` を使う。`npx next build` ではなく。`.next` キャッシュの削除は通常不要（ルートグループ変更時等の特殊ケースのみ）。
 - **記憶の更新忘れ**: 作業完了後は必ず CLAUDE.md を更新する。ユーザーに言われる前に自主的に行うべき。
+- **tailwind-merge v3 非互換**: `tailwind-merge` v3 は Tailwind CSS v4 専用。Tailwind CSS v3 プロジェクトでは v2.6.x を使うこと。`bg-gradient-to-*` 等の競合解決が壊れる。**メジャーバージョンアップ時は、同じエコシステム内の他パッケージとの互換性も必ず確認すべき。**
+- **openai-agents 0.7.0 注意点**: `nest_handoff_history` デフォルトが `True`→`False` に変更。ハンドオフ使用時は明示的に `True` を渡す必要がある可能性。GPT-5.1/5.2 のデフォルト reasoning effort が `'none'` に変更されたためブログ生成品質に影響する可能性あり（要テスト）。
 
 ---
 
