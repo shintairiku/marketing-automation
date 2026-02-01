@@ -18,6 +18,7 @@ from fastapi import (
     BackgroundTasks,
     Depends,
     File,
+    Form,
     HTTPException,
     Query,
     UploadFile,
@@ -41,6 +42,7 @@ from app.domains.blog.schemas import (
     UserAnswers,
 )
 from app.domains.blog.services.crypto_service import get_crypto_service
+from app.domains.blog.services.image_utils import convert_and_save_as_webp
 from app.domains.blog.services.wordpress_mcp_service import (
     WordPressMcpService,
     WordPressMcpClient,
@@ -742,15 +744,25 @@ async def update_site_organization(
     "/generation/start",
     response_model=BlogGenerationStateResponse,
     summary="ブログ生成開始",
-    description="新しいブログ記事の生成プロセスを開始",
+    description="新しいブログ記事の生成プロセスを開始（画像アップロード対応）",
 )
 async def start_blog_generation(
-    request: BlogGenerationStartRequest,
     background_tasks: BackgroundTasks,
+    user_prompt: str = Form(..., max_length=2000, description="どんな記事を作りたいか"),
+    wordpress_site_id: str = Form(..., description="接続済みWordPressサイトID"),
+    reference_url: Optional[str] = Form(None, description="参考記事のURL"),
+    files: List[UploadFile] = File(default=[], description="記事に含めたい画像（最大5枚）"),
     user_id: str = Depends(get_current_user),
 ):
-    """ブログ生成を開始"""
-    logger.info(f"ブログ生成開始: user={user_id}")
+    """ブログ生成を開始（画像アップロード対応）"""
+    logger.info(f"ブログ生成開始: user={user_id}, images={len(files)}")
+
+    # 画像枚数制限
+    if len(files) > 5:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="画像は最大5枚までです",
+        )
 
     # 使用量プリチェック
     org_id = _get_user_org_for_usage(user_id)
@@ -770,12 +782,12 @@ async def start_blog_generation(
 
     # WordPressサイトを確認（ユーザー自身 or 組織メンバー）
     site_result = supabase.table("wordpress_sites").select("*").eq(
-        "id", request.wordpress_site_id
+        "id", wordpress_site_id
     ).eq("user_id", user_id).execute()
 
     if not site_result.data:
         # 組織経由のアクセスを確認
-        site_result = _get_org_site(supabase, request.wordpress_site_id, user_id)
+        site_result = _get_org_site(supabase, wordpress_site_id, user_id)
 
     if not site_result.data:
         raise HTTPException(
@@ -790,18 +802,38 @@ async def start_blog_generation(
     realtime_channel = f"blog_generation:{process_id}"
     now = datetime.utcnow().isoformat()
 
+    # 画像をWebPに変換して保存
+    uploaded_images = []
+    for file in files:
+        if file.filename and file.size and file.size > 0:
+            try:
+                content = await file.read()
+                local_path = convert_and_save_as_webp(
+                    content, file.filename or "image.jpg", process_id
+                )
+                uploaded_images.append({
+                    "filename": os.path.basename(local_path),
+                    "original_filename": file.filename,
+                    "local_path": local_path,
+                    "wp_media_id": None,
+                    "wp_url": None,
+                    "uploaded_at": now,
+                })
+            except Exception as e:
+                logger.warning(f"画像変換エラー: {file.filename} - {e}")
+
     process_data = {
         "id": process_id,
         "user_id": user_id,
-        "wordpress_site_id": request.wordpress_site_id,
+        "wordpress_site_id": wordpress_site_id,
         "status": "pending",
         "current_step_name": "初期化中",
         "progress_percentage": 0,
         "is_waiting_for_input": False,
         "blog_context": {},
-        "user_prompt": request.user_prompt,
-        "reference_url": request.reference_url,
-        "uploaded_images": [],
+        "user_prompt": user_prompt,
+        "reference_url": reference_url,
+        "uploaded_images": uploaded_images,
         "realtime_channel": realtime_channel,
         "created_at": now,
         "updated_at": now,
@@ -821,8 +853,8 @@ async def start_blog_generation(
         generation_service.run_generation,
         process_id=process_id,
         user_id=user_id,
-        user_prompt=request.user_prompt,
-        reference_url=request.reference_url,
+        user_prompt=user_prompt,
+        reference_url=reference_url,
         wordpress_site=site,
     )
 
@@ -1142,7 +1174,7 @@ async def upload_image(
     file: UploadFile = File(...),
     user_id: str = Depends(get_current_user),
 ):
-    """画像をアップロード"""
+    """画像をアップロード（WebP変換対応）"""
     logger.info(f"画像アップロード: process_id={process_id}, filename={file.filename}")
 
     supabase = get_supabase_client()
@@ -1158,28 +1190,33 @@ async def upload_image(
             detail="生成プロセスが見つかりません",
         )
 
-    # ファイルを保存
-    upload_dir = os.path.join(settings.temp_upload_dir or "/tmp/blog_uploads", process_id)
-    os.makedirs(upload_dir, exist_ok=True)
+    # 画像を読み込み → WebP 変換 → 保存
+    content = await file.read()
+    try:
+        local_path = convert_and_save_as_webp(
+            content, file.filename or "image.jpg", process_id
+        )
+    except Exception as e:
+        logger.error(f"WebP変換エラー: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"画像の処理に失敗しました: {str(e)}",
+        )
 
-    filename = f"{uuid.uuid4()}_{file.filename}"
-    local_path = os.path.join(upload_dir, filename)
-
-    with open(local_path, "wb") as f:
-        content = await file.read()
-        f.write(content)
+    webp_filename = os.path.basename(local_path)
 
     # uploaded_imagesを更新
     uploaded_images = result.data.get("uploaded_images", [])
+    now = datetime.utcnow().isoformat()
     uploaded_images.append({
-        "filename": file.filename,
+        "filename": webp_filename,
+        "original_filename": file.filename,
         "local_path": local_path,
         "wp_media_id": None,
         "wp_url": None,
-        "uploaded_at": datetime.utcnow().isoformat(),
+        "uploaded_at": now,
     })
 
-    now = datetime.utcnow().isoformat()
     supabase.table("blog_generation_state").update({
         "uploaded_images": uploaded_images,
         "updated_at": now,
@@ -1187,9 +1224,9 @@ async def upload_image(
 
     return ImageUploadResponse(
         success=True,
-        filename=file.filename,
+        filename=webp_filename,
         local_path=local_path,
-        message="画像がアップロードされました",
+        message="画像がアップロードされました（WebP形式）",
     )
 
 

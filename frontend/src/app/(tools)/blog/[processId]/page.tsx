@@ -7,15 +7,19 @@ import {
   AlertCircle,
   ArrowLeft,
   Check,
+  CheckCircle2,
   Edit3,
   ExternalLink,
   FileText,
   ImageIcon,
+  ImagePlus,
   Loader2,
   MessageSquare,
   RefreshCw,
   Send,
   SkipForward,
+  Upload,
+  X,
 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
@@ -160,6 +164,12 @@ export default function BlogProcessPage() {
   const [loading, setLoading] = useState(true);
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [submittingAnswers, setSubmittingAnswers] = useState(false);
+
+  // Image upload state for question phase
+  const [questionImages, setQuestionImages] = useState<
+    Record<string, { files: File[]; previewUrls: string[]; uploadedNames: string[]; uploading: boolean }>
+  >({});
+  const imageInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
 
   // Activity feed from process events
   const [activities, setActivities] = useState<ActivityEntry[]>([]);
@@ -387,12 +397,103 @@ export default function BlogProcessPage() {
     activityEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [activities]);
 
+  // ---- Image upload handlers for question phase ----
+  const handleQuestionImageSelect = useCallback(
+    (questionId: string, files: FileList | null) => {
+      if (!files || files.length === 0) return;
+      const newFiles = Array.from(files);
+      setQuestionImages((prev) => {
+        const existing = prev[questionId] || { files: [], previewUrls: [], uploadedNames: [], uploading: false };
+        // Max 5 images per question
+        const combined = [...existing.files, ...newFiles].slice(0, 5);
+        const newPreviews = newFiles.map((f) => URL.createObjectURL(f));
+        const combinedPreviews = [...existing.previewUrls, ...newPreviews].slice(0, 5);
+        return { ...prev, [questionId]: { ...existing, files: combined, previewUrls: combinedPreviews } };
+      });
+    },
+    []
+  );
+
+  const handleRemoveQuestionImage = useCallback(
+    (questionId: string, index: number) => {
+      setQuestionImages((prev) => {
+        const existing = prev[questionId];
+        if (!existing) return prev;
+        URL.revokeObjectURL(existing.previewUrls[index]);
+        const files = existing.files.filter((_, i) => i !== index);
+        const previewUrls = existing.previewUrls.filter((_, i) => i !== index);
+        const uploadedNames = existing.uploadedNames.filter((_, i) => i !== index);
+        return { ...prev, [questionId]: { ...existing, files, previewUrls, uploadedNames } };
+      });
+    },
+    []
+  );
+
+  const uploadQuestionImages = useCallback(
+    async (questionId: string): Promise<string[]> => {
+      const entry = questionImages[questionId];
+      if (!entry || entry.files.length === 0) return [];
+      // Already uploaded
+      if (entry.uploadedNames.length === entry.files.length) return entry.uploadedNames;
+
+      setQuestionImages((prev) => ({
+        ...prev,
+        [questionId]: { ...prev[questionId], uploading: true },
+      }));
+
+      const token = await getToken();
+      const uploadedNames: string[] = [];
+
+      for (const file of entry.files) {
+        const formData = new FormData();
+        formData.append("file", file);
+        try {
+          const res = await fetch(
+            `/api/proxy/blog/generation/${processId}/upload-image`,
+            {
+              method: "POST",
+              headers: { Authorization: `Bearer ${token}` },
+              body: formData,
+            }
+          );
+          if (res.ok) {
+            const data = await res.json();
+            uploadedNames.push(data.filename || file.name);
+          }
+        } catch (err) {
+          console.error("Failed to upload question image:", err);
+        }
+      }
+
+      setQuestionImages((prev) => ({
+        ...prev,
+        [questionId]: { ...prev[questionId], uploading: false, uploadedNames },
+      }));
+      return uploadedNames;
+    },
+    [questionImages, getToken, processId]
+  );
+
   // ---- Submit answers ----
   const handleSubmitAnswers = async (skip = false) => {
     setSubmittingAnswers(true);
     try {
       const token = await getToken();
-      const payload = skip ? { answers: {} } : { answers };
+
+      // Upload any pending images before submitting answers
+      const finalAnswers = skip ? {} : { ...answers };
+      if (!skip) {
+        for (const question of state?.blog_context.ai_questions || []) {
+          if (question.input_type === "image_upload" && questionImages[question.question_id]?.files.length > 0) {
+            const uploadedNames = await uploadQuestionImages(question.question_id);
+            if (uploadedNames.length > 0) {
+              finalAnswers[question.question_id] = `uploaded:${uploadedNames.join(",")}`;
+            }
+          }
+        }
+      }
+
+      const payload = { answers: finalAnswers };
       const response = await fetch(
         `/api/proxy/blog/generation/${processId}/user-input`,
         {
@@ -406,6 +507,11 @@ export default function BlogProcessPage() {
       );
       if (response.ok) {
         setAnswers({});
+        // Clean up image previews
+        Object.values(questionImages).forEach((entry) =>
+          entry.previewUrls.forEach((url) => URL.revokeObjectURL(url))
+        );
+        setQuestionImages({});
         await fetchState();
         // Fetch events that may have been inserted during the transition
         await fetchExistingEvents();
@@ -687,6 +793,82 @@ export default function BlogProcessPage() {
                           placeholder="わかる範囲でお書きください..."
                           className="min-h-[100px] bg-white border-stone-200 focus:border-amber-400 focus:ring-amber-100 rounded-xl"
                         />
+                      ) : question.input_type === "image_upload" ? (
+                        <div className="space-y-3">
+                          {/* Selected images preview */}
+                          {(questionImages[question.question_id]?.previewUrls.length ?? 0) > 0 && (
+                            <div className="grid grid-cols-3 gap-2">
+                              {questionImages[question.question_id].previewUrls.map(
+                                (url, imgIdx) => (
+                                  <div key={imgIdx} className="relative group aspect-square rounded-lg overflow-hidden border border-stone-200 bg-stone-50">
+                                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                                    <img
+                                      src={url}
+                                      alt={`画像 ${imgIdx + 1}`}
+                                      className="w-full h-full object-cover"
+                                    />
+                                    {questionImages[question.question_id]?.uploadedNames[imgIdx] ? (
+                                      <div className="absolute top-1 right-1 w-5 h-5 rounded-full bg-emerald-500 flex items-center justify-center">
+                                        <CheckCircle2 className="w-3 h-3 text-white" />
+                                      </div>
+                                    ) : (
+                                      <button
+                                        type="button"
+                                        onClick={() => handleRemoveQuestionImage(question.question_id, imgIdx)}
+                                        className="absolute top-1 right-1 w-5 h-5 rounded-full bg-black/50 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                                      >
+                                        <X className="w-3 h-3 text-white" />
+                                      </button>
+                                    )}
+                                  </div>
+                                )
+                              )}
+                            </div>
+                          )}
+
+                          {/* Upload button / drop zone */}
+                          {(questionImages[question.question_id]?.files.length ?? 0) < 5 && (
+                            <button
+                              type="button"
+                              onClick={() => imageInputRefs.current[question.question_id]?.click()}
+                              className="w-full flex flex-col items-center justify-center gap-2 py-6 border-2 border-dashed border-stone-200 hover:border-amber-300 rounded-xl bg-white/50 hover:bg-amber-50/30 transition-colors cursor-pointer"
+                            >
+                              {questionImages[question.question_id]?.uploading ? (
+                                <>
+                                  <Loader2 className="w-6 h-6 text-amber-500 animate-spin" />
+                                  <span className="text-xs text-stone-500">アップロード中...</span>
+                                </>
+                              ) : (
+                                <>
+                                  <ImagePlus className="w-6 h-6 text-stone-400" />
+                                  <span className="text-xs text-stone-500">
+                                    クリックして画像を選択（最大5枚）
+                                  </span>
+                                </>
+                              )}
+                            </button>
+                          )}
+
+                          <input
+                            ref={(el) => { imageInputRefs.current[question.question_id] = el; }}
+                            type="file"
+                            accept="image/*"
+                            multiple
+                            className="hidden"
+                            onChange={(e) => {
+                              handleQuestionImageSelect(question.question_id, e.target.files);
+                              e.target.value = "";
+                            }}
+                          />
+
+                          {(questionImages[question.question_id]?.files.length ?? 0) > 0 && (
+                            <p className="text-xs text-stone-400">
+                              {questionImages[question.question_id].files.length}枚選択済み
+                              {questionImages[question.question_id].uploadedNames.length > 0 &&
+                                ` (${questionImages[question.question_id].uploadedNames.length}枚アップロード済み)`}
+                            </p>
+                          )}
+                        </div>
                       ) : question.input_type === "select" &&
                         question.options ? (
                         <div className="flex flex-wrap gap-2">

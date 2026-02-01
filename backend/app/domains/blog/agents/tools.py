@@ -7,14 +7,18 @@ OpenAI Agents SDK の function_tool を使って WordPress MCP ツールをラ�
 参考: shintairiku-ai-agent/backend/app/infrastructure/chatkit/wordpress_tools.py
 """
 import json
+import logging
 from typing import List, Literal, Optional
 
 from agents import function_tool
 
 from app.domains.blog.services.wordpress_mcp_service import (
     call_wordpress_mcp_tool,
+    get_current_process_id,
     MCP_LONG_TIMEOUT,
 )
+
+logger = logging.getLogger(__name__)
 
 
 # ========== ユーザー質問ツール ==========
@@ -22,6 +26,7 @@ from app.domains.blog.services.wordpress_mcp_service import (
 @function_tool
 async def ask_user_questions(
     questions: List[str],
+    input_types: Optional[List[str]] = None,
     context: Optional[str] = None,
 ) -> str:
     """記事作成に必要な情報をユーザーに質問します。
@@ -31,7 +36,12 @@ async def ask_user_questions(
 
     Args:
         questions: ユーザーへの質問リスト（日本語で記述）
-            例: ["インタビュー対象者のお名前を教えてください", "記事に含めたいキーワードはありますか？"]
+            例: ["インタビュー対象者のお名前を教えてください", "商品の写真をアップロードしてください"]
+        input_types: 各質問の入力タイプ（省略時は全て "textarea"）
+            指定可能な値:
+            - "textarea": テキスト入力（デフォルト）
+            - "image_upload": 画像アップロード（写真・商品画像・人物写真など）
+            例: ["textarea", "image_upload"]
         context: 質問の文脈説明（オプション）
             例: "インタビュー記事を作成するために、以下の情報が必要です"
 
@@ -43,6 +53,7 @@ async def ask_user_questions(
     return json.dumps({
         "status": "questions_sent",
         "question_count": len(questions),
+        "input_types": input_types or (["textarea"] * len(questions)),
         "message": "質問をユーザーに送信しました。ユーザーの回答を待っています。これ以上の処理は行わないでください。",
     }, ensure_ascii=False)
 
@@ -474,6 +485,147 @@ async def wp_get_article_regulations(category_id: Optional[int] = None) -> str:
     return await call_wordpress_mcp_tool("wp-mcp-get-article-regulations", args)
 
 
+# ========== ユーザー画像 WordPress アップロードツール ==========
+
+@function_tool
+async def upload_user_image_to_wordpress(
+    image_index: int,
+    alt: str,
+    title: Optional[str] = None,
+    caption: Optional[str] = None,
+) -> str:
+    """ユーザーがアップロードした画像を WordPress にアップロードします。
+
+    ユーザーが記事に含めたい画像をアップロードしている場合、
+    このツールで WordPress メディアライブラリに登録できます。
+    戻り値の url を記事の画像ブロックに使用してください。
+
+    Args:
+        image_index: アップロードする画像のインデックス（0始まり）
+            入力メッセージに含まれる画像の順番に対応します。
+        alt: 画像の代替テキスト（SEO・アクセシビリティ用、日本語で記述）
+        title: メディアタイトル（省略時は自動生成）
+        caption: キャプション（省略時はなし）
+
+    Returns:
+        JSON文字列: {"media_id": int, "url": str, "width": int, "height": int}
+        または エラーメッセージ
+    """
+    from app.common.database import supabase
+    from app.domains.blog.services.image_utils import read_as_data_uri
+
+    process_id = get_current_process_id()
+    if not process_id:
+        return json.dumps({
+            "error": "process_id が設定されていません。画像アップロードは利用できません。"
+        }, ensure_ascii=False)
+
+    try:
+        # DB から uploaded_images を取得
+        result = supabase.table("blog_generation_state").select(
+            "uploaded_images"
+        ).eq("id", process_id).single().execute()
+
+        if not result.data:
+            return json.dumps({
+                "error": f"プロセス {process_id} が見つかりません。"
+            }, ensure_ascii=False)
+
+        uploaded_images = result.data.get("uploaded_images", [])
+
+        if image_index < 0 or image_index >= len(uploaded_images):
+            return json.dumps({
+                "error": f"画像インデックス {image_index} は範囲外です。"
+                         f"利用可能な画像: 0〜{len(uploaded_images) - 1}"
+            }, ensure_ascii=False)
+
+        image_info = uploaded_images[image_index]
+
+        # 既に WordPress にアップロード済みの場合はキャッシュ返却
+        if image_info.get("wp_media_id") and image_info.get("wp_url"):
+            logger.info(
+                f"Image {image_index} already uploaded to WordPress: "
+                f"media_id={image_info['wp_media_id']}"
+            )
+            return json.dumps({
+                "media_id": image_info["wp_media_id"],
+                "url": image_info["wp_url"],
+                "width": image_info.get("wp_width", 0),
+                "height": image_info.get("wp_height", 0),
+            }, ensure_ascii=False)
+
+        local_path = image_info.get("local_path")
+        if not local_path:
+            return json.dumps({
+                "error": f"画像 {image_index} のローカルパスが見つかりません。"
+            }, ensure_ascii=False)
+
+        import os
+        if not os.path.exists(local_path):
+            return json.dumps({
+                "error": f"画像ファイルが見つかりません: {local_path}"
+            }, ensure_ascii=False)
+
+        # Base64 data URI に変換
+        data_uri = read_as_data_uri(local_path)
+
+        # WordPress MCP 経由でアップロード
+        filename = image_info.get("filename", f"image_{image_index}.webp")
+        mcp_args = {
+            "source": data_uri,
+            "filename": filename,
+        }
+        if title:
+            mcp_args["title"] = title
+        if alt:
+            mcp_args["alt"] = alt
+        if caption:
+            mcp_args["caption"] = caption
+
+        mcp_result = await call_wordpress_mcp_tool(
+            "wp-mcp-upload-media", mcp_args, timeout=MCP_LONG_TIMEOUT
+        )
+
+        # MCP結果をパース
+        try:
+            mcp_data = json.loads(mcp_result)
+        except (json.JSONDecodeError, TypeError):
+            mcp_data = {}
+
+        wp_media_id = mcp_data.get("media_id")
+        wp_url = mcp_data.get("url", "")
+        wp_width = mcp_data.get("width", 0)
+        wp_height = mcp_data.get("height", 0)
+
+        # DB の uploaded_images を更新（wp_media_id, wp_url を書き戻し）
+        uploaded_images[image_index]["wp_media_id"] = wp_media_id
+        uploaded_images[image_index]["wp_url"] = wp_url
+        uploaded_images[image_index]["wp_width"] = wp_width
+        uploaded_images[image_index]["wp_height"] = wp_height
+
+        supabase.table("blog_generation_state").update({
+            "uploaded_images": uploaded_images,
+        }).eq("id", process_id).execute()
+
+        logger.info(
+            f"Image {image_index} uploaded to WordPress: "
+            f"media_id={wp_media_id}, url={wp_url}"
+        )
+
+        return json.dumps({
+            "media_id": wp_media_id,
+            "url": wp_url,
+            "width": wp_width,
+            "height": wp_height,
+        }, ensure_ascii=False)
+
+    except Exception as e:
+        logger.error(f"upload_user_image_to_wordpress エラー: {e}", exc_info=True)
+        return json.dumps({
+            "error": f"画像アップロードに失敗しました: {str(e)}"
+        }, ensure_ascii=False)
+
+
 # ========== 全ツールをエクスポート ==========
 
 ALL_WORDPRESS_TOOLS = [
@@ -503,6 +655,8 @@ ALL_WORDPRESS_TOOLS = [
     wp_get_media_library,
     wp_upload_media,
     wp_set_featured_image,
+    # ユーザー画像アップロード
+    upload_user_image_to_wordpress,
     # タクソノミー・サイト情報系
     wp_get_categories,
     wp_get_tags,

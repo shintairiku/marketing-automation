@@ -137,11 +137,24 @@ class BlogGenerationService:
 
             # MCPクライアントキャッシュをクリアし、コンテキストを設定
             clear_mcp_client_cache(wordpress_site["id"])
-            set_mcp_context(site_id=wordpress_site["id"], user_id=user_id)
+            set_mcp_context(
+                site_id=wordpress_site["id"],
+                user_id=user_id,
+                process_id=process_id,
+            )
 
-            # 入力メッセージを構築
+            # アップロード済み画像を取得
+            db_images = supabase.table("blog_generation_state").select(
+                "uploaded_images"
+            ).eq("id", process_id).single().execute()
+            uploaded_images = (
+                db_images.data.get("uploaded_images", [])
+                if db_images.data else []
+            )
+
+            # 入力メッセージを構築（画像対応）
             input_message = self._build_input_message(
-                user_prompt, reference_url, wordpress_site,
+                user_prompt, reference_url, wordpress_site, uploaded_images,
             )
 
             # RunConfig設定（group_id で同一プロセスのトレースを紐付け）
@@ -228,11 +241,17 @@ class BlogGenerationService:
 
             # MCPクライアントキャッシュをクリアし、コンテキストを設定
             clear_mcp_client_cache(wordpress_site["id"])
-            set_mcp_context(site_id=wordpress_site["id"], user_id=user_id)
+            set_mcp_context(
+                site_id=wordpress_site["id"],
+                user_id=user_id,
+                process_id=process_id,
+            )
 
-            # ユーザーの回答メッセージを構築
-            answer_text = self._build_user_answer_message(
-                user_answers, blog_context.get("ai_questions", [])
+            # ユーザーの回答メッセージを構築（画像対応）
+            answer_content = self._build_user_answer_message(
+                user_answers,
+                blog_context.get("ai_questions", []),
+                process_id=process_id,
             )
 
             # RunConfig設定（group_id で初回トレースと紐付け）
@@ -252,22 +271,31 @@ class BlogGenerationService:
             #   新しいユーザーメッセージだけ送れば十分（トークン節約）
             # 使えない場合:
             #   to_input_list() の会話履歴全体 + 新メッセージを送信
+            is_multimodal = isinstance(answer_content, list)
+
             if previous_response_id:
                 logger.info(
                     f"previous_response_id使用: {previous_response_id} "
-                    f"（サーバー側会話復元、新メッセージのみ送信）"
+                    f"（サーバー側会話復元、新メッセージのみ送信, "
+                    f"multimodal={is_multimodal}）"
                 )
-                agent_input: Any = answer_text
+                # マルチモーダルの場合はそのまま list を渡す
+                # テキストの場合は string を渡す
+                agent_input: Any = answer_content
             else:
                 logger.info(
                     "previous_response_id なし: "
                     f"会話履歴 {len(conversation_history)} アイテム + 新メッセージを送信"
                 )
                 continued_input = list(conversation_history)
-                continued_input.append({
-                    "role": "user",
-                    "content": answer_text,
-                })
+                if is_multimodal:
+                    # マルチモーダル: [{role: user, content: [...]}] を展開して追加
+                    continued_input.extend(answer_content)
+                else:
+                    continued_input.append({
+                        "role": "user",
+                        "content": answer_content,
+                    })
                 agent_input = continued_input
 
             # エージェント実行（同一エージェント・会話コンテキスト維持）
@@ -561,22 +589,34 @@ class BlogGenerationService:
 
     @staticmethod
     def _extract_user_questions(raw_item: Any) -> Optional[Dict[str, Any]]:
-        """ToolCallItem の raw_item から ask_user_questions の引数を抽出"""
+        """ToolCallItem の raw_item から ask_user_questions の引数を抽出（input_types対応）"""
         try:
             args_str = getattr(raw_item, "arguments", "{}")
             args_data = json.loads(args_str) if isinstance(args_str, str) else args_str
             questions_raw = args_data.get("questions", [])
+            input_types_raw = args_data.get("input_types", [])
             context_raw = args_data.get("context")
+
+            # input_types が不足している場合は "textarea" で補完
+            if not input_types_raw:
+                input_types_raw = ["textarea"] * len(questions_raw)
+            elif len(input_types_raw) < len(questions_raw):
+                input_types_raw = input_types_raw + ["textarea"] * (
+                    len(questions_raw) - len(input_types_raw)
+                )
 
             structured = []
             for i, q in enumerate(questions_raw):
                 structured.append({
                     "question_id": f"q{i+1}",
                     "question": q,
-                    "input_type": "textarea",
+                    "input_type": input_types_raw[i],
                 })
 
-            logger.info(f"ask_user_questions検出: {len(structured)}件の質問")
+            logger.info(
+                f"ask_user_questions検出: {len(structured)}件の質問, "
+                f"input_types={[s['input_type'] for s in structured]}"
+            )
             return {
                 "questions": structured,
                 "context": context_raw,
@@ -590,8 +630,22 @@ class BlogGenerationService:
         user_prompt: str,
         reference_url: Optional[str],
         wordpress_site: Dict[str, Any],
-    ) -> str:
-        """初回入力メッセージを構築"""
+        uploaded_images: Optional[List[Dict[str, Any]]] = None,
+    ) -> Any:
+        """初回入力メッセージを構築（画像対応）
+
+        Args:
+            user_prompt: ユーザーのリクエスト
+            reference_url: 参考記事URL
+            wordpress_site: WordPressサイト情報
+            uploaded_images: アップロード済み画像情報
+
+        Returns:
+            str: テキストのみの場合
+            list: マルチモーダル入力（画像あり）の場合
+        """
+        from app.domains.blog.services.image_utils import read_as_base64
+
         parts = [
             f"## リクエスト\n\n{user_prompt}",
         ]
@@ -605,47 +659,141 @@ class BlogGenerationService:
             f"- サイト名: {wordpress_site.get('site_name', '不明')}"
         )
 
+        valid_images = []
+        if uploaded_images:
+            import os
+            for img in uploaded_images:
+                local_path = img.get("local_path")
+                if local_path and os.path.exists(local_path):
+                    valid_images.append(img)
+
+        if valid_images:
+            parts.append(
+                f"\n## ユーザーアップロード画像\n\n"
+                f"ユーザーが {len(valid_images)} 枚の画像をアップロードしています。\n"
+                f"以下の画像が添付されています。記事内で活用したい場合は、"
+                f"`upload_user_image_to_wordpress(image_index=N, alt=\"説明\")` "
+                f"ツールで WordPress にアップロードしてから記事に挿入してください。\n"
+            )
+            for i, img in enumerate(valid_images):
+                original = img.get("original_filename", img.get("filename", f"image_{i}"))
+                parts.append(f"- 画像{i}: {original}")
+
         parts.append(
             "\n## 指示\n\n"
             "上記のリクエストに基づいて、WordPressブログ記事を作成してください。\n"
             "必ず `wp_create_draft_post` ツールを使って下書きを保存してください。"
         )
 
-        return "\n".join(parts)
+        text_content = "\n".join(parts)
+
+        # 画像がない場合は従来通り string を返す
+        if not valid_images:
+            return text_content
+
+        # 画像がある場合はマルチモーダル入力を構築
+        content_parts: List[Dict[str, Any]] = [
+            {"type": "input_text", "text": text_content}
+        ]
+
+        for img in valid_images:
+            try:
+                b64 = read_as_base64(img["local_path"])
+                content_parts.append({
+                    "type": "input_image",
+                    "image_url": f"data:image/webp;base64,{b64}",
+                })
+            except Exception as e:
+                logger.warning(f"画像読み込みエラー: {img.get('local_path')} - {e}")
+
+        return [{"role": "user", "content": content_parts}]
 
     @staticmethod
     def _build_user_answer_message(
         user_answers: Dict[str, Any],
         ai_questions: List[Dict[str, Any]],
-    ) -> str:
-        """ユーザー回答メッセージを構築（質問テキスト付き）"""
-        # 質問IDと質問テキストのマッピングを構築
+        process_id: Optional[str] = None,
+    ) -> Any:
+        """ユーザー回答メッセージを構築（画像回答対応）
+
+        Args:
+            user_answers: ユーザーの回答（question_id → 回答テキスト or "uploaded:filename"）
+            ai_questions: AIからの質問リスト
+            process_id: プロセスID（画像パス解決用）
+
+        Returns:
+            str: テキストのみの場合
+            list: マルチモーダル入力（画像回答あり）の場合
+        """
+        from app.domains.blog.services.image_utils import read_as_base64
+
+        # 質問IDと質問情報のマッピングを構築
         question_map = {
-            q["question_id"]: q["question"]
+            q["question_id"]: q
             for q in ai_questions
         }
 
-        parts = ["以下がユーザーからの回答です。この情報を活用して記事を作成してください。\n"]
+        text_parts = ["以下がユーザーからの回答です。この情報を活用して記事を作成してください。\n"]
+        image_parts: List[Dict[str, Any]] = []
 
         has_any_answer = False
         for qid, answer in user_answers.items():
-            if answer and str(answer).strip():
-                has_any_answer = True
-                question_text = question_map.get(qid, qid)
-                parts.append(f"**Q: {question_text}**")
-                parts.append(f"A: {answer}\n")
+            if not answer or not str(answer).strip():
+                continue
+
+            has_any_answer = True
+            question_obj = question_map.get(qid, {})
+            question_text = question_obj.get("question", qid)
+            input_type = question_obj.get("input_type", "textarea")
+
+            # 画像アップロードの回答
+            if input_type == "image_upload" and str(answer).startswith("uploaded:"):
+                filenames = str(answer).replace("uploaded:", "").split(",")
+                text_parts.append(f"**Q: {question_text}**")
+                text_parts.append(f"A: (画像 {len(filenames)} 枚アップロード済み)\n")
+
+                if process_id:
+                    import os
+                    from app.core.config import settings
+                    upload_dir = os.path.join(
+                        getattr(settings, "temp_upload_dir", None) or "/tmp/blog_uploads",
+                        process_id,
+                    )
+                    for fname in filenames:
+                        fname = fname.strip()
+                        local_path = os.path.join(upload_dir, fname)
+                        if os.path.exists(local_path):
+                            try:
+                                b64 = read_as_base64(local_path)
+                                image_parts.append({
+                                    "type": "input_image",
+                                    "image_url": f"data:image/webp;base64,{b64}",
+                                })
+                            except Exception as e:
+                                logger.warning(f"画像読み込みエラー: {local_path} - {e}")
+            else:
+                text_parts.append(f"**Q: {question_text}**")
+                text_parts.append(f"A: {answer}\n")
 
         if not has_any_answer:
-            parts.append(
+            text_parts.append(
                 "（ユーザーは質問をスキップしました。"
                 "リクエスト内容と参考記事の分析結果のみで記事を作成してください。）"
             )
 
-        parts.append(
+        text_parts.append(
             "\n上記の情報をもとに、記事を作成して `wp_create_draft_post` で下書き保存してください。"
         )
 
-        return "\n".join(parts)
+        text_content = "\n".join(text_parts)
+
+        # 画像がない場合は従来通り string を返す
+        if not image_parts:
+            return text_content
+
+        # 画像がある場合はマルチモーダル入力を構築
+        content_parts = [{"type": "input_text", "text": text_content}] + image_parts
+        return [{"role": "user", "content": content_parts}]
 
     async def _process_result(
         self,

@@ -1102,6 +1102,50 @@ docker compose logs -f backend                        # ログ確認
 - **Supabase 型定義未生成による連鎖的ビルドエラー**: `plan_tiers`, `usage_tracking` テーブルが型に含まれていないため、`(supabase as any)` キャストが大量に必要になった。**新テーブル追加後は早期に `bun run generate-types` を実行し、型安全性を確保すべき。**
 - **使用量表示の調査不足**: ユーザーに「使用量が全く表示されていない」と指摘されるまで、新規サブスクリプション時に `usage_tracking` が作成されない問題に気づかなかった。最初は特権ユーザーの条件のみ疑ったが、実際は全ユーザーに影響する根本的なデータフロー問題だった。**機能を実装したら、新規ユーザーが初めて使うフロー（契約直後の状態）を必ず検証すべき。UPDATE のみで INSERT がないのは典型的な初期化漏れ。**
 
+### 12. Blog AI 画像入力機能
+
+**概要**: Blog AIに2つのユースケースで画像入力を追加。初期入力（`/blog/new`）で画像添付、質問フェーズ（`/blog/[processId]`）でエージェントが画像を要求可能に。
+
+**設計の核心**: エージェントがBase64に触れない `upload_user_image_to_wordpress` 複合ツール
+- エージェントは `image_index` と `alt` テキストだけ渡す
+- バックエンドが内部でファイル読み込み→Base64→MCP送信を完結
+- 戻り値は `{media_id, url, width, height}` の小さなJSON
+- Base64をツール出力/入力に載せるとトークンコストが爆発する問題を回避
+
+**画像のエージェントへの入力**: OpenAI Responses API の `input_image` 型
+```python
+[{"role": "user", "content": [
+    {"type": "input_text", "text": "リクエスト..."},
+    {"type": "input_image", "image_url": "data:image/webp;base64,..."}
+]}]
+```
+
+**WebP変換**: WordPress MCPプラグインは変換しないため、バックエンドでPillow変換してから保存
+
+**変更ファイル一覧**:
+
+| ファイル | 変更種別 | 概要 |
+|---------|---------|------|
+| `backend/app/domains/blog/services/image_utils.py` | **新規** | Pillow WebP変換ユーティリティ (convert_and_save_as_webp, read_as_base64, read_as_data_uri, cleanup_process_images) |
+| `backend/app/domains/blog/services/wordpress_mcp_service.py` | 改修 | `_current_process_id` contextvar追加、`set_mcp_context()` に process_id 引数追加 |
+| `backend/app/domains/blog/agents/tools.py` | 改修 | `upload_user_image_to_wordpress` 複合ツール追加、`ask_user_questions` に `input_types` 引数追加 |
+| `backend/app/domains/blog/agents/definitions.py` | 改修 | プロンプトに画像活用セクション追加 |
+| `backend/app/domains/blog/endpoints.py` | 改修 | `/generation/start` を multipart/form-data 対応、`/upload-image` にWebP変換追加 |
+| `backend/app/domains/blog/schemas.py` | 改修 | `AIQuestion.input_type` に `image_upload` 追加 |
+| `backend/app/domains/blog/services/generation_service.py` | 改修 | `_build_input_message()` / `_build_user_answer_message()` でマルチモーダル入力対応 |
+| `frontend/src/app/(tools)/blog/new/page.tsx` | 改修 | 画像選択UI追加（最大5枚、プレビュー、FormData送信） |
+| `frontend/src/app/(tools)/blog/[processId]/page.tsx` | 改修 | `image_upload` 質問タイプのファイルアップロードUI追加 |
+
+**エンドポイント変更**:
+- `POST /blog/generation/start`: JSON body → multipart/form-data (user_prompt, wordpress_site_id, reference_url?, files[])
+- `POST /blog/generation/{process_id}/upload-image`: WebP変換追加
+
+**技術的知見**:
+- OpenAI Agents SDK `Runner.run_streamed()` は `input` に `[{role, content: [{input_text}, {input_image}...]}]` リスト形式を受け付ける
+- `previous_response_id` 使用時もマルチモーダルリストをそのまま渡せる
+- contextvars で process_id をエージェントツールに渡す（スレッドセーフ）
+- WordPress MCP の `wp-mcp-upload-media` は `source` に Base64 data URI を受け付け、`filename` の拡張子でフォーマットが決まる
+
 ---
 
 > ## **【最重要・再掲】記憶の更新は絶対に忘れるな**

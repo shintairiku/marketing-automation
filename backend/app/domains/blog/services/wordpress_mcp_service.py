@@ -21,12 +21,15 @@ import httpx
 from app.common.database import supabase
 from .crypto_service import get_crypto_service
 
-# コンテキスト変数: エージェント実行中にsite_id/user_idを伝播
+# コンテキスト変数: エージェント実行中にsite_id/user_id/process_idを伝播
 _current_site_id: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar(
     "_current_site_id", default=None
 )
 _current_user_id: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar(
     "_current_user_id", default=None
+)
+_current_process_id: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar(
+    "_current_process_id", default=None
 )
 
 logger = logging.getLogger(__name__)
@@ -641,19 +644,31 @@ def clear_mcp_client_cache(site_id: Optional[str] = None) -> None:
         logger.info(f"Cleared MCP client cache for site: {site_id[:8]}...")
 
 
-def set_mcp_context(site_id: Optional[str], user_id: Optional[str]) -> None:
+def set_mcp_context(
+    site_id: Optional[str],
+    user_id: Optional[str],
+    process_id: Optional[str] = None,
+) -> None:
     """
     エージェント実行前にMCPコンテキストを設定する。
 
-    これにより、エージェントツールが site_id/user_id を明示的に渡さなくても
+    これにより、エージェントツールが site_id/user_id/process_id を明示的に渡さなくても
     正しいWordPressサイトに接続できる。
     """
     _current_site_id.set(site_id)
     _current_user_id.set(user_id)
+    if process_id is not None:
+        _current_process_id.set(process_id)
     logger.info(
         f"MCPコンテキスト設定: site_id={site_id[:8] + '...' if site_id else None}, "
-        f"user_id={user_id[:8] + '...' if user_id else None}"
+        f"user_id={user_id[:8] + '...' if user_id else None}, "
+        f"process_id={process_id[:8] + '...' if process_id else None}"
     )
+
+
+def get_current_process_id() -> Optional[str]:
+    """現在のコンテキストの process_id を取得"""
+    return _current_process_id.get()
 
 
 async def call_wordpress_mcp_tool(

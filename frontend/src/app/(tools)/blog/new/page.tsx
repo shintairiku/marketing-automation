@@ -9,11 +9,13 @@ import {
   CheckCircle2,
   ChevronRight,
   Globe,
+  ImagePlus,
   Link2,
   Loader2,
   PenLine,
   Sparkles,
   User,
+  X,
 } from "lucide-react";
 
 import { useSubscription } from "@/components/subscription/subscription-guard";
@@ -51,8 +53,35 @@ export default function BlogNewPage() {
   const [selectedSiteId, setSelectedSiteId] = useState<string | null>(null);
   const [userPrompt, setUserPrompt] = useState("");
   const [referenceUrl, setReferenceUrl] = useState("");
+  const [selectedImages, setSelectedImages] = useState<File[]>([]);
+  const [imagePreviewUrls, setImagePreviewUrls] = useState<string[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    if (files.length === 0) return;
+
+    const total = selectedImages.length + files.length;
+    if (total > 5) {
+      setError("画像は最大5枚までです");
+      return;
+    }
+
+    setSelectedImages((prev) => [...prev, ...files]);
+    files.forEach((file) => {
+      const url = URL.createObjectURL(file);
+      setImagePreviewUrls((prev) => [...prev, url]);
+    });
+  };
+
+  const handleRemoveImage = (index: number) => {
+    setSelectedImages((prev) => prev.filter((_, i) => i !== index));
+    setImagePreviewUrls((prev) => {
+      URL.revokeObjectURL(prev[index]);
+      return prev.filter((_, i) => i !== index);
+    });
+  };
 
   useEffect(() => {
     const fetchSites = async () => {
@@ -90,17 +119,24 @@ export default function BlogNewPage() {
 
     try {
       const token = await getToken();
+
+      // FormData で送信（画像あり・なし共通）
+      const formData = new FormData();
+      formData.append("user_prompt", userPrompt);
+      formData.append("wordpress_site_id", selectedSiteId);
+      if (referenceUrl) {
+        formData.append("reference_url", referenceUrl);
+      }
+      for (const img of selectedImages) {
+        formData.append("files", img);
+      }
+
       const response = await fetch("/api/proxy/blog/generation/start", {
         method: "POST",
         headers: {
-          "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({
-          wordpress_site_id: selectedSiteId,
-          user_prompt: userPrompt,
-          reference_url: referenceUrl || null,
-        }),
+        body: formData,
       });
 
       if (response.ok) {
@@ -396,6 +432,55 @@ export default function BlogNewPage() {
             />
             <p className="text-sm text-stone-500">
               あなたのサイト内の記事URLを指定すると、そのスタイルやトーンを参考に記事を生成します
+            </p>
+          </div>
+
+          {/* Image Upload */}
+          <div className="space-y-3">
+            <Label className="flex items-center gap-2 text-stone-700 font-medium">
+              <ImagePlus className="w-4 h-4 text-emerald-600" />
+              記事に含めたい画像
+              <span className="text-xs font-normal text-stone-400 ml-1">(任意・最大5枚)</span>
+            </Label>
+
+            <label className="flex items-center justify-center w-full h-28 border-2 border-dashed border-stone-200 rounded-2xl bg-white/60 hover:bg-stone-50 hover:border-stone-300 cursor-pointer transition-all">
+              <div className="text-center">
+                <ImagePlus className="w-7 h-7 text-stone-400 mx-auto mb-1.5" />
+                <p className="text-sm text-stone-600 font-medium">クリックして画像を選択</p>
+                <p className="text-xs text-stone-400 mt-0.5">JPG, PNG, WebP</p>
+              </div>
+              <input
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                multiple
+                onChange={handleImageSelect}
+                className="hidden"
+              />
+            </label>
+
+            {imagePreviewUrls.length > 0 && (
+              <div className="grid grid-cols-3 sm:grid-cols-5 gap-3">
+                {imagePreviewUrls.map((url, idx) => (
+                  <div key={idx} className="relative group aspect-square">
+                    <img
+                      src={url}
+                      alt={`プレビュー ${idx + 1}`}
+                      className="w-full h-full object-cover rounded-xl border border-stone-200"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveImage(idx)}
+                      className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-red-500 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity shadow-sm"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <p className="text-sm text-stone-500">
+              アップロードした画像はAIが内容を理解し、記事内に適切に配置します
             </p>
           </div>
 
