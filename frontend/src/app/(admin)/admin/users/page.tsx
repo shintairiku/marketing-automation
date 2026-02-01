@@ -1,11 +1,13 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
+import Link from 'next/link';
 import {
   AlertCircle,
   CheckCircle,
   Clock,
   Crown,
+  ExternalLink,
   Loader2,
   RefreshCw,
   Search,
@@ -448,14 +450,22 @@ export default function AdminUsersPage() {
                           )}
                         </TableCell>
                         <TableCell className="text-right">
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => openEditDialog(user)}
-                          >
-                            <Shield className="h-4 w-4 mr-1" />
-                            編集
-                          </Button>
+                          <div className="flex items-center justify-end gap-1">
+                            <Link href={`/admin/users/${user.id}`}>
+                              <Button variant="ghost" size="sm">
+                                <ExternalLink className="h-4 w-4 mr-1" />
+                                詳細
+                              </Button>
+                            </Link>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => openEditDialog(user)}
+                            >
+                              <Shield className="h-4 w-4 mr-1" />
+                              編集
+                            </Button>
+                          </div>
                         </TableCell>
                       </TableRow>
                     );

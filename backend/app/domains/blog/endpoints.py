@@ -48,6 +48,7 @@ from app.domains.blog.services.wordpress_mcp_service import (
     clear_mcp_client_cache,
 )
 from app.domains.blog.services.generation_service import BlogGenerationService
+from app.domains.usage.service import usage_service
 
 logger = logging.getLogger(__name__)
 
@@ -751,6 +752,20 @@ async def start_blog_generation(
     """ブログ生成を開始"""
     logger.info(f"ブログ生成開始: user={user_id}")
 
+    # 使用量プリチェック
+    org_id = _get_user_org_for_usage(user_id)
+    usage_result = usage_service.check_can_generate(user_id=user_id, organization_id=org_id)
+    if not usage_result.allowed:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail={
+                "error": "monthly_limit_exceeded",
+                "current": usage_result.current,
+                "limit": usage_result.limit,
+                "message": f"月間記事生成上限（{usage_result.limit}記事）に達しました",
+            },
+        )
+
     supabase = get_supabase_client()
 
     # WordPressサイトを確認（ユーザー自身 or 組織メンバー）
@@ -1178,3 +1193,34 @@ async def upload_image(
     )
 
 
+# =====================================================
+# ヘルパー関数
+# =====================================================
+
+def _get_user_org_for_usage(user_id: str) -> Optional[str]:
+    """ユーザーの使用量追跡対象の組織IDを取得"""
+    try:
+        from app.common.database import supabase as db
+
+        # 1. upgraded_to_org_id を確認
+        sub = db.table("user_subscriptions").select(
+            "upgraded_to_org_id"
+        ).eq("user_id", user_id).maybe_single().execute()
+        if sub.data and sub.data.get("upgraded_to_org_id"):
+            return sub.data["upgraded_to_org_id"]
+
+        # 2. organization_members でアクティブな組織サブスクを探す
+        memberships = db.table("organization_members").select(
+            "organization_id"
+        ).eq("user_id", user_id).execute()
+        if memberships.data:
+            org_ids = [m["organization_id"] for m in memberships.data]
+            org_subs = db.table("organization_subscriptions").select(
+                "organization_id"
+            ).in_("organization_id", org_ids).eq("status", "active").limit(1).execute()
+            if org_subs.data:
+                return org_subs.data[0]["organization_id"]
+
+        return None
+    except Exception:
+        return None

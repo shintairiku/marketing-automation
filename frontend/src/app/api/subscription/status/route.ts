@@ -143,7 +143,81 @@ export async function GET() {
       // 組織サブスクの取得失敗は致命的ではない
     }
 
-    // 6. アクセス権を判定して返す
+    // 6. 使用量情報を取得
+    let usage = null;
+    try {
+      const now = new Date().toISOString();
+
+      // まず個人の使用量を検索
+      let usageTracking = null;
+      const { data: personalUsage } = await supabase
+        .from('usage_tracking')
+        .select('*')
+        .eq('user_id', userId)
+        .gte('billing_period_end', now)
+        .lte('billing_period_start', now)
+        .maybeSingle();
+
+      usageTracking = personalUsage;
+
+      // 個人の使用量がない場合、組織の使用量を検索
+      if (!usageTracking && orgSubscription) {
+        const { data: orgUsage } = await supabase
+          .from('usage_tracking')
+          .select('*')
+          .eq('organization_id', orgSubscription.organization_id)
+          .gte('billing_period_end', now)
+          .lte('billing_period_start', now)
+          .maybeSingle();
+
+        usageTracking = orgUsage;
+      }
+
+      // それでもない場合、organization_members から所属組織の使用量を検索
+      if (!usageTracking) {
+        const { data: memberOrgs } = await supabase
+          .from('organization_members')
+          .select('organization_id')
+          .eq('user_id', userId);
+
+        if (memberOrgs && memberOrgs.length > 0) {
+          const orgIds = memberOrgs.map((m: Record<string, unknown>) => m.organization_id);
+          const { data: orgUsage } = await supabase
+            .from('usage_tracking')
+            .select('*')
+            .in('organization_id', orgIds)
+            .gte('billing_period_end', now)
+            .lte('billing_period_start', now)
+            .limit(1)
+            .maybeSingle();
+
+          usageTracking = orgUsage;
+        }
+      }
+
+      if (usageTracking) {
+        const ut = usageTracking as Record<string, unknown>;
+        const articlesLimit = (ut.articles_limit as number) || 0;
+        const addonLimit = (ut.addon_articles_limit as number) || 0;
+        const articlesGenerated = (ut.articles_generated as number) || 0;
+        const totalLimit = articlesLimit + addonLimit;
+        usage = {
+          articles_generated: articlesGenerated,
+          articles_limit: articlesLimit,
+          addon_articles_limit: addonLimit,
+          total_limit: totalLimit,
+          remaining: Math.max(0, totalLimit - articlesGenerated),
+          billing_period_start: ut.billing_period_start as string | null,
+          billing_period_end: ut.billing_period_end as string | null,
+          plan_tier: ut.plan_tier_id as string | null,
+        };
+      }
+    } catch (usageError) {
+      console.error('Error fetching usage:', usageError);
+      // 使用量取得失敗は致命的ではない
+    }
+
+    // 7. アクセス権を判定して返す
     const isPrivileged = isPrivilegedEmail(userEmail);
     const hasAccess =
       isPrivileged ||
@@ -154,6 +228,7 @@ export async function GET() {
       subscription: userSub,
       orgSubscription,
       hasAccess,
+      usage,
     });
   } catch (error) {
     console.error('Error in subscription status:', error);

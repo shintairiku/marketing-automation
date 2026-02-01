@@ -21,6 +21,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { useSubscription } from "@/components/subscription/subscription-guard";
 import { useAuth } from "@clerk/nextjs";
 
 interface WordPressSite {
@@ -43,6 +44,7 @@ interface SiteGroup {
 export default function BlogNewPage() {
   const router = useRouter();
   const { getToken } = useAuth();
+  const { usage, subscription } = useSubscription();
 
   const [sites, setSites] = useState<WordPressSite[]>([]);
   const [loadingSites, setLoadingSites] = useState(true);
@@ -104,6 +106,8 @@ export default function BlogNewPage() {
       if (response.ok) {
         const data = await response.json();
         router.push(`/blog/${data.id}`);
+      } else if (response.status === 429) {
+        setError("月間記事生成の上限に達しました。アドオンの追加をご検討ください。");
       } else {
         const errData = await response.json();
         // FastAPIの422バリデーションエラーはdetailが配列
@@ -129,6 +133,10 @@ export default function BlogNewPage() {
   };
 
   const connectedSites = sites.filter(s => s.connection_status === "connected");
+
+  // 使用量情報
+  const isAtLimit = usage ? usage.remaining <= 0 : false;
+  const isPrivileged = subscription?.is_privileged ?? false;
 
   const siteGroups = useMemo((): SiteGroup[] => {
     const personalSites: WordPressSite[] = [];
@@ -196,6 +204,46 @@ export default function BlogNewPage() {
             過去の記事スタイルを参考に、あなたのWordPressサイトにぴったりの記事を生成します
           </p>
         </motion.div>
+
+        {/* Usage Info */}
+        {usage && !isPrivileged && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.4, delay: 0.15 }}
+            className={`mx-auto w-full max-w-md px-4 py-3 rounded-2xl border ${
+              isAtLimit
+                ? 'bg-red-50/80 border-red-200'
+                : usage.remaining <= (usage.total_limit * 0.2)
+                ? 'bg-amber-50/80 border-amber-200'
+                : 'bg-white/60 border-stone-200'
+            }`}
+          >
+            <div className="flex items-center justify-between text-sm mb-1.5">
+              <span className={isAtLimit ? 'text-red-700 font-medium' : 'text-stone-600'}>
+                今月の記事生成
+              </span>
+              <span className={`font-semibold ${isAtLimit ? 'text-red-700' : 'text-stone-800'}`}>
+                {usage.articles_generated} / {usage.total_limit}
+              </span>
+            </div>
+            <div className="h-1.5 w-full rounded-full bg-stone-200 overflow-hidden">
+              <div
+                className={`h-full rounded-full transition-all ${
+                  isAtLimit ? 'bg-red-500' : usage.remaining <= (usage.total_limit * 0.2) ? 'bg-amber-500' : 'bg-emerald-500'
+                }`}
+                style={{ width: `${usage.total_limit > 0 ? Math.min(100, (usage.articles_generated / usage.total_limit) * 100) : 0}%` }}
+              />
+            </div>
+            {isAtLimit && (
+              <p className="text-xs text-red-600 mt-1.5">
+                上限に達しました。
+                <a href="/settings/billing" className="underline ml-1">アドオンを追加</a>
+                して上限を増やせます。
+              </p>
+            )}
+          </motion.div>
+        )}
 
         {/* Main Form */}
         <motion.div
@@ -374,10 +422,10 @@ export default function BlogNewPage() {
           >
             <Button
               onClick={handleSubmit}
-              disabled={isSubmitting || !selectedSiteId || !userPrompt.trim() || loadingSites}
+              disabled={isSubmitting || !selectedSiteId || !userPrompt.trim() || loadingSites || (isAtLimit && !isPrivileged)}
               className={`
                 w-full h-14 text-lg font-medium rounded-2xl transition-all duration-300
-                ${isSubmitting || !selectedSiteId || !userPrompt.trim()
+                ${isSubmitting || !selectedSiteId || !userPrompt.trim() || (isAtLimit && !isPrivileged)
                   ? "bg-stone-200 text-stone-500 cursor-not-allowed"
                   : "bg-gradient-to-r from-amber-500 via-orange-500 to-emerald-500 text-white shadow-lg shadow-orange-200/50 hover:shadow-xl hover:shadow-orange-300/50 hover:scale-[1.02]"
                 }
@@ -387,6 +435,11 @@ export default function BlogNewPage() {
                 <span className="flex items-center gap-2">
                   <Loader2 className="w-5 h-5 animate-spin" />
                   生成を開始中...
+                </span>
+              ) : isAtLimit && !isPrivileged ? (
+                <span className="flex items-center gap-2">
+                  <AlertCircle className="w-5 h-5" />
+                  月間上限に達しています
                 </span>
               ) : (
                 <span className="flex items-center gap-2">

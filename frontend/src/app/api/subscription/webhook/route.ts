@@ -21,6 +21,8 @@ import Stripe from 'stripe';
 import { getStripe } from '@/lib/subscription';
 import { supabaseAdminClient } from '@/libs/supabase/supabase-admin';
 
+const ADDON_PRICE_ID = process.env.STRIPE_PRICE_ADDON_ARTICLES || '';
+
 // Webhook署名検証用のシークレット
 const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
 
@@ -307,7 +309,20 @@ async function handleSubscriptionChange(
       } as Record<string, unknown>)
       .eq('user_id', userId);
 
-    console.log(`Org subscription ${subscription.id} updated: org=${organizationId}, status=${orgStatus}, qty=${quantity}`);
+    // アドオン数量を検出・更新
+    const addonItem = subscription.items?.data?.find(
+      (item) => item.price?.id === ADDON_PRICE_ID
+    );
+    const addonQuantity = addonItem?.quantity || 0;
+    await supabase
+      .from('organization_subscriptions')
+      .update({ addon_quantity: addonQuantity })
+      .eq('id', subscription.id);
+
+    // 使用量上限を再計算
+    await recalculateUsageLimits(supabase, userId, organizationId, quantity, addonQuantity);
+
+    console.log(`Org subscription ${subscription.id} updated: org=${organizationId}, status=${orgStatus}, qty=${quantity}, addon=${addonQuantity}`);
   } else {
     // ============ 個人サブスク（従来通り） ============
     await supabase.from('user_subscriptions').upsert(
@@ -322,7 +337,20 @@ async function handleSubscriptionChange(
       { onConflict: 'user_id' }
     );
 
-    console.log(`Subscription ${subscription.id} updated for user ${userId}: ${userStatus}`);
+    // アドオン数量を検出し、user_subscriptions にも保存
+    const addonItem = subscription.items?.data?.find(
+      (item) => item.price?.id === ADDON_PRICE_ID
+    );
+    const addonQuantity = addonItem?.quantity || 0;
+    await supabase
+      .from('user_subscriptions')
+      .update({ addon_quantity: addonQuantity } as Record<string, unknown>)
+      .eq('user_id', userId);
+
+    // 使用量上限を再計算（個人プラン）
+    await recalculateUsageLimits(supabase, userId, undefined, 1, addonQuantity);
+
+    console.log(`Subscription ${subscription.id} updated for user ${userId}: ${userStatus}, addon=${addonQuantity}`);
   }
 }
 
@@ -417,6 +445,26 @@ async function handlePaymentSucceeded(
 
     console.log(`Payment succeeded for user ${userId}`);
   }
+
+  // ============ 使用量リセット（請求サイクル更新時） ============
+  const billingReason = (invoice as unknown as Record<string, unknown>).billing_reason as string | undefined;
+  if (billingReason === 'subscription_cycle') {
+    const currentPeriodStart = subscription.items?.data?.[0]?.current_period_start;
+    const periodStartDate = currentPeriodStart
+      ? new Date(currentPeriodStart * 1000).toISOString()
+      : null;
+
+    if (periodStartDate && periodEndDate) {
+      await createUsageTrackingForNewPeriod(
+        supabase,
+        userId,
+        organizationId || null,
+        periodStartDate,
+        periodEndDate,
+        subscription,
+      );
+    }
+  }
 }
 
 // ============================================
@@ -456,5 +504,127 @@ async function handlePaymentFailed(
       .eq('user_id', userId);
 
     console.log(`Payment failed for user ${userId}`);
+  }
+}
+
+// ============================================
+// 使用量リセット: 新しい請求期間のトラッキングレコード作成
+// ============================================
+async function createUsageTrackingForNewPeriod(
+  supabase: typeof supabaseAdminClient,
+  userId: string,
+  organizationId: string | null,
+  periodStart: string,
+  periodEnd: string,
+  subscription: Stripe.Subscription,
+) {
+  try {
+    // plan_tiers からデフォルトの月間上限を取得
+    const { data: tier } = await supabase
+      .from('plan_tiers')
+      .select('monthly_article_limit, addon_unit_amount')
+      .eq('id', 'default')
+      .single();
+
+    const monthlyLimit = tier?.monthly_article_limit || 30;
+    const addonUnitAmount = tier?.addon_unit_amount || 20;
+
+    // quantity と addon を算出
+    const baseItem = subscription.items?.data?.find(
+      (item) => item.price?.id !== ADDON_PRICE_ID
+    );
+    const addonItem = subscription.items?.data?.find(
+      (item) => item.price?.id === ADDON_PRICE_ID
+    );
+    const quantity = baseItem?.quantity || 1;
+    const addonQuantity = addonItem?.quantity || 0;
+
+    const articlesLimit = monthlyLimit * quantity;
+    const addonArticlesLimit = addonUnitAmount * addonQuantity;
+
+    if (organizationId) {
+      await supabase.from('usage_tracking').upsert(
+        {
+          organization_id: organizationId,
+          billing_period_start: periodStart,
+          billing_period_end: periodEnd,
+          articles_generated: 0,
+          articles_limit: articlesLimit,
+          addon_articles_limit: addonArticlesLimit,
+          plan_tier_id: 'default',
+        },
+        { onConflict: 'organization_id,billing_period_start' }
+      );
+    } else {
+      await supabase.from('usage_tracking').upsert(
+        {
+          user_id: userId,
+          billing_period_start: periodStart,
+          billing_period_end: periodEnd,
+          articles_generated: 0,
+          articles_limit: articlesLimit,
+          addon_articles_limit: addonArticlesLimit,
+          plan_tier_id: 'default',
+        },
+        { onConflict: 'user_id,billing_period_start' }
+      );
+    }
+
+    console.log(`Usage tracking created for new period: user=${userId}, org=${organizationId}, limit=${articlesLimit}+${addonArticlesLimit}`);
+  } catch (error) {
+    console.error('Error creating usage tracking for new period:', error);
+  }
+}
+
+// ============================================
+// 使用量上限再計算（プラン変更/アドオン変更時）
+// ============================================
+async function recalculateUsageLimits(
+  supabase: typeof supabaseAdminClient,
+  userId: string,
+  organizationId: string | undefined,
+  quantity: number,
+  addonQuantity: number,
+) {
+  try {
+    const { data: tier } = await supabase
+      .from('plan_tiers')
+      .select('monthly_article_limit, addon_unit_amount')
+      .eq('id', 'default')
+      .single();
+
+    const monthlyLimit = tier?.monthly_article_limit || 30;
+    const addonUnitAmount = tier?.addon_unit_amount || 20;
+
+    const newLimit = monthlyLimit * quantity;
+    const newAddonLimit = addonUnitAmount * addonQuantity;
+
+    const now = new Date().toISOString();
+
+    if (organizationId) {
+      await supabase
+        .from('usage_tracking')
+        .update({
+          articles_limit: newLimit,
+          addon_articles_limit: newAddonLimit,
+        })
+        .eq('organization_id', organizationId)
+        .lte('billing_period_start', now)
+        .gte('billing_period_end', now);
+    } else {
+      await supabase
+        .from('usage_tracking')
+        .update({
+          articles_limit: newLimit,
+          addon_articles_limit: newAddonLimit,
+        })
+        .eq('user_id', userId)
+        .lte('billing_period_start', now)
+        .gte('billing_period_end', now);
+    }
+
+    console.log(`Usage limits recalculated: user=${userId}, org=${organizationId}, limit=${newLimit}+${newAddonLimit}`);
+  } catch (error) {
+    console.error('Error recalculating usage limits:', error);
   }
 }

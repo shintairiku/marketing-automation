@@ -331,6 +331,18 @@ marketing-automation/
 | GET | `/admin/users/{user_id}` | ユーザー詳細 |
 | PATCH | `/admin/users/{user_id}/privilege` | 特権フラグ変更 |
 | PATCH | `/admin/users/{user_id}/subscription` | サブスクリプション変更 |
+| GET | `/admin/stats/overview` | ダッシュボードKPI統計 |
+| GET | `/admin/stats/generation-trend` | 記事生成日別推移 |
+| GET | `/admin/stats/subscription-distribution` | プラン別ユーザー分布 |
+| GET | `/admin/activity/recent` | 直近アクティビティ |
+| GET | `/admin/usage/users` | ユーザー別使用量一覧 |
+
+### Usage (`/usage`)
+| Method | Path | 概要 |
+|--------|------|------|
+| GET | `/usage/current` | 現在のユーザー使用量 |
+| GET | `/usage/admin/stats` | 管理者用使用量統計 |
+| GET | `/usage/admin/users` | 管理者用ユーザー別使用量 |
 
 ### Health
 | Method | Path | 概要 |
@@ -465,6 +477,13 @@ marketing-automation/
 |-------|------|
 | `wordpress_sites` | WordPress接続サイト (site_url, mcp_endpoint, encrypted_credentials) |
 | `blog_generation_state` | ブログ生成の状態管理 |
+
+### Usage & Plan Tables
+| Table | 概要 |
+|-------|------|
+| `plan_tiers` | プラン定義マスタ (id, name, stripe_price_id, monthly_article_limit, addon_unit_amount, price_amount) |
+| `usage_tracking` | 利用量追跡 (user_id, organization_id, billing_period, articles_generated, articles_limit, addon_articles_limit) |
+| `usage_logs` | 使用量監査ログ (usage_tracking_id, user_id, generation_process_id) |
 
 ### System Tables
 | Table | 概要 |
@@ -612,6 +631,7 @@ NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=
 STRIPE_SECRET_KEY=
 STRIPE_WEBHOOK_SECRET=
 STRIPE_PRICE_ID=
+STRIPE_PRICE_ADDON_ARTICLES=          # アドオン記事追加 Price ID
 
 # Backend
 NEXT_PUBLIC_API_BASE_URL=http://localhost:8080
@@ -877,6 +897,72 @@ docker compose logs -f backend                        # ログ確認
 - pyproject.toml のバージョン制約をすべて解除（ピンなしに変更）
 - **NOTE**: `google.generativeai` は非推奨。将来 `google.genai` に移行が必要
 
+### 10. Blog AI 利用上限システム + 管理者ダッシュボード改善
+
+#### 利用上限システム（Phase 1-5）
+
+**設計方針**: Stripe Billing Meters（従量課金向け）ではなく、Supabase DBでのアプリ側追跡を採用。ハードキャップモデル（上限で生成不可）のため。
+
+**DB マイグレーション**: `shared/supabase/migrations/20260202000001_add_usage_limits.sql`
+- `plan_tiers` テーブル: プラン定義マスタ（id, name, stripe_price_id, monthly_article_limit, addon_unit_amount）
+- `usage_tracking` テーブル: 利用量追跡（user_id, organization_id, billing_period_start/end, articles_generated, articles_limit, addon_articles_limit）
+- `usage_logs` テーブル: 監査ログ
+- `increment_usage_if_allowed()` PostgreSQL関数: FOR UPDATE ロックで原子的インクリメント
+- `user_subscriptions` に `plan_tier_id` カラム追加
+- `organization_subscriptions` に `plan_tier_id`, `addon_quantity` カラム追加
+- RLS ポリシー設定
+- デフォルトティア: 30記事/月, アドオン1ユニット=20記事, ¥29,800
+
+**バックエンド新規ドメイン**: `backend/app/domains/usage/`
+- `service.py` — UsageLimitService（check_can_generate, record_success, get_current_usage, recalculate_limits, create_tracking_for_period）
+- `endpoints.py` — `GET /usage/current`, `GET /usage/admin/stats`, `GET /usage/admin/users`
+- `schemas.py` — UsageInfo, UsageLimitResult, AdminUsageStats, AdminUserUsage
+- `backend/app/api/router.py` にusageルーター追加
+
+**Blog生成への統合**:
+- `backend/app/domains/blog/endpoints.py` — 生成開始前に `check_can_generate()` → 429エラー
+- `backend/app/domains/blog/services/generation_service.py` — 生成成功時（`_process_result`）に `record_success()` 呼び出し
+- カウント対象: Blog AIのみ（SEO記事は対象外）、成功時のみカウント
+
+**Stripeアドオン対応**:
+- `frontend/src/app/api/subscription/addon/route.ts` (新規) — POST: アドオン quantity 変更、既存サブスクに追加ラインアイテムとして追加
+- `frontend/src/app/api/subscription/webhook/route.ts` (改修) — `invoice.payment_succeeded` で使用量リセット、`customer.subscription.updated` でアドオン検出+上限再計算
+- 環境変数: `STRIPE_PRICE_ADDON_ARTICLES` を `.env` に追加が必要
+
+**フロントエンド利用上限UI**:
+- `frontend/src/lib/subscription/index.ts` — `UsageInfo` インターフェース、`ADDON_PRICE_ID` エクスポート追加
+- `frontend/src/components/subscription/subscription-guard.tsx` — `usage: UsageInfo | null` をコンテキストに追加
+- `frontend/src/app/api/subscription/status/route.ts` — レスポンスに `usage` フィールド追加（Supabase usage_tracking から直接取得）
+- `frontend/src/components/subscription/usage-progress-bar.tsx` (新規) — プログレスバーコンポーネント（compact/normal モード、色分け表示）
+- `frontend/src/app/(settings)/settings/billing/page.tsx` — 使用量表示セクション + アドオン管理UI追加（+/-ボタンでquantity変更）
+- `frontend/src/app/(tools)/blog/new/page.tsx` — 残り記事数表示、上限到達時の生成ボタン無効化、429レスポンスハンドリング
+
+#### 管理者ダッシュボード改善（Phase 6-7）
+
+**バックエンド管理者API拡充**: `backend/app/domains/admin/`
+- `schemas.py` — OverviewStats, DailyGenerationCount, GenerationTrendResponse, SubscriptionDistribution, RecentActivity, UserUsageItem 等追加
+- `service.py` — get_overview_stats(), get_generation_trend(), get_subscription_distribution(), get_recent_activity(), get_users_usage() メソッド追加
+- `endpoints.py` — 以下のエンドポイント追加:
+  | GET | `/admin/stats/overview` | ダッシュボードKPI統計 |
+  | GET | `/admin/stats/generation-trend` | 記事生成日別推移 |
+  | GET | `/admin/stats/subscription-distribution` | プラン別ユーザー分布 |
+  | GET | `/admin/activity/recent` | 直近アクティビティ |
+  | GET | `/admin/usage/users` | ユーザー別使用量一覧 |
+
+**フロントエンド管理者ダッシュボード**:
+- `frontend/src/app/(admin)/admin/page.tsx` — 全面リライト
+  - KPIカード4つ（総ユーザー数、有料会員、月間記事生成、推定MRR）
+  - recharts v3.7.0 によるエリアチャート（記事生成30日推移）
+  - recharts ドーナツチャート（プラン別ユーザー分布）
+  - 最近のアクティビティリスト
+  - 上限に近いユーザー一覧（70%以上をハイライト）
+  - ローディングスケルトン、エラーリトライ対応
+- **新規依存**: `recharts` v3.7.0 (frontend package.json)
+
+**NOTE**:
+- Supabase型定義は `usage_tracking`, `plan_tiers`, `usage_logs` テーブル + `addon_quantity`, `plan_tier_id`, `upgraded_to_org_id` カラム追加後に `bun run generate-types` で再生成が必要
+- DBマイグレーション適用前は一部TSエラーが出る（`usage_tracking` テーブル未認識等）が、`Record<string, unknown>` 型アサーションで回避中
+
 ### 9. Stripe v18→v20 破壊的変更対応
 - **問題**: Stripe SDK v18 (Basil API `2025-03-31.basil`) で `current_period_start` / `current_period_end` が `Subscription` レベルから `subscription.items.data[0]` (SubscriptionItem) に移動
 - **影響**: 旧コードは `StripeSubscriptionWithPeriod` というカスタム型拡張で `subscription.current_period_start` を読んでいたが、v18+では `undefined` になり `|| new Date().toISOString()` フォールバックが常時発火 → **サブスクリプション期間が常に現在時刻になるバグ**
@@ -891,6 +977,64 @@ docker compose logs -f backend                        # ログ確認
 - **Webhook形式**: `stripe.webhooks.constructEvent()` は v18-v20 で変更なし。安全
 - **`@stripe/stripe-js` v2→v8**: TypeScript型更新のみ。`loadStripe` は常にCDN最新版を読むため実質影響なし
 - **情報ソース**: https://github.com/stripe/stripe-node/blob/master/CHANGELOG.md
+
+### 10. 利用上限システム実装 (Phase 1-7)
+
+#### Phase 1-2: DB + バックエンド基盤
+- **新規**: `shared/supabase/migrations/20260202000001_add_usage_limits.sql`
+  - `plan_tiers` テーブル（プラン定義マスタ: monthly_article_limit, addon_unit_amount）
+  - `usage_tracking` テーブル（利用量追跡: articles_generated, articles_limit, addon_articles_limit）
+  - `usage_logs` テーブル（監査ログ）
+  - `increment_usage_if_allowed()` PostgreSQL関数（FOR UPDATE ロックで原子的インクリメント）
+  - `user_subscriptions` に `plan_tier_id`, `addon_quantity` カラム追加
+  - `organization_subscriptions` に `plan_tier_id`, `addon_quantity` カラム追加
+  - RLSポリシー設定
+- **新規**: `backend/app/domains/usage/` ドメイン
+  - `service.py` — UsageLimitService (check_can_generate, record_success, get_current_usage, recalculate_limits, create_tracking_for_period)
+  - `endpoints.py` — `GET /usage/current`
+  - `schemas.py` — UsageInfo, UsageLimitResult
+- **改修**: `backend/app/api/router.py` — usageルーター追加
+
+#### Phase 2: Blog生成への統合
+- **改修**: `backend/app/domains/blog/endpoints.py` — 生成開始前に `check_can_generate()` → 429エラー
+- **改修**: `backend/app/domains/blog/services/generation_service.py` — 成功時に `record_success()` 呼び出し
+
+#### Phase 3-4: Stripeアドオン + Webhookリセット
+- **新規**: `frontend/src/app/api/subscription/addon/route.ts` — アドオン管理API (POST)
+  - Stripeサブスクに追加ラインアイテムとしてアドオン追加/変更/削除
+  - DB (`user_subscriptions`/`organization_subscriptions`) の `addon_quantity` 更新
+  - `usage_tracking.addon_articles_limit` の即時更新
+- **改修**: `frontend/src/app/api/subscription/webhook/route.ts`
+  - `invoice.payment_succeeded` で新請求期間のusage_trackingレコード作成（リセット）
+  - `customer.subscription.updated` でアドオン変更検出 → 上限再計算
+  - 個人サブスクの `addon_quantity` も保存するように修正
+
+#### Phase 5: フロントエンドUI（利用上限）
+- **改修**: `frontend/src/components/subscription/subscription-guard.tsx` — UsageInfo型追加、usage state管理
+- **改修**: `frontend/src/app/api/subscription/status/route.ts` — usage_tracking情報をレスポンスに追加
+- **改修**: `frontend/src/app/(settings)/settings/billing/page.tsx` — 使用量プログレスバー + アドオン管理UI追加
+- **改修**: `frontend/src/app/(tools)/blog/new/page.tsx` — 残り記事数表示 + 上限到達時生成ボタン無効化
+
+#### Phase 6-7: 管理者ダッシュボード + API
+- **依存追加**: `recharts` v3.7.0 (`bun add recharts`)
+- **改修**: `backend/app/domains/admin/schemas.py` — OverviewStats, GenerationTrendResponse, SubscriptionDistribution, RecentActivity, UserUsageItem, UserDetailResponse 等追加
+- **改修**: `backend/app/domains/admin/service.py` — get_overview_stats, get_generation_trend, get_subscription_distribution, get_recent_activity, get_users_usage, get_user_detail メソッド追加
+- **改修**: `backend/app/domains/admin/endpoints.py` — 5つの統計エンドポイント + ユーザー詳細エンドポイント追加
+- **全面リライト**: `frontend/src/app/(admin)/admin/page.tsx` — KPIカード(4)、AreaChart(30日推移)、PieChart(サブスク分布)、アクティビティリスト、上限近接ユーザーリスト
+- **新規**: `frontend/src/app/(admin)/admin/users/[userId]/page.tsx` — ユーザー詳細ページ（使用量、サブスク、Stripe情報、組織情報、生成履歴テーブル）
+- **改修**: `frontend/src/app/(admin)/admin/users/page.tsx` — テーブル行に「詳細」リンク追加
+
+#### バグ修正
+- **組織メンバー使用量帰属**: `upgraded_to_org_id` が null の組織メンバー（招待経由）の使用量が取得できない問題。`organization_members` テーブルのフォールバック検索を3箇所に追加 (`usage/endpoints.py`, `blog/endpoints.py`, `blog/services/generation_service.py`)
+- **個人addon_quantity未保存**: `user_subscriptions` テーブルに `addon_quantity` カラムがなかった。マイグレーションに追加。Webhook・addon APIで保存するように修正
+- **usage_tracking即時更新**: アドオンAPI実行時に `usage_tracking.addon_articles_limit` も即時更新するように修正
+- **ゼロ除算防止**: blog/new のプログレスバーで `total_limit` が0の場合の除算を防止
+
+#### 設定方法
+- **プラン記事上限**: `plan_tiers` テーブルの `monthly_article_limit` を更新（例: 30 → 50）
+- **アドオン単位記事数**: `plan_tiers` テーブルの `addon_unit_amount` を更新（例: 20 → 30）
+- **新ティア追加**: `plan_tiers` に新行を INSERT + Stripe で新 Price 作成
+- **環境変数**: `STRIPE_PRICE_ADDON_ARTICLES` にアドオン用の Stripe Price ID を設定
 
 ---
 

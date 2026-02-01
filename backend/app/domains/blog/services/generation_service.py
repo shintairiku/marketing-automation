@@ -26,6 +26,7 @@ from agents.items import (
 )
 
 from app.common.database import supabase
+from app.domains.usage.service import usage_service
 import logging
 
 from app.core.config import settings
@@ -702,6 +703,45 @@ class BlogGenerationService:
                     "output": output_text[:1000],
                 },
             )
+
+        # 生成成功時に使用量をカウント
+        try:
+            org_id = self._get_user_org_for_usage(user_id)
+            usage_service.record_success(
+                user_id=user_id,
+                process_id=process_id,
+                organization_id=org_id,
+            )
+            logger.info(f"Usage recorded for process {process_id}")
+        except Exception as e:
+            logger.error(f"Failed to record usage for process {process_id}: {e}")
+
+    @staticmethod
+    def _get_user_org_for_usage(user_id: str) -> Optional[str]:
+        """ユーザーの使用量追跡対象の組織IDを取得"""
+        try:
+            # 1. upgraded_to_org_id を確認
+            sub = supabase.table("user_subscriptions").select(
+                "upgraded_to_org_id"
+            ).eq("user_id", user_id).maybe_single().execute()
+            if sub.data and sub.data.get("upgraded_to_org_id"):
+                return sub.data["upgraded_to_org_id"]
+
+            # 2. organization_members でアクティブな組織サブスクを探す
+            memberships = supabase.table("organization_members").select(
+                "organization_id"
+            ).eq("user_id", user_id).execute()
+            if memberships.data:
+                org_ids = [m["organization_id"] for m in memberships.data]
+                org_subs = supabase.table("organization_subscriptions").select(
+                    "organization_id"
+                ).in_("organization_id", org_ids).eq("status", "active").limit(1).execute()
+                if org_subs.data:
+                    return org_subs.data[0]["organization_id"]
+
+            return None
+        except Exception:
+            return None
 
     @staticmethod
     def _extract_draft_info(output_text: str) -> Optional[Dict[str, Any]]:

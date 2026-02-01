@@ -9,6 +9,7 @@ from app.domains.style_template.endpoints import router as style_template_router
 from app.domains.image_generation.endpoints import router as image_generation_router
 from app.domains.admin.endpoints import router as admin_router
 from app.domains.blog.endpoints import router as blog_router
+from app.domains.usage.endpoints import router as usage_router
 
 api_router = APIRouter()
 
@@ -20,6 +21,7 @@ api_router.include_router(company_router, prefix="/companies", tags=["Companies"
 api_router.include_router(style_template_router, prefix="/style-templates", tags=["Style Templates"])
 api_router.include_router(image_generation_router, prefix="/images", tags=["Image Generation"])
 api_router.include_router(blog_router, prefix="/blog", tags=["Blog AI"])
+api_router.include_router(usage_router, prefix="/usage", tags=["Usage"])
 # Admin router (requires @shintairiku.jp email domain)
 api_router.include_router(admin_router)
 

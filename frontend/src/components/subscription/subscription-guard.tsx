@@ -10,7 +10,7 @@
 import { createContext, type ReactNode,useCallback, useContext, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 
-import { hasActiveAccess, hasActiveOrgAccess, isPrivilegedEmail, type OrgSubscription, type UserSubscription } from '@/lib/subscription';
+import { hasActiveAccess, hasActiveOrgAccess, isPrivilegedEmail, type OrgSubscription, type UsageInfo, type UserSubscription } from '@/lib/subscription';
 import { useAuth, useUser } from '@clerk/nextjs';
 
 // サブスクリプションコンテキスト
@@ -19,6 +19,7 @@ interface SubscriptionContextType {
   orgSubscription: OrgSubscription | null;
   hasAccess: boolean;
   isLoading: boolean;
+  usage: UsageInfo | null;
   refetch: () => Promise<void>;
 }
 
@@ -27,6 +28,7 @@ const SubscriptionContext = createContext<SubscriptionContextType>({
   orgSubscription: null,
   hasAccess: false,
   isLoading: true,
+  usage: null,
   refetch: async () => {},
 });
 
@@ -40,12 +42,14 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
   const { user } = useUser();
   const [subscription, setSubscription] = useState<UserSubscription | null>(null);
   const [orgSubscription, setOrgSubscription] = useState<OrgSubscription | null>(null);
+  const [usage, setUsage] = useState<UsageInfo | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   const fetchSubscription = useCallback(async () => {
     if (!userId) {
       setSubscription(null);
       setOrgSubscription(null);
+      setUsage(null);
       setIsLoading(false);
       return;
     }
@@ -56,6 +60,7 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
         const data = await response.json();
         setSubscription(data.subscription);
         setOrgSubscription(data.orgSubscription || null);
+        setUsage(data.usage || null);
       }
     } catch (error) {
       console.error('Error fetching subscription:', error);
@@ -84,6 +89,7 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
         orgSubscription,
         hasAccess,
         isLoading: !isAuthLoaded || isLoading,
+        usage,
         refetch: fetchSubscription,
       }}
     >
