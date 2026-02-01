@@ -177,6 +177,8 @@ export default function BlogProcessPage() {
   const activityEndRef = useRef<HTMLDivElement>(null);
   const [, setTick] = useState(0); // for elapsed time refresh
   const [activityLogOpen, setActivityLogOpen] = useState(false);
+  const [justCompleted, setJustCompleted] = useState(false);
+  const prevStatusRef = useRef<string | null>(null);
 
   // ---- Fetch initial state ----
   const fetchState = useCallback(async () => {
@@ -346,6 +348,22 @@ export default function BlogProcessPage() {
       return () => clearInterval(interval);
     }
   }, [state]);
+
+  // ---- Detect completion transition ----
+  useEffect(() => {
+    if (
+      prevStatusRef.current &&
+      prevStatusRef.current !== "completed" &&
+      state?.status === "completed"
+    ) {
+      setJustCompleted(true);
+      const timer = setTimeout(() => setJustCompleted(false), 2000);
+      return () => clearTimeout(timer);
+    }
+    if (state?.status) {
+      prevStatusRef.current = state.status;
+    }
+  }, [state?.status]);
 
   // ---- Auto-scroll activity feed ----
   useEffect(() => {
@@ -545,17 +563,31 @@ export default function BlogProcessPage() {
           className="mb-8"
         >
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-1.5">
-            <h1 className="text-2xl font-bold text-stone-800 tracking-tight">
-              {state.status === "completed"
-                ? "記事の生成が完了しました"
-                : state.status === "error"
-                  ? "エラーが発生しました"
-                  : state.status === "user_input_required"
-                    ? "追加情報をお聞きしています"
-                    : "ブログ記事を生成しています"}
-            </h1>
+            <AnimatePresence mode="wait">
+              <motion.h1
+                key={state.status}
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -8 }}
+                transition={{ duration: 0.3 }}
+                className="text-2xl font-bold text-stone-800 tracking-tight"
+              >
+                {state.status === "completed"
+                  ? "記事の生成が完了しました"
+                  : state.status === "error"
+                    ? "エラーが発生しました"
+                    : state.status === "user_input_required"
+                      ? "追加情報をお聞きしています"
+                      : "ブログ記事を生成しています"}
+              </motion.h1>
+            </AnimatePresence>
             {state.status === "completed" && (
-              <div className="flex gap-2 flex-shrink-0">
+              <motion.div
+                className="flex gap-2 flex-shrink-0"
+                initial={{ opacity: 0, x: 10 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ delay: 0.4, duration: 0.4, ease: [0.22, 1, 0.36, 1] }}
+              >
                 {state.draft_preview_url && (
                   <Button
                     asChild
@@ -589,7 +621,7 @@ export default function BlogProcessPage() {
                     </a>
                   </Button>
                 )}
-              </div>
+              </motion.div>
             )}
           </div>
           {state.user_prompt && (
@@ -605,15 +637,21 @@ export default function BlogProcessPage() {
             <motion.div
               initial={{ opacity: 0, scaleY: 0 }}
               animate={{ opacity: 1, scaleY: 1 }}
-              exit={{ opacity: 0, scaleY: 0 }}
+              exit={{ opacity: 0, height: 0, marginBottom: 0, transition: { duration: 0.4, delay: 0.1, ease: "easeInOut" } }}
+              transition={{ duration: 0.3 }}
               style={{ originY: 0 }}
               className="mb-6"
             >
               <div className="relative h-1 w-full rounded-full bg-stone-100 overflow-hidden">
                 <motion.div
-                  className="absolute inset-y-0 left-0 rounded-full bg-gradient-to-r from-amber-400 via-orange-400 to-emerald-500"
+                  className="absolute inset-y-0 left-0 rounded-full"
                   initial={{ width: 0 }}
-                  animate={{ width: `${state.progress_percentage}%` }}
+                  animate={{
+                    width: `${state.progress_percentage}%`,
+                    background: state.progress_percentage >= 100
+                      ? "linear-gradient(to right, #34d399, #10b981)"
+                      : "linear-gradient(to right, #fbbf24, #f97316, #10b981)",
+                  }}
                   transition={{ duration: 0.8, ease: "easeOut" }}
                 />
                 {/* Shimmer overlay */}
@@ -637,14 +675,20 @@ export default function BlogProcessPage() {
           {state.status === "completed" && (
             <motion.div
               key="completed"
-              initial={{ opacity: 0, y: 20 }}
+              initial={{ opacity: 0, y: 30 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -10 }}
-              transition={{ duration: 0.5 }}
+              transition={{
+                duration: 0.6,
+                delay: 0.15,
+                ease: [0.22, 1, 0.36, 1],
+              }}
               className="space-y-5"
             >
               {/* Success banner — collapsible to reveal activity log */}
-              <div className="rounded-2xl border border-emerald-200/60 bg-emerald-50/70 overflow-hidden">
+              <div className={`rounded-2xl border border-emerald-200/60 bg-emerald-50/70 overflow-hidden ${
+                justCompleted ? "animate-[successGlow_1s_ease-out]" : ""
+              }`}>
                 {/* Clickable header */}
                 <button
                   type="button"
@@ -653,9 +697,18 @@ export default function BlogProcessPage() {
                     activities.length > 0 ? "cursor-pointer hover:bg-emerald-50" : "cursor-default"
                   }`}
                 >
-                  <div className="w-7 h-7 rounded-full bg-emerald-500 flex items-center justify-center flex-shrink-0">
+                  <motion.div
+                    className="w-7 h-7 rounded-full bg-emerald-500 flex items-center justify-center flex-shrink-0"
+                    initial={justCompleted ? { scale: 0 } : { scale: 1 }}
+                    animate={{ scale: 1 }}
+                    transition={
+                      justCompleted
+                        ? { type: "spring", stiffness: 400, damping: 15, delay: 0.3 }
+                        : { duration: 0 }
+                    }
+                  >
                     <Check className="w-4 h-4 text-white" strokeWidth={3} />
-                  </div>
+                  </motion.div>
                   <div className="flex-1 min-w-0">
                     <p className="text-stone-700 font-medium text-sm">
                       下書き記事がWordPressに保存されました
@@ -773,7 +826,12 @@ export default function BlogProcessPage() {
 
               {/* Agent message */}
               {state.blog_context.agent_message && (
-                <div className="p-5 rounded-2xl bg-white/70 border border-stone-200/60">
+                <motion.div
+                  initial={{ opacity: 0, y: 16 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.25, duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
+                  className="p-5 rounded-2xl bg-white/70 border border-stone-200/60"
+                >
                   <p className="text-xs font-medium text-stone-400 mb-3 flex items-center gap-1.5 uppercase tracking-wider">
                     <FileText className="w-3.5 h-3.5" />
                     AIからのメッセージ
@@ -782,7 +840,7 @@ export default function BlogProcessPage() {
                     content={state.blog_context.agent_message}
                     className="text-stone-600"
                   />
-                </div>
+                </motion.div>
               )}
             </motion.div>
           )}
@@ -1021,7 +1079,8 @@ export default function BlogProcessPage() {
               key="progress"
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -10 }}
+              exit={{ opacity: 0, y: 10, scale: 0.97, filter: "blur(4px)", transition: { duration: 0.35, ease: "easeIn" } }}
+              transition={{ duration: 0.4 }}
               className="space-y-4"
             >
               {/* Current activity indicator */}
@@ -1178,6 +1237,17 @@ export default function BlogProcessPage() {
           }
           100% {
             transform: translateX(100%);
+          }
+        }
+        @keyframes successGlow {
+          0% {
+            box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.4);
+          }
+          50% {
+            box-shadow: 0 0 20px 4px rgba(16, 185, 129, 0.15);
+          }
+          100% {
+            box-shadow: 0 0 0 0 rgba(16, 185, 129, 0);
           }
         }
       `}</style>
