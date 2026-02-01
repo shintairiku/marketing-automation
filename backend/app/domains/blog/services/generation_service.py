@@ -9,6 +9,7 @@ Blog AI Domain - Generation Service
 
 import json
 import re
+import time
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
@@ -35,6 +36,17 @@ from app.domains.blog.services.wordpress_mcp_service import (
     clear_mcp_client_cache,
     set_mcp_context,
 )
+try:
+    from app.infrastructure.logging.service import LoggingService
+    LOGGING_SERVICE_AVAILABLE = True
+except Exception:
+    LoggingService = None  # type: ignore
+    LOGGING_SERVICE_AVAILABLE = False
+
+try:
+    from app.infrastructure.analysis.cost_calculation_service import CostCalculationService
+except Exception:
+    CostCalculationService = None  # type: ignore
 
 logger = logging.getLogger(__name__)
 
@@ -168,6 +180,18 @@ class BlogGenerationService:
                 }
             )
 
+            # ログセッションを確保（ブログAI用）
+            log_session_id = self._get_or_create_log_session(
+                process_id=process_id,
+                user_id=user_id,
+                organization_id=self._get_user_org_for_usage(user_id),
+                wordpress_site_id=wordpress_site.get("id"),
+                initial_input={
+                    "user_prompt": user_prompt,
+                    "reference_url": reference_url,
+                },
+            )
+
             # エージェント実行（共通メソッド）
             await self._run_agent_streamed(
                 process_id=process_id,
@@ -176,6 +200,7 @@ class BlogGenerationService:
                 run_config=run_config,
                 previous_response_id=None,
                 base_progress=5,
+                log_session_id=log_session_id,
             )
 
         except Exception as e:
@@ -266,6 +291,19 @@ class BlogGenerationService:
                 }
             )
 
+            # ログセッションを確保（ブログAI用）
+            log_session_id = self._get_or_create_log_session(
+                process_id=process_id,
+                user_id=user_id,
+                organization_id=self._get_user_org_for_usage(user_id),
+                wordpress_site_id=wordpress_site.get("id"),
+                initial_input={
+                    "user_prompt": blog_context.get("user_prompt"),
+                    "reference_url": blog_context.get("reference_url"),
+                    "is_continuation": True,
+                },
+            )
+
             # previous_response_id が使える場合:
             #   サーバー側が前回までの会話を保持しているため、
             #   新しいユーザーメッセージだけ送れば十分（トークン節約）
@@ -306,6 +344,7 @@ class BlogGenerationService:
                 run_config=run_config,
                 previous_response_id=previous_response_id,
                 base_progress=45,
+                log_session_id=log_session_id,
             )
 
         except Exception as e:
@@ -358,6 +397,7 @@ class BlogGenerationService:
         run_config: RunConfig,
         previous_response_id: Optional[str],
         base_progress: int = 5,
+        log_session_id: Optional[str] = None,
     ) -> None:
         """
         エージェントをストリーミング実行し、結果を処理する（初回・継続共通）
@@ -376,112 +416,215 @@ class BlogGenerationService:
             f"previous_response_id={previous_response_id}"
         )
 
-        result = Runner.run_streamed(
-            self._agent,
-            agent_input,
-            run_config=run_config,
-            max_turns=settings.blog_generation_max_turns,
-            previous_response_id=previous_response_id,
-        )
+        execution_start = time.time()
+        logging_service = LoggingService() if LOGGING_SERVICE_AVAILABLE else None
+        execution_id: Optional[str] = None
+        tool_call_log_ids: Dict[str, str] = {}
+        tool_call_start_times: Dict[str, float] = {}
 
-        tool_call_count = 0
-        total_estimated_tools = 10
-        # ask_user_questions のツール呼び出し引数をキャプチャ
-        pending_user_questions: Optional[Dict[str, Any]] = None
+        if log_session_id and logging_service:
+            try:
+                step_number = self._get_next_execution_step(log_session_id)
+                execution_id = logging_service.create_execution_log(
+                    session_id=log_session_id,
+                    agent_name=self._agent.name,
+                    agent_type="blog_generation",
+                    step_number=step_number,
+                    input_data={
+                        "process_id": process_id,
+                        "previous_response_id": previous_response_id,
+                        "input_type": "list" if isinstance(agent_input, list) else "str",
+                    },
+                    llm_model=settings.blog_generation_model,
+                    execution_metadata={
+                        "workflow_type": "blog_generation",
+                        "process_id": process_id,
+                        "user_id": user_id,
+                    },
+                )
+            except Exception as log_err:
+                logger.warning(f"Failed to create execution log: {log_err}")
+                execution_id = None
 
-        async for event in result.stream_events():
-            await self._handle_stream_event(
-                event, process_id, user_id,
-                tool_call_count, total_estimated_tools,
-                base_progress,
-            )
-            if isinstance(event, RunItemStreamEvent):
-                if isinstance(event.item, ToolCallItem):
-                    tool_call_count += 1
-                    # ask_user_questions の引数を検出
-                    tool_name = getattr(event.item.raw_item, "name", None)
-                    if tool_name == "ask_user_questions":
-                        pending_user_questions = self._extract_user_questions(
-                            event.item.raw_item
-                        )
-
-        # 最終結果を取得
-        final_result = result.final_output
-        logger.info(f"Agent実行完了: process_id={process_id}")
-        logger.debug(
-            f"Agent出力: {final_result[:500] if final_result else 'None'}..."
-        )
-
-        # ========================================
-        # 会話履歴を取得（to_input_list）
-        # ========================================
         try:
-            conversation_history = result.to_input_list()
-            last_response_id = result.last_response_id
-            logger.info(
-                f"会話履歴保存: {len(conversation_history)}アイテム, "
-                f"last_response_id={last_response_id}"
+            result = Runner.run_streamed(
+                self._agent,
+                agent_input,
+                run_config=run_config,
+                max_turns=settings.blog_generation_max_turns,
+                previous_response_id=previous_response_id,
             )
-        except Exception as hist_err:
-            logger.warning(f"会話履歴取得エラー: {hist_err}")
-            conversation_history = None
-            last_response_id = None
 
-        # ========================================
-        # ユーザー質問検出 → 入力待ち遷移
-        # ========================================
-        if pending_user_questions:
-            logger.info(
-                f"ユーザー入力待ち: process_id={process_id}, "
-                f"questions={len(pending_user_questions['questions'])}"
+            tool_call_count = 0
+            total_estimated_tools = 10
+            # ask_user_questions のツール呼び出し引数をキャプチャ
+            pending_user_questions: Optional[Dict[str, Any]] = None
+
+            async for event in result.stream_events():
+                # ツール呼び出しログ
+                if execution_id and logging_service and isinstance(event, RunItemStreamEvent):
+                    if isinstance(event.item, ToolCallItem):
+                        tool_name = getattr(event.item.raw_item, "name", None) or "unknown_tool"
+                        call_id = (
+                            getattr(event.item.raw_item, "call_id", None)
+                            or getattr(event.item.raw_item, "id", None)
+                            or f"{tool_name}:{tool_call_count + 1}"
+                        )
+                        tool_call_start_times[call_id] = time.time()
+                        raw_args = getattr(event.item.raw_item, "arguments", None)
+                        parsed_args: Dict[str, Any] | str | None
+                        if isinstance(raw_args, str):
+                            try:
+                                parsed_args = json.loads(raw_args)
+                            except json.JSONDecodeError:
+                                parsed_args = raw_args
+                        else:
+                            parsed_args = raw_args
+                        try:
+                            tool_call_log_id = logging_service.create_tool_call_log(
+                                execution_id=execution_id,
+                                tool_name=tool_name,
+                                tool_function=tool_name,
+                                call_sequence=tool_call_count + 1,
+                                input_parameters=parsed_args if isinstance(parsed_args, dict) else {"raw": parsed_args},
+                                status="started",
+                                tool_metadata={
+                                    "call_id": call_id,
+                                },
+                            )
+                            tool_call_log_ids[call_id] = tool_call_log_id
+                        except Exception as log_err:
+                            logger.debug(f"Failed to log tool call start: {log_err}")
+                    elif isinstance(event.item, ToolCallOutputItem):
+                        call_id = getattr(event.item.raw_item, "call_id", None)
+                        if call_id and call_id in tool_call_log_ids:
+                            duration_ms = None
+                            if call_id in tool_call_start_times:
+                                duration_ms = int((time.time() - tool_call_start_times[call_id]) * 1000)
+                            try:
+                                logging_service.update_tool_call_log(
+                                    call_id=tool_call_log_ids[call_id],
+                                    status="completed",
+                                    output_data={"output": str(event.item.output)[:1000]},
+                                    execution_time_ms=duration_ms,
+                                )
+                            except Exception as log_err:
+                                logger.debug(f"Failed to update tool call log: {log_err}")
+
+                await self._handle_stream_event(
+                    event, process_id, user_id,
+                    tool_call_count, total_estimated_tools,
+                    base_progress,
+                )
+                if isinstance(event, RunItemStreamEvent):
+                    if isinstance(event.item, ToolCallItem):
+                        tool_call_count += 1
+                        # ask_user_questions の引数を検出
+                        tool_name = getattr(event.item.raw_item, "name", None)
+                        if tool_name == "ask_user_questions":
+                            pending_user_questions = self._extract_user_questions(
+                                event.item.raw_item
+                            )
+
+            # 最終結果を取得
+            final_result = result.final_output
+            logger.info(f"Agent実行完了: process_id={process_id}")
+            logger.debug(
+                f"Agent出力: {final_result[:500] if final_result else 'None'}..."
             )
-            blog_ctx: Dict[str, Any] = {
-                "ai_questions": pending_user_questions["questions"],
-                "question_context": pending_user_questions.get("context"),
-            }
-            if final_result:
-                blog_ctx["agent_message"] = final_result
-            # 会話履歴を保存（次回継続時に使用）
-            if conversation_history is not None:
-                blog_ctx["conversation_history"] = conversation_history
-            if last_response_id:
-                blog_ctx["last_response_id"] = last_response_id
 
+            # ========================================
+            # 会話履歴を取得（to_input_list）
+            # ========================================
+            try:
+                conversation_history = result.to_input_list()
+                last_response_id = result.last_response_id
+                logger.info(
+                    f"会話履歴保存: {len(conversation_history)}アイテム, "
+                    f"last_response_id={last_response_id}"
+                )
+            except Exception as hist_err:
+                logger.warning(f"会話履歴取得エラー: {hist_err}")
+                conversation_history = None
+                last_response_id = None
+
+            # ========================================
+            # LLM使用量ログ
+            # ========================================
+            self._finalize_execution_logging(
+                result=result,
+                execution_id=execution_id,
+                logging_service=logging_service,
+                started_at=execution_start,
+            )
+
+            # ========================================
+            # ユーザー質問検出 → 入力待ち遷移
+            # ========================================
+            if pending_user_questions:
+                logger.info(
+                    f"ユーザー入力待ち: process_id={process_id}, "
+                    f"questions={len(pending_user_questions['questions'])}"
+                )
+                blog_ctx: Dict[str, Any] = {
+                    "ai_questions": pending_user_questions["questions"],
+                    "question_context": pending_user_questions.get("context"),
+                }
+                if final_result:
+                    blog_ctx["agent_message"] = final_result
+                # 会話履歴を保存（次回継続時に使用）
+                if conversation_history is not None:
+                    blog_ctx["conversation_history"] = conversation_history
+                if last_response_id:
+                    blog_ctx["last_response_id"] = last_response_id
+
+                await self._update_state(
+                    process_id,
+                    status="user_input_required",
+                    current_step_name="ユーザー入力待ち",
+                    progress_percentage=40,
+                    is_waiting_for_input=True,
+                    input_type="questions",
+                    blog_context=blog_ctx,
+                )
+                await self._publish_event(
+                    process_id, user_id,
+                    "user_input_required",
+                    {
+                        "questions": pending_user_questions["questions"],
+                        "context": pending_user_questions.get("context"),
+                        "message": pending_user_questions.get("context")
+                            or "記事作成に必要な情報を入力してください",
+                    },
+                )
+                return
+
+            # ========================================
+            # 通常完了: 結果を処理
+            # ========================================
             await self._update_state(
                 process_id,
-                status="user_input_required",
-                current_step_name="ユーザー入力待ち",
-                progress_percentage=40,
-                is_waiting_for_input=True,
-                input_type="questions",
-                blog_context=blog_ctx,
+                current_step_name="下書き作成中 - 結果を処理しています",
+                progress_percentage=90,
             )
             await self._publish_event(
                 process_id, user_id,
-                "user_input_required",
-                {
-                    "questions": pending_user_questions["questions"],
-                    "context": pending_user_questions.get("context"),
-                    "message": pending_user_questions.get("context")
-                        or "記事作成に必要な情報を入力してください",
-                },
+                "processing_result",
+                {"message": "結果を処理しています..."},
             )
-            return
-
-        # ========================================
-        # 通常完了: 結果を処理
-        # ========================================
-        await self._update_state(
-            process_id,
-            current_step_name="下書き作成中 - 結果を処理しています",
-            progress_percentage=90,
-        )
-        await self._publish_event(
-            process_id, user_id,
-            "processing_result",
-            {"message": "結果を処理しています..."},
-        )
-        await self._process_result(process_id, user_id, final_result or "")
+            await self._process_result(process_id, user_id, final_result or "")
+        except Exception as e:
+            if execution_id and logging_service:
+                try:
+                    logging_service.update_execution_log(
+                        execution_id=execution_id,
+                        status="failed",
+                        duration_ms=int((time.time() - execution_start) * 1000),
+                        error_message=str(e),
+                    )
+                except Exception as log_err:
+                    logger.debug(f"Failed to mark execution failed: {log_err}")
+            raise
 
     # ===========================================================
     # ストリームイベント処理
@@ -794,6 +937,275 @@ class BlogGenerationService:
         # 画像がある場合はマルチモーダル入力を構築
         content_parts = [{"type": "input_text", "text": text_content}] + image_parts
         return [{"role": "user", "content": content_parts}]
+
+    # ===========================================================
+    # Logging helpers
+    # ===========================================================
+
+    def _get_or_create_log_session(
+        self,
+        process_id: str,
+        user_id: str,
+        organization_id: Optional[str],
+        wordpress_site_id: Optional[str],
+        initial_input: Optional[Dict[str, Any]] = None,
+    ) -> Optional[str]:
+        """ブログAI用のログセッションを取得/作成"""
+        if not LOGGING_SERVICE_AVAILABLE:
+            return None
+
+        try:
+            existing = supabase.table("agent_log_sessions").select("id").eq(
+                "article_uuid", process_id
+            ).limit(1).execute()
+            if existing.data:
+                return existing.data[0]["id"]
+        except Exception as e:
+            logger.debug(f"Failed to lookup log session: {e}")
+
+        try:
+            logging_service = LoggingService()
+            return logging_service.create_log_session(
+                article_uuid=process_id,
+                user_id=user_id,
+                organization_id=organization_id,
+                initial_input=initial_input or {},
+                session_metadata={
+                    "workflow_type": "blog_generation",
+                    "process_id": process_id,
+                    "wordpress_site_id": wordpress_site_id,
+                },
+            )
+        except Exception as e:
+            logger.warning(f"Failed to create log session: {e}")
+            return None
+
+    @staticmethod
+    def _get_next_execution_step(session_id: str) -> int:
+        """次の実行ステップ番号を取得"""
+        try:
+            result = supabase.table("agent_execution_logs").select(
+                "id", count="exact"
+            ).eq("session_id", session_id).execute()
+            if result.count is not None:
+                return int(result.count) + 1
+            return len(result.data or []) + 1
+        except Exception:
+            return 1
+
+    @staticmethod
+    def _get_raw_responses(result: Any) -> Optional[List[Any]]:
+        candidate_attrs = [
+            "_raw_responses", "raw_responses", "_responses", "responses",
+            "_RunResult__raw_responses", "__raw_responses", "new_items", "_new_items"
+        ]
+        for attr_name in candidate_attrs:
+            if hasattr(result, attr_name):
+                attr_value = getattr(result, attr_name)
+                if attr_value and hasattr(attr_value, "__len__") and len(attr_value) > 0:
+                    return list(attr_value)
+        return None
+
+    @staticmethod
+    def _safe_get(obj: Any, key: str, default: Any = None) -> Any:
+        if obj is None:
+            return default
+        if isinstance(obj, dict):
+            return obj.get(key, default)
+        return getattr(obj, key, default)
+
+    def _normalize_usage_entry(self, entry: Any) -> Dict[str, Any]:
+        input_tokens = self._safe_get(entry, "input_tokens", None)
+        if input_tokens is None:
+            input_tokens = self._safe_get(entry, "prompt_tokens", 0)
+        output_tokens = self._safe_get(entry, "output_tokens", None)
+        if output_tokens is None:
+            output_tokens = self._safe_get(entry, "completion_tokens", 0)
+
+        input_details = self._safe_get(entry, "input_tokens_details")
+        output_details = self._safe_get(entry, "output_tokens_details")
+
+        cached_tokens = 0
+        if input_details:
+            cached_tokens = self._safe_get(input_details, "cached_tokens", 0)
+
+        reasoning_tokens = 0
+        if output_details:
+            reasoning_tokens = self._safe_get(output_details, "reasoning_tokens", 0)
+
+        return {
+            "model": self._safe_get(entry, "model", None) or self._safe_get(entry, "model_name", None),
+            "input_tokens": int(input_tokens or 0),
+            "output_tokens": int(output_tokens or 0),
+            "total_tokens": int(self._safe_get(entry, "total_tokens", 0) or 0),
+            "cached_tokens": int(cached_tokens or 0),
+            "reasoning_tokens": int(reasoning_tokens or 0),
+            "response_id": self._safe_get(entry, "response_id", None) or self._safe_get(entry, "id", None),
+        }
+
+    def _extract_usage_entries(self, result: Any) -> List[Dict[str, Any]]:
+        entries: List[Any] = []
+        for candidate in [getattr(result, "context_wrapper", None), result]:
+            if not candidate:
+                continue
+            for attr in ("request_usage_entries", "usage_entries", "request_usage"):
+                value = getattr(candidate, attr, None)
+                if value:
+                    try:
+                        entries = list(value)
+                    except TypeError:
+                        entries = [value]
+                    break
+            if entries:
+                break
+
+        return [self._normalize_usage_entry(entry) for entry in entries if entry is not None]
+
+    def _extract_usage_from_raw_responses(self, result: Any) -> Optional[Dict[str, Any]]:
+        raw_responses = self._get_raw_responses(result)
+        if not raw_responses:
+            return None
+
+        last_response = raw_responses[-1]
+        usage = self._safe_get(last_response, "usage")
+        if not usage:
+            return None
+
+        input_tokens = self._safe_get(usage, "input_tokens", 0)
+        output_tokens = self._safe_get(usage, "output_tokens", 0)
+        total_tokens = self._safe_get(usage, "total_tokens", 0)
+        input_details = self._safe_get(usage, "input_tokens_details")
+        output_details = self._safe_get(usage, "output_tokens_details")
+
+        cached_tokens = 0
+        if input_details:
+            cached_tokens = self._safe_get(input_details, "cached_tokens", 0)
+
+        reasoning_tokens = 0
+        if output_details:
+            reasoning_tokens = self._safe_get(output_details, "reasoning_tokens", 0)
+
+        return {
+            "model": self._safe_get(last_response, "model", None),
+            "input_tokens": int(input_tokens or 0),
+            "output_tokens": int(output_tokens or 0),
+            "total_tokens": int(total_tokens or 0),
+            "cached_tokens": int(cached_tokens or 0),
+            "reasoning_tokens": int(reasoning_tokens or 0),
+            "response_id": self._safe_get(last_response, "id", None),
+        }
+
+    @staticmethod
+    def _aggregate_usage(entries: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+        if not entries:
+            return None
+        totals = {
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "cached_tokens": 0,
+            "reasoning_tokens": 0,
+            "total_tokens": 0,
+            "model": entries[-1].get("model"),
+        }
+        for entry in entries:
+            totals["input_tokens"] += int(entry.get("input_tokens", 0))
+            totals["output_tokens"] += int(entry.get("output_tokens", 0))
+            totals["cached_tokens"] += int(entry.get("cached_tokens", 0))
+            totals["reasoning_tokens"] += int(entry.get("reasoning_tokens", 0))
+            totals["total_tokens"] += int(entry.get("total_tokens", 0) or 0)
+        return totals
+
+    def _estimate_cost(self, usage: Dict[str, Any]) -> Optional[float]:
+        if CostCalculationService is None:
+            return None
+        try:
+            cost_info = CostCalculationService.calculate_cost(
+                model_name=usage.get("model") or settings.blog_generation_model,
+                prompt_tokens=int(usage.get("input_tokens", 0)),
+                completion_tokens=int(usage.get("output_tokens", 0)),
+                cached_tokens=int(usage.get("cached_tokens", 0)),
+                reasoning_tokens=int(usage.get("reasoning_tokens", 0)),
+                total_tokens=int(usage.get("total_tokens", 0)),
+            )
+            return cost_info["cost_breakdown"]["total_cost_usd"]
+        except Exception:
+            return None
+
+    def _finalize_execution_logging(
+        self,
+        result: Any,
+        execution_id: Optional[str],
+        logging_service: Optional[Any],
+        started_at: float,
+    ) -> None:
+        if not execution_id or not logging_service:
+            return
+
+        usage_entries = self._extract_usage_entries(result)
+        usage_summary = self._aggregate_usage(usage_entries)
+        if usage_summary is None:
+            usage_summary = self._extract_usage_from_raw_responses(result)
+
+        duration_ms = int((time.time() - started_at) * 1000)
+
+        try:
+            logging_service.update_execution_log(
+                execution_id=execution_id,
+                status="completed",
+                input_tokens=int((usage_summary or {}).get("input_tokens", 0)),
+                output_tokens=int((usage_summary or {}).get("output_tokens", 0)),
+                cache_tokens=int((usage_summary or {}).get("cached_tokens", 0)),
+                reasoning_tokens=int((usage_summary or {}).get("reasoning_tokens", 0)),
+                duration_ms=duration_ms,
+            )
+        except Exception as e:
+            logger.debug(f"Failed to update execution log: {e}")
+
+        # LLM呼び出しログ
+        try:
+            if usage_entries:
+                for i, entry in enumerate(usage_entries):
+                    cost = self._estimate_cost(entry)
+                    logging_service.create_llm_call_log(
+                        execution_id=execution_id,
+                        call_sequence=i + 1,
+                        api_type="responses_api",
+                        model_name=entry.get("model") or settings.blog_generation_model,
+                        provider="openai",
+                        prompt_tokens=int(entry.get("input_tokens", 0)),
+                        completion_tokens=int(entry.get("output_tokens", 0)),
+                        total_tokens=int(entry.get("total_tokens", 0)),
+                        cached_tokens=int(entry.get("cached_tokens", 0)),
+                        reasoning_tokens=int(entry.get("reasoning_tokens", 0)),
+                        estimated_cost_usd=cost,
+                        api_response_id=entry.get("response_id"),
+                        response_data={
+                            "usage_source": "request_usage_entries",
+                            "response_id": entry.get("response_id"),
+                        },
+                    )
+            elif usage_summary:
+                cost = self._estimate_cost(usage_summary)
+                logging_service.create_llm_call_log(
+                    execution_id=execution_id,
+                    call_sequence=1,
+                    api_type="responses_api",
+                    model_name=usage_summary.get("model") or settings.blog_generation_model,
+                    provider="openai",
+                    prompt_tokens=int(usage_summary.get("input_tokens", 0)),
+                    completion_tokens=int(usage_summary.get("output_tokens", 0)),
+                    total_tokens=int(usage_summary.get("total_tokens", 0)),
+                    cached_tokens=int(usage_summary.get("cached_tokens", 0)),
+                    reasoning_tokens=int(usage_summary.get("reasoning_tokens", 0)),
+                    estimated_cost_usd=cost,
+                    api_response_id=usage_summary.get("response_id"),
+                    response_data={
+                        "usage_source": "raw_responses",
+                        "response_id": usage_summary.get("response_id"),
+                    },
+                )
+        except Exception as e:
+            logger.debug(f"Failed to create llm call logs: {e}")
 
     async def _process_result(
         self,

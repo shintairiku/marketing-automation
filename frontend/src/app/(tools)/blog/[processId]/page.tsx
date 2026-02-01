@@ -919,7 +919,10 @@ export default function BlogProcessPage() {
 
               {/* Activity feed */}
               <div className="rounded-2xl border border-stone-200/60 bg-white/50 backdrop-blur-sm overflow-hidden">
-                <div className="max-h-[300px] md:max-h-[420px] overflow-y-auto overscroll-contain">
+                <div
+                  className="overflow-y-auto overscroll-contain min-h-[250px]"
+                  style={{ maxHeight: 'calc(100dvh - 355px)' }}
+                >
                   {activities.length === 0 ? (
                     <div className="px-5 py-10 text-center">
                       <Loader2 className="w-5 h-5 animate-spin text-stone-300 mx-auto mb-3" />
@@ -977,7 +980,7 @@ export default function BlogProcessPage() {
                           </div>
 
                           {/* Timestamp */}
-                          <span className="text-[11px] text-stone-300 tabular-nums flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <span className="text-[11px] text-stone-300 tabular-nums flex-shrink-0 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
                             {elapsedLabel(entry.timestamp)}
                           </span>
                         </motion.div>

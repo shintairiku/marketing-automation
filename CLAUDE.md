@@ -1148,6 +1148,25 @@ docker compose logs -f backend                        # ログ確認
 
 ---
 
+### 13. Blog AI コスト/ログ調査メモ (2026-02-01)
+
+- **agent_log_sessions.article_uuid は実質 process_id 用途**: `backend/app/domains/seo_article/services/_generation_flow_manager.py` で `article_uuid=process_id` として既に運用されている（FKは削除済み）。Blog AI でも `process_id` を流用可能。
+- **SEO記事のログ実装は未完成**: `log_agent_execution()` がダミーで実ログ記録なし。`_generation_utils.py` に `extract_token_usage_from_result()` / `log_tool_calls()` があるが、呼び出し元がほぼ無い。
+- **Blog AI はトークン/コスト未記録**: `backend/app/domains/blog/services/generation_service.py` は `Runner.run_streamed()` の usage を保存していない。`blog_generation_state.response_id` は未使用で、実際は `blog_context.last_response_id` に保存している。
+- **ツール呼び出しの集約ポイント**: Blog AI の WordPressツールは全て `call_wordpress_mcp_tool()` 経由（`backend/app/domains/blog/services/wordpress_mcp_service.py`）。ここが tool_call_logs などのフック候補。
+
+### 14. Blog AI コスト/ログ実装 (2026-02-01)
+
+- **Blog AI の LLMログ連携を実装**: `backend/app/domains/blog/services/generation_service.py` にログセッション作成・実行ログ・LLM呼び出しログ・ツール呼び出しログを追加。`agent_log_sessions.article_uuid` に `process_id` を保存（既存SEOと同方式）。
+- **使用量抽出ロジック**: Agents SDK `request_usage_entries` → 正規化 → 集計。取得不可の場合は `raw_responses` から usage を抽出してフォールバック。
+- **ツールログ**: `ToolCallItem`/`ToolCallOutputItem` をストリーミングで捕捉し `tool_call_logs` を作成/更新。
+- **管理画面に Blog AI 使用量を追加**:
+  - `backend/app/domains/admin/schemas.py` に `BlogAiUsageStats` 追加
+  - `backend/app/domains/admin/service.py` が `agent_log_sessions/llm_call_logs/tool_call_logs` を集計
+  - `frontend/src/app/(admin)/admin/users/[userId]/page.tsx` に Blog AI 使用量カード追加
+- **モデル料金更新**: `backend/app/infrastructure/analysis/cost_calculation_service.py` に GPT‑5/5.1/5.2/mini/nano/pro の料金を追加。推論トークンの二重課金を避けるガードを追加。
+
+
 > ## **【最重要・再掲】記憶の更新は絶対に忘れるな**
 > **このファイルの冒頭にも書いたが、改めて念押しする。**
 > 作業が完了したら、コミットする前に、必ずこのファイルに変更内容を記録せよ。

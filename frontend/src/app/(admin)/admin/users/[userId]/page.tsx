@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import {
+  Activity,
   AlertCircle,
   ArrowLeft,
   Building2,
@@ -75,9 +76,23 @@ interface GenerationRecord {
   updated_at: string | null;
 }
 
+interface BlogAiUsageStats {
+  total_tokens: number;
+  input_tokens: number;
+  output_tokens: number;
+  cached_tokens: number;
+  reasoning_tokens: number;
+  estimated_cost_usd: number;
+  tool_calls: number;
+  tools: Array<{ tool_name: string; count: number }>;
+  models: string[];
+  last_run_at: string | null;
+}
+
 interface UserDetailResponse {
   user: UserDetail;
   usage: UsageInfo | null;
+  blog_ai_usage?: BlogAiUsageStats | null;
   generation_history: GenerationRecord[];
   organization_id: string | null;
   organization_name: string | null;
@@ -133,6 +148,18 @@ function formatDateTime(dateStr: string | null): string {
 function truncateId(id: string, length = 16): string {
   if (id.length <= length) return id;
   return `${id.slice(0, length)}...`;
+}
+
+function formatNumber(n: number): string {
+  return new Intl.NumberFormat('ja-JP').format(n);
+}
+
+function formatUsd(amount: number): string {
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    maximumFractionDigits: 6,
+  }).format(amount);
 }
 
 // ---------------------------------------------------------------------------
@@ -293,7 +320,7 @@ export default function AdminUserDetailPage() {
     );
   }
 
-  const { user, usage, generation_history, organization_id, organization_name, addon_quantity, plan_tier_name } = data;
+  const { user, usage, blog_ai_usage, generation_history, organization_id, organization_name, addon_quantity, plan_tier_name } = data;
   const statusInfo = subscriptionStatusConfig[user.subscription_status];
   const usagePercent = usage && usage.total_limit > 0
     ? Math.min(Math.round((usage.articles_generated / usage.total_limit) * 100), 100)
@@ -478,6 +505,81 @@ export default function AdminUserDetailPage() {
               <div className="flex flex-col items-center justify-center py-8 text-muted-foreground">
                 <Clock className="h-8 w-8 mb-2" />
                 <p className="text-sm">使用量データなし</p>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Blog AI usage card */}
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Activity className="h-4 w-4" />
+              Blog AI 使用量
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {blog_ai_usage ? (
+              <div className="space-y-3">
+                <InfoRow label="総トークン">
+                  <span className="font-medium">{formatNumber(blog_ai_usage.total_tokens)}</span>
+                </InfoRow>
+                <Separator />
+                <InfoRow label="入力 / 出力">
+                  <span className="font-medium">
+                    {formatNumber(blog_ai_usage.input_tokens)} / {formatNumber(blog_ai_usage.output_tokens)}
+                  </span>
+                </InfoRow>
+                <Separator />
+                <InfoRow label="キャッシュ / 推論">
+                  <span className="font-medium">
+                    {formatNumber(blog_ai_usage.cached_tokens)} / {formatNumber(blog_ai_usage.reasoning_tokens)}
+                  </span>
+                </InfoRow>
+                <Separator />
+                <InfoRow label="推定コスト">
+                  <span className="font-medium">
+                    {blog_ai_usage.estimated_cost_usd > 0
+                      ? formatUsd(blog_ai_usage.estimated_cost_usd)
+                      : '-'}
+                  </span>
+                </InfoRow>
+                <Separator />
+                <InfoRow label="ツール呼び出し">
+                  <span className="font-medium">{formatNumber(blog_ai_usage.tool_calls)}</span>
+                </InfoRow>
+                <Separator />
+                <InfoRow label="使用モデル">
+                  <span className="text-sm text-muted-foreground">
+                    {blog_ai_usage.models.length > 0 ? blog_ai_usage.models.join(', ') : '-'}
+                  </span>
+                </InfoRow>
+                <Separator />
+                <InfoRow label="最終実行">
+                  <span className="text-sm text-muted-foreground">
+                    {blog_ai_usage.last_run_at ? formatDateTime(blog_ai_usage.last_run_at) : '-'}
+                  </span>
+                </InfoRow>
+                {blog_ai_usage.tools.length > 0 && (
+                  <>
+                    <Separator />
+                    <div className="space-y-2">
+                      <div className="text-xs text-muted-foreground">ツール内訳</div>
+                      <div className="flex flex-wrap gap-2">
+                        {blog_ai_usage.tools.slice(0, 6).map((tool) => (
+                          <Badge key={tool.tool_name} variant="secondary" className="text-xs">
+                            {tool.tool_name}: {tool.count}
+                          </Badge>
+                        ))}
+                      </div>
+                    </div>
+                  </>
+                )}
+              </div>
+            ) : (
+              <div className="flex flex-col items-center justify-center py-8 text-muted-foreground">
+                <Clock className="h-8 w-8 mb-2" />
+                <p className="text-sm">Blog AI 使用量データなし</p>
               </div>
             )}
           </CardContent>

@@ -23,6 +23,7 @@ from app.domains.admin.schemas import (
     UserDetailResponse,
     UserUsageDetail,
     UserGenerationHistory,
+    BlogAiUsageStats,
     PlanTierRead,
     CreatePlanTierRequest,
     UpdatePlanTierRequest,
@@ -499,6 +500,97 @@ class AdminService:
             logger.error(f"Error getting users usage: {e}")
             return []
 
+    def _get_blog_ai_usage(self, user_id: str) -> Optional[BlogAiUsageStats]:
+        """Blog AIのLLM使用量を集計"""
+        try:
+            sessions_resp = supabase.from_("agent_log_sessions").select(
+                "id, created_at, session_metadata"
+            ).eq("user_id", user_id).eq(
+                "session_metadata->>workflow_type", "blog_generation"
+            ).execute()
+            sessions = sessions_resp.data or []
+            if not sessions:
+                return None
+
+            session_ids = [s["id"] for s in sessions]
+            last_run_at = None
+            for s in sessions:
+                created_at = self._parse_datetime(s.get("created_at"))
+                if created_at and (last_run_at is None or created_at > last_run_at):
+                    last_run_at = created_at
+
+            exec_resp = supabase.from_("agent_execution_logs").select(
+                "id, input_tokens, output_tokens, cache_tokens, reasoning_tokens"
+            ).in_("session_id", session_ids).execute()
+            executions = exec_resp.data or []
+            execution_ids = [e["id"] for e in executions]
+
+            llm_calls = []
+            if execution_ids:
+                llm_resp = supabase.from_("llm_call_logs").select(
+                    "prompt_tokens, completion_tokens, cached_tokens, reasoning_tokens, total_tokens, model_name, estimated_cost_usd, called_at"
+                ).in_("execution_id", execution_ids).execute()
+                llm_calls = llm_resp.data or []
+
+            tool_calls = []
+            if execution_ids:
+                tool_resp = supabase.from_("tool_call_logs").select(
+                    "tool_name, tool_function, status"
+                ).in_("execution_id", execution_ids).execute()
+                tool_calls = tool_resp.data or []
+
+            input_tokens = 0
+            output_tokens = 0
+            cached_tokens = 0
+            reasoning_tokens = 0
+            total_tokens = 0
+            estimated_cost = 0.0
+            models: set[str] = set()
+
+            if llm_calls:
+                for call in llm_calls:
+                    input_tokens += int(call.get("prompt_tokens", 0) or 0)
+                    output_tokens += int(call.get("completion_tokens", 0) or 0)
+                    cached_tokens += int(call.get("cached_tokens", 0) or 0)
+                    reasoning_tokens += int(call.get("reasoning_tokens", 0) or 0)
+                    total_tokens += int(call.get("total_tokens", 0) or 0)
+                    estimated_cost += float(call.get("estimated_cost_usd", 0) or 0)
+                    model_name = call.get("model_name")
+                    if model_name:
+                        models.add(model_name)
+            else:
+                for execution in executions:
+                    input_tokens += int(execution.get("input_tokens", 0) or 0)
+                    output_tokens += int(execution.get("output_tokens", 0) or 0)
+                    cached_tokens += int(execution.get("cache_tokens", 0) or 0)
+                    reasoning_tokens += int(execution.get("reasoning_tokens", 0) or 0)
+
+            tool_breakdown: Dict[str, int] = {}
+            for tool in tool_calls:
+                name = tool.get("tool_name") or tool.get("tool_function") or "unknown"
+                tool_breakdown[name] = tool_breakdown.get(name, 0) + 1
+
+            tools_sorted = [
+                {"tool_name": name, "count": count}
+                for name, count in sorted(tool_breakdown.items(), key=lambda item: item[1], reverse=True)
+            ]
+
+            return BlogAiUsageStats(
+                total_tokens=total_tokens or (input_tokens + output_tokens),
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                cached_tokens=cached_tokens,
+                reasoning_tokens=reasoning_tokens,
+                estimated_cost_usd=round(estimated_cost, 6),
+                tool_calls=len(tool_calls),
+                tools=tools_sorted,
+                models=sorted(models),
+                last_run_at=last_run_at,
+            )
+        except Exception as e:
+            logger.debug(f"Blog AI usage aggregation failed for user {user_id}: {e}")
+            return None
+
     def get_user_detail(self, user_id: str) -> Optional[UserDetailResponse]:
         """Get detailed user info including usage, generation history, and org info"""
         user = self.get_user_by_id(user_id)
@@ -589,6 +681,7 @@ class AdminService:
         return UserDetailResponse(
             user=user,
             usage=usage,
+            blog_ai_usage=self._get_blog_ai_usage(user_id),
             generation_history=history,
             organization_id=str(org_id) if org_id else None,
             organization_name=org_name,

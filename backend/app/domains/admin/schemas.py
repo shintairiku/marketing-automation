@@ -175,10 +175,25 @@ class UserGenerationHistory(BaseModel):
     updated_at: Optional[datetime] = None
 
 
+class BlogAiUsageStats(BaseModel):
+    """Blog AI LLM usage stats"""
+    total_tokens: int = 0
+    input_tokens: int = 0
+    output_tokens: int = 0
+    cached_tokens: int = 0
+    reasoning_tokens: int = 0
+    estimated_cost_usd: float = 0.0
+    tool_calls: int = 0
+    tools: list[dict] = []
+    models: list[str] = []
+    last_run_at: Optional[datetime] = None
+
+
 class UserDetailResponse(BaseModel):
     """Detailed user info for admin user detail page"""
     user: UserRead
     usage: Optional[UserUsageDetail] = None
+    blog_ai_usage: Optional[BlogAiUsageStats] = None
     generation_history: list[UserGenerationHistory] = []
     organization_id: Optional[str] = None
     organization_name: Optional[str] = None
