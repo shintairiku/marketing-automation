@@ -10,7 +10,7 @@ import json
 import logging
 from typing import List, Literal, Optional
 
-from agents import function_tool
+from agents import function_tool, WebSearchTool
 
 from app.domains.blog.services.wordpress_mcp_service import (
     call_wordpress_mcp_tool,
@@ -626,9 +626,19 @@ async def upload_user_image_to_wordpress(
         }, ensure_ascii=False)
 
 
+# ========== Web検索ツール ==========
+
+web_search_tool = WebSearchTool(
+    user_location={"type": "approximate", "country": "JP"},
+    search_context_size="medium",
+)
+
+
 # ========== 全ツールをエクスポート ==========
 
 ALL_WORDPRESS_TOOLS = [
+    # Web検索
+    web_search_tool,
     # ユーザー対話系
     ask_user_questions,
     # 記事取得系

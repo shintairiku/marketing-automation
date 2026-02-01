@@ -1260,6 +1260,16 @@ docker compose logs -f backend                        # ログ確認
 - 手順ガイドを更新（リダイレクト方式 → URL貼り付け方式）
 - `connect/page.tsx` は旧フロー用として残存（プラグインからのリダイレクト互換）
 
+### 20. Blog AI エージェントに WebSearchTool 追加 (2026-02-02)
+
+- OpenAI Agents SDK の組み込み `WebSearchTool` を Blog AI の BlogWriter エージェントに追加
+- SEO記事ドメインで既に使用していた同じパターン (`user_location: JP`, `search_context_size: medium`)
+- **変更ファイル**:
+  - `backend/app/domains/blog/agents/tools.py` — `WebSearchTool` import + インスタンス作成 + `ALL_WORDPRESS_TOOLS` リスト先頭に追加
+  - `backend/app/domains/blog/agents/definitions.py` — プロンプトのツール説明・作業フローに `web_search` の活用指示を追加
+  - `backend/app/domains/blog/services/generation_service.py` — `TOOL_STEP_MAPPING` に `"web_search"` → `("リサーチ中", "Webで情報を検索しています")` を追加
+- エージェントが記事トピックの最新情報・統計・事実を Web 検索で調査できるようになった
+
 ### 2026-02-02 自己改善
 - **記憶の即時更新**: コード変更を完了した直後に CLAUDE.md を更新せず、ユーザーに「また記憶してないでしょ」と指摘された。**変更を加えたら、次のユーザー応答の前に必ず CLAUDE.md を更新する。これは最優先の義務。**
 

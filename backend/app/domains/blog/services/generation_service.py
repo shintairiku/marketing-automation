@@ -93,6 +93,8 @@ TOOL_STEP_MAPPING: Dict[str, tuple[str, str]] = {
     "wp_get_article_regulations": ("情報収集中", "レギュレーション設定を取得しています"),
     # ユーザー質問
     "ask_user_questions": ("情報収集中", "ユーザーに追加情報を確認しています"),
+    # Web検索
+    "web_search": ("リサーチ中", "Webで情報を検索しています"),
 }
 
 
