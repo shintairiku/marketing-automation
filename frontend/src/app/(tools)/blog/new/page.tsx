@@ -247,7 +247,7 @@ export default function BlogNewPage() {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.4, delay: 0.15 }}
-            className={`mx-auto w-full max-w-md px-4 py-3 rounded-2xl border ${
+            className={`mx-auto w-full max-w-md px-4 py-3 rounded-2xl border mb-6 ${
               isAtLimit
                 ? 'bg-red-50/80 border-red-200'
                 : usage.remaining <= (usage.total_limit * 0.2)
