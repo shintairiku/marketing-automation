@@ -1220,6 +1220,17 @@ docker compose logs -f backend                        # ログ確認
 - **教訓**: `AppLayoutClient` が `mt-[45px]` + `p-3` を適用しているため、子ページで `min-h-screen` を使うと必ずビューポートを超過する。ページ内で全高が必要な場合は `calc(100dvh - 57px)` を使うこと
 - **NOTE**: `(admin)` レイアウトや `(settings)/integrations/wordpress/connect` にも同様の `min-h-screen` があるが、blog ページ以外は未修正
 
+### 18. Favicon 正方形化 (2026-02-02)
+
+- **問題**: `public/logo.png` (964x672, 横長) をそのままファビコンに使っていたため、ブラウザタブで縦に伸びて表示されていた
+- **ロゴの色**: 完全に白色 (#FFFFFF) + 透明背景。ダーク背景用ロゴ
+- **修正**: Pillow で正方形 favicon を生成。slate-900 (#0f172a) 背景に白ロゴを中央配置（認証画面と同トーン）
+  - `public/favicon.png` (32x32) — ブラウザタブ用
+  - `public/apple-touch-icon.png` (180x180) — Apple Touch Icon
+  - `public/icon-192.png` (192x192) — 汎用アイコン
+- **`layout.tsx`**: `icon: '/logo.png'` → `icon: '/favicon.png'`、`apple: '/apple-touch-icon.png'` に変更
+- **NOTE**: `public/logo.png` は元の横長ロゴとして残存（サイドバー等で使用中の可能性あり）
+
 ### 2026-02-02 自己改善
 - **記憶の即時更新**: コード変更を完了した直後に CLAUDE.md を更新せず、ユーザーに「また記憶してないでしょ」と指摘された。**変更を加えたら、次のユーザー応答の前に必ず CLAUDE.md を更新する。これは最優先の義務。**
 
