@@ -97,6 +97,32 @@ TOOL_STEP_MAPPING: Dict[str, tuple[str, str]] = {
     "web_search": ("リサーチ中", "Webで情報を検索しています"),
 }
 
+# 組み込みツールの type → ツール名マッピング
+# OpenAI の組み込みツール（WebSearchTool等）は raw_item に "name" 属性がなく "type" で識別する
+_BUILTIN_TOOL_TYPE_MAP: Dict[str, str] = {
+    "web_search_call": "web_search",
+    "file_search_call": "file_search",
+    "code_interpreter_call": "code_interpreter",
+    "image_generation_call": "image_generation",
+    "computer_call": "computer_use",
+    "mcp_call": "mcp_call",
+}
+
+
+def _resolve_tool_name(raw_item: Any) -> str:
+    """ToolCallItem の raw_item からツール名を解決する。
+
+    function_tool の場合は raw_item.name、組み込みツール（WebSearchTool等）の場合は
+    raw_item.type から逆引きする。
+    """
+    name = getattr(raw_item, "name", None)
+    if name:
+        return name
+    item_type = getattr(raw_item, "type", None)
+    if item_type and item_type in _BUILTIN_TOOL_TYPE_MAP:
+        return _BUILTIN_TOOL_TYPE_MAP[item_type]
+    return "unknown_tool"
+
 
 class BlogGenerationService:
     """
@@ -466,7 +492,7 @@ class BlogGenerationService:
                 # ツール呼び出しログ
                 if execution_id and logging_service and isinstance(event, RunItemStreamEvent):
                     if isinstance(event.item, ToolCallItem):
-                        tool_name = getattr(event.item.raw_item, "name", None) or "unknown_tool"
+                        tool_name = _resolve_tool_name(event.item.raw_item)
                         call_id = (
                             getattr(event.item.raw_item, "call_id", None)
                             or getattr(event.item.raw_item, "id", None)
@@ -522,7 +548,7 @@ class BlogGenerationService:
                     if isinstance(event.item, ToolCallItem):
                         tool_call_count += 1
                         # ask_user_questions の引数を検出
-                        tool_name = getattr(event.item.raw_item, "name", None)
+                        tool_name = _resolve_tool_name(event.item.raw_item)
                         if tool_name == "ask_user_questions":
                             pending_user_questions = self._extract_user_questions(
                                 event.item.raw_item
@@ -648,7 +674,7 @@ class BlogGenerationService:
 
                 # ツール呼び出し開始
                 if isinstance(item, ToolCallItem):
-                    tool_name = getattr(item.raw_item, "name", None) or "unknown_tool"
+                    tool_name = _resolve_tool_name(item.raw_item)
                     step_info = TOOL_STEP_MAPPING.get(
                         tool_name, ("記事生成中", f"{tool_name}を実行しています")
                     )

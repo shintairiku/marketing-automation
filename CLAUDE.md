@@ -1269,6 +1269,8 @@ docker compose logs -f backend                        # ログ確認
   - `backend/app/domains/blog/agents/definitions.py` — プロンプトのツール説明・作業フローに `web_search` の活用指示を追加
   - `backend/app/domains/blog/services/generation_service.py` — `TOOL_STEP_MAPPING` に `"web_search"` → `("リサーチ中", "Webで情報を検索しています")` を追加
 - エージェントが記事トピックの最新情報・統計・事実を Web 検索で調査できるようになった
+- **組み込みツールのツール名解決問題を修正**: OpenAI の組み込みツール（`WebSearchTool` 等）は `raw_item` に `name` 属性がなく `type` フィールド（例: `web_search_call`）で識別する。`_resolve_tool_name()` ヘルパー関数を追加し、`name` → `type` のフォールバックで解決。`_BUILTIN_TOOL_TYPE_MAP` で `type` → ツール名のマッピングを定義
+- **技術的知見**: `ResponseFunctionWebSearch` は `{id, status, type: "web_search_call"}` のみ。`name` や `arguments` 属性がない。`function_tool` とは異なる構造なので、ツール名取得時に `type` フィールドを確認する必要がある
 
 ### 2026-02-02 自己改善
 - **記憶の即時更新**: コード変更を完了した直後に CLAUDE.md を更新せず、ユーザーに「また記憶してないでしょ」と指摘された。**変更を加えたら、次のユーザー応答の前に必ず CLAUDE.md を更新する。これは最優先の義務。**
