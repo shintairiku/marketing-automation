@@ -88,6 +88,49 @@ class CostCalculationService:
             "supports_cache": True,
             "supports_reasoning": False
         },
+        # GPT-4.1 models (https://openai.com/api/pricing/)
+        "gpt-4.1": {
+            "input_tokens": 2.00,
+            "output_tokens": 8.00,
+            "cached_tokens": 0.50,
+            "reasoning_tokens": 0.0,
+            "supports_cache": True,
+            "supports_reasoning": False
+        },
+        "gpt-4.1-mini": {
+            "input_tokens": 0.40,
+            "output_tokens": 1.60,
+            "cached_tokens": 0.10,
+            "reasoning_tokens": 0.0,
+            "supports_cache": True,
+            "supports_reasoning": False
+        },
+        "gpt-4.1-nano": {
+            "input_tokens": 0.10,
+            "output_tokens": 0.40,
+            "cached_tokens": 0.025,
+            "reasoning_tokens": 0.0,
+            "supports_cache": True,
+            "supports_reasoning": False
+        },
+        # Gemini models via LiteLLM (https://ai.google.dev/gemini-api/docs/pricing)
+        "litellm/gemini/gemini-2.5-pro": {
+            "input_tokens": 1.25,
+            "output_tokens": 10.00,
+            "cached_tokens": 0.125,
+            "reasoning_tokens": 0.0,
+            "supports_cache": True,
+            "supports_reasoning": False
+        },
+        # Anthropic models via LiteLLM (https://docs.anthropic.com/en/docs/about-claude/models)
+        "litellm/anthropic/claude-4-sonnet": {
+            "input_tokens": 3.00,
+            "output_tokens": 15.00,
+            "cached_tokens": 0.30,
+            "reasoning_tokens": 0.0,
+            "supports_cache": True,
+            "supports_reasoning": False
+        },
         # GPT-4o models
         "gpt-4o": {
             "input_tokens": 2.50,

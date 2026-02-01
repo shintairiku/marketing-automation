@@ -167,14 +167,15 @@ async def get_users_usage(
 
 @router.get("/usage/blog", response_model=list[BlogUsageItem])
 async def get_blog_usage(
-    limit: int = 50,
+    limit: int = 200,
     offset: int = 0,
+    days: int = 30,
     admin_email: str = Depends(get_admin_user_email_from_token),
 ):
     """Get per-blog process usage list (admin only)"""
-    logger.info(f"Admin user {admin_email} requested blog usage list")
+    logger.info(f"Admin user {admin_email} requested blog usage list (days={days})")
     try:
-        return admin_service.get_blog_usage(limit=limit, offset=offset)
+        return admin_service.get_blog_usage(limit=limit, offset=offset, days=days)
     except Exception as e:
         logger.error(f"Error getting blog usage: {e}")
         raise HTTPException(status_code=500, detail="Failed to get blog usage")

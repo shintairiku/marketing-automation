@@ -501,14 +501,19 @@ class AdminService:
             logger.error(f"Error getting users usage: {e}")
             return []
 
-    def get_blog_usage(self, limit: int = 50, offset: int = 0) -> list[BlogUsageItem]:
+    def get_blog_usage(self, limit: int = 50, offset: int = 0, days: int = 30) -> list[BlogUsageItem]:
         """Blog AIのプロセス別使用量一覧"""
         try:
+            from datetime import datetime, timedelta, timezone
+            cutoff_date = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+
             sessions_resp = supabase.from_("agent_log_sessions").select(
                 "id, article_uuid, user_id, created_at, session_metadata"
             ).eq(
                 "session_metadata->>workflow_type",
                 "blog_generation",
+            ).gte(
+                "created_at", cutoff_date
             ).order("created_at", desc=True).range(
                 offset,
                 offset + max(limit - 1, 0),
