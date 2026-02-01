@@ -144,8 +144,9 @@ ask_user_questions(
 
 ### メディア系
 - wp_get_media_library: メディアライブラリ取得
-- wp_upload_media: メディアアップロード
+- wp_upload_media: メディアアップロード（URLまたはBase64から）
 - wp_set_featured_image: アイキャッチ画像設定
+- upload_user_image_to_wordpress: ユーザーアップロード画像をWordPressにアップロード
 
 ### タクソノミー・サイト情報系
 - wp_get_categories: カテゴリ一覧取得
@@ -165,12 +166,47 @@ ask_user_questions(
 6. 分析結果とユーザー入力を参考に、Gutenbergブロック形式で記事を作成
 7. 最後に `wp_create_draft_post` で下書き記事を作成
 
+## ユーザーアップロード画像の活用
+
+ユーザーが画像をアップロードした場合、入力メッセージに画像が添付されます。
+画像の内容を視覚的に理解し、記事作成に活用してください。
+
+### 画像を記事に含める手順
+
+1. `upload_user_image_to_wordpress(image_index=0, alt="画像の説明")` を呼び出し
+   - `image_index` は入力メッセージ内の画像順（0始まり）に対応
+   - `alt` は画像の代替テキスト（SEO・アクセシビリティ用）を日本語で記述
+2. 戻り値の `url` と `media_id` を使って記事内に画像ブロックを挿入:
+   ```html
+   <!-- wp:image {"id":123,"sizeSlug":"large"} -->
+   <figure class="wp-block-image size-large"><img src="https://..." alt="画像の説明" class="wp-image-123"/></figure>
+   <!-- /wp:image -->
+   ```
+3. 必要に応じて `wp_set_featured_image` でアイキャッチ画像に設定
+
+### 画像をユーザーに質問でリクエストする方法
+
+記事に画像が必要な場合（インタビュー記事の顔写真、製品紹介の商品画像など）は、
+`input_types` に `"image_upload"` を指定してユーザーに画像のアップロードを依頼できます:
+
+```
+ask_user_questions(
+    questions=[
+        "記事のターゲット読者を教えてください",
+        "紹介する商品の写真をアップロードしてください"
+    ],
+    input_types=["textarea", "image_upload"],
+    context="記事作成に必要な情報です。画像の質問はスキップ可能です。"
+)
+```
+
 ## 注意事項
 
 - ユーザーの入力を尊重しつつ、SEOとユーザビリティを意識した記事を作成
 - 参考記事と全く同じ内容にならないよう、オリジナリティを保つ
 - エラーが発生した場合は、ユーザーに分かりやすく状況を説明
 - 記事タイトルと本文は日本語で作成
+- アップロード画像がある場合は、適切なalt属性とキャプションを付けて記事に含める
 """
 
 

@@ -9,13 +9,16 @@ import {
   CheckCircle2,
   ChevronRight,
   Globe,
+  ImagePlus,
   Link2,
   Loader2,
   PenLine,
   Sparkles,
   User,
+  X,
 } from "lucide-react";
 
+import { useSubscription } from "@/components/subscription/subscription-guard";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -43,14 +46,42 @@ interface SiteGroup {
 export default function BlogNewPage() {
   const router = useRouter();
   const { getToken } = useAuth();
+  const { usage, subscription } = useSubscription();
 
   const [sites, setSites] = useState<WordPressSite[]>([]);
   const [loadingSites, setLoadingSites] = useState(true);
   const [selectedSiteId, setSelectedSiteId] = useState<string | null>(null);
   const [userPrompt, setUserPrompt] = useState("");
   const [referenceUrl, setReferenceUrl] = useState("");
+  const [selectedImages, setSelectedImages] = useState<File[]>([]);
+  const [imagePreviewUrls, setImagePreviewUrls] = useState<string[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    if (files.length === 0) return;
+
+    const total = selectedImages.length + files.length;
+    if (total > 5) {
+      setError("画像は最大5枚までです");
+      return;
+    }
+
+    setSelectedImages((prev) => [...prev, ...files]);
+    files.forEach((file) => {
+      const url = URL.createObjectURL(file);
+      setImagePreviewUrls((prev) => [...prev, url]);
+    });
+  };
+
+  const handleRemoveImage = (index: number) => {
+    setSelectedImages((prev) => prev.filter((_, i) => i !== index));
+    setImagePreviewUrls((prev) => {
+      URL.revokeObjectURL(prev[index]);
+      return prev.filter((_, i) => i !== index);
+    });
+  };
 
   useEffect(() => {
     const fetchSites = async () => {
@@ -88,22 +119,31 @@ export default function BlogNewPage() {
 
     try {
       const token = await getToken();
+
+      // FormData で送信（画像あり・なし共通）
+      const formData = new FormData();
+      formData.append("user_prompt", userPrompt);
+      formData.append("wordpress_site_id", selectedSiteId);
+      if (referenceUrl) {
+        formData.append("reference_url", referenceUrl);
+      }
+      for (const img of selectedImages) {
+        formData.append("files", img);
+      }
+
       const response = await fetch("/api/proxy/blog/generation/start", {
         method: "POST",
         headers: {
-          "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({
-          wordpress_site_id: selectedSiteId,
-          user_prompt: userPrompt,
-          reference_url: referenceUrl || null,
-        }),
+        body: formData,
       });
 
       if (response.ok) {
         const data = await response.json();
         router.push(`/blog/${data.id}`);
+      } else if (response.status === 429) {
+        setError("月間記事生成の上限に達しました。アドオンの追加をご検討ください。");
       } else {
         const errData = await response.json();
         // FastAPIの422バリデーションエラーはdetailが配列
@@ -129,6 +169,10 @@ export default function BlogNewPage() {
   };
 
   const connectedSites = sites.filter(s => s.connection_status === "connected");
+
+  // 使用量情報
+  const isAtLimit = usage ? usage.remaining <= 0 : false;
+  const isPrivileged = subscription?.is_privileged ?? false;
 
   const siteGroups = useMemo((): SiteGroup[] => {
     const personalSites: WordPressSite[] = [];
@@ -169,7 +213,7 @@ export default function BlogNewPage() {
   }, [connectedSites]);
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-amber-50/50 via-white to-emerald-50/30">
+    <div className="bg-gradient-to-br from-amber-50/50 via-white to-emerald-50/30">
       {/* Decorative background elements */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
         <div className="hidden md:block absolute top-20 right-20 w-72 h-72 bg-amber-200/20 rounded-full blur-3xl" />
@@ -196,6 +240,46 @@ export default function BlogNewPage() {
             過去の記事スタイルを参考に、あなたのWordPressサイトにぴったりの記事を生成します
           </p>
         </motion.div>
+
+        {/* Usage Info */}
+        {usage && !isPrivileged && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.4, delay: 0.15 }}
+            className={`mx-auto w-full max-w-md px-4 py-3 rounded-2xl border mb-6 ${
+              isAtLimit
+                ? 'bg-red-50/80 border-red-200'
+                : usage.remaining <= (usage.total_limit * 0.2)
+                ? 'bg-amber-50/80 border-amber-200'
+                : 'bg-white/60 border-stone-200'
+            }`}
+          >
+            <div className="flex items-center justify-between text-sm mb-1.5">
+              <span className={isAtLimit ? 'text-red-700 font-medium' : 'text-stone-600'}>
+                今月の記事生成
+              </span>
+              <span className={`font-semibold ${isAtLimit ? 'text-red-700' : 'text-stone-800'}`}>
+                {usage.articles_generated} / {usage.total_limit}
+              </span>
+            </div>
+            <div className="h-1.5 w-full rounded-full bg-stone-200 overflow-hidden">
+              <div
+                className={`h-full rounded-full transition-all ${
+                  isAtLimit ? 'bg-red-500' : usage.remaining <= (usage.total_limit * 0.2) ? 'bg-amber-500' : 'bg-emerald-500'
+                }`}
+                style={{ width: `${usage.total_limit > 0 ? Math.min(100, (usage.articles_generated / usage.total_limit) * 100) : 0}%` }}
+              />
+            </div>
+            {isAtLimit && (
+              <p className="text-xs text-red-600 mt-1.5">
+                上限に達しました。
+                <a href="/settings/billing" className="underline ml-1">アドオンを追加</a>
+                して上限を増やせます。
+              </p>
+            )}
+          </motion.div>
+        )}
 
         {/* Main Form */}
         <motion.div
@@ -351,6 +435,55 @@ export default function BlogNewPage() {
             </p>
           </div>
 
+          {/* Image Upload */}
+          <div className="space-y-3">
+            <Label className="flex items-center gap-2 text-stone-700 font-medium">
+              <ImagePlus className="w-4 h-4 text-emerald-600" />
+              記事に含めたい画像
+              <span className="text-xs font-normal text-stone-400 ml-1">(任意・最大5枚)</span>
+            </Label>
+
+            <label className="flex items-center justify-center w-full h-28 border-2 border-dashed border-stone-200 rounded-2xl bg-white/60 hover:bg-stone-50 hover:border-stone-300 cursor-pointer transition-all">
+              <div className="text-center">
+                <ImagePlus className="w-7 h-7 text-stone-400 mx-auto mb-1.5" />
+                <p className="text-sm text-stone-600 font-medium">クリックして画像を選択</p>
+                <p className="text-xs text-stone-400 mt-0.5">JPG, PNG, WebP</p>
+              </div>
+              <input
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                multiple
+                onChange={handleImageSelect}
+                className="hidden"
+              />
+            </label>
+
+            {imagePreviewUrls.length > 0 && (
+              <div className="grid grid-cols-3 sm:grid-cols-5 gap-3">
+                {imagePreviewUrls.map((url, idx) => (
+                  <div key={idx} className="relative group aspect-square">
+                    <img
+                      src={url}
+                      alt={`プレビュー ${idx + 1}`}
+                      className="w-full h-full object-cover rounded-xl border border-stone-200"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveImage(idx)}
+                      className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-red-500 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity shadow-sm"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <p className="text-sm text-stone-500">
+              アップロードした画像はAIが内容を理解し、記事内に適切に配置します
+            </p>
+          </div>
+
           {/* Error Message */}
           <AnimatePresence>
             {error && (
@@ -374,10 +507,10 @@ export default function BlogNewPage() {
           >
             <Button
               onClick={handleSubmit}
-              disabled={isSubmitting || !selectedSiteId || !userPrompt.trim() || loadingSites}
+              disabled={isSubmitting || !selectedSiteId || !userPrompt.trim() || loadingSites || (isAtLimit && !isPrivileged)}
               className={`
                 w-full h-14 text-lg font-medium rounded-2xl transition-all duration-300
-                ${isSubmitting || !selectedSiteId || !userPrompt.trim()
+                ${isSubmitting || !selectedSiteId || !userPrompt.trim() || (isAtLimit && !isPrivileged)
                   ? "bg-stone-200 text-stone-500 cursor-not-allowed"
                   : "bg-gradient-to-r from-amber-500 via-orange-500 to-emerald-500 text-white shadow-lg shadow-orange-200/50 hover:shadow-xl hover:shadow-orange-300/50 hover:scale-[1.02]"
                 }
@@ -387,6 +520,11 @@ export default function BlogNewPage() {
                 <span className="flex items-center gap-2">
                   <Loader2 className="w-5 h-5 animate-spin" />
                   生成を開始中...
+                </span>
+              ) : isAtLimit && !isPrivileged ? (
+                <span className="flex items-center gap-2">
+                  <AlertCircle className="w-5 h-5" />
+                  月間上限に達しています
                 </span>
               ) : (
                 <span className="flex items-center gap-2">

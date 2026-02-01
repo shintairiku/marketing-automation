@@ -331,6 +331,18 @@ marketing-automation/
 | GET | `/admin/users/{user_id}` | ユーザー詳細 |
 | PATCH | `/admin/users/{user_id}/privilege` | 特権フラグ変更 |
 | PATCH | `/admin/users/{user_id}/subscription` | サブスクリプション変更 |
+| GET | `/admin/stats/overview` | ダッシュボードKPI統計 |
+| GET | `/admin/stats/generation-trend` | 記事生成日別推移 |
+| GET | `/admin/stats/subscription-distribution` | プラン別ユーザー分布 |
+| GET | `/admin/activity/recent` | 直近アクティビティ |
+| GET | `/admin/usage/users` | ユーザー別使用量一覧 |
+
+### Usage (`/usage`)
+| Method | Path | 概要 |
+|--------|------|------|
+| GET | `/usage/current` | 現在のユーザー使用量 |
+| GET | `/usage/admin/stats` | 管理者用使用量統計 |
+| GET | `/usage/admin/users` | 管理者用ユーザー別使用量 |
 
 ### Health
 | Method | Path | 概要 |
@@ -465,6 +477,13 @@ marketing-automation/
 |-------|------|
 | `wordpress_sites` | WordPress接続サイト (site_url, mcp_endpoint, encrypted_credentials) |
 | `blog_generation_state` | ブログ生成の状態管理 |
+
+### Usage & Plan Tables
+| Table | 概要 |
+|-------|------|
+| `plan_tiers` | プラン定義マスタ (id, name, stripe_price_id, monthly_article_limit, addon_unit_amount, price_amount) |
+| `usage_tracking` | 利用量追跡 (user_id, organization_id, billing_period, articles_generated, articles_limit, addon_articles_limit) |
+| `usage_logs` | 使用量監査ログ (usage_tracking_id, user_id, generation_process_id) |
 
 ### System Tables
 | Table | 概要 |
@@ -612,6 +631,7 @@ NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=
 STRIPE_SECRET_KEY=
 STRIPE_WEBHOOK_SECRET=
 STRIPE_PRICE_ID=
+STRIPE_PRICE_ADDON_ARTICLES=          # アドオン記事追加 Price ID
 
 # Backend
 NEXT_PUBLIC_API_BASE_URL=http://localhost:8080
@@ -855,13 +875,14 @@ docker compose logs -f backend                        # ログ確認
 - `lucide-react` 0.474.0 → 0.563.0
 - `react` / `react-dom` 19.2.1 → 19.2.4
 - `stripe` 18.5.0 → 20.3.0 (MAJOR)
-- `tailwind-merge` 2.6.0 → 3.4.0 (MAJOR)
+- `tailwind-merge` 2.6.0 → 2.6.1 (v3はTailwind CSS v4専用のためダウングレード)
 - `next-route-handler-pipe` 1.0.5 → 2.0.0 (MAJOR)
 - `@types/react` 19.0.4 → 19.2.10, `@types/react-dom` 19.0.2 → 19.2.3
 - `prettier` 2.8.8 → 3.8.1, `prettier-plugin-tailwindcss` 0.3.0 → 0.7.2 (MAJOR)
 - `eslint-config-prettier` 8.10.2 → 10.1.8, `eslint-plugin-simple-import-sort` 10.0.0 → 12.1.1 (MAJOR)
 - `env-cmd` 10.1.0 → 11.0.0, `supabase` 2.72.9 → 2.74.5, `autoprefixer` 10.4.23 → 10.4.24
 - **据え置き**: Next.js 15 (16は設定形式変更)、Tailwind 3 (4はCSS設定方式)、ESLint 8 (9はflat config)、Zod 3 (4はAPI変更)
+- **ダウングレード**: `tailwind-merge` v3→v2.6.1 (v3はTailwind CSS v4専用。プロジェクトはTW v3なのでv2系が必須)
 
 #### Backend (uv)
 - `fastapi` 0.116.2 → 0.128.0
@@ -875,6 +896,72 @@ docker compose logs -f backend                        # ログ確認
 - `google-generativeai`: FutureWarning が出る（`google.genai` への移行推奨）。機能的には問題なし
 - pyproject.toml のバージョン制約をすべて解除（ピンなしに変更）
 - **NOTE**: `google.generativeai` は非推奨。将来 `google.genai` に移行が必要
+
+### 10. Blog AI 利用上限システム + 管理者ダッシュボード改善
+
+#### 利用上限システム（Phase 1-5）
+
+**設計方針**: Stripe Billing Meters（従量課金向け）ではなく、Supabase DBでのアプリ側追跡を採用。ハードキャップモデル（上限で生成不可）のため。
+
+**DB マイグレーション**: `shared/supabase/migrations/20260202000001_add_usage_limits.sql`
+- `plan_tiers` テーブル: プラン定義マスタ（id, name, stripe_price_id, monthly_article_limit, addon_unit_amount）
+- `usage_tracking` テーブル: 利用量追跡（user_id, organization_id, billing_period_start/end, articles_generated, articles_limit, addon_articles_limit）
+- `usage_logs` テーブル: 監査ログ
+- `increment_usage_if_allowed()` PostgreSQL関数: FOR UPDATE ロックで原子的インクリメント
+- `user_subscriptions` に `plan_tier_id` カラム追加
+- `organization_subscriptions` に `plan_tier_id`, `addon_quantity` カラム追加
+- RLS ポリシー設定
+- デフォルトティア: 30記事/月, アドオン1ユニット=20記事, ¥29,800
+
+**バックエンド新規ドメイン**: `backend/app/domains/usage/`
+- `service.py` — UsageLimitService（check_can_generate, record_success, get_current_usage, recalculate_limits, create_tracking_for_period）
+- `endpoints.py` — `GET /usage/current`, `GET /usage/admin/stats`, `GET /usage/admin/users`
+- `schemas.py` — UsageInfo, UsageLimitResult, AdminUsageStats, AdminUserUsage
+- `backend/app/api/router.py` にusageルーター追加
+
+**Blog生成への統合**:
+- `backend/app/domains/blog/endpoints.py` — 生成開始前に `check_can_generate()` → 429エラー
+- `backend/app/domains/blog/services/generation_service.py` — 生成成功時（`_process_result`）に `record_success()` 呼び出し
+- カウント対象: Blog AIのみ（SEO記事は対象外）、成功時のみカウント
+
+**Stripeアドオン対応**:
+- `frontend/src/app/api/subscription/addon/route.ts` (新規) — POST: アドオン quantity 変更、既存サブスクに追加ラインアイテムとして追加
+- `frontend/src/app/api/subscription/webhook/route.ts` (改修) — `invoice.payment_succeeded` で使用量リセット、`customer.subscription.updated` でアドオン検出+上限再計算
+- 環境変数: `STRIPE_PRICE_ADDON_ARTICLES` を `.env` に追加が必要
+
+**フロントエンド利用上限UI**:
+- `frontend/src/lib/subscription/index.ts` — `UsageInfo` インターフェース、`ADDON_PRICE_ID` エクスポート追加
+- `frontend/src/components/subscription/subscription-guard.tsx` — `usage: UsageInfo | null` をコンテキストに追加
+- `frontend/src/app/api/subscription/status/route.ts` — レスポンスに `usage` フィールド追加（Supabase usage_tracking から直接取得）
+- `frontend/src/components/subscription/usage-progress-bar.tsx` (新規) — プログレスバーコンポーネント（compact/normal モード、色分け表示）
+- `frontend/src/app/(settings)/settings/billing/page.tsx` — 使用量表示セクション + アドオン管理UI追加（+/-ボタンでquantity変更）
+- `frontend/src/app/(tools)/blog/new/page.tsx` — 残り記事数表示、上限到達時の生成ボタン無効化、429レスポンスハンドリング
+
+#### 管理者ダッシュボード改善（Phase 6-7）
+
+**バックエンド管理者API拡充**: `backend/app/domains/admin/`
+- `schemas.py` — OverviewStats, DailyGenerationCount, GenerationTrendResponse, SubscriptionDistribution, RecentActivity, UserUsageItem 等追加
+- `service.py` — get_overview_stats(), get_generation_trend(), get_subscription_distribution(), get_recent_activity(), get_users_usage() メソッド追加
+- `endpoints.py` — 以下のエンドポイント追加:
+  | GET | `/admin/stats/overview` | ダッシュボードKPI統計 |
+  | GET | `/admin/stats/generation-trend` | 記事生成日別推移 |
+  | GET | `/admin/stats/subscription-distribution` | プラン別ユーザー分布 |
+  | GET | `/admin/activity/recent` | 直近アクティビティ |
+  | GET | `/admin/usage/users` | ユーザー別使用量一覧 |
+
+**フロントエンド管理者ダッシュボード**:
+- `frontend/src/app/(admin)/admin/page.tsx` — 全面リライト
+  - KPIカード4つ（総ユーザー数、有料会員、月間記事生成、推定MRR）
+  - recharts v3.7.0 によるエリアチャート（記事生成30日推移）
+  - recharts ドーナツチャート（プラン別ユーザー分布）
+  - 最近のアクティビティリスト
+  - 上限に近いユーザー一覧（70%以上をハイライト）
+  - ローディングスケルトン、エラーリトライ対応
+- **新規依存**: `recharts` v3.7.0 (frontend package.json)
+
+**NOTE**:
+- Supabase型定義は `usage_tracking`, `plan_tiers`, `usage_logs` テーブル + `addon_quantity`, `plan_tier_id`, `upgraded_to_org_id` カラム追加後に `bun run generate-types` で再生成が必要
+- DBマイグレーション適用前は一部TSエラーが出る（`usage_tracking` テーブル未認識等）が、`Record<string, unknown>` 型アサーションで回避中
 
 ### 9. Stripe v18→v20 破壊的変更対応
 - **問題**: Stripe SDK v18 (Basil API `2025-03-31.basil`) で `current_period_start` / `current_period_end` が `Subscription` レベルから `subscription.items.data[0]` (SubscriptionItem) に移動
@@ -891,6 +978,110 @@ docker compose logs -f backend                        # ログ確認
 - **`@stripe/stripe-js` v2→v8**: TypeScript型更新のみ。`loadStripe` は常にCDN最新版を読むため実質影響なし
 - **情報ソース**: https://github.com/stripe/stripe-node/blob/master/CHANGELOG.md
 
+### 10. 利用上限システム実装 (Phase 1-7)
+
+#### Phase 1-2: DB + バックエンド基盤
+- **新規**: `shared/supabase/migrations/20260202000001_add_usage_limits.sql`
+  - `plan_tiers` テーブル（プラン定義マスタ: monthly_article_limit, addon_unit_amount）
+  - `usage_tracking` テーブル（利用量追跡: articles_generated, articles_limit, addon_articles_limit）
+  - `usage_logs` テーブル（監査ログ）
+  - `increment_usage_if_allowed()` PostgreSQL関数（FOR UPDATE ロックで原子的インクリメント）
+  - `user_subscriptions` に `plan_tier_id`, `addon_quantity` カラム追加
+  - `organization_subscriptions` に `plan_tier_id`, `addon_quantity` カラム追加
+  - RLSポリシー設定
+- **新規**: `backend/app/domains/usage/` ドメイン
+  - `service.py` — UsageLimitService (check_can_generate, record_success, get_current_usage, recalculate_limits, create_tracking_for_period)
+  - `endpoints.py` — `GET /usage/current`
+  - `schemas.py` — UsageInfo, UsageLimitResult
+- **改修**: `backend/app/api/router.py` — usageルーター追加
+
+#### Phase 2: Blog生成への統合
+- **改修**: `backend/app/domains/blog/endpoints.py` — 生成開始前に `check_can_generate()` → 429エラー
+- **改修**: `backend/app/domains/blog/services/generation_service.py` — 成功時に `record_success()` 呼び出し
+
+#### Phase 3-4: Stripeアドオン + Webhookリセット
+- **新規**: `frontend/src/app/api/subscription/addon/route.ts` — アドオン管理API (POST)
+  - Stripeサブスクに追加ラインアイテムとしてアドオン追加/変更/削除
+  - DB (`user_subscriptions`/`organization_subscriptions`) の `addon_quantity` 更新
+  - `usage_tracking.addon_articles_limit` の即時更新
+- **改修**: `frontend/src/app/api/subscription/webhook/route.ts`
+  - `invoice.payment_succeeded` で新請求期間のusage_trackingレコード作成（リセット）
+  - `customer.subscription.updated` でアドオン変更検出 → 上限再計算
+  - 個人サブスクの `addon_quantity` も保存するように修正
+
+#### Phase 5: フロントエンドUI（利用上限）
+- **改修**: `frontend/src/components/subscription/subscription-guard.tsx` — UsageInfo型追加、usage state管理
+- **改修**: `frontend/src/app/api/subscription/status/route.ts` — usage_tracking情報をレスポンスに追加
+- **改修**: `frontend/src/app/(settings)/settings/billing/page.tsx` — 使用量プログレスバー + アドオン管理UI追加
+- **改修**: `frontend/src/app/(tools)/blog/new/page.tsx` — 残り記事数表示 + 上限到達時生成ボタン無効化
+
+#### Phase 6-7: 管理者ダッシュボード + API
+- **依存追加**: `recharts` v3.7.0 (`bun add recharts`)
+- **改修**: `backend/app/domains/admin/schemas.py` — OverviewStats, GenerationTrendResponse, SubscriptionDistribution, RecentActivity, UserUsageItem, UserDetailResponse 等追加
+- **改修**: `backend/app/domains/admin/service.py` — get_overview_stats, get_generation_trend, get_subscription_distribution, get_recent_activity, get_users_usage, get_user_detail メソッド追加
+- **改修**: `backend/app/domains/admin/endpoints.py` — 5つの統計エンドポイント + ユーザー詳細エンドポイント追加
+- **全面リライト**: `frontend/src/app/(admin)/admin/page.tsx` — KPIカード(4)、AreaChart(30日推移)、PieChart(サブスク分布)、アクティビティリスト、上限近接ユーザーリスト
+- **新規**: `frontend/src/app/(admin)/admin/users/[userId]/page.tsx` — ユーザー詳細ページ（使用量、サブスク、Stripe情報、組織情報、生成履歴テーブル）
+- **改修**: `frontend/src/app/(admin)/admin/users/page.tsx` — テーブル行に「詳細」リンク追加
+
+#### バグ修正
+- **組織メンバー使用量帰属**: `upgraded_to_org_id` が null の組織メンバー（招待経由）の使用量が取得できない問題。`organization_members` テーブルのフォールバック検索を3箇所に追加 (`usage/endpoints.py`, `blog/endpoints.py`, `blog/services/generation_service.py`)
+- **個人addon_quantity未保存**: `user_subscriptions` テーブルに `addon_quantity` カラムがなかった。マイグレーションに追加。Webhook・addon APIで保存するように修正
+- **usage_tracking即時更新**: アドオンAPI実行時に `usage_tracking.addon_articles_limit` も即時更新するように修正
+- **ゼロ除算防止**: blog/new のプログレスバーで `total_limit` が0の場合の除算を防止
+
+#### 設定方法
+- **プラン記事上限**: `plan_tiers` テーブルの `monthly_article_limit` を更新（例: 30 → 50）
+- **アドオン単位記事数**: `plan_tiers` テーブルの `addon_unit_amount` を更新（例: 20 → 30）
+- **新ティア追加**: `plan_tiers` に新行を INSERT + Stripe で新 Price 作成
+- **環境変数**: `STRIPE_PRICE_ADDON_ARTICLES` にアドオン用の Stripe Price ID を設定
+
+### 11. マルチティア対応 + 管理画面からのプラン設定
+
+#### Part A: バックエンド plan_tiers CRUD API
+- **`backend/app/domains/admin/schemas.py`** — `PlanTierRead`, `CreatePlanTierRequest`, `UpdatePlanTierRequest`, `PlanTierListResponse`, `ApplyLimitsResult` スキーマ追加
+- **`backend/app/domains/admin/service.py`** — `get_all_plan_tiers()`, `create_plan_tier()`, `update_plan_tier()`, `delete_plan_tier()` (参照チェック付き), `apply_tier_to_active_users()` (全アクティブ usage_tracking の上限を再計算) メソッド追加
+- **`backend/app/domains/admin/endpoints.py`** — 5エンドポイント追加:
+  | Method | Path | 概要 |
+  |--------|------|------|
+  | GET | `/admin/plan-tiers` | 全ティア一覧 |
+  | POST | `/admin/plan-tiers` | 新規ティア作成 (ID重複チェック, 201) |
+  | PATCH | `/admin/plan-tiers/{tier_id}` | ティア更新 (変更フィールドのみ) |
+  | DELETE | `/admin/plan-tiers/{tier_id}` | ティア削除 (usage_tracking/user_subscriptions参照中は409) |
+  | POST | `/admin/plan-tiers/{tier_id}/apply` | 全アクティブユーザーに即時反映 |
+
+#### Part B: ハードコード 'default' 修正 (マルチティア対応の核心)
+- **`frontend/src/app/api/subscription/webhook/route.ts`** — `resolvePlanTierId()` ヘルパー関数追加: Stripe subscription の base item price.id を `plan_tiers.stripe_price_id` で逆引き → 正しい `plan_tier_id` を返す（フォールバック 'default'）
+  - `handleSubscriptionChange()`: `plan_tier_id` を解決し、`user_subscriptions`/`organization_subscriptions` に書き込み
+  - `createUsageTrackingForNewPeriod()`: ハードコード `.eq('id', 'default')` → `resolvePlanTierId()` 結果に置換
+  - `recalculateUsageLimits()`: `planTierId` パラメータ追加、ハードコード置換
+- **`frontend/src/app/api/subscription/addon/route.ts`** — ハードコード `.eq('id', 'default')` → `user_subscriptions.plan_tier_id` から取得した値に置換。`Stripe` 型 import 追加
+- **型安全性**: `usage_tracking`, `plan_tiers` テーブル + `plan_tier_id`, `addon_quantity` カラムが Supabase 型定義未生成のため `(supabase as any)` キャストで対応中
+
+#### Part C: フロントエンド管理画面
+- **`frontend/src/app/(admin)/admin/layout.tsx`** — ナビに「プラン設定」追加 (`Layers` アイコン)
+- **`frontend/src/app/(admin)/admin/plans/page.tsx`** (新規) — プラン管理ページ
+  - テーブル: ID, 名前, Stripe Price ID, 月間上限, アドオン単位, 月額, 表示順, ステータス
+  - 新規作成/編集ダイアログ、削除確認、即時反映確認
+  - ステータスバッジクリックで有効/無効切り替え
+
+#### Part D: 使用量表示修正（新規サブスク時に usage_tracking が未作成の問題）
+
+**根本原因**: 新規サブスク契約時のフロー:
+1. `checkout.session.completed` → usage_tracking 作成なし
+2. `customer.subscription.created` → `recalculateUsageLimits()` は UPDATE のみ（レコードがないので何も起きない）
+3. 初回の `invoice.payment_succeeded` (`billing_reason='subscription_cycle'`) まで usage_tracking が作成されない
+4. → `/api/subscription/status` が `usage = null` を返し、フロントエンドで使用量が非表示に
+
+**修正箇所**:
+1. **Webhook** (`webhook/route.ts`): `recalculateUsageLimits` → `ensureUsageTracking` にリネーム。UPDATE のみ → UPSERT（既存レコードがなければ INSERT）に変更
+2. **Status API** (`status/route.ts`): `usage_tracking` が null でもサブスクがアクティブなら `plan_tiers` のデフォルト値でフォールバック usage を返す
+3. **Billing ページ** (`billing/page.tsx`): 使用量表示条件から `hasAnyPlan` を削除（`!isPrivileged && subStatus?.usage` のみで判定）
+
+#### 型生成前の注意
+- `bun run generate-types` 実行後、`(supabase as any)` キャストを通常の型付きクエリに戻す必要あり
+- `frontend/src/app/api/subscription/status/route.ts` も `usage_tracking` クエリに `any` キャスト追加（ビルドエラー回避）
+
 ---
 
 ## 自己改善ログ
@@ -905,8 +1096,143 @@ docker compose logs -f backend                        # ログ確認
 - **即時決済のUX問題**: アップグレードボタン押下で即座に決済が走る実装は、ユーザーに確認の余地がなかった。**課金を伴うアクションは必ず確認ステップを挟むべき。** `invoices.createPreview()` でプレビューを見せてから実行する設計が適切。
 - **ビルドコマンド**: フロントエンドのビルドは `bun run build` を使う。`npx next build` ではなく。`.next` キャッシュの削除は通常不要（ルートグループ変更時等の特殊ケースのみ）。
 - **記憶の更新忘れ**: 作業完了後は必ず CLAUDE.md を更新する。ユーザーに言われる前に自主的に行うべき。
+- **tailwind-merge v3 非互換**: `tailwind-merge` v3 は Tailwind CSS v4 専用。Tailwind CSS v3 プロジェクトでは v2.6.x を使うこと。`bg-gradient-to-*` 等の競合解決が壊れる。**メジャーバージョンアップ時は、同じエコシステム内の他パッケージとの互換性も必ず確認すべき。**
+- **openai-agents 0.7.0 注意点**: `nest_handoff_history` デフォルトが `True`→`False` に変更。ハンドオフ使用時は明示的に `True` を渡す必要がある可能性。GPT-5.1/5.2 のデフォルト reasoning effort が `'none'` に変更されたためブログ生成品質に影響する可能性あり（要テスト）。
+- **ハードコード問題の見落とし**: プラン管理機能の設計時、最初の調査が浅く `plan_tier_id` が5箇所でハードコードされている問題を見逃した。ユーザーに「ちゃんとデータの整合性とれてる？」と指摘されて初めて深い調査を実施。**新機能の設計時は、関連する全データフロー（Webhook → DB → API → UI）を最初に網羅的に調査すべき。**
+- **Supabase 型定義未生成による連鎖的ビルドエラー**: `plan_tiers`, `usage_tracking` テーブルが型に含まれていないため、`(supabase as any)` キャストが大量に必要になった。**新テーブル追加後は早期に `bun run generate-types` を実行し、型安全性を確保すべき。**
+- **使用量表示の調査不足**: ユーザーに「使用量が全く表示されていない」と指摘されるまで、新規サブスクリプション時に `usage_tracking` が作成されない問題に気づかなかった。最初は特権ユーザーの条件のみ疑ったが、実際は全ユーザーに影響する根本的なデータフロー問題だった。**機能を実装したら、新規ユーザーが初めて使うフロー（契約直後の状態）を必ず検証すべき。UPDATE のみで INSERT がないのは典型的な初期化漏れ。**
+
+### 12. Blog AI 画像入力機能
+
+**概要**: Blog AIに2つのユースケースで画像入力を追加。初期入力（`/blog/new`）で画像添付、質問フェーズ（`/blog/[processId]`）でエージェントが画像を要求可能に。
+
+**設計の核心**: エージェントがBase64に触れない `upload_user_image_to_wordpress` 複合ツール
+- エージェントは `image_index` と `alt` テキストだけ渡す
+- バックエンドが内部でファイル読み込み→Base64→MCP送信を完結
+- 戻り値は `{media_id, url, width, height}` の小さなJSON
+- Base64をツール出力/入力に載せるとトークンコストが爆発する問題を回避
+
+**画像のエージェントへの入力**: OpenAI Responses API の `input_image` 型
+```python
+[{"role": "user", "content": [
+    {"type": "input_text", "text": "リクエスト..."},
+    {"type": "input_image", "image_url": "data:image/webp;base64,..."}
+]}]
+```
+
+**WebP変換**: WordPress MCPプラグインは変換しないため、バックエンドでPillow変換してから保存
+
+**変更ファイル一覧**:
+
+| ファイル | 変更種別 | 概要 |
+|---------|---------|------|
+| `backend/app/domains/blog/services/image_utils.py` | **新規** | Pillow WebP変換ユーティリティ (convert_and_save_as_webp, read_as_base64, read_as_data_uri, cleanup_process_images) |
+| `backend/app/domains/blog/services/wordpress_mcp_service.py` | 改修 | `_current_process_id` contextvar追加、`set_mcp_context()` に process_id 引数追加 |
+| `backend/app/domains/blog/agents/tools.py` | 改修 | `upload_user_image_to_wordpress` 複合ツール追加、`ask_user_questions` に `input_types` 引数追加 |
+| `backend/app/domains/blog/agents/definitions.py` | 改修 | プロンプトに画像活用セクション追加 |
+| `backend/app/domains/blog/endpoints.py` | 改修 | `/generation/start` を multipart/form-data 対応、`/upload-image` にWebP変換追加 |
+| `backend/app/domains/blog/schemas.py` | 改修 | `AIQuestion.input_type` に `image_upload` 追加 |
+| `backend/app/domains/blog/services/generation_service.py` | 改修 | `_build_input_message()` / `_build_user_answer_message()` でマルチモーダル入力対応 |
+| `frontend/src/app/(tools)/blog/new/page.tsx` | 改修 | 画像選択UI追加（最大5枚、プレビュー、FormData送信） |
+| `frontend/src/app/(tools)/blog/[processId]/page.tsx` | 改修 | `image_upload` 質問タイプのファイルアップロードUI追加 |
+
+**エンドポイント変更**:
+- `POST /blog/generation/start`: JSON body → multipart/form-data (user_prompt, wordpress_site_id, reference_url?, files[])
+- `POST /blog/generation/{process_id}/upload-image`: WebP変換追加
+
+**技術的知見**:
+- OpenAI Agents SDK `Runner.run_streamed()` は `input` に `[{role, content: [{input_text}, {input_image}...]}]` リスト形式を受け付ける
+- `previous_response_id` 使用時もマルチモーダルリストをそのまま渡せる
+- contextvars で process_id をエージェントツールに渡す（スレッドセーフ）
+- WordPress MCP の `wp-mcp-upload-media` は `source` に Base64 data URI を受け付け、`filename` の拡張子でフォーマットが決まる
 
 ---
+
+### 13. Blog AI コスト/ログ調査メモ (2026-02-01)
+
+- **agent_log_sessions.article_uuid は実質 process_id 用途**: `backend/app/domains/seo_article/services/_generation_flow_manager.py` で `article_uuid=process_id` として既に運用されている（FKは削除済み）。Blog AI でも `process_id` を流用可能。
+- **SEO記事のログ実装は未完成**: `log_agent_execution()` がダミーで実ログ記録なし。`_generation_utils.py` に `extract_token_usage_from_result()` / `log_tool_calls()` があるが、呼び出し元がほぼ無い。
+- **Blog AI はトークン/コスト未記録**: `backend/app/domains/blog/services/generation_service.py` は `Runner.run_streamed()` の usage を保存していない。`blog_generation_state.response_id` は未使用で、実際は `blog_context.last_response_id` に保存している。
+- **ツール呼び出しの集約ポイント**: Blog AI の WordPressツールは全て `call_wordpress_mcp_tool()` 経由（`backend/app/domains/blog/services/wordpress_mcp_service.py`）。ここが tool_call_logs などのフック候補。
+
+### 14. Blog AI コスト/ログ実装 (2026-02-01)
+
+- **Blog AI の LLMログ連携を実装**: `backend/app/domains/blog/services/generation_service.py` にログセッション作成・実行ログ・LLM呼び出しログ・ツール呼び出しログを追加。`agent_log_sessions.article_uuid` に `process_id` を保存（既存SEOと同方式）。
+- **使用量抽出ロジック**: Agents SDK `request_usage_entries` → 正規化 → 集計。取得不可の場合は `raw_responses` から usage を抽出してフォールバック。
+- **ツールログ**: `ToolCallItem`/`ToolCallOutputItem` をストリーミングで捕捉し `tool_call_logs` を作成/更新。
+- **管理画面に Blog AI 使用量を追加**:
+  - `backend/app/domains/admin/schemas.py` に `BlogAiUsageStats` 追加
+  - `backend/app/domains/admin/service.py` が `agent_log_sessions/llm_call_logs/tool_call_logs` を集計
+  - `frontend/src/app/(admin)/admin/users/[userId]/page.tsx` に Blog AI 使用量カード追加
+- **モデル料金更新**: `backend/app/infrastructure/analysis/cost_calculation_service.py` に GPT‑5/5.1/5.2/mini/nano/pro の料金を追加。推論トークンの二重課金を避けるガードを追加。
+- **公式仕様へ寄せたUsage取得**: `context_wrapper.usage` を最優先に使用し、`usage.request_usage_entries` を per‑request ログに反映。entriesが無い場合は raw_responses から復元。`context_wrapper` と entries の不一致はログで検知。
+
+### 15. Admin: 記事別Usage一覧 (2026-02-01)
+
+- **管理者ページ** `/admin/blog-usage` を追加し、Blog AI のプロセス別トークン/コスト一覧を表示。
+- **バックエンド**: `GET /admin/usage/blog` を新設。`agent_log_sessions`（workflow_type=blog_generation）と `blog_generation_state` を結合し、`llm_call_logs` / `tool_call_logs` から集計。
+- **フロント**: `frontend/src/app/(admin)/admin/blog-usage/page.tsx` でテーブル表示、サイドバーに「記事別Usage」を追加。
+
+### 16. 管理者向け「記事別Usage」実装ログ (2026-02-01)
+
+- **新規API**: `GET /admin/usage/blog` を追加。Blog AI の `process_id` 単位で `agent_log_sessions` と `blog_generation_state` を結合し、`llm_call_logs` / `tool_call_logs` を集計。
+- **新規UI**: `/admin/blog-usage` ページを追加し、入力/出力/総トークン、キャッシュ/推論、推定コスト、ツール回数、モデルを一覧表示。
+- **ナビ更新**: 管理者サイドバーに「記事別Usage」を追加。
+
+### 17. Blog History ページ UX リデザイン + Activity Feed 高さ最適化 (2026-02-02)
+
+#### Blog History ページ全面リデザイン
+**コンセプト**: 「Mission Control」— 2ゾーン分離型レイアウト
+
+**変更ファイル**:
+- `frontend/src/app/(tools)/blog/history/page.tsx` — 全面リライト (469行 → 380行)
+- `backend/app/domains/blog/schemas.py` — `BlogGenerationHistoryItem` に `wordpress_site_name`, `image_count` フィールド追加
+- `backend/app/domains/blog/endpoints.py` — `GET /blog/generation/history` に `wordpress_sites` JOIN追加、`uploaded_images` 件数計算追加
+
+**UI設計**:
+- **Active Zone**: 進行中/入力待ちアイテムをSVGプログレスリング付きの目立つカードで表示。入力待ちは青系グラデーション + 「回答する」ボタン、生成中はamber系 + リング内にパーセント表示
+- **Past Zone**: 完了/エラー/キャンセルを日付グループ（今日/昨日/今週/今月）ごとにまとめた白背景のコンパクト行。ステータスアイコン(7x7角丸)、WordPressプレビューリンク、サイト名・画像数をドット区切りで表示
+- **空状態**: グラデーション背景アイコン + パルスアニメーションのSparklesアイコン
+
+**機能改善**:
+- Load More ページネーション (20件ずつ、バックエンドの `offset`/`limit` パラメータ活用)
+- アクティブアイテム存在時は12秒間隔で自動ポーリング
+- ローディングスケルトン (パルスアニメーション)
+- バックエンドAPI拡張: `wordpress_sites` テーブルをJOINしてサイト名を返却、`uploaded_images` 配列長を `image_count` として返却
+
+#### Activity Feed 高さ最適化
+- `frontend/src/app/(tools)/blog/[processId]/page.tsx` — Activity Feed の `max-h-[300px] md:max-h-[420px]` を `calc(100dvh - 355px)` + `min-h-[250px]` に変更。ビューポートの残りスペースを動的に活用
+- タイムスタンプをモバイルでは常時表示に (`md:opacity-0 md:group-hover:opacity-100`)
+
+#### ポーリング無限ループバグ修正
+- **原因**: `useEffect` の依存配列に `history` state を含めていたため、fetch → history更新 → effect再実行 → interval再セット → fetch が無限ループしていた
+- **修正**: `hasActiveRef` (useRef) で進行中アイテムの有無を追跡し、`useEffect` の依存配列から `history` を除外。`useCallback` で `fetchHistory` をメモ化し、ポーリング時は `setLoading(true)` をスキップ
+- **教訓**: ポーリング用 useEffect の依存配列に、fetch結果で更新される state を入れるとループする。ref で追跡すべき
+
+#### アクティブアイテム表示上限
+- 進行中セクションは最大3件まで表示、4件以上は「他N件を表示」ボタンで展開/折りたたみ
+
+#### ページ初期スクロールオフセットバグ修正
+- **原因**: `AppLayoutClient` の `<main className="mt-[45px] p-3">` 内のページコンテンツに `min-h-screen` (= 100vh) を指定していたため、合計高さが 100vh + 45px + 12px ≒ 57px 超過し、常にスクロール可能になっていた
+- **修正ファイル**:
+  - `frontend/src/app/(tools)/blog/new/page.tsx` — `min-h-screen` を削除（コンテンツ量で自然に高さが決まる）
+  - `frontend/src/app/(tools)/blog/[processId]/page.tsx` — メインレンダリングの `min-h-screen` を削除。ローディング/Not Found 状態は `calc(100dvh - 57px)` に変更（中央揃え用に最小高さが必要なため）
+- **教訓**: `AppLayoutClient` が `mt-[45px]` + `p-3` を適用しているため、子ページで `min-h-screen` を使うと必ずビューポートを超過する。ページ内で全高が必要な場合は `calc(100dvh - 57px)` を使うこと
+- **NOTE**: `(admin)` レイアウトや `(settings)/integrations/wordpress/connect` にも同様の `min-h-screen` があるが、blog ページ以外は未修正
+
+### 18. Favicon 正方形化 (2026-02-02)
+
+- **問題**: `public/logo.png` (964x672, 横長) をそのままファビコンに使っていたため、ブラウザタブで縦に伸びて表示されていた
+- **ロゴの色**: 完全に白色 (#FFFFFF) + 透明背景。ダーク背景用ロゴ
+- **修正**: Pillow で正方形 favicon を生成。slate-900 (#0f172a) 背景に白ロゴを中央配置（認証画面と同トーン）
+  - `public/favicon.png` (32x32) — ブラウザタブ用
+  - `public/apple-touch-icon.png` (180x180) — Apple Touch Icon
+  - `public/icon-192.png` (192x192) — 汎用アイコン
+- **`layout.tsx`**: `icon: '/logo.png'` → `icon: '/favicon.png'`、`apple: '/apple-touch-icon.png'` に変更
+- **NOTE**: `public/logo.png` は元の横長ロゴとして残存（サイドバー等で使用中の可能性あり）
+
+### 2026-02-02 自己改善
+- **記憶の即時更新**: コード変更を完了した直後に CLAUDE.md を更新せず、ユーザーに「また記憶してないでしょ」と指摘された。**変更を加えたら、次のユーザー応答の前に必ず CLAUDE.md を更新する。これは最優先の義務。**
 
 > ## **【最重要・再掲】記憶の更新は絶対に忘れるな**
 > **このファイルの冒頭にも書いたが、改めて念押しする。**

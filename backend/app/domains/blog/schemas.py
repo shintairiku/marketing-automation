@@ -163,6 +163,8 @@ class BlogGenerationHistoryItem(BaseModel):
     draft_preview_url: Optional[str] = None
     draft_edit_url: Optional[str] = None
     error_message: Optional[str] = None
+    wordpress_site_name: Optional[str] = None
+    image_count: int = 0
     created_at: datetime
     updated_at: datetime
 
@@ -233,7 +235,7 @@ class AIQuestion(BaseModel):
     question_id: str
     question: str
     context: Optional[str] = None
-    input_type: Literal["text", "textarea", "file", "select"]
+    input_type: Literal["text", "textarea", "image_upload", "select"]
     options: Optional[List[str]] = None  # selectの場合
     required: bool = True
 

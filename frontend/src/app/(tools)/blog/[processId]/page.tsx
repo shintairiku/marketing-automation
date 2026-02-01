@@ -7,15 +7,19 @@ import {
   AlertCircle,
   ArrowLeft,
   Check,
+  CheckCircle2,
   Edit3,
   ExternalLink,
   FileText,
   ImageIcon,
+  ImagePlus,
   Loader2,
   MessageSquare,
   RefreshCw,
   Send,
   SkipForward,
+  Upload,
+  X,
 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
@@ -161,6 +165,12 @@ export default function BlogProcessPage() {
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [submittingAnswers, setSubmittingAnswers] = useState(false);
 
+  // Image upload state for question phase
+  const [questionImages, setQuestionImages] = useState<
+    Record<string, { files: File[]; previewUrls: string[]; uploadedNames: string[]; uploading: boolean }>
+  >({});
+  const imageInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
+
   // Activity feed from process events
   const [activities, setActivities] = useState<ActivityEntry[]>([]);
   const activityEndRef = useRef<HTMLDivElement>(null);
@@ -236,39 +246,6 @@ export default function BlogProcessPage() {
     []
   );
 
-  // ---- Process event handler (for realtime INSERT) ----
-  const handleProcessEvent = useCallback(
-    (event: ProcessEvent) => {
-      if (event.event_type === "tool_call_completed") {
-        // Mark the most recent running tool as done
-        setActivities((prev) => {
-          const updated = [...prev];
-          for (let i = updated.length - 1; i >= 0; i--) {
-            if (
-              updated[i].type === "tool" &&
-              updated[i].status === "running"
-            ) {
-              updated[i] = { ...updated[i], status: "done" };
-              break;
-            }
-          }
-          return updated;
-        });
-        return;
-      }
-
-      const entry = convertEventToActivity(event);
-      if (entry) {
-        setActivities((prev) => {
-          // Deduplicate by id
-          if (prev.some((a) => a.id === entry.id)) return prev;
-          return [...prev, entry];
-        });
-      }
-    },
-    [convertEventToActivity]
-  );
-
   // ---- Fetch existing events (initial load + catch-up) ----
   const fetchExistingEvents = useCallback(async () => {
     try {
@@ -311,12 +288,18 @@ export default function BlogProcessPage() {
     }
   }, [getToken, processId, convertEventToActivity]);
 
-  // ---- Realtime subscriptions (accessToken callback handles JWT refresh) ----
-  useEffect(() => {
-    fetchState();
-    fetchExistingEvents();
+  // ---- Unified data fetcher (state + events in one call) ----
+  const fetchAll = useCallback(async () => {
+    await Promise.all([fetchState(), fetchExistingEvents()]);
+  }, [fetchState, fetchExistingEvents]);
 
-    const stateChannel = realtimeClient
+  // ---- Realtime: single channel on blog_generation_state ----
+  // State UPDATE is reliable. On every state change we also fetch events,
+  // so the activity feed stays in sync without a separate events channel.
+  useEffect(() => {
+    fetchAll();
+
+    const channel = realtimeClient
       .channel(`blog_generation:${processId}`)
       .on(
         "postgres_changes",
@@ -328,48 +311,28 @@ export default function BlogProcessPage() {
         },
         (payload) => {
           setState(payload.new as BlogGenerationState);
+          // Piggyback: fetch events whenever state updates
+          fetchExistingEvents();
         }
       )
       .subscribe();
 
-    const eventsChannel = realtimeClient
-      .channel(`blog_events:${processId}`)
-      .on(
-        "postgres_changes",
-        {
-          event: "INSERT",
-          schema: "public",
-          table: "blog_process_events",
-          filter: `process_id=eq.${processId}`,
-        },
-        (payload) => {
-          const event = payload.new as ProcessEvent;
-          handleProcessEvent(event);
-        }
-      )
-      .subscribe(async (status) => {
-        if (status === "SUBSCRIBED") {
-          await fetchExistingEvents();
-        }
-      });
-
     return () => {
-      realtimeClient.removeChannel(stateChannel);
-      realtimeClient.removeChannel(eventsChannel);
+      realtimeClient.removeChannel(channel);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [processId]);
 
-  // ---- Polling fallback ----
+  // ---- Polling fallback (state + events, unified) ----
   useEffect(() => {
     if (
       state &&
       (state.status === "in_progress" || state.status === "pending")
     ) {
-      const interval = setInterval(fetchState, 5000);
+      const interval = setInterval(fetchAll, 5000);
       return () => clearInterval(interval);
     }
-  }, [state, fetchState]);
+  }, [state, fetchAll]);
 
   // ---- Elapsed time refresh ----
   useEffect(() => {
@@ -387,12 +350,103 @@ export default function BlogProcessPage() {
     activityEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [activities]);
 
+  // ---- Image upload handlers for question phase ----
+  const handleQuestionImageSelect = useCallback(
+    (questionId: string, files: FileList | null) => {
+      if (!files || files.length === 0) return;
+      const newFiles = Array.from(files);
+      setQuestionImages((prev) => {
+        const existing = prev[questionId] || { files: [], previewUrls: [], uploadedNames: [], uploading: false };
+        // Max 5 images per question
+        const combined = [...existing.files, ...newFiles].slice(0, 5);
+        const newPreviews = newFiles.map((f) => URL.createObjectURL(f));
+        const combinedPreviews = [...existing.previewUrls, ...newPreviews].slice(0, 5);
+        return { ...prev, [questionId]: { ...existing, files: combined, previewUrls: combinedPreviews } };
+      });
+    },
+    []
+  );
+
+  const handleRemoveQuestionImage = useCallback(
+    (questionId: string, index: number) => {
+      setQuestionImages((prev) => {
+        const existing = prev[questionId];
+        if (!existing) return prev;
+        URL.revokeObjectURL(existing.previewUrls[index]);
+        const files = existing.files.filter((_, i) => i !== index);
+        const previewUrls = existing.previewUrls.filter((_, i) => i !== index);
+        const uploadedNames = existing.uploadedNames.filter((_, i) => i !== index);
+        return { ...prev, [questionId]: { ...existing, files, previewUrls, uploadedNames } };
+      });
+    },
+    []
+  );
+
+  const uploadQuestionImages = useCallback(
+    async (questionId: string): Promise<string[]> => {
+      const entry = questionImages[questionId];
+      if (!entry || entry.files.length === 0) return [];
+      // Already uploaded
+      if (entry.uploadedNames.length === entry.files.length) return entry.uploadedNames;
+
+      setQuestionImages((prev) => ({
+        ...prev,
+        [questionId]: { ...prev[questionId], uploading: true },
+      }));
+
+      const token = await getToken();
+      const uploadedNames: string[] = [];
+
+      for (const file of entry.files) {
+        const formData = new FormData();
+        formData.append("file", file);
+        try {
+          const res = await fetch(
+            `/api/proxy/blog/generation/${processId}/upload-image`,
+            {
+              method: "POST",
+              headers: { Authorization: `Bearer ${token}` },
+              body: formData,
+            }
+          );
+          if (res.ok) {
+            const data = await res.json();
+            uploadedNames.push(data.filename || file.name);
+          }
+        } catch (err) {
+          console.error("Failed to upload question image:", err);
+        }
+      }
+
+      setQuestionImages((prev) => ({
+        ...prev,
+        [questionId]: { ...prev[questionId], uploading: false, uploadedNames },
+      }));
+      return uploadedNames;
+    },
+    [questionImages, getToken, processId]
+  );
+
   // ---- Submit answers ----
   const handleSubmitAnswers = async (skip = false) => {
     setSubmittingAnswers(true);
     try {
       const token = await getToken();
-      const payload = skip ? { answers: {} } : { answers };
+
+      // Upload any pending images before submitting answers
+      const finalAnswers = skip ? {} : { ...answers };
+      if (!skip) {
+        for (const question of state?.blog_context.ai_questions || []) {
+          if (question.input_type === "image_upload" && questionImages[question.question_id]?.files.length > 0) {
+            const uploadedNames = await uploadQuestionImages(question.question_id);
+            if (uploadedNames.length > 0) {
+              finalAnswers[question.question_id] = `uploaded:${uploadedNames.join(",")}`;
+            }
+          }
+        }
+      }
+
+      const payload = { answers: finalAnswers };
       const response = await fetch(
         `/api/proxy/blog/generation/${processId}/user-input`,
         {
@@ -406,6 +460,11 @@ export default function BlogProcessPage() {
       );
       if (response.ok) {
         setAnswers({});
+        // Clean up image previews
+        Object.values(questionImages).forEach((entry) =>
+          entry.previewUrls.forEach((url) => URL.revokeObjectURL(url))
+        );
+        setQuestionImages({});
         await fetchState();
         // Fetch events that may have been inserted during the transition
         await fetchExistingEvents();
@@ -427,7 +486,7 @@ export default function BlogProcessPage() {
   // ---------------------------------------------------------------------------
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-amber-50/50 via-white to-emerald-50/30">
+      <div className="flex items-center justify-center bg-gradient-to-br from-amber-50/50 via-white to-emerald-50/30" style={{ minHeight: 'calc(100dvh - 57px)' }}>
         <div className="flex items-center gap-3 text-stone-400">
           <Loader2 className="w-5 h-5 animate-spin" />
           <span className="text-sm tracking-wide">読み込み中</span>
@@ -441,7 +500,7 @@ export default function BlogProcessPage() {
   // ---------------------------------------------------------------------------
   if (!state) {
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-br from-amber-50/50 via-white to-emerald-50/30">
+      <div className="flex flex-col items-center justify-center bg-gradient-to-br from-amber-50/50 via-white to-emerald-50/30" style={{ minHeight: 'calc(100dvh - 57px)' }}>
         <AlertCircle className="w-12 h-12 text-red-400 mb-4" />
         <p className="text-lg text-stone-600 mb-4">
           生成プロセスが見つかりません
@@ -458,7 +517,7 @@ export default function BlogProcessPage() {
   // Main render
   // ---------------------------------------------------------------------------
   return (
-    <div className="min-h-screen bg-gradient-to-br from-amber-50/50 via-white to-emerald-50/30">
+    <div className="bg-gradient-to-br from-amber-50/50 via-white to-emerald-50/30">
       <div className="max-w-3xl mx-auto px-4 py-6 md:px-6 md:py-10">
         {/* ---- Back nav ---- */}
         <motion.div
@@ -687,6 +746,82 @@ export default function BlogProcessPage() {
                           placeholder="わかる範囲でお書きください..."
                           className="min-h-[100px] bg-white border-stone-200 focus:border-amber-400 focus:ring-amber-100 rounded-xl"
                         />
+                      ) : question.input_type === "image_upload" ? (
+                        <div className="space-y-3">
+                          {/* Selected images preview */}
+                          {(questionImages[question.question_id]?.previewUrls.length ?? 0) > 0 && (
+                            <div className="grid grid-cols-3 gap-2">
+                              {questionImages[question.question_id].previewUrls.map(
+                                (url, imgIdx) => (
+                                  <div key={imgIdx} className="relative group aspect-square rounded-lg overflow-hidden border border-stone-200 bg-stone-50">
+                                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                                    <img
+                                      src={url}
+                                      alt={`画像 ${imgIdx + 1}`}
+                                      className="w-full h-full object-cover"
+                                    />
+                                    {questionImages[question.question_id]?.uploadedNames[imgIdx] ? (
+                                      <div className="absolute top-1 right-1 w-5 h-5 rounded-full bg-emerald-500 flex items-center justify-center">
+                                        <CheckCircle2 className="w-3 h-3 text-white" />
+                                      </div>
+                                    ) : (
+                                      <button
+                                        type="button"
+                                        onClick={() => handleRemoveQuestionImage(question.question_id, imgIdx)}
+                                        className="absolute top-1 right-1 w-5 h-5 rounded-full bg-black/50 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                                      >
+                                        <X className="w-3 h-3 text-white" />
+                                      </button>
+                                    )}
+                                  </div>
+                                )
+                              )}
+                            </div>
+                          )}
+
+                          {/* Upload button / drop zone */}
+                          {(questionImages[question.question_id]?.files.length ?? 0) < 5 && (
+                            <button
+                              type="button"
+                              onClick={() => imageInputRefs.current[question.question_id]?.click()}
+                              className="w-full flex flex-col items-center justify-center gap-2 py-6 border-2 border-dashed border-stone-200 hover:border-amber-300 rounded-xl bg-white/50 hover:bg-amber-50/30 transition-colors cursor-pointer"
+                            >
+                              {questionImages[question.question_id]?.uploading ? (
+                                <>
+                                  <Loader2 className="w-6 h-6 text-amber-500 animate-spin" />
+                                  <span className="text-xs text-stone-500">アップロード中...</span>
+                                </>
+                              ) : (
+                                <>
+                                  <ImagePlus className="w-6 h-6 text-stone-400" />
+                                  <span className="text-xs text-stone-500">
+                                    クリックして画像を選択（最大5枚）
+                                  </span>
+                                </>
+                              )}
+                            </button>
+                          )}
+
+                          <input
+                            ref={(el) => { imageInputRefs.current[question.question_id] = el; }}
+                            type="file"
+                            accept="image/*"
+                            multiple
+                            className="hidden"
+                            onChange={(e) => {
+                              handleQuestionImageSelect(question.question_id, e.target.files);
+                              e.target.value = "";
+                            }}
+                          />
+
+                          {(questionImages[question.question_id]?.files.length ?? 0) > 0 && (
+                            <p className="text-xs text-stone-400">
+                              {questionImages[question.question_id].files.length}枚選択済み
+                              {questionImages[question.question_id].uploadedNames.length > 0 &&
+                                ` (${questionImages[question.question_id].uploadedNames.length}枚アップロード済み)`}
+                            </p>
+                          )}
+                        </div>
                       ) : question.input_type === "select" &&
                         question.options ? (
                         <div className="flex flex-wrap gap-2">
@@ -784,7 +919,10 @@ export default function BlogProcessPage() {
 
               {/* Activity feed */}
               <div className="rounded-2xl border border-stone-200/60 bg-white/50 backdrop-blur-sm overflow-hidden">
-                <div className="max-h-[300px] md:max-h-[420px] overflow-y-auto overscroll-contain">
+                <div
+                  className="overflow-y-auto overscroll-contain min-h-[250px]"
+                  style={{ maxHeight: 'calc(100dvh - 355px)' }}
+                >
                   {activities.length === 0 ? (
                     <div className="px-5 py-10 text-center">
                       <Loader2 className="w-5 h-5 animate-spin text-stone-300 mx-auto mb-3" />
@@ -842,7 +980,7 @@ export default function BlogProcessPage() {
                           </div>
 
                           {/* Timestamp */}
-                          <span className="text-[11px] text-stone-300 tabular-nums flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <span className="text-[11px] text-stone-300 tabular-nums flex-shrink-0 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
                             {elapsedLabel(entry.timestamp)}
                           </span>
                         </motion.div>

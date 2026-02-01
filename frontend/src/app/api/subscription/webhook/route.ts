@@ -21,6 +21,8 @@ import Stripe from 'stripe';
 import { getStripe } from '@/lib/subscription';
 import { supabaseAdminClient } from '@/libs/supabase/supabase-admin';
 
+const ADDON_PRICE_ID = process.env.STRIPE_PRICE_ADDON_ARTICLES || '';
+
 // Webhook署名検証用のシークレット
 const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
 
@@ -161,6 +163,37 @@ function getUserIdFromEvent(event: Stripe.Event): string {
 }
 
 // ============================================
+// plan_tier_id 解決: Stripe Price ID → plan_tiers.stripe_price_id で逆引き
+// ============================================
+async function resolvePlanTierId(
+  supabase: typeof supabaseAdminClient,
+  subscription: Stripe.Subscription,
+): Promise<string> {
+  try {
+    // base item (= アドオンでないアイテム) の price.id を取得
+    const baseItem = subscription.items?.data?.find(
+      (item) => item.price?.id !== ADDON_PRICE_ID
+    );
+    const priceId = baseItem?.price?.id;
+
+    if (priceId) {
+      // plan_tiers.stripe_price_id で逆引き
+      // Note: plan_tiers は型生成前のため any キャストを使用
+      const { data: tier } = await (supabase as any)
+        .from('plan_tiers')
+        .select('id')
+        .eq('stripe_price_id', priceId)
+        .maybeSingle();
+      if (tier?.id) return tier.id;
+    }
+  } catch (error) {
+    console.error('Error resolving plan tier ID:', error);
+  }
+
+  return 'default'; // フォールバック
+}
+
+// ============================================
 // ステータスマッピング
 // ============================================
 function mapStripeStatus(stripeStatus: Stripe.Subscription.Status): 'active' | 'past_due' | 'canceled' | 'expired' | 'none' {
@@ -267,6 +300,9 @@ async function handleSubscriptionChange(
     ? new Date(currentPeriodStart * 1000).toISOString()
     : null;
 
+  // plan_tier_id を Stripe Price ID から解決
+  const planTierId = await resolvePlanTierId(supabase, subscription);
+
   if (organizationId) {
     // ============ 組織サブスク ============
     // organization_subscriptions は subscription_status enum を使用（Stripe ネイティブ値）
@@ -304,13 +340,28 @@ async function handleSubscriptionChange(
         current_period_end: periodEndDate,
         cancel_at_period_end: subscription.cancel_at_period_end,
         upgraded_to_org_id: organizationId,
+        plan_tier_id: planTierId,
       } as Record<string, unknown>)
       .eq('user_id', userId);
 
-    console.log(`Org subscription ${subscription.id} updated: org=${organizationId}, status=${orgStatus}, qty=${quantity}`);
+    // アドオン数量を検出・更新
+    const addonItem = subscription.items?.data?.find(
+      (item) => item.price?.id === ADDON_PRICE_ID
+    );
+    const addonQuantity = addonItem?.quantity || 0;
+    await supabase
+      .from('organization_subscriptions')
+      .update({ addon_quantity: addonQuantity } as Record<string, unknown>)
+      .eq('id', subscription.id);
+
+    // 使用量上限を再計算（レコードがなければ新規作成）
+    await ensureUsageTracking(supabase, userId, organizationId, quantity, addonQuantity, planTierId, periodStartDate, periodEndDate);
+
+    console.log(`Org subscription ${subscription.id} updated: org=${organizationId}, status=${orgStatus}, qty=${quantity}, addon=${addonQuantity}, tier=${planTierId}`);
   } else {
     // ============ 個人サブスク（従来通り） ============
-    await supabase.from('user_subscriptions').upsert(
+    // Note: plan_tier_id は型生成前のため any キャストを使用
+    await (supabase as any).from('user_subscriptions').upsert(
       {
         user_id: userId,
         stripe_customer_id: customerId,
@@ -318,11 +369,25 @@ async function handleSubscriptionChange(
         status: userStatus,
         current_period_end: periodEndDate,
         cancel_at_period_end: subscription.cancel_at_period_end,
+        plan_tier_id: planTierId,
       },
       { onConflict: 'user_id' }
     );
 
-    console.log(`Subscription ${subscription.id} updated for user ${userId}: ${userStatus}`);
+    // アドオン数量を検出し、user_subscriptions にも保存
+    const addonItem = subscription.items?.data?.find(
+      (item) => item.price?.id === ADDON_PRICE_ID
+    );
+    const addonQuantity = addonItem?.quantity || 0;
+    await supabase
+      .from('user_subscriptions')
+      .update({ addon_quantity: addonQuantity } as Record<string, unknown>)
+      .eq('user_id', userId);
+
+    // 使用量上限を再計算（レコードがなければ新規作成）
+    await ensureUsageTracking(supabase, userId, undefined, 1, addonQuantity, planTierId, periodStartDate, periodEndDate);
+
+    console.log(`Subscription ${subscription.id} updated for user ${userId}: ${userStatus}, addon=${addonQuantity}, tier=${planTierId}`);
   }
 }
 
@@ -417,6 +482,26 @@ async function handlePaymentSucceeded(
 
     console.log(`Payment succeeded for user ${userId}`);
   }
+
+  // ============ 使用量リセット（請求サイクル更新時） ============
+  const billingReason = (invoice as unknown as Record<string, unknown>).billing_reason as string | undefined;
+  if (billingReason === 'subscription_cycle') {
+    const currentPeriodStart = subscription.items?.data?.[0]?.current_period_start;
+    const periodStartDate = currentPeriodStart
+      ? new Date(currentPeriodStart * 1000).toISOString()
+      : null;
+
+    if (periodStartDate && periodEndDate) {
+      await createUsageTrackingForNewPeriod(
+        supabase,
+        userId,
+        organizationId || null,
+        periodStartDate,
+        periodEndDate,
+        subscription,
+      );
+    }
+  }
 }
 
 // ============================================
@@ -456,5 +541,187 @@ async function handlePaymentFailed(
       .eq('user_id', userId);
 
     console.log(`Payment failed for user ${userId}`);
+  }
+}
+
+// ============================================
+// 使用量リセット: 新しい請求期間のトラッキングレコード作成
+// ============================================
+async function createUsageTrackingForNewPeriod(
+  supabase: typeof supabaseAdminClient,
+  userId: string,
+  organizationId: string | null,
+  periodStart: string,
+  periodEnd: string,
+  subscription: Stripe.Subscription,
+) {
+  try {
+    // Stripe Price ID から plan_tier_id を解決
+    const planTierId = await resolvePlanTierId(supabase, subscription);
+
+    // plan_tiers から月間上限を取得
+    // Note: plan_tiers は型生成前のため any キャストを使用
+    const { data: tier } = await (supabase as any)
+      .from('plan_tiers')
+      .select('monthly_article_limit, addon_unit_amount')
+      .eq('id', planTierId)
+      .single();
+
+    const monthlyLimit = tier?.monthly_article_limit || 30;
+    const addonUnitAmount = tier?.addon_unit_amount || 20;
+
+    // quantity と addon を算出
+    const baseItem = subscription.items?.data?.find(
+      (item) => item.price?.id !== ADDON_PRICE_ID
+    );
+    const addonItem = subscription.items?.data?.find(
+      (item) => item.price?.id === ADDON_PRICE_ID
+    );
+    const quantity = baseItem?.quantity || 1;
+    const addonQuantity = addonItem?.quantity || 0;
+
+    const articlesLimit = monthlyLimit * quantity;
+    const addonArticlesLimit = addonUnitAmount * addonQuantity;
+
+    // Note: usage_tracking は型生成前のため any キャストを使用
+    if (organizationId) {
+      await (supabase as any).from('usage_tracking').upsert(
+        {
+          organization_id: organizationId,
+          billing_period_start: periodStart,
+          billing_period_end: periodEnd,
+          articles_generated: 0,
+          articles_limit: articlesLimit,
+          addon_articles_limit: addonArticlesLimit,
+          plan_tier_id: planTierId,
+        },
+        { onConflict: 'organization_id,billing_period_start' }
+      );
+    } else {
+      await (supabase as any).from('usage_tracking').upsert(
+        {
+          user_id: userId,
+          billing_period_start: periodStart,
+          billing_period_end: periodEnd,
+          articles_generated: 0,
+          articles_limit: articlesLimit,
+          addon_articles_limit: addonArticlesLimit,
+          plan_tier_id: planTierId,
+        },
+        { onConflict: 'user_id,billing_period_start' }
+      );
+    }
+
+    console.log(`Usage tracking created for new period: user=${userId}, org=${organizationId}, tier=${planTierId}, limit=${articlesLimit}+${addonArticlesLimit}`);
+  } catch (error) {
+    console.error('Error creating usage tracking for new period:', error);
+  }
+}
+
+// ============================================
+// 使用量トラッキング確保（存在しなければ作成、存在すれば上限を更新）
+// ============================================
+async function ensureUsageTracking(
+  supabase: typeof supabaseAdminClient,
+  userId: string,
+  organizationId: string | undefined,
+  quantity: number,
+  addonQuantity: number,
+  planTierId: string = 'default',
+  periodStartDate: string | null = null,
+  periodEndDate: string | null = null,
+) {
+  try {
+    // Note: plan_tiers, usage_tracking は型生成前のため any キャストを使用
+    const { data: tier } = await (supabase as any)
+      .from('plan_tiers')
+      .select('monthly_article_limit, addon_unit_amount')
+      .eq('id', planTierId)
+      .single();
+
+    const monthlyLimit = tier?.monthly_article_limit || 30;
+    const addonUnitAmount = tier?.addon_unit_amount || 20;
+
+    const newLimit = monthlyLimit * quantity;
+    const newAddonLimit = addonUnitAmount * addonQuantity;
+
+    const now = new Date().toISOString();
+
+    // まず既存レコードの更新を試みる
+    if (organizationId) {
+      const { data: existing } = await (supabase as any)
+        .from('usage_tracking')
+        .select('id')
+        .eq('organization_id', organizationId)
+        .lte('billing_period_start', now)
+        .gte('billing_period_end', now)
+        .maybeSingle();
+
+      if (existing) {
+        // 既存レコードがあれば上限のみ更新
+        await (supabase as any)
+          .from('usage_tracking')
+          .update({
+            articles_limit: newLimit,
+            addon_articles_limit: newAddonLimit,
+            plan_tier_id: planTierId,
+          })
+          .eq('id', existing.id);
+      } else if (periodStartDate && periodEndDate) {
+        // レコードがなければ新規作成
+        await (supabase as any).from('usage_tracking').upsert(
+          {
+            organization_id: organizationId,
+            billing_period_start: periodStartDate,
+            billing_period_end: periodEndDate,
+            articles_generated: 0,
+            articles_limit: newLimit,
+            addon_articles_limit: newAddonLimit,
+            plan_tier_id: planTierId,
+          },
+          { onConflict: 'organization_id,billing_period_start' }
+        );
+        console.log(`Usage tracking created for org=${organizationId}, tier=${planTierId}, limit=${newLimit}+${newAddonLimit}`);
+      }
+    } else {
+      const { data: existing } = await (supabase as any)
+        .from('usage_tracking')
+        .select('id')
+        .eq('user_id', userId)
+        .lte('billing_period_start', now)
+        .gte('billing_period_end', now)
+        .maybeSingle();
+
+      if (existing) {
+        // 既存レコードがあれば上限のみ更新
+        await (supabase as any)
+          .from('usage_tracking')
+          .update({
+            articles_limit: newLimit,
+            addon_articles_limit: newAddonLimit,
+            plan_tier_id: planTierId,
+          })
+          .eq('id', existing.id);
+      } else if (periodStartDate && periodEndDate) {
+        // レコードがなければ新規作成
+        await (supabase as any).from('usage_tracking').upsert(
+          {
+            user_id: userId,
+            billing_period_start: periodStartDate,
+            billing_period_end: periodEndDate,
+            articles_generated: 0,
+            articles_limit: newLimit,
+            addon_articles_limit: newAddonLimit,
+            plan_tier_id: planTierId,
+          },
+          { onConflict: 'user_id,billing_period_start' }
+        );
+        console.log(`Usage tracking created for user=${userId}, tier=${planTierId}, limit=${newLimit}+${newAddonLimit}`);
+      }
+    }
+
+    console.log(`Usage tracking ensured: user=${userId}, org=${organizationId}, limit=${newLimit}+${newAddonLimit}`);
+  } catch (error) {
+    console.error('Error ensuring usage tracking:', error);
   }
 }

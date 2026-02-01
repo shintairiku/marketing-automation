@@ -30,6 +30,9 @@ export function getStripe(): Stripe {
 // 価格ID（Stripeダッシュボードで作成したものを環境変数で設定）
 export const SUBSCRIPTION_PRICE_ID = process.env.STRIPE_PRICE_ID || '';
 
+// アドオン価格ID
+export const ADDON_PRICE_ID = process.env.STRIPE_PRICE_ADDON_ARTICLES || '';
+
 // サブスクリプションの状態
 export type SubscriptionStatus = 'active' | 'past_due' | 'canceled' | 'expired' | 'none';
 
@@ -108,6 +111,18 @@ export function hasActiveOrgAccess(orgSubscription: OrgSubscription | null | und
   }
 
   return false;
+}
+
+// 使用量情報
+export interface UsageInfo {
+  articles_generated: number;
+  articles_limit: number;
+  addon_articles_limit: number;
+  total_limit: number;
+  remaining: number;
+  billing_period_start: string | null;
+  billing_period_end: string | null;
+  plan_tier: string | null;
 }
 
 // Stripe Checkout Session作成のパラメータ

@@ -21,7 +21,10 @@ import {
   CreditCard,
   Crown,
   ExternalLink,
+  FileText,
   Loader2,
+  Minus,
+  Plus,
   Settings,
   Sparkles,
   Users,
@@ -49,6 +52,7 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Progress } from '@/components/ui/progress';
 import {
   Select,
   SelectContent,
@@ -82,10 +86,22 @@ interface OrgSubscription {
   cancel_at_period_end: boolean;
 }
 
+interface UsageInfo {
+  articles_generated: number;
+  articles_limit: number;
+  addon_articles_limit: number;
+  total_limit: number;
+  remaining: number;
+  billing_period_start: string | null;
+  billing_period_end: string | null;
+  plan_tier: string | null;
+}
+
 interface SubscriptionStatusResponse {
   subscription: UserSubscription;
   orgSubscription: OrgSubscription | null;
   hasAccess: boolean;
+  usage: UsageInfo | null;
 }
 
 interface UpgradePreview {
@@ -188,6 +204,10 @@ export default function BillingSettingsPage() {
   const [loadingPreview, setLoadingPreview] = useState(false);
   const [upgrading, setUpgrading] = useState(false);
 
+  // アドオン管理
+  const [addonQuantity, setAddonQuantity] = useState(0);
+  const [addonLoading, setAddonLoading] = useState(false);
+
   // シート変更モーダル
   const [showSeatChangeConfirm, setShowSeatChangeConfirm] = useState(false);
   const [seatChangePreview, setSeatChangePreview] = useState<UpgradePreview | null>(null);
@@ -222,7 +242,13 @@ export default function BillingSettingsPage() {
     setLoadingStatus(true);
     fetch('/api/subscription/status')
       .then((res) => res.json())
-      .then((data: SubscriptionStatusResponse) => setSubStatus(data))
+      .then((data: SubscriptionStatusResponse) => {
+        setSubStatus(data);
+        // アドオン数量を使用量情報から算出
+        if (data.usage && data.usage.addon_articles_limit > 0) {
+          setAddonQuantity(Math.round(data.usage.addon_articles_limit / 20));
+        }
+      })
       .catch((err) => console.error('Failed to fetch subscription status:', err))
       .finally(() => setLoadingStatus(false));
   }, [isAuthLoaded, isSignedIn]);
@@ -402,6 +428,41 @@ export default function BillingSettingsPage() {
       setShowSeatChangeConfirm(false);
     } finally {
       setChangingSeats(false);
+    }
+  };
+
+  // アドオン変更
+  const handleAddonChange = async (quantity: number) => {
+    setAddonLoading(true);
+    setStatusMessage(null);
+    try {
+      const response = await fetch('/api/subscription/addon', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ quantity }),
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error || 'アドオンの変更に失敗しました');
+      }
+      setStatusMessage({
+        type: 'success',
+        message: quantity > 0
+          ? `記事追加アドオン（${quantity}ユニット）を${data.addonQuantity > 0 ? '変更' : '追加'}しました`
+          : 'アドオンを解除しました',
+      });
+      setAddonQuantity(quantity);
+      const statusRes = await fetch('/api/subscription/status');
+      const statusData = await statusRes.json();
+      setSubStatus(statusData);
+    } catch (error) {
+      console.error('Addon error:', error);
+      setStatusMessage({
+        type: 'error',
+        message: error instanceof Error ? error.message : 'アドオンの変更に失敗しました',
+      });
+    } finally {
+      setAddonLoading(false);
     }
   };
 
@@ -648,6 +709,102 @@ export default function BillingSettingsPage() {
                     </Button>
                   </div>
                 )}
+              </CardContent>
+            </Card>
+          )}
+
+          {/* 使用量 & アドオン管理セクション */}
+          {!isPrivileged && subStatus?.usage && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <FileText className="h-5 w-5" />
+                  今月の記事生成
+                </CardTitle>
+                <CardDescription>
+                  Blog AIの月間記事生成数と上限
+                  {subStatus.usage.billing_period_end && (
+                    <> (請求期間: ~{new Date(subStatus.usage.billing_period_end).toLocaleDateString('ja-JP')})</>
+                  )}
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                {/* 使用量プログレスバー */}
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-muted-foreground">使用量</span>
+                    <span className="font-medium">
+                      {subStatus.usage.articles_generated} / {subStatus.usage.total_limit} 記事
+                      {subStatus.usage.remaining > 0 && (
+                        <span className="text-muted-foreground font-normal ml-1">
+                          (残り{subStatus.usage.remaining}記事)
+                        </span>
+                      )}
+                    </span>
+                  </div>
+                  <Progress
+                    value={subStatus.usage.total_limit > 0
+                      ? Math.min(100, (subStatus.usage.articles_generated / subStatus.usage.total_limit) * 100)
+                      : 0}
+                    className="h-3"
+                  />
+                  <div className="flex items-center justify-between text-xs text-muted-foreground">
+                    <span>プラン上限: {subStatus.usage.articles_limit}記事</span>
+                    {subStatus.usage.addon_articles_limit > 0 && (
+                      <span>+ アドオン: {subStatus.usage.addon_articles_limit}記事</span>
+                    )}
+                  </div>
+                  {subStatus.usage.remaining === 0 && (
+                    <p className="text-sm text-red-600">
+                      月間上限に達しました。アドオンを追加して上限を増やせます。
+                    </p>
+                  )}
+                </div>
+
+                {/* アドオン管理 */}
+                <div className="pt-4 border-t space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h4 className="text-sm font-medium">記事追加アドオン</h4>
+                      <p className="text-xs text-muted-foreground">
+                        1ユニットあたり20記事を追加（月額リカーリング）
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      className="h-8 w-8"
+                      disabled={addonLoading || addonQuantity <= 0}
+                      onClick={() => {
+                        const next = Math.max(0, addonQuantity - 1);
+                        handleAddonChange(next);
+                      }}
+                    >
+                      <Minus className="h-4 w-4" />
+                    </Button>
+                    <div className="text-center min-w-[80px]">
+                      <span className="text-lg font-semibold">{addonQuantity}</span>
+                      <span className="text-sm text-muted-foreground ml-1">ユニット</span>
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      className="h-8 w-8"
+                      disabled={addonLoading}
+                      onClick={() => handleAddonChange(addonQuantity + 1)}
+                    >
+                      <Plus className="h-4 w-4" />
+                    </Button>
+                    {addonLoading && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
+                  </div>
+                  {addonQuantity > 0 && (
+                    <p className="text-xs text-muted-foreground">
+                      +{addonQuantity * 20}記事/月が追加されます。次回請求に反映されます。
+                    </p>
+                  )}
+                </div>
               </CardContent>
             </Card>
           )}

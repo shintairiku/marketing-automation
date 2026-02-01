@@ -12,9 +12,82 @@ logger = logging.getLogger(__name__)
 class CostCalculationService:
     """OpenAI モデル別コスト計算サービス"""
     
-    # OpenAI 料金表 (2025年1月時点)
+    # OpenAI 料金表 (2026-02-01 時点)
     # 価格は1Mトークンあたりの料金 (USD)
     MODEL_PRICING = {
+        # GPT-5 models (OpenAI pricing page)
+        "gpt-5": {
+            "input_tokens": 1.25,
+            "output_tokens": 10.00,
+            "cached_tokens": 0.125,
+            "reasoning_tokens": 0.0,
+            "supports_cache": True,
+            "supports_reasoning": False
+        },
+        "gpt-5-2025-08-07": {
+            "input_tokens": 1.25,
+            "output_tokens": 10.00,
+            "cached_tokens": 0.125,
+            "reasoning_tokens": 0.0,
+            "supports_cache": True,
+            "supports_reasoning": False
+        },
+        "gpt-5.1": {
+            "input_tokens": 1.25,
+            "output_tokens": 10.00,
+            "cached_tokens": 0.125,
+            "reasoning_tokens": 0.0,
+            "supports_cache": True,
+            "supports_reasoning": False
+        },
+        "gpt-5.1-2025-11-13": {
+            "input_tokens": 1.25,
+            "output_tokens": 10.00,
+            "cached_tokens": 0.125,
+            "reasoning_tokens": 0.0,
+            "supports_cache": True,
+            "supports_reasoning": False
+        },
+        "gpt-5.2": {
+            "input_tokens": 1.75,
+            "output_tokens": 14.00,
+            "cached_tokens": 0.175,
+            "reasoning_tokens": 0.0,
+            "supports_cache": True,
+            "supports_reasoning": False
+        },
+        "gpt-5.2-pro": {
+            "input_tokens": 21.00,
+            "output_tokens": 168.00,
+            "cached_tokens": 0.0,
+            "reasoning_tokens": 0.0,
+            "supports_cache": False,
+            "supports_reasoning": False
+        },
+        "gpt-5-pro": {
+            "input_tokens": 15.00,
+            "output_tokens": 120.00,
+            "cached_tokens": 0.0,
+            "reasoning_tokens": 0.0,
+            "supports_cache": False,
+            "supports_reasoning": False
+        },
+        "gpt-5-mini": {
+            "input_tokens": 0.25,
+            "output_tokens": 2.00,
+            "cached_tokens": 0.025,
+            "reasoning_tokens": 0.0,
+            "supports_cache": True,
+            "supports_reasoning": False
+        },
+        "gpt-5-nano": {
+            "input_tokens": 0.05,
+            "output_tokens": 0.40,
+            "cached_tokens": 0.005,
+            "reasoning_tokens": 0.0,
+            "supports_cache": True,
+            "supports_reasoning": False
+        },
         # GPT-4o models
         "gpt-4o": {
             "input_tokens": 2.50,
@@ -257,11 +330,15 @@ class CostCalculationService:
             # 実際のトークン数を使用してコストを計算
             # キャッシュトークンは入力トークンから差し引く
             actual_input_tokens = max(0, prompt_tokens - cached_tokens)
-            
+
             input_cost = Decimal(str(actual_input_tokens)) * input_rate
             output_cost = Decimal(str(completion_tokens)) * output_rate
             cache_cost = Decimal(str(cached_tokens)) * cache_rate
-            reasoning_cost = Decimal(str(reasoning_tokens)) * reasoning_rate
+            # reasoning_tokens は output_tokens に含まれるケースがあるため二重課金を避ける
+            reasoning_tokens_for_cost = reasoning_tokens if model_info["supports_reasoning"] else 0
+            if total_tokens and (prompt_tokens + completion_tokens) >= total_tokens:
+                reasoning_tokens_for_cost = 0
+            reasoning_cost = Decimal(str(reasoning_tokens_for_cost)) * reasoning_rate
             
             total_cost = input_cost + output_cost + cache_cost + reasoning_cost
             
