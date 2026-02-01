@@ -1,11 +1,5 @@
 import Stripe from 'stripe';
 
-// Stripeの型定義を拡張
-interface StripeSubscriptionWithPeriod extends Stripe.Subscription {
-  current_period_start: number;
-  current_period_end: number;
-}
-
 import { upsertUserSubscription } from '@/features/account/controllers/upsert-user-subscription';
 import { upsertPrice } from '@/features/pricing/controllers/upsert-price';
 import { upsertProduct } from '@/features/pricing/controllers/upsert-product';
@@ -50,7 +44,7 @@ export async function POST(req: Request) {
         case 'customer.subscription.created':
         case 'customer.subscription.updated':
         case 'customer.subscription.deleted':
-          const subscription = event.data.object as unknown as StripeSubscriptionWithPeriod;
+          const subscription = event.data.object as Stripe.Subscription;
           console.log(`Processing subscription ${subscription.id} for customer ${subscription.customer}`);
           
           const subscriptionResult = await upsertUserSubscription({

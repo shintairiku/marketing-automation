@@ -62,7 +62,7 @@ WordPress連携によるブログ投稿、SEO分析、画像生成、組織管�
 - **UI**: Tailwind CSS 3.4 + shadcn/ui (Radix UI) + Framer Motion
 - **Auth**: @clerk/nextjs v6
 - **DB**: @supabase/supabase-js (Realtime subscriptions)
-- **Payment**: Stripe (@stripe/stripe-js)
+- **Payment**: Stripe (@stripe/stripe-js v8, stripe v20)
 - **Icons**: Lucide React
 - **Font**: Noto Sans JP
 - **Analytics**: Vercel Analytics
@@ -844,6 +844,52 @@ docker compose logs -f backend                        # ログ確認
 - Settings「メンバー設定」→「チームメンバー設定」に文言変更
 - Settings「ワードプレス連携設定」→「WordPress連携設定」に文言変更
 - Settings から Instagram連携設定・LINE連携設定を削除（disabled だったものを完全除去）
+
+### 8. 全依存パッケージ一括アップデート
+#### Frontend (bun)
+- `@clerk/nextjs` 6.37.0 → 6.37.1
+- `@react-email/components` 0.0.36 → 1.0.6 (MAJOR)
+- `@react-email/tailwind` 1.2.2 → 2.0.3 (MAJOR)
+- `@stripe/stripe-js` 2.4.0 → 8.7.0 (MAJOR)
+- `@supabase/ssr` 0.5.2 → 0.8.0 (MAJOR)
+- `lucide-react` 0.474.0 → 0.563.0
+- `react` / `react-dom` 19.2.1 → 19.2.4
+- `stripe` 18.5.0 → 20.3.0 (MAJOR)
+- `tailwind-merge` 2.6.0 → 3.4.0 (MAJOR)
+- `next-route-handler-pipe` 1.0.5 → 2.0.0 (MAJOR)
+- `@types/react` 19.0.4 → 19.2.10, `@types/react-dom` 19.0.2 → 19.2.3
+- `prettier` 2.8.8 → 3.8.1, `prettier-plugin-tailwindcss` 0.3.0 → 0.7.2 (MAJOR)
+- `eslint-config-prettier` 8.10.2 → 10.1.8, `eslint-plugin-simple-import-sort` 10.0.0 → 12.1.1 (MAJOR)
+- `env-cmd` 10.1.0 → 11.0.0, `supabase` 2.72.9 → 2.74.5, `autoprefixer` 10.4.23 → 10.4.24
+- **据え置き**: Next.js 15 (16は設定形式変更)、Tailwind 3 (4はCSS設定方式)、ESLint 8 (9はflat config)、Zod 3 (4はAPI変更)
+
+#### Backend (uv)
+- `fastapi` 0.116.2 → 0.128.0
+- `openai` 1.108.0 → 2.16.0 (MAJOR)
+- `openai-agents` 0.3.0 → 0.7.0
+- `pillow` 11.3.0 → 12.1.0 (MAJOR)
+- `numpy` 1.26.4 → 2.4.2 (MAJOR — pyproject.toml の <2.0.0 制約を解除)
+- `google-cloud-storage` 2.19.0 → 3.8.0 (MAJOR — <3.0.0 制約を解除)
+- `google-cloud-aiplatform` 1.114.0 → 1.135.0
+- `supabase` 2.19.0 → 2.27.2, `uvicorn` 0.35.0 → 0.40.0, `starlette` 0.48.0 → 0.50.0
+- `google-generativeai`: FutureWarning が出る（`google.genai` への移行推奨）。機能的には問題なし
+- pyproject.toml のバージョン制約をすべて解除（ピンなしに変更）
+- **NOTE**: `google.generativeai` は非推奨。将来 `google.genai` に移行が必要
+
+### 9. Stripe v18→v20 破壊的変更対応
+- **問題**: Stripe SDK v18 (Basil API `2025-03-31.basil`) で `current_period_start` / `current_period_end` が `Subscription` レベルから `subscription.items.data[0]` (SubscriptionItem) に移動
+- **影響**: 旧コードは `StripeSubscriptionWithPeriod` というカスタム型拡張で `subscription.current_period_start` を読んでいたが、v18+では `undefined` になり `|| new Date().toISOString()` フォールバックが常時発火 → **サブスクリプション期間が常に現在時刻になるバグ**
+- **修正**: `frontend/src/features/account/controllers/upsert-user-subscription.ts`
+  - `StripeSubscriptionWithPeriod` インターフェース削除
+  - `as unknown as StripeSubscriptionWithPeriod` キャスト削除
+  - `subscription.items.data[0].current_period_start` / `current_period_end` から読み取るように変更
+  - 未使用の `toDateTime` インポート削除
+- **修正**: `frontend/src/app/api/webhooks/route.ts`
+  - `StripeSubscriptionWithPeriod` インターフェース削除
+  - `as unknown as StripeSubscriptionWithPeriod` → `as Stripe.Subscription` に変更
+- **Webhook形式**: `stripe.webhooks.constructEvent()` は v18-v20 で変更なし。安全
+- **`@stripe/stripe-js` v2→v8**: TypeScript型更新のみ。`loadStripe` は常にCDN最新版を読むため実質影響なし
+- **情報ソース**: https://github.com/stripe/stripe-node/blob/master/CHANGELOG.md
 
 ---
 
