@@ -1347,8 +1347,80 @@ response.usage         # ResponseUsage: トークン使用量
 - **Reasoning summary を `detailed` に設定**: `Reasoning(effort="medium", summary="detailed")` に変更。`summary` パラメータは `"auto"` / `"concise"` / `"detailed"` の3値。`generate_summary` は非推奨で `summary` を使う
 - **Reasoning summary のフロント送信**: `ReasoningItem.raw_item.summary` は `List[Summary]` 型（各要素に `text: str`）。summary テキストがあればフロントに送信し、ないときは「AIが考えています...」フォールバック
 
+### 21. Reasoning Summary 日本語翻訳 + Markdown レンダリング (2026-02-02)
+
+- **問題**: OpenAI reasoning summary は常に英語で返却される。日本語UIに不適合
+- **解決**: gpt-5-nano (`effort="minimal"`, `summary=None`, `store=False`) で翻訳。111トークン/回で最小コスト
+- **バックエンド**: `backend/app/domains/blog/services/generation_service.py`
+  - `AsyncOpenAI` import追加
+  - `_translate_to_japanese()` メソッド追加: Responses API で英語→日本語翻訳
+  - ReasoningItem 処理: summary テキスト取得後に翻訳してからイベント発行
+- **設定**: `backend/app/core/config.py` に `reasoning_translate_model` 追加 (デフォルト: `gpt-5-nano`)
+- **フロントエンド**: thinking エントリに `ChatMarkdown` コンポーネント適用（Markdown レンダリング対応）
+
+### OpenAI Responses API / SDK 知見
+
+**SDK型検査コマンド** (CLIから実行可能):
+```bash
+source backend/.env 2>/dev/null; export OPENAI_API_KEY; cd backend && uv run python -c "
+from openai import OpenAI
+client = OpenAI()
+resp = client.responses.create(
+    model='gpt-5-nano',
+    instructions='Translate to Japanese. Output ONLY the translation.',
+    input='The model analyzed the structure of existing blog posts.',
+    reasoning={'effort': 'minimal', 'summary': None},
+    text={'verbosity': 'low'},
+    store=False,
+)
+print('output_text:', resp.output_text)
+print('usage:', resp.usage)
+"
+```
+
+**Reasoning effort 比較** (gpt-5-nano, 翻訳タスク):
+| effort | 総トークン | 推論トークン | 備考 |
+|--------|-----------|------------|------|
+| `"minimal"` | ~111 | 0 | 推論不要。最速・最安 |
+| `"low"` | ~338 | ~192 | 推論が走る。翻訳には過剰 |
+
+**パラメータ**: `summary=None` で推論サマリを無効化。`store=False` でOpenAI側にデータ保存しない
+
+### 22. Blog AI 完了UI改善 + 遷移アニメーション (2026-02-02)
+
+#### 完了UIリデザイン
+- **成功バナーを折りたたみ可能に**: `下書き記事がWordPressに保存されました` バナー自体がクリックトリガー
+  - クリックで内部にアクティビティフィード（ツール呼び出し・思考過程）が展開
+  - ChevronDown アイコンが回転アニメーション
+  - AnimatePresence で高さアニメーション付き展開/折りたたみ
+- **プレビュー/編集ボタンをヘッダーに移動**: h1 の右側に配置（モバイルでは縦並び）
+
+#### "Quiet Triumph" 遷移アニメーション (10変更)
+コンセプト: 生成中→完了の画面遷移を、協調的な振り付けで洗練されたUXに
+
+| # | 変更内容 | 詳細 |
+|---|---------|------|
+| 1 | `justCompleted` 状態追加 | `in_progress→completed` 遷移を検知するフラグ（2秒後にリセット） |
+| 2 | 完了検知 useEffect | `prevStatusRef` でステータス遷移を追跡 |
+| 3 | プログレスバー exit アニメーション | `height: 0, marginBottom: 0` + emerald色変化 (100%時) |
+| 4 | IN PROGRESS 退場 | `scale: 0.97, filter: "blur(4px)"` でフォーカス移動感 |
+| 5 | COMPLETED 登場 | `delay: 0.15`, Apple-style ease `[0.22, 1, 0.36, 1]` |
+| 6 | チェックマーク バウンス | spring アニメーション (`stiffness: 400, damping: 15`) — `justCompleted` 時のみ |
+| 7 | 成功バナー グローパルス | CSS `@keyframes successGlow` — emerald 色の box-shadow パルス（1回） |
+| 8 | ヘッダーテキスト遷移 | `AnimatePresence mode="wait"` + `motion.h1 key={status}` で滑らかテキスト切り替え |
+| 9 | 完了ボタン スタガーイン | `delay: 0.4, x: 10→0` でスライドイン |
+| 10 | エージェントメッセージ スタガーイン | `delay: 0.25, y: 16→0` でスライドイン |
+
+**Framer Motion 型の注意点**:
+- `transition={{ exit: {...} }}` は型エラー。exit固有のトランジションは `exit={{ ..., transition: {...} }}` のように exit prop 内に `transition` を含める
+- `[0.22, 1, 0.36, 1]` は Apple-style ease-out curve
+
+**変更ファイル**: `frontend/src/app/(tools)/blog/[processId]/page.tsx` のみ（追加パッケージ不要）
+
 ### 2026-02-02 自己改善
 - **記憶の即時更新**: コード変更を完了した直後に CLAUDE.md を更新せず、ユーザーに「また記憶してないでしょ」と指摘された。**変更を加えたら、次のユーザー応答の前に必ず CLAUDE.md を更新する。これは最優先の義務。**
+- **Framer Motion `transition` の `exit` キー**: `transition={{ exit: { duration: 0.35 } }}` は型エラー。正しくは `exit={{ ..., transition: { duration: 0.35 } }}` — exit prop 内に transition を入れる。ビルドで初めて気付くのではなく、書く時点で型を意識すべき。
+- **`bun run build` を使う**: ユーザーに指摘されたとおり、`npx next build` ではなく `bun run build` を使用すること。
 
 > ## **【最重要・再掲】記憶の更新は絶対に忘れるな**
 > **このファイルの冒頭にも書いたが、改めて念押しする。**
