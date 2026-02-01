@@ -246,39 +246,6 @@ export default function BlogProcessPage() {
     []
   );
 
-  // ---- Process event handler (for realtime INSERT) ----
-  const handleProcessEvent = useCallback(
-    (event: ProcessEvent) => {
-      if (event.event_type === "tool_call_completed") {
-        // Mark the most recent running tool as done
-        setActivities((prev) => {
-          const updated = [...prev];
-          for (let i = updated.length - 1; i >= 0; i--) {
-            if (
-              updated[i].type === "tool" &&
-              updated[i].status === "running"
-            ) {
-              updated[i] = { ...updated[i], status: "done" };
-              break;
-            }
-          }
-          return updated;
-        });
-        return;
-      }
-
-      const entry = convertEventToActivity(event);
-      if (entry) {
-        setActivities((prev) => {
-          // Deduplicate by id
-          if (prev.some((a) => a.id === entry.id)) return prev;
-          return [...prev, entry];
-        });
-      }
-    },
-    [convertEventToActivity]
-  );
-
   // ---- Fetch existing events (initial load + catch-up) ----
   const fetchExistingEvents = useCallback(async () => {
     try {
@@ -321,12 +288,18 @@ export default function BlogProcessPage() {
     }
   }, [getToken, processId, convertEventToActivity]);
 
-  // ---- Realtime subscriptions (accessToken callback handles JWT refresh) ----
-  useEffect(() => {
-    fetchState();
-    fetchExistingEvents();
+  // ---- Unified data fetcher (state + events in one call) ----
+  const fetchAll = useCallback(async () => {
+    await Promise.all([fetchState(), fetchExistingEvents()]);
+  }, [fetchState, fetchExistingEvents]);
 
-    const stateChannel = realtimeClient
+  // ---- Realtime: single channel on blog_generation_state ----
+  // State UPDATE is reliable. On every state change we also fetch events,
+  // so the activity feed stays in sync without a separate events channel.
+  useEffect(() => {
+    fetchAll();
+
+    const channel = realtimeClient
       .channel(`blog_generation:${processId}`)
       .on(
         "postgres_changes",
@@ -338,48 +311,28 @@ export default function BlogProcessPage() {
         },
         (payload) => {
           setState(payload.new as BlogGenerationState);
+          // Piggyback: fetch events whenever state updates
+          fetchExistingEvents();
         }
       )
       .subscribe();
 
-    const eventsChannel = realtimeClient
-      .channel(`blog_events:${processId}`)
-      .on(
-        "postgres_changes",
-        {
-          event: "INSERT",
-          schema: "public",
-          table: "blog_process_events",
-          filter: `process_id=eq.${processId}`,
-        },
-        (payload) => {
-          const event = payload.new as ProcessEvent;
-          handleProcessEvent(event);
-        }
-      )
-      .subscribe(async (status) => {
-        if (status === "SUBSCRIBED") {
-          await fetchExistingEvents();
-        }
-      });
-
     return () => {
-      realtimeClient.removeChannel(stateChannel);
-      realtimeClient.removeChannel(eventsChannel);
+      realtimeClient.removeChannel(channel);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [processId]);
 
-  // ---- Polling fallback ----
+  // ---- Polling fallback (state + events, unified) ----
   useEffect(() => {
     if (
       state &&
       (state.status === "in_progress" || state.status === "pending")
     ) {
-      const interval = setInterval(fetchState, 5000);
+      const interval = setInterval(fetchAll, 5000);
       return () => clearInterval(interval);
     }
-  }, [state, fetchState]);
+  }, [state, fetchAll]);
 
   // ---- Elapsed time refresh ----
   useEffect(() => {
