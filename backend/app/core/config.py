@@ -117,6 +117,8 @@ class Settings(BaseSettings):
 
     # Blog AI設定
     blog_generation_model: str = Field(default_factory=lambda: os.getenv("BLOG_GENERATION_MODEL", "gpt-5.2"))
+    blog_generation_reasoning_effort: str = Field(default_factory=lambda: os.getenv("BLOG_GENERATION_REASONING_EFFORT", "medium"))
+    blog_generation_reasoning_summary: str = Field(default_factory=lambda: os.getenv("BLOG_GENERATION_REASONING_SUMMARY", "detailed"))
     blog_generation_max_turns: int = Field(default_factory=lambda: int(os.getenv("BLOG_GENERATION_MAX_TURNS", "100")))
     credential_encryption_key: str = Field(default_factory=lambda: os.getenv("CREDENTIAL_ENCRYPTION_KEY", ""))
     temp_upload_dir: str = Field(default_factory=lambda: os.getenv("TEMP_UPLOAD_DIR", "/tmp/blog_uploads"))

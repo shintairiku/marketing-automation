@@ -723,10 +723,19 @@ class BlogGenerationService:
 
                 # AI思考中（Reasoning）
                 elif isinstance(item, ReasoningItem):
+                    # reasoning summary テキストを抽出
+                    summary_text = None
+                    if hasattr(item.raw_item, 'summary') and item.raw_item.summary:
+                        texts = [s.text for s in item.raw_item.summary if hasattr(s, 'text') and s.text]
+                        if texts:
+                            summary_text = " ".join(texts)
                     await self._publish_event(
                         process_id, user_id,
                         "reasoning",
-                        {"message": "AIが考えています..."},
+                        {
+                            "message": summary_text or "AIが考えています...",
+                            "has_summary": summary_text is not None,
+                        },
                     )
 
                 # メッセージ出力

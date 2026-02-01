@@ -1082,6 +1082,14 @@ docker compose logs -f backend                        # ログ確認
 - `bun run generate-types` 実行後、`(supabase as any)` キャストを通常の型付きクエリに戻す必要あり
 - `frontend/src/app/api/subscription/status/route.ts` も `usage_tracking` クエリに `any` キャスト追加（ビルドエラー回避）
 
+### 13. Reasoning Summary フロントエンド表示修正
+
+**問題**: Blog AI エージェントの reasoning summary がフロントエンドで表示されず、常に「分析・構成を検討中...」のハードコード文字列が表示されていた。バックエンドは `event_data.message` に正しく summary テキストを送信していたが、フロントエンドが無視していた。
+
+**修正**: `frontend/src/app/(tools)/blog/[processId]/page.tsx`
+1. `convertEventToActivity()` の reasoning 分岐: `"分析・構成を検討中..."` → `event_data.message || "分析・構成を検討中..."` に変更（バックエンドの summary テキストを使用）
+2. thinking タイプのスタイル: `text-sm` → `text-xs` に変更し、他のアクティビティエントリより小さく控えめに表示
+
 ---
 
 ## 自己改善ログ
@@ -1271,6 +1279,8 @@ docker compose logs -f backend                        # ログ確認
 - エージェントが記事トピックの最新情報・統計・事実を Web 検索で調査できるようになった
 - **組み込みツールのツール名解決問題を修正**: OpenAI の組み込みツール（`WebSearchTool` 等）は `raw_item` に `name` 属性がなく `type` フィールド（例: `web_search_call`）で識別する。`_resolve_tool_name()` ヘルパー関数を追加し、`name` → `type` のフォールバックで解決。`_BUILTIN_TOOL_TYPE_MAP` で `type` → ツール名のマッピングを定義
 - **技術的知見**: `ResponseFunctionWebSearch` は `{id, status, type: "web_search_call"}` のみ。`name` や `arguments` 属性がない。`function_tool` とは異なる構造なので、ツール名取得時に `type` フィールドを確認する必要がある
+- **Reasoning summary を `detailed` に設定**: `Reasoning(effort="medium", summary="detailed")` に変更。`summary` パラメータは `"auto"` / `"concise"` / `"detailed"` の3値。`generate_summary` は非推奨で `summary` を使う
+- **Reasoning summary のフロント送信**: `ReasoningItem.raw_item.summary` は `List[Summary]` 型（各要素に `text: str`）。summary テキストがあればフロントに送信し、ないときは「AIが考えています...」フォールバック
 
 ### 2026-02-02 自己改善
 - **記憶の即時更新**: コード変更を完了した直後に CLAUDE.md を更新せず、ユーザーに「また記憶してないでしょ」と指摘された。**変更を加えたら、次のユーザー応答の前に必ず CLAUDE.md を更新する。これは最優先の義務。**

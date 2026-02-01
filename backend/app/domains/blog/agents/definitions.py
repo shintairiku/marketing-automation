@@ -221,7 +221,7 @@ def build_blog_writer_agent() -> Agent:
         instructions=BLOG_WRITER_INSTRUCTIONS,
         model=settings.blog_generation_model,  # gpt-5.2
         model_settings=ModelSettings(
-            reasoning=Reasoning(effort="medium")
+            reasoning=Reasoning(effort=settings.blog_generation_reasoning_effort, summary=settings.blog_generation_reasoning_summary)
         ),
         tools=ALL_WORDPRESS_TOOLS,
     )

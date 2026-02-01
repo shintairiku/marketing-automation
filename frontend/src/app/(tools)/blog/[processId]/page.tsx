@@ -213,7 +213,7 @@ export default function BlogProcessPage() {
         return {
           id,
           type: "thinking",
-          message: "分析・構成を検討中...",
+          message: event_data.message || "分析・構成を検討中...",
           status: "done",
           timestamp: created_at,
           sequence: event_sequence,
@@ -962,12 +962,12 @@ export default function BlogProcessPage() {
                           {/* Content */}
                           <div className="flex-1 min-w-0">
                             <p
-                              className={`text-sm leading-snug ${
+                              className={`leading-snug ${
                                 entry.type === "thinking"
-                                  ? "text-stone-400 italic"
+                                  ? "text-xs text-stone-400 italic"
                                   : entry.status === "running"
-                                    ? "text-stone-700"
-                                    : "text-stone-500"
+                                    ? "text-sm text-stone-700"
+                                    : "text-sm text-stone-500"
                               }`}
                             >
                               {entry.message}
