@@ -34,8 +34,8 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { useAuth } from '@clerk/nextjs';
 import { cn } from '@/utils/cn';
+import { useAuth } from '@clerk/nextjs';
 
 // ---------------------------------------------------------------------------
 // Types

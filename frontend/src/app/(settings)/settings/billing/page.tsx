@@ -714,7 +714,7 @@ export default function BillingSettingsPage() {
           )}
 
           {/* 使用量 & アドオン管理セクション */}
-          {!isPrivileged && hasAnyPlan && subStatus?.usage && (
+          {!isPrivileged && subStatus?.usage && (
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">

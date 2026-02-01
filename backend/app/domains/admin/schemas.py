@@ -107,6 +107,54 @@ class UserUsageItem(BaseModel):
     usage_percentage: float = 0.0
 
 
+# ============================================
+# プランティア管理スキーマ
+# ============================================
+
+class PlanTierRead(BaseModel):
+    """Plan tier read schema"""
+    id: str
+    name: str
+    stripe_price_id: Optional[str] = None
+    monthly_article_limit: int = 0
+    addon_unit_amount: int = 20
+    price_amount: int = 0
+    display_order: int = 0
+    is_active: bool = True
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+class CreatePlanTierRequest(BaseModel):
+    """Request to create a plan tier"""
+    id: str
+    name: str
+    stripe_price_id: Optional[str] = None
+    monthly_article_limit: int
+    addon_unit_amount: int = 20
+    price_amount: int = 0
+    display_order: int = 0
+
+class UpdatePlanTierRequest(BaseModel):
+    """Request to update a plan tier"""
+    name: Optional[str] = None
+    stripe_price_id: Optional[str] = None
+    monthly_article_limit: Optional[int] = None
+    addon_unit_amount: Optional[int] = None
+    price_amount: Optional[int] = None
+    display_order: Optional[int] = None
+    is_active: Optional[bool] = None
+
+class PlanTierListResponse(BaseModel):
+    """Plan tier list response"""
+    tiers: list[PlanTierRead]
+    total: int
+
+class ApplyLimitsResult(BaseModel):
+    """Result of applying tier limits to active users"""
+    updated_count: int
+    message: str
+
+
 class UserUsageDetail(BaseModel):
     """Detailed usage info for a specific user"""
     articles_generated: int = 0

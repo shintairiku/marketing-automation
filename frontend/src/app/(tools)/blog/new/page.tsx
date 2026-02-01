@@ -16,12 +16,12 @@ import {
   User,
 } from "lucide-react";
 
+import { useSubscription } from "@/components/subscription/subscription-guard";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { useSubscription } from "@/components/subscription/subscription-guard";
 import { useAuth } from "@clerk/nextjs";
 
 interface WordPressSite {

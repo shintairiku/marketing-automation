@@ -1,6 +1,7 @@
 'use client';
 
-import { useAuth } from '@clerk/nextjs';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
 import {
   Activity,
   AlertTriangle,
@@ -13,8 +14,6 @@ import {
   TrendingUp,
   Users,
 } from 'lucide-react';
-import Link from 'next/link';
-import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Area,
   AreaChart,
@@ -39,6 +38,7 @@ import {
 import { Progress } from '@/components/ui/progress';
 import { Skeleton } from '@/components/ui/skeleton';
 import { cn } from '@/utils/cn';
+import { useAuth } from '@clerk/nextjs';
 
 // ---------------------------------------------------------------------------
 // Types

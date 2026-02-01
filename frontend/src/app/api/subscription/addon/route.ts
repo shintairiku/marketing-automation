@@ -8,6 +8,7 @@
  */
 
 import { NextResponse } from 'next/server';
+import Stripe from 'stripe';
 
 import { getStripe, SUBSCRIPTION_PRICE_ID } from '@/lib/subscription';
 import { supabaseAdminClient } from '@/libs/supabase/supabase-admin';
@@ -42,11 +43,12 @@ export async function POST(request: Request) {
     const stripe = getStripe();
 
     // ユーザーのサブスクリプションを取得
+    // Note: upgraded_to_org_id, plan_tier_id は型生成前のためアサーション使用
     const { data: userSub } = await supabase
       .from('user_subscriptions')
-      .select('stripe_subscription_id, upgraded_to_org_id')
+      .select('stripe_subscription_id, upgraded_to_org_id, plan_tier_id')
       .eq('user_id', userId)
-      .single();
+      .single() as { data: Record<string, unknown> | null };
 
     if (!userSub?.stripe_subscription_id) {
       return NextResponse.json(
@@ -57,7 +59,7 @@ export async function POST(request: Request) {
 
     // 現在のサブスクリプションを取得
     const subscription = await stripe.subscriptions.retrieve(
-      userSub.stripe_subscription_id
+      userSub.stripe_subscription_id as string
     );
 
     if (subscription.status !== 'active') {
@@ -107,12 +109,12 @@ export async function POST(request: Request) {
     });
 
     // DBのaddon_quantityを更新
-    const orgId = (userSub as Record<string, unknown>).upgraded_to_org_id as string | null;
+    const orgId = userSub.upgraded_to_org_id as string | null;
     if (orgId) {
       // 組織サブスクのaddon_quantityを更新
       await supabase
         .from('organization_subscriptions')
-        .update({ addon_quantity: quantity })
+        .update({ addon_quantity: quantity } as Record<string, unknown>)
         .eq('organization_id', orgId);
     } else {
       // 個人サブスクのaddon_quantityを更新
@@ -122,25 +124,30 @@ export async function POST(request: Request) {
         .eq('user_id', userId);
     }
 
+    // ユーザーの plan_tier_id を使って正しいティアから値を参照
+    const tierIdToUse = (userSub.plan_tier_id as string) || 'default';
+
     // usage_tracking の addon_articles_limit を即時更新
     const now = new Date().toISOString();
-    const { data: tier } = await supabase
+    // Note: plan_tiers は型生成前のため any キャストを使用
+    const { data: tier } = await (supabase as any)
       .from('plan_tiers')
       .select('addon_unit_amount')
-      .eq('id', 'default')
+      .eq('id', tierIdToUse)
       .single();
-    const addonUnitAmount = (tier as Record<string, unknown>)?.addon_unit_amount as number || 20;
+    const addonUnitAmount = tier?.addon_unit_amount as number || 20;
     const newAddonLimit = addonUnitAmount * quantity;
 
+    // Note: usage_tracking は型生成前のため any キャストを使用
     if (orgId) {
-      await supabase
+      await (supabase as any)
         .from('usage_tracking')
         .update({ addon_articles_limit: newAddonLimit })
         .eq('organization_id', orgId)
         .lte('billing_period_start', now)
         .gte('billing_period_end', now);
     } else {
-      await supabase
+      await (supabase as any)
         .from('usage_tracking')
         .update({ addon_articles_limit: newAddonLimit })
         .eq('user_id', userId)

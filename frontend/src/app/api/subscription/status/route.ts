@@ -149,8 +149,9 @@ export async function GET() {
       const now = new Date().toISOString();
 
       // まず個人の使用量を検索
+      // Note: usage_tracking は型生成前のため any キャストを使用
       let usageTracking = null;
-      const { data: personalUsage } = await supabase
+      const { data: personalUsage } = await (supabase as any)
         .from('usage_tracking')
         .select('*')
         .eq('user_id', userId)
@@ -162,7 +163,7 @@ export async function GET() {
 
       // 個人の使用量がない場合、組織の使用量を検索
       if (!usageTracking && orgSubscription) {
-        const { data: orgUsage } = await supabase
+        const { data: orgUsage } = await (supabase as any)
           .from('usage_tracking')
           .select('*')
           .eq('organization_id', orgSubscription.organization_id)
@@ -182,7 +183,7 @@ export async function GET() {
 
         if (memberOrgs && memberOrgs.length > 0) {
           const orgIds = memberOrgs.map((m: Record<string, unknown>) => m.organization_id);
-          const { data: orgUsage } = await supabase
+          const { data: orgUsage } = await (supabase as any)
             .from('usage_tracking')
             .select('*')
             .in('organization_id', orgIds)
@@ -211,6 +212,40 @@ export async function GET() {
           billing_period_end: ut.billing_period_end as string | null,
           plan_tier: ut.plan_tier_id as string | null,
         };
+      } else if (hasActiveAccess(userSub) || hasActiveOrgAccess(orgSubscription)) {
+        // usage_tracking レコードがないがサブスクリプションはアクティブな場合
+        // plan_tiers のデフォルト値でフォールバック表示を提供
+        try {
+          const { data: defaultTier } = await (supabase as any)
+            .from('plan_tiers')
+            .select('monthly_article_limit, addon_unit_amount')
+            .eq('id', 'default')
+            .maybeSingle();
+
+          const defaultLimit = defaultTier?.monthly_article_limit || 30;
+          usage = {
+            articles_generated: 0,
+            articles_limit: defaultLimit,
+            addon_articles_limit: 0,
+            total_limit: defaultLimit,
+            remaining: defaultLimit,
+            billing_period_start: null,
+            billing_period_end: null,
+            plan_tier: 'default',
+          };
+        } catch {
+          // plan_tiers テーブルが存在しない場合もフォールバック
+          usage = {
+            articles_generated: 0,
+            articles_limit: 30,
+            addon_articles_limit: 0,
+            total_limit: 30,
+            remaining: 30,
+            billing_period_start: null,
+            billing_period_end: null,
+            plan_tier: 'default',
+          };
+        }
       }
     } catch (usageError) {
       console.error('Error fetching usage:', usageError);

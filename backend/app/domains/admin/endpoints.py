@@ -19,6 +19,11 @@ from app.domains.admin.schemas import (
     SubscriptionDistributionResponse,
     RecentActivityResponse,
     UserUsageItem,
+    PlanTierRead,
+    PlanTierListResponse,
+    CreatePlanTierRequest,
+    UpdatePlanTierRequest,
+    ApplyLimitsResult,
 )
 
 logger = logging.getLogger(__name__)
@@ -219,3 +224,94 @@ async def update_user_subscription(
     except Exception as e:
         logger.error(f"Error updating subscription for user {user_id}: {e}")
         raise HTTPException(status_code=500, detail="Failed to update subscription")
+
+
+# ============================================
+# Plan Tier Management Endpoints
+# ============================================
+
+
+@router.get("/plan-tiers", response_model=PlanTierListResponse)
+async def get_plan_tiers(
+    admin_email: str = Depends(get_admin_user_email_from_token),
+):
+    """Get all plan tiers (admin only)"""
+    logger.info(f"Admin user {admin_email} requested plan tiers")
+    try:
+        tiers = admin_service.get_all_plan_tiers()
+        return PlanTierListResponse(tiers=tiers, total=len(tiers))
+    except Exception as e:
+        logger.error(f"Error getting plan tiers: {e}")
+        raise HTTPException(status_code=500, detail="Failed to get plan tiers")
+
+
+@router.post("/plan-tiers", response_model=PlanTierRead, status_code=201)
+async def create_plan_tier(
+    request: CreatePlanTierRequest,
+    admin_email: str = Depends(get_admin_user_email_from_token),
+):
+    """Create a new plan tier (admin only)"""
+    logger.info(f"Admin user {admin_email} creating plan tier: {request.id}")
+    try:
+        return admin_service.create_plan_tier(request)
+    except ValueError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    except Exception as e:
+        logger.error(f"Error creating plan tier: {e}")
+        raise HTTPException(status_code=500, detail="Failed to create plan tier")
+
+
+@router.patch("/plan-tiers/{tier_id}", response_model=PlanTierRead)
+async def update_plan_tier(
+    tier_id: str,
+    request: UpdatePlanTierRequest,
+    admin_email: str = Depends(get_admin_user_email_from_token),
+):
+    """Update a plan tier (admin only)"""
+    logger.info(f"Admin user {admin_email} updating plan tier: {tier_id}")
+    try:
+        tier = admin_service.update_plan_tier(tier_id, request)
+        if not tier:
+            raise HTTPException(status_code=404, detail="Plan tier not found")
+        return tier
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating plan tier {tier_id}: {e}")
+        raise HTTPException(status_code=500, detail="Failed to update plan tier")
+
+
+@router.delete("/plan-tiers/{tier_id}", status_code=204)
+async def delete_plan_tier(
+    tier_id: str,
+    admin_email: str = Depends(get_admin_user_email_from_token),
+):
+    """Delete a plan tier (admin only, refuses if referenced)"""
+    logger.info(f"Admin user {admin_email} deleting plan tier: {tier_id}")
+    try:
+        deleted = admin_service.delete_plan_tier(tier_id)
+        if not deleted:
+            raise HTTPException(status_code=404, detail="Plan tier not found")
+    except ValueError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error deleting plan tier {tier_id}: {e}")
+        raise HTTPException(status_code=500, detail="Failed to delete plan tier")
+
+
+@router.post("/plan-tiers/{tier_id}/apply", response_model=ApplyLimitsResult)
+async def apply_plan_tier(
+    tier_id: str,
+    admin_email: str = Depends(get_admin_user_email_from_token),
+):
+    """Apply tier limits to all active users with this tier (admin only)"""
+    logger.info(f"Admin user {admin_email} applying plan tier {tier_id} to active users")
+    try:
+        return admin_service.apply_tier_to_active_users(tier_id)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        logger.error(f"Error applying plan tier {tier_id}: {e}")
+        raise HTTPException(status_code=500, detail="Failed to apply plan tier")

@@ -1036,6 +1036,52 @@ docker compose logs -f backend                        # ログ確認
 - **新ティア追加**: `plan_tiers` に新行を INSERT + Stripe で新 Price 作成
 - **環境変数**: `STRIPE_PRICE_ADDON_ARTICLES` にアドオン用の Stripe Price ID を設定
 
+### 11. マルチティア対応 + 管理画面からのプラン設定
+
+#### Part A: バックエンド plan_tiers CRUD API
+- **`backend/app/domains/admin/schemas.py`** — `PlanTierRead`, `CreatePlanTierRequest`, `UpdatePlanTierRequest`, `PlanTierListResponse`, `ApplyLimitsResult` スキーマ追加
+- **`backend/app/domains/admin/service.py`** — `get_all_plan_tiers()`, `create_plan_tier()`, `update_plan_tier()`, `delete_plan_tier()` (参照チェック付き), `apply_tier_to_active_users()` (全アクティブ usage_tracking の上限を再計算) メソッド追加
+- **`backend/app/domains/admin/endpoints.py`** — 5エンドポイント追加:
+  | Method | Path | 概要 |
+  |--------|------|------|
+  | GET | `/admin/plan-tiers` | 全ティア一覧 |
+  | POST | `/admin/plan-tiers` | 新規ティア作成 (ID重複チェック, 201) |
+  | PATCH | `/admin/plan-tiers/{tier_id}` | ティア更新 (変更フィールドのみ) |
+  | DELETE | `/admin/plan-tiers/{tier_id}` | ティア削除 (usage_tracking/user_subscriptions参照中は409) |
+  | POST | `/admin/plan-tiers/{tier_id}/apply` | 全アクティブユーザーに即時反映 |
+
+#### Part B: ハードコード 'default' 修正 (マルチティア対応の核心)
+- **`frontend/src/app/api/subscription/webhook/route.ts`** — `resolvePlanTierId()` ヘルパー関数追加: Stripe subscription の base item price.id を `plan_tiers.stripe_price_id` で逆引き → 正しい `plan_tier_id` を返す（フォールバック 'default'）
+  - `handleSubscriptionChange()`: `plan_tier_id` を解決し、`user_subscriptions`/`organization_subscriptions` に書き込み
+  - `createUsageTrackingForNewPeriod()`: ハードコード `.eq('id', 'default')` → `resolvePlanTierId()` 結果に置換
+  - `recalculateUsageLimits()`: `planTierId` パラメータ追加、ハードコード置換
+- **`frontend/src/app/api/subscription/addon/route.ts`** — ハードコード `.eq('id', 'default')` → `user_subscriptions.plan_tier_id` から取得した値に置換。`Stripe` 型 import 追加
+- **型安全性**: `usage_tracking`, `plan_tiers` テーブル + `plan_tier_id`, `addon_quantity` カラムが Supabase 型定義未生成のため `(supabase as any)` キャストで対応中
+
+#### Part C: フロントエンド管理画面
+- **`frontend/src/app/(admin)/admin/layout.tsx`** — ナビに「プラン設定」追加 (`Layers` アイコン)
+- **`frontend/src/app/(admin)/admin/plans/page.tsx`** (新規) — プラン管理ページ
+  - テーブル: ID, 名前, Stripe Price ID, 月間上限, アドオン単位, 月額, 表示順, ステータス
+  - 新規作成/編集ダイアログ、削除確認、即時反映確認
+  - ステータスバッジクリックで有効/無効切り替え
+
+#### Part D: 使用量表示修正（新規サブスク時に usage_tracking が未作成の問題）
+
+**根本原因**: 新規サブスク契約時のフロー:
+1. `checkout.session.completed` → usage_tracking 作成なし
+2. `customer.subscription.created` → `recalculateUsageLimits()` は UPDATE のみ（レコードがないので何も起きない）
+3. 初回の `invoice.payment_succeeded` (`billing_reason='subscription_cycle'`) まで usage_tracking が作成されない
+4. → `/api/subscription/status` が `usage = null` を返し、フロントエンドで使用量が非表示に
+
+**修正箇所**:
+1. **Webhook** (`webhook/route.ts`): `recalculateUsageLimits` → `ensureUsageTracking` にリネーム。UPDATE のみ → UPSERT（既存レコードがなければ INSERT）に変更
+2. **Status API** (`status/route.ts`): `usage_tracking` が null でもサブスクがアクティブなら `plan_tiers` のデフォルト値でフォールバック usage を返す
+3. **Billing ページ** (`billing/page.tsx`): 使用量表示条件から `hasAnyPlan` を削除（`!isPrivileged && subStatus?.usage` のみで判定）
+
+#### 型生成前の注意
+- `bun run generate-types` 実行後、`(supabase as any)` キャストを通常の型付きクエリに戻す必要あり
+- `frontend/src/app/api/subscription/status/route.ts` も `usage_tracking` クエリに `any` キャスト追加（ビルドエラー回避）
+
 ---
 
 ## 自己改善ログ
@@ -1052,6 +1098,9 @@ docker compose logs -f backend                        # ログ確認
 - **記憶の更新忘れ**: 作業完了後は必ず CLAUDE.md を更新する。ユーザーに言われる前に自主的に行うべき。
 - **tailwind-merge v3 非互換**: `tailwind-merge` v3 は Tailwind CSS v4 専用。Tailwind CSS v3 プロジェクトでは v2.6.x を使うこと。`bg-gradient-to-*` 等の競合解決が壊れる。**メジャーバージョンアップ時は、同じエコシステム内の他パッケージとの互換性も必ず確認すべき。**
 - **openai-agents 0.7.0 注意点**: `nest_handoff_history` デフォルトが `True`→`False` に変更。ハンドオフ使用時は明示的に `True` を渡す必要がある可能性。GPT-5.1/5.2 のデフォルト reasoning effort が `'none'` に変更されたためブログ生成品質に影響する可能性あり（要テスト）。
+- **ハードコード問題の見落とし**: プラン管理機能の設計時、最初の調査が浅く `plan_tier_id` が5箇所でハードコードされている問題を見逃した。ユーザーに「ちゃんとデータの整合性とれてる？」と指摘されて初めて深い調査を実施。**新機能の設計時は、関連する全データフロー（Webhook → DB → API → UI）を最初に網羅的に調査すべき。**
+- **Supabase 型定義未生成による連鎖的ビルドエラー**: `plan_tiers`, `usage_tracking` テーブルが型に含まれていないため、`(supabase as any)` キャストが大量に必要になった。**新テーブル追加後は早期に `bun run generate-types` を実行し、型安全性を確保すべき。**
+- **使用量表示の調査不足**: ユーザーに「使用量が全く表示されていない」と指摘されるまで、新規サブスクリプション時に `usage_tracking` が作成されない問題に気づかなかった。最初は特権ユーザーの条件のみ疑ったが、実際は全ユーザーに影響する根本的なデータフロー問題だった。**機能を実装したら、新規ユーザーが初めて使うフロー（契約直後の状態）を必ず検証すべき。UPDATE のみで INSERT がないのは典型的な初期化漏れ。**
 
 ---
 

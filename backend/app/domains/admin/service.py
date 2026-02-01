@@ -23,6 +23,10 @@ from app.domains.admin.schemas import (
     UserDetailResponse,
     UserUsageDetail,
     UserGenerationHistory,
+    PlanTierRead,
+    CreatePlanTierRequest,
+    UpdatePlanTierRequest,
+    ApplyLimitsResult,
 )
 
 logger = logging.getLogger(__name__)
@@ -624,6 +628,230 @@ class AdminService:
 
         except Exception as e:
             logger.error(f"Error updating subscription for user {user_id}: {e}")
+            raise
+
+    # ============================================
+    # Plan Tier CRUD
+    # ============================================
+
+    def get_all_plan_tiers(self) -> list[PlanTierRead]:
+        """Get all plan tiers ordered by display_order"""
+        try:
+            response = (
+                supabase.from_("plan_tiers")
+                .select("*")
+                .order("display_order")
+                .execute()
+            )
+            return [PlanTierRead(**tier) for tier in (response.data or [])]
+        except Exception as e:
+            logger.error(f"Error getting plan tiers: {e}")
+            raise
+
+    def create_plan_tier(self, request: CreatePlanTierRequest) -> PlanTierRead:
+        """Create a new plan tier"""
+        try:
+            # Check for duplicate ID
+            existing = (
+                supabase.from_("plan_tiers")
+                .select("id")
+                .eq("id", request.id)
+                .maybe_single()
+                .execute()
+            )
+            if existing.data:
+                raise ValueError(f"Plan tier with id '{request.id}' already exists")
+
+            now = datetime.now(timezone.utc).isoformat()
+            data = {
+                "id": request.id,
+                "name": request.name,
+                "stripe_price_id": request.stripe_price_id,
+                "monthly_article_limit": request.monthly_article_limit,
+                "addon_unit_amount": request.addon_unit_amount,
+                "price_amount": request.price_amount,
+                "display_order": request.display_order,
+                "is_active": True,
+                "created_at": now,
+                "updated_at": now,
+            }
+            response = supabase.from_("plan_tiers").insert(data).execute()
+            if response.data:
+                return PlanTierRead(**response.data[0])
+            raise Exception("Failed to insert plan tier")
+        except ValueError:
+            raise
+        except Exception as e:
+            logger.error(f"Error creating plan tier: {e}")
+            raise
+
+    def update_plan_tier(self, tier_id: str, request: UpdatePlanTierRequest) -> Optional[PlanTierRead]:
+        """Update an existing plan tier (only changed fields)"""
+        try:
+            update_data: Dict[str, Any] = {"updated_at": datetime.now(timezone.utc).isoformat()}
+            if request.name is not None:
+                update_data["name"] = request.name
+            if request.stripe_price_id is not None:
+                update_data["stripe_price_id"] = request.stripe_price_id
+            if request.monthly_article_limit is not None:
+                update_data["monthly_article_limit"] = request.monthly_article_limit
+            if request.addon_unit_amount is not None:
+                update_data["addon_unit_amount"] = request.addon_unit_amount
+            if request.price_amount is not None:
+                update_data["price_amount"] = request.price_amount
+            if request.display_order is not None:
+                update_data["display_order"] = request.display_order
+            if request.is_active is not None:
+                update_data["is_active"] = request.is_active
+
+            response = (
+                supabase.from_("plan_tiers")
+                .update(update_data)
+                .eq("id", tier_id)
+                .execute()
+            )
+            if response.data:
+                return PlanTierRead(**response.data[0])
+            return None
+        except Exception as e:
+            logger.error(f"Error updating plan tier {tier_id}: {e}")
+            raise
+
+    def delete_plan_tier(self, tier_id: str) -> bool:
+        """Delete a plan tier (refuses if referenced by usage_tracking or user_subscriptions)"""
+        try:
+            # Check usage_tracking references
+            usage_ref = (
+                supabase.from_("usage_tracking")
+                .select("id", count="exact")
+                .eq("plan_tier_id", tier_id)
+                .limit(1)
+                .execute()
+            )
+            if usage_ref.count and usage_ref.count > 0:
+                raise ValueError(
+                    f"Cannot delete tier '{tier_id}': referenced by {usage_ref.count} usage_tracking records"
+                )
+
+            # Check user_subscriptions references
+            sub_ref = (
+                supabase.from_("user_subscriptions")
+                .select("user_id", count="exact")
+                .eq("plan_tier_id", tier_id)
+                .limit(1)
+                .execute()
+            )
+            if sub_ref.count and sub_ref.count > 0:
+                raise ValueError(
+                    f"Cannot delete tier '{tier_id}': referenced by {sub_ref.count} user_subscriptions"
+                )
+
+            response = (
+                supabase.from_("plan_tiers")
+                .delete()
+                .eq("id", tier_id)
+                .execute()
+            )
+            return bool(response.data)
+        except ValueError:
+            raise
+        except Exception as e:
+            logger.error(f"Error deleting plan tier {tier_id}: {e}")
+            raise
+
+    def apply_tier_to_active_users(self, tier_id: str) -> ApplyLimitsResult:
+        """
+        Apply tier limits to all active usage_tracking records for the given tier.
+        Recalculates articles_limit and addon_articles_limit based on tier values
+        and each user's subscription quantity/addon_quantity.
+        """
+        try:
+            # Get tier info
+            tier_resp = (
+                supabase.from_("plan_tiers")
+                .select("*")
+                .eq("id", tier_id)
+                .single()
+                .execute()
+            )
+            tier = tier_resp.data
+            if not tier:
+                raise ValueError(f"Plan tier '{tier_id}' not found")
+
+            monthly_limit = tier.get("monthly_article_limit", 0)
+            addon_unit = tier.get("addon_unit_amount", 20)
+
+            now = datetime.now(timezone.utc).isoformat()
+
+            # Get all active usage_tracking records for this tier
+            usage_resp = (
+                supabase.from_("usage_tracking")
+                .select("id, user_id, organization_id")
+                .eq("plan_tier_id", tier_id)
+                .gte("billing_period_end", now)
+                .execute()
+            )
+            records = usage_resp.data or []
+
+            updated_count = 0
+            for record in records:
+                user_id = record.get("user_id")
+                org_id = record.get("organization_id")
+
+                # Get subscription quantity and addon_quantity
+                quantity = 1
+                addon_quantity = 0
+
+                if org_id:
+                    try:
+                        org_sub = (
+                            supabase.from_("organization_subscriptions")
+                            .select("quantity, addon_quantity")
+                            .eq("organization_id", org_id)
+                            .eq("status", "active")
+                            .maybe_single()
+                            .execute()
+                        )
+                        if org_sub.data:
+                            quantity = org_sub.data.get("quantity", 1)
+                            addon_quantity = org_sub.data.get("addon_quantity", 0)
+                    except Exception:
+                        pass
+                elif user_id:
+                    try:
+                        user_sub = (
+                            supabase.from_("user_subscriptions")
+                            .select("quantity, addon_quantity")
+                            .eq("user_id", user_id)
+                            .maybe_single()
+                            .execute()
+                        )
+                        if user_sub.data:
+                            quantity = user_sub.data.get("quantity", 1)
+                            addon_quantity = user_sub.data.get("addon_quantity", 0)
+                    except Exception:
+                        pass
+
+                new_articles_limit = monthly_limit * quantity
+                new_addon_limit = addon_unit * addon_quantity
+
+                try:
+                    supabase.from_("usage_tracking").update({
+                        "articles_limit": new_articles_limit,
+                        "addon_articles_limit": new_addon_limit,
+                    }).eq("id", record["id"]).execute()
+                    updated_count += 1
+                except Exception as e:
+                    logger.error(f"Failed to update usage_tracking {record['id']}: {e}")
+
+            return ApplyLimitsResult(
+                updated_count=updated_count,
+                message=f"{updated_count}件の使用量レコードを更新しました",
+            )
+        except ValueError:
+            raise
+        except Exception as e:
+            logger.error(f"Error applying tier {tier_id} to active users: {e}")
             raise
 
 
