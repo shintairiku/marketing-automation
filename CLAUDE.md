@@ -1165,6 +1165,13 @@ docker compose logs -f backend                        # ログ確認
   - `backend/app/domains/admin/service.py` が `agent_log_sessions/llm_call_logs/tool_call_logs` を集計
   - `frontend/src/app/(admin)/admin/users/[userId]/page.tsx` に Blog AI 使用量カード追加
 - **モデル料金更新**: `backend/app/infrastructure/analysis/cost_calculation_service.py` に GPT‑5/5.1/5.2/mini/nano/pro の料金を追加。推論トークンの二重課金を避けるガードを追加。
+- **公式仕様へ寄せたUsage取得**: `context_wrapper.usage` を最優先に使用し、`usage.request_usage_entries` を per‑request ログに反映。entriesが無い場合は raw_responses から復元。`context_wrapper` と entries の不一致はログで検知。
+
+### 15. Admin: 記事別Usage一覧 (2026-02-01)
+
+- **管理者ページ** `/admin/blog-usage` を追加し、Blog AI のプロセス別トークン/コスト一覧を表示。
+- **バックエンド**: `GET /admin/usage/blog` を新設。`agent_log_sessions`（workflow_type=blog_generation）と `blog_generation_state` を結合し、`llm_call_logs` / `tool_call_logs` から集計。
+- **フロント**: `frontend/src/app/(admin)/admin/blog-usage/page.tsx` でテーブル表示、サイドバーに「記事別Usage」を追加。
 
 
 > ## **【最重要・再掲】記憶の更新は絶対に忘れるな**

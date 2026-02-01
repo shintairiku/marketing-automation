@@ -189,6 +189,23 @@ class BlogAiUsageStats(BaseModel):
     last_run_at: Optional[datetime] = None
 
 
+class BlogUsageItem(BaseModel):
+    """Blog AI usage entry per process"""
+    process_id: str
+    user_id: str
+    user_email: Optional[str] = None
+    status: Optional[str] = None
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+    total_tokens: int = 0
+    input_tokens: int = 0
+    output_tokens: int = 0
+    cached_tokens: int = 0
+    reasoning_tokens: int = 0
+    estimated_cost_usd: float = 0.0
+    tool_calls: int = 0
+    models: list[str] = []
+
 class UserDetailResponse(BaseModel):
     """Detailed user info for admin user detail page"""
     user: UserRead

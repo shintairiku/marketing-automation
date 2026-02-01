@@ -19,6 +19,7 @@ from app.domains.admin.schemas import (
     SubscriptionDistributionResponse,
     RecentActivityResponse,
     UserUsageItem,
+    BlogUsageItem,
     PlanTierRead,
     PlanTierListResponse,
     CreatePlanTierRequest,
@@ -162,6 +163,21 @@ async def get_users_usage(
     except Exception as e:
         logger.error(f"Error getting users usage: {e}")
         raise HTTPException(status_code=500, detail="Failed to get users usage")
+
+
+@router.get("/usage/blog", response_model=list[BlogUsageItem])
+async def get_blog_usage(
+    limit: int = 50,
+    offset: int = 0,
+    admin_email: str = Depends(get_admin_user_email_from_token),
+):
+    """Get per-blog process usage list (admin only)"""
+    logger.info(f"Admin user {admin_email} requested blog usage list")
+    try:
+        return admin_service.get_blog_usage(limit=limit, offset=offset)
+    except Exception as e:
+        logger.error(f"Error getting blog usage: {e}")
+        raise HTTPException(status_code=500, detail="Failed to get blog usage")
 
 
 @router.patch("/users/{user_id}/privilege", response_model=UserUpdateResponse)

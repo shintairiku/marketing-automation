@@ -24,6 +24,7 @@ from app.domains.admin.schemas import (
     UserUsageDetail,
     UserGenerationHistory,
     BlogAiUsageStats,
+    BlogUsageItem,
     PlanTierRead,
     CreatePlanTierRequest,
     UpdatePlanTierRequest,
@@ -498,6 +499,140 @@ class AdminService:
             return items
         except Exception as e:
             logger.error(f"Error getting users usage: {e}")
+            return []
+
+    def get_blog_usage(self, limit: int = 50, offset: int = 0) -> list[BlogUsageItem]:
+        """Blog AIのプロセス別使用量一覧"""
+        try:
+            sessions_resp = supabase.from_("agent_log_sessions").select(
+                "id, article_uuid, user_id, created_at, session_metadata"
+            ).eq(
+                "session_metadata->>workflow_type",
+                "blog_generation",
+            ).order("created_at", desc=True).range(
+                offset,
+                offset + max(limit - 1, 0),
+            ).execute()
+
+            sessions = sessions_resp.data or []
+            if not sessions:
+                return []
+
+            session_ids = [s["id"] for s in sessions]
+            process_ids = [s["article_uuid"] for s in sessions]
+
+            # Process status info
+            state_resp = supabase.from_("blog_generation_state").select(
+                "id, user_id, status, created_at, updated_at"
+            ).in_("id", process_ids).execute()
+            state_map = {s["id"]: s for s in (state_resp.data or [])}
+
+            # User email map
+            user_ids = list({s.get("user_id") for s in sessions if s.get("user_id")})
+            email_map: Dict[str, str] = {}
+            if user_ids:
+                user_resp = supabase.from_("user_subscriptions").select(
+                    "user_id, email"
+                ).in_("user_id", user_ids).execute()
+                email_map = {u["user_id"]: u.get("email") for u in (user_resp.data or []) if u.get("user_id")}
+
+            exec_resp = supabase.from_("agent_execution_logs").select(
+                "id, session_id, input_tokens, output_tokens, cache_tokens, reasoning_tokens"
+            ).in_("session_id", session_ids).execute()
+            executions = exec_resp.data or []
+            execution_ids = [e["id"] for e in executions]
+
+            llm_calls = []
+            if execution_ids:
+                llm_resp = supabase.from_("llm_call_logs").select(
+                    "execution_id, prompt_tokens, completion_tokens, total_tokens, cached_tokens, reasoning_tokens, estimated_cost_usd, model_name"
+                ).in_("execution_id", execution_ids).execute()
+                llm_calls = llm_resp.data or []
+
+            tool_calls = []
+            if execution_ids:
+                tool_resp = supabase.from_("tool_call_logs").select(
+                    "execution_id"
+                ).in_("execution_id", execution_ids).execute()
+                tool_calls = tool_resp.data or []
+
+            # Index executions by session
+            exec_by_session: Dict[str, list[Dict[str, Any]]] = {}
+            for ex in executions:
+                exec_by_session.setdefault(ex["session_id"], []).append(ex)
+
+            # Index llm calls by session
+            llm_by_session: Dict[str, list[Dict[str, Any]]] = {}
+            if llm_calls:
+                exec_session_map = {ex["id"]: ex["session_id"] for ex in executions}
+                for call in llm_calls:
+                    session_id = exec_session_map.get(call["execution_id"])
+                    if session_id:
+                        llm_by_session.setdefault(session_id, []).append(call)
+
+            # Index tool calls by session
+            tool_by_session: Dict[str, int] = {}
+            if tool_calls:
+                exec_session_map = {ex["id"]: ex["session_id"] for ex in executions}
+                for call in tool_calls:
+                    session_id = exec_session_map.get(call["execution_id"])
+                    if session_id:
+                        tool_by_session[session_id] = tool_by_session.get(session_id, 0) + 1
+
+            items: list[BlogUsageItem] = []
+            for session in sessions:
+                session_id = session["id"]
+                process_id = session["article_uuid"]
+                state = state_map.get(process_id, {})
+
+                input_tokens = 0
+                output_tokens = 0
+                cached_tokens = 0
+                reasoning_tokens = 0
+                total_tokens = 0
+                estimated_cost = 0.0
+                models: set[str] = set()
+
+                calls = llm_by_session.get(session_id, [])
+                if calls:
+                    for call in calls:
+                        input_tokens += int(call.get("prompt_tokens", 0) or 0)
+                        output_tokens += int(call.get("completion_tokens", 0) or 0)
+                        cached_tokens += int(call.get("cached_tokens", 0) or 0)
+                        reasoning_tokens += int(call.get("reasoning_tokens", 0) or 0)
+                        total_tokens += int(call.get("total_tokens", 0) or 0)
+                        estimated_cost += float(call.get("estimated_cost_usd", 0) or 0)
+                        model = call.get("model_name")
+                        if model:
+                            models.add(model)
+                else:
+                    for ex in exec_by_session.get(session_id, []):
+                        input_tokens += int(ex.get("input_tokens", 0) or 0)
+                        output_tokens += int(ex.get("output_tokens", 0) or 0)
+                        cached_tokens += int(ex.get("cache_tokens", 0) or 0)
+                        reasoning_tokens += int(ex.get("reasoning_tokens", 0) or 0)
+                    total_tokens = input_tokens + output_tokens
+
+                items.append(BlogUsageItem(
+                    process_id=process_id,
+                    user_id=state.get("user_id") or session.get("user_id") or "",
+                    user_email=email_map.get(state.get("user_id") or session.get("user_id")),
+                    status=state.get("status"),
+                    created_at=self._parse_datetime(state.get("created_at") or session.get("created_at")),
+                    updated_at=self._parse_datetime(state.get("updated_at")),
+                    total_tokens=total_tokens,
+                    input_tokens=input_tokens,
+                    output_tokens=output_tokens,
+                    cached_tokens=cached_tokens,
+                    reasoning_tokens=reasoning_tokens,
+                    estimated_cost_usd=round(estimated_cost, 6),
+                    tool_calls=tool_by_session.get(session_id, 0),
+                    models=sorted(models),
+                ))
+
+            return items
+        except Exception as e:
+            logger.error(f"Error getting blog usage list: {e}")
             return []
 
     def _get_blog_ai_usage(self, user_id: str) -> Optional[BlogAiUsageStats]:

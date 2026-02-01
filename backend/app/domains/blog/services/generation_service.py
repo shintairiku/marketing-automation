@@ -1045,29 +1045,64 @@ class BlogGenerationService:
 
     def _extract_usage_entries(self, result: Any) -> List[Dict[str, Any]]:
         entries: List[Any] = []
-        for candidate in [getattr(result, "context_wrapper", None), result]:
-            if not candidate:
-                continue
+        ctx = getattr(result, "context_wrapper", None)
+        usage = getattr(ctx, "usage", None) if ctx else None
+        if usage:
             for attr in ("request_usage_entries", "usage_entries", "request_usage"):
-                value = getattr(candidate, attr, None)
+                value = getattr(usage, attr, None)
                 if value:
                     try:
                         entries = list(value)
                     except TypeError:
                         entries = [value]
                     break
-            if entries:
-                break
 
-        return [self._normalize_usage_entry(entry) for entry in entries if entry is not None]
+        if not entries:
+            # Fallback: older SDKs or custom wrappers might expose entries directly
+            for candidate in [ctx, result]:
+                if not candidate:
+                    continue
+                for attr in ("request_usage_entries", "usage_entries", "request_usage"):
+                    value = getattr(candidate, attr, None)
+                    if value:
+                        try:
+                            entries = list(value)
+                        except TypeError:
+                            entries = [value]
+                        break
+                if entries:
+                    break
 
-    def _extract_usage_from_raw_responses(self, result: Any) -> Optional[Dict[str, Any]]:
+        normalized = [self._normalize_usage_entry(entry) for entry in entries if entry is not None]
+        # If entries lack model/response_id, try to enrich from raw responses
         raw_responses = self._get_raw_responses(result)
-        if not raw_responses:
-            return None
+        if raw_responses:
+            for i, entry in enumerate(normalized):
+                if i < len(raw_responses):
+                    raw = raw_responses[i]
+                    if not entry.get("model"):
+                        entry["model"] = self._safe_get(raw, "model", None)
+                    if not entry.get("response_id"):
+                        entry["response_id"] = self._safe_get(raw, "id", None)
 
-        last_response = raw_responses[-1]
-        usage = self._safe_get(last_response, "usage")
+        # Fallback: build entries directly from raw responses
+        if not normalized and raw_responses:
+            for raw in raw_responses:
+                usage = self._safe_get(raw, "usage")
+                if not usage:
+                    continue
+                entry = self._normalize_usage_entry(usage)
+                if not entry.get("model"):
+                    entry["model"] = self._safe_get(raw, "model", None)
+                if not entry.get("response_id"):
+                    entry["response_id"] = self._safe_get(raw, "id", None)
+                normalized.append(entry)
+
+        return normalized
+
+    def _extract_usage_from_context_wrapper(self, result: Any) -> Optional[Dict[str, Any]]:
+        ctx = getattr(result, "context_wrapper", None)
+        usage = getattr(ctx, "usage", None) if ctx else None
         if not usage:
             return None
 
@@ -1085,14 +1120,72 @@ class BlogGenerationService:
         if output_details:
             reasoning_tokens = self._safe_get(output_details, "reasoning_tokens", 0)
 
+        # Usage doesn't always carry model; pull from last response if present
+        model_name = self._safe_get(usage, "model", None)
+        response_id = self._safe_get(usage, "response_id", None)
+        raw_responses = self._get_raw_responses(result)
+        if raw_responses:
+            last = raw_responses[-1]
+            if not model_name:
+                model_name = self._safe_get(last, "model", None)
+            if not response_id:
+                response_id = self._safe_get(last, "id", None)
+
         return {
-            "model": self._safe_get(last_response, "model", None),
+            "model": model_name,
             "input_tokens": int(input_tokens or 0),
             "output_tokens": int(output_tokens or 0),
             "total_tokens": int(total_tokens or 0),
             "cached_tokens": int(cached_tokens or 0),
             "reasoning_tokens": int(reasoning_tokens or 0),
-            "response_id": self._safe_get(last_response, "id", None),
+            "response_id": response_id,
+        }
+
+    def _extract_usage_from_raw_responses(self, result: Any) -> Optional[Dict[str, Any]]:
+        raw_responses = self._get_raw_responses(result)
+        if not raw_responses:
+            return None
+
+        totals = {
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "total_tokens": 0,
+            "cached_tokens": 0,
+            "reasoning_tokens": 0,
+        }
+        last_model = None
+        last_response_id = None
+
+        for response in raw_responses:
+            usage = self._safe_get(response, "usage")
+            if not usage:
+                continue
+            input_tokens = self._safe_get(usage, "input_tokens", 0)
+            output_tokens = self._safe_get(usage, "output_tokens", 0)
+            total_tokens = self._safe_get(usage, "total_tokens", 0)
+            input_details = self._safe_get(usage, "input_tokens_details")
+            output_details = self._safe_get(usage, "output_tokens_details")
+
+            cached_tokens = self._safe_get(input_details, "cached_tokens", 0) if input_details else 0
+            reasoning_tokens = self._safe_get(output_details, "reasoning_tokens", 0) if output_details else 0
+
+            totals["input_tokens"] += int(input_tokens or 0)
+            totals["output_tokens"] += int(output_tokens or 0)
+            totals["total_tokens"] += int(total_tokens or 0)
+            totals["cached_tokens"] += int(cached_tokens or 0)
+            totals["reasoning_tokens"] += int(reasoning_tokens or 0)
+
+            last_model = self._safe_get(response, "model", last_model)
+            last_response_id = self._safe_get(response, "id", last_response_id)
+
+        return {
+            "model": last_model,
+            "input_tokens": totals["input_tokens"],
+            "output_tokens": totals["output_tokens"],
+            "total_tokens": totals["total_tokens"],
+            "cached_tokens": totals["cached_tokens"],
+            "reasoning_tokens": totals["reasoning_tokens"],
+            "response_id": last_response_id,
         }
 
     @staticmethod
@@ -1142,8 +1235,13 @@ class BlogGenerationService:
             return
 
         usage_entries = self._extract_usage_entries(result)
-        usage_summary = self._aggregate_usage(usage_entries)
+        usage_source = "context_wrapper"
+        usage_summary = self._extract_usage_from_context_wrapper(result)
         if usage_summary is None:
+            usage_source = "request_usage_entries"
+            usage_summary = self._aggregate_usage(usage_entries)
+        if usage_summary is None:
+            usage_source = "raw_responses"
             usage_summary = self._extract_usage_from_raw_responses(result)
 
         duration_ms = int((time.time() - started_at) * 1000)
@@ -1161,6 +1259,19 @@ class BlogGenerationService:
         except Exception as e:
             logger.debug(f"Failed to update execution log: {e}")
 
+        # Optional consistency check between aggregate and context usage
+        if usage_entries and usage_summary:
+            agg = self._aggregate_usage(usage_entries)
+            if agg and (
+                agg.get("input_tokens") != usage_summary.get("input_tokens")
+                or agg.get("output_tokens") != usage_summary.get("output_tokens")
+            ):
+                logger.info(
+                    "Usage mismatch: context_wrapper vs request_usage_entries "
+                    f"(context={usage_summary.get('input_tokens')}/{usage_summary.get('output_tokens')}, "
+                    f"entries={agg.get('input_tokens')}/{agg.get('output_tokens')})"
+                )
+
         # LLM呼び出しログ
         try:
             if usage_entries:
@@ -1174,7 +1285,7 @@ class BlogGenerationService:
                         provider="openai",
                         prompt_tokens=int(entry.get("input_tokens", 0)),
                         completion_tokens=int(entry.get("output_tokens", 0)),
-                        total_tokens=int(entry.get("total_tokens", 0)),
+                        total_tokens=int(entry.get("total_tokens", 0) or 0),
                         cached_tokens=int(entry.get("cached_tokens", 0)),
                         reasoning_tokens=int(entry.get("reasoning_tokens", 0)),
                         estimated_cost_usd=cost,
@@ -1200,7 +1311,7 @@ class BlogGenerationService:
                     estimated_cost_usd=cost,
                     api_response_id=usage_summary.get("response_id"),
                     response_data={
-                        "usage_source": "raw_responses",
+                        "usage_source": usage_source,
                         "response_id": usage_summary.get("response_id"),
                     },
                 )
