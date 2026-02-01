@@ -219,7 +219,14 @@ export default function BlogHistoryPage() {
     return () => clearInterval(interval);
   }, [fetchHistory]);
 
+  const [showAllActive, setShowAllActive] = useState(false);
+  const ACTIVE_PREVIEW_COUNT = 3;
+
   const activeItems = history.filter((h) => ACTIVE_STATUSES.has(h.status));
+  const visibleActiveItems = showAllActive
+    ? activeItems
+    : activeItems.slice(0, ACTIVE_PREVIEW_COUNT);
+  const hiddenActiveCount = activeItems.length - ACTIVE_PREVIEW_COUNT;
   const pastItems = history.filter((h) => !ACTIVE_STATUSES.has(h.status));
   const dateGroups = groupByDate(pastItems);
 
@@ -331,8 +338,13 @@ export default function BlogHistoryPage() {
               >
                 <p className="text-[11px] font-semibold text-amber-600/80 uppercase tracking-widest px-1">
                   進行中
+                  {activeItems.length > ACTIVE_PREVIEW_COUNT && (
+                    <span className="ml-1.5 text-stone-400 normal-case tracking-normal">
+                      {activeItems.length}件
+                    </span>
+                  )}
                 </p>
-                {activeItems.map((item, i) => (
+                {visibleActiveItems.map((item, i) => (
                   <ActiveCard
                     key={item.id}
                     item={item}
@@ -340,6 +352,22 @@ export default function BlogHistoryPage() {
                     onClick={() => router.push(`/blog/${item.id}`)}
                   />
                 ))}
+                {!showAllActive && hiddenActiveCount > 0 && (
+                  <button
+                    onClick={() => setShowAllActive(true)}
+                    className="w-full py-2 text-xs text-amber-600 hover:text-amber-700 transition-colors"
+                  >
+                    他 {hiddenActiveCount}件を表示
+                  </button>
+                )}
+                {showAllActive && activeItems.length > ACTIVE_PREVIEW_COUNT && (
+                  <button
+                    onClick={() => setShowAllActive(false)}
+                    className="w-full py-2 text-xs text-stone-400 hover:text-stone-600 transition-colors"
+                  >
+                    折りたたむ
+                  </button>
+                )}
               </motion.section>
             )}
           </AnimatePresence>
