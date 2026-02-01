@@ -213,7 +213,7 @@ export default function BlogNewPage() {
   }, [connectedSites]);
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-amber-50/50 via-white to-emerald-50/30">
+    <div className="bg-gradient-to-br from-amber-50/50 via-white to-emerald-50/30">
       {/* Decorative background elements */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
         <div className="hidden md:block absolute top-20 right-20 w-72 h-72 bg-amber-200/20 rounded-full blur-3xl" />

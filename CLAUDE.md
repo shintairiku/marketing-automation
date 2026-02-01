@@ -1204,6 +1204,24 @@ docker compose logs -f backend                        # ログ確認
 - `frontend/src/app/(tools)/blog/[processId]/page.tsx` — Activity Feed の `max-h-[300px] md:max-h-[420px]` を `calc(100dvh - 355px)` + `min-h-[250px]` に変更。ビューポートの残りスペースを動的に活用
 - タイムスタンプをモバイルでは常時表示に (`md:opacity-0 md:group-hover:opacity-100`)
 
+#### ポーリング無限ループバグ修正
+- **原因**: `useEffect` の依存配列に `history` state を含めていたため、fetch → history更新 → effect再実行 → interval再セット → fetch が無限ループしていた
+- **修正**: `hasActiveRef` (useRef) で進行中アイテムの有無を追跡し、`useEffect` の依存配列から `history` を除外。`useCallback` で `fetchHistory` をメモ化し、ポーリング時は `setLoading(true)` をスキップ
+- **教訓**: ポーリング用 useEffect の依存配列に、fetch結果で更新される state を入れるとループする。ref で追跡すべき
+
+#### アクティブアイテム表示上限
+- 進行中セクションは最大3件まで表示、4件以上は「他N件を表示」ボタンで展開/折りたたみ
+
+#### ページ初期スクロールオフセットバグ修正
+- **原因**: `AppLayoutClient` の `<main className="mt-[45px] p-3">` 内のページコンテンツに `min-h-screen` (= 100vh) を指定していたため、合計高さが 100vh + 45px + 12px ≒ 57px 超過し、常にスクロール可能になっていた
+- **修正ファイル**:
+  - `frontend/src/app/(tools)/blog/new/page.tsx` — `min-h-screen` を削除（コンテンツ量で自然に高さが決まる）
+  - `frontend/src/app/(tools)/blog/[processId]/page.tsx` — メインレンダリングの `min-h-screen` を削除。ローディング/Not Found 状態は `calc(100dvh - 57px)` に変更（中央揃え用に最小高さが必要なため）
+- **教訓**: `AppLayoutClient` が `mt-[45px]` + `p-3` を適用しているため、子ページで `min-h-screen` を使うと必ずビューポートを超過する。ページ内で全高が必要な場合は `calc(100dvh - 57px)` を使うこと
+- **NOTE**: `(admin)` レイアウトや `(settings)/integrations/wordpress/connect` にも同様の `min-h-screen` があるが、blog ページ以外は未修正
+
+### 2026-02-02 自己改善
+- **記憶の即時更新**: コード変更を完了した直後に CLAUDE.md を更新せず、ユーザーに「また記憶してないでしょ」と指摘された。**変更を加えたら、次のユーザー応答の前に必ず CLAUDE.md を更新する。これは最優先の義務。**
 
 > ## **【最重要・再掲】記憶の更新は絶対に忘れるな**
 > **このファイルの冒頭にも書いたが、改めて念押しする。**

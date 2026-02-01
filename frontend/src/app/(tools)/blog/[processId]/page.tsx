@@ -486,7 +486,7 @@ export default function BlogProcessPage() {
   // ---------------------------------------------------------------------------
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-amber-50/50 via-white to-emerald-50/30">
+      <div className="flex items-center justify-center bg-gradient-to-br from-amber-50/50 via-white to-emerald-50/30" style={{ minHeight: 'calc(100dvh - 57px)' }}>
         <div className="flex items-center gap-3 text-stone-400">
           <Loader2 className="w-5 h-5 animate-spin" />
           <span className="text-sm tracking-wide">読み込み中</span>
@@ -500,7 +500,7 @@ export default function BlogProcessPage() {
   // ---------------------------------------------------------------------------
   if (!state) {
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-br from-amber-50/50 via-white to-emerald-50/30">
+      <div className="flex flex-col items-center justify-center bg-gradient-to-br from-amber-50/50 via-white to-emerald-50/30" style={{ minHeight: 'calc(100dvh - 57px)' }}>
         <AlertCircle className="w-12 h-12 text-red-400 mb-4" />
         <p className="text-lg text-stone-600 mb-4">
           生成プロセスが見つかりません
@@ -517,7 +517,7 @@ export default function BlogProcessPage() {
   // Main render
   // ---------------------------------------------------------------------------
   return (
-    <div className="min-h-screen bg-gradient-to-br from-amber-50/50 via-white to-emerald-50/30">
+    <div className="bg-gradient-to-br from-amber-50/50 via-white to-emerald-50/30">
       <div className="max-w-3xl mx-auto px-4 py-6 md:px-6 md:py-10">
         {/* ---- Back nav ---- */}
         <motion.div
