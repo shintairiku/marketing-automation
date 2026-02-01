@@ -151,10 +151,14 @@ export default function BlogHistoryPage() {
   const [hasMore, setHasMore] = useState(true);
   const offsetRef = useRef(0);
 
+  // Track whether we have active items for polling (ref to avoid re-triggering effect)
+  const hasActiveRef = useRef(false);
+
   const fetchHistory = useCallback(
     async (loadMore = false) => {
       if (loadMore) setLoadingMore(true);
-      else {
+      else if (!hasActiveRef.current) {
+        // Only show loading spinner on initial load, not on poll refreshes
         setLoading(true);
         offsetRef.current = 0;
       }
@@ -175,6 +179,11 @@ export default function BlogHistoryPage() {
           else setHistory(items);
           offsetRef.current = currentOffset + items.length;
           setHasMore(items.length === PAGE_SIZE);
+
+          // Update active flag for polling
+          hasActiveRef.current = items.some((h) =>
+            ACTIVE_STATUSES.has(h.status)
+          );
         } else {
           const errData = await res.json().catch(() => null);
           setError(
@@ -195,17 +204,20 @@ export default function BlogHistoryPage() {
     [getToken]
   );
 
+  // Initial fetch
   useEffect(() => {
     fetchHistory();
   }, [fetchHistory]);
 
-  // Auto-poll when active items exist
+  // Auto-poll: start once and check hasActiveRef inside the interval
   useEffect(() => {
-    const hasActive = history.some((h) => ACTIVE_STATUSES.has(h.status));
-    if (!hasActive) return;
-    const interval = setInterval(() => fetchHistory(), 12000);
+    const interval = setInterval(() => {
+      if (hasActiveRef.current) {
+        fetchHistory();
+      }
+    }, 12000);
     return () => clearInterval(interval);
-  }, [history, fetchHistory]);
+  }, [fetchHistory]);
 
   const activeItems = history.filter((h) => ACTIVE_STATUSES.has(h.status));
   const pastItems = history.filter((h) => !ACTIVE_STATUSES.has(h.status));
