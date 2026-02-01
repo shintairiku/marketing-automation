@@ -1092,6 +1092,62 @@ docker compose logs -f backend                        # ログ確認
 
 ---
 
+## OpenAI Responses API / SDK 知見
+
+> **情報ソース**: openai SDK v2.16.0 (backend/.venv), 実機テスト 2026-02-02
+
+### SDK 型定義の確認方法（コマンド）
+```bash
+# .env を読み込んで OPENAI_API_KEY をセット → uv run python で実行
+source backend/.env 2>/dev/null; export OPENAI_API_KEY; uv run python -c "
+from openai import AsyncOpenAI
+import inspect
+sig = inspect.signature(AsyncOpenAI().responses.create)
+for name, param in sig.parameters.items():
+    print(f'  {name}: {param.annotation}')
+"
+
+# Pydantic モデルのフィールド確認
+source backend/.env 2>/dev/null; export OPENAI_API_KEY; uv run python -c "
+from openai.types.shared import Reasoning
+for name, field in Reasoning.model_fields.items():
+    print(f'  {name}: {field.annotation} = {field.default}')
+"
+```
+
+### `responses.create()` 主要パラメータ
+```python
+client.responses.create(
+    model="gpt-5-nano",          # モデル名
+    instructions="...",           # システム指示
+    input="...",                  # ユーザー入力
+    reasoning={                   # 推論設定
+        "effort": "minimal",      # "none" | "minimal" | "low" | "medium" | "high" | "xhigh"
+        "summary": None,          # "auto" | "concise" | "detailed" | None
+    },
+    text={                        # テキスト出力設定
+        "verbosity": "low",       # "low" | "medium" | "high"
+    },
+    store=False,                  # 応答をOpenAIに保存しない
+)
+```
+
+### reasoning.effort 別トークン消費（gpt-5-nano 翻訳テスト、同一入力 54 tokens）
+| effort | reasoning_tokens | output_tokens | total_tokens |
+|--------|-----------------|--------------|-------------|
+| `"low"` | 192 | 284 | 338 |
+| `"minimal"` | 0 | 57 | 111 |
+
+→ **翻訳など単純タスクは `"minimal"` が最適**。reasoning_tokens がゼロになり 1/3 のコスト。翻訳品質も十分。
+
+### レスポンスの読み取り
+```python
+response.output_text   # str: 出力テキスト
+response.usage         # ResponseUsage: トークン使用量
+```
+
+---
+
 ## 自己改善ログ
 
 > ユーザーから指摘された失敗・判断ミス・非効率を記録し、同じ過ちを繰り返さないための学習記録。
