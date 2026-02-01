@@ -1231,6 +1231,35 @@ docker compose logs -f backend                        # ログ確認
 - **`layout.tsx`**: `icon: '/logo.png'` → `icon: '/favicon.png'`、`apple: '/apple-touch-icon.png'` に変更
 - **NOTE**: `public/logo.png` は元の横長ロゴとして残存（サイドバー等で使用中の可能性あり）
 
+### 19. WordPress連携フロー変更: 接続URL貼り付け方式 (2026-02-02)
+
+**背景**: WordPress MCPプラグインの連携方式が変更。従来のOAuth風リダイレクトではなく、WordPress管理画面で生成された接続URLをアプリに貼り付ける方式に変更。
+
+**プラグイン側の仕組み**:
+- WordPress管理画面「設定 → MCP連携」で接続名入力 → 「接続URLを生成する」クリック
+- `https://example.com/wp-json/wp-mcp/v1/register?code=<64文字ランダムコード>` が生成
+- コードはSHA256ハッシュで保存、10分間有効、一度きり使用
+- アプリがPOSTすると `{access_token, api_key, api_secret, mcp_endpoint, site_url, site_name}` が返る
+
+**バックエンド変更**: `backend/app/domains/blog/endpoints.py`
+- 新リクエストモデル: `WordPressConnectionUrlRequest` (connection_url, organization_id)
+- 新エンドポイント: `POST /blog/connect/wordpress/url`
+  - 接続URLをパースして `code` パラメータ、`site_url`、`register_endpoint` を自動抽出
+  - WordPress register エンドポイントに `registration_code` + `saas_identifier: "BlogAI"` をPOST
+  - レスポンスから `mcp_endpoint`, `site_name`, `site_url` を取得（プラグイン返却値で上書き）
+  - credentials を暗号化して `wordpress_sites` に INSERT/UPDATE
+  - エラーメッセージの日本語化（期限切れ、無効コード等）
+- 既存エンドポイント `POST /blog/connect/wordpress/register` は互換性のため残存
+
+**フロントエンド変更**: `frontend/src/app/(settings)/settings/integrations/wordpress/page.tsx`
+- 「連携方法」カード → 「WordPressサイトを連携する」に変更
+- 接続URL入力フィールド + 「連携する」ボタンを追加
+- Enterキーで送信対応
+- 成功時: 緑のメッセージ + サイト一覧リフレッシュ + 4秒後に自動消去
+- エラー時: 赤のメッセージ表示
+- 手順ガイドを更新（リダイレクト方式 → URL貼り付け方式）
+- `connect/page.tsx` は旧フロー用として残存（プラグインからのリダイレクト互換）
+
 ### 2026-02-02 自己改善
 - **記憶の即時更新**: コード変更を完了した直後に CLAUDE.md を更新せず、ユーザーに「また記憶してないでしょ」と指摘された。**変更を加えたら、次のユーザー応答の前に必ず CLAUDE.md を更新する。これは最優先の義務。**
 

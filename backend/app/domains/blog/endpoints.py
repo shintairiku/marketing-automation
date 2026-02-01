@@ -98,6 +98,12 @@ class WordPressRegistrationRequest(BaseModel):
     organization_id: Optional[str] = Field(None, description="紐付ける組織ID（nullで個人サイト）")
 
 
+class WordPressConnectionUrlRequest(BaseModel):
+    """接続URL貼り付けによるWordPress登録リクエスト"""
+    connection_url: str = Field(..., description="WordPress管理画面で生成された接続URL")
+    organization_id: Optional[str] = Field(None, description="紐付ける組織ID（nullで個人サイト）")
+
+
 class WordPressSiteOrganizationUpdateRequest(BaseModel):
     """WordPressサイト組織変更リクエスト"""
     organization_id: Optional[str] = Field(None, description="組織ID（nullで個人サイトに変更）")
@@ -460,6 +466,191 @@ async def register_wordpress_site(
         except Exception as e:
             logger.warning(f"WordPressコールバック送信失敗: {e}")
             # コールバック失敗は無視（連携自体は成功）
+
+    site_data = result.data[0]
+    org_name_map = _get_org_name_map(supabase, [org_id]) if org_id else {}
+    return _build_site_response(site_data, org_name_map)
+
+
+@router.post(
+    "/connect/wordpress/url",
+    response_model=WordPressSiteResponse,
+    summary="接続URLでWordPress登録",
+    description="WordPress管理画面で生成された接続URLを使って連携を完了",
+)
+async def register_wordpress_site_by_url(
+    request: WordPressConnectionUrlRequest,
+    user_id: str = Depends(get_current_user),
+):
+    """接続URLを解析してWordPress MCPプラグインとの登録を完了"""
+    from urllib.parse import urlparse, parse_qs
+    import httpx
+
+    logger.info(f"WordPress接続URL登録リクエスト: user={user_id}")
+
+    # 接続URLをパース
+    connection_url = request.connection_url.strip()
+    try:
+        parsed = urlparse(connection_url)
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="無効なURLです",
+        )
+
+    if not parsed.scheme or not parsed.netloc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="有効なURLを入力してください",
+        )
+
+    # codeパラメータを抽出
+    query_params = parse_qs(parsed.query)
+    registration_code = query_params.get("code", [None])[0]
+    if not registration_code:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="接続URLにcodeパラメータが含まれていません。WordPress管理画面で生成された接続URLを使用してください。",
+        )
+
+    # サイトURLとエンドポイントを導出
+    site_url = f"{parsed.scheme}://{parsed.netloc}"
+    # register エンドポイントはURL自体（codeパラメータを除く）
+    register_endpoint = f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
+    # MCP エンドポイントはサイトの標準パス
+    mcp_endpoint = f"{site_url}/wp-json/mcp/mcp-adapter-default-server"
+
+    logger.info(f"接続URL解析: site_url={site_url}, register_endpoint={register_endpoint}")
+
+    supabase = get_supabase_client()
+    crypto = get_crypto_service()
+
+    # WordPressの登録エンドポイントを呼び出して認証情報を取得
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            register_response = await client.post(
+                register_endpoint,
+                json={
+                    "registration_code": registration_code,
+                    "saas_identifier": "BlogAI",
+                },
+            )
+
+            if register_response.status_code != 200:
+                error_text = register_response.text
+                logger.error(f"WordPress登録エラー: {register_response.status_code} - {error_text}")
+                # よくあるエラーを日本語化
+                if "expired" in error_text.lower() or "期限" in error_text:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail="接続URLの有効期限が切れています。WordPress管理画面で新しい接続URLを生成してください。",
+                    )
+                if "invalid" in error_text.lower() or "無効" in error_text:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail="接続URLが無効です。WordPress管理画面で新しい接続URLを生成してください。",
+                    )
+                raise HTTPException(
+                    status_code=status.HTTP_502_BAD_GATEWAY,
+                    detail=f"WordPress登録に失敗しました: {error_text}",
+                )
+
+            register_data = register_response.json()
+            access_token = register_data.get("access_token") or register_data.get("token")
+
+            if not access_token:
+                raise HTTPException(
+                    status_code=status.HTTP_502_BAD_GATEWAY,
+                    detail="WordPressからアクセストークンを取得できませんでした",
+                )
+
+            # レスポンスからmcp_endpointを上書き（プラグインが返す場合）
+            if register_data.get("mcp_endpoint"):
+                mcp_endpoint = register_data["mcp_endpoint"]
+
+            # レスポンスからsite_nameを取得
+            site_name = register_data.get("site_name")
+            # レスポンスからsite_urlを上書き（プラグインが返す場合）
+            if register_data.get("site_url"):
+                site_url = register_data["site_url"]
+
+            import hashlib
+            token_hash = hashlib.sha256(access_token.encode()).hexdigest()
+            logger.info(
+                f"WordPress接続URL登録成功: token_prefix={access_token[:8]}..., "
+                f"token_sha256={token_hash[:16]}..., site={site_url}"
+            )
+
+    except httpx.RequestError as e:
+        logger.error(f"WordPress登録リクエストエラー: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"WordPressへの接続に失敗しました。サイトが公開されていること、プラグインが有効であることを確認してください。",
+        )
+
+    # 認証情報を暗号化
+    encrypted_credentials = crypto.encrypt({
+        "access_token": access_token,
+        "api_key": register_data.get("api_key"),
+        "api_secret": register_data.get("api_secret"),
+    })
+
+    org_id = request.organization_id
+    if org_id:
+        org_check = supabase.table("organization_members").select(
+            "organization_id"
+        ).eq("user_id", user_id).eq("organization_id", org_id).execute()
+        if not org_check.data:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="指定された組織に所属していません",
+            )
+
+    # サイトを登録（既存サイトがあれば更新）
+    site_id = str(uuid.uuid4())
+    now = datetime.utcnow().isoformat()
+
+    existing = supabase.table("wordpress_sites").select("id").eq(
+        "user_id", user_id
+    ).eq("site_url", site_url).execute()
+
+    if existing.data:
+        site_id = existing.data[0]["id"]
+        update_data = {
+            "site_name": site_name,
+            "mcp_endpoint": mcp_endpoint,
+            "encrypted_credentials": encrypted_credentials,
+            "connection_status": "connected",
+            "last_connected_at": now,
+            "last_error": None,
+            "updated_at": now,
+        }
+        if org_id is not None:
+            update_data["organization_id"] = org_id
+        result = supabase.table("wordpress_sites").update(update_data).eq("id", site_id).execute()
+    else:
+        insert_data = {
+            "id": site_id,
+            "user_id": user_id,
+            "site_url": site_url,
+            "site_name": site_name,
+            "mcp_endpoint": mcp_endpoint,
+            "encrypted_credentials": encrypted_credentials,
+            "connection_status": "connected",
+            "is_active": True,
+            "last_connected_at": now,
+            "created_at": now,
+            "updated_at": now,
+        }
+        if org_id:
+            insert_data["organization_id"] = org_id
+        result = supabase.table("wordpress_sites").insert(insert_data).execute()
+
+    if not result.data:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="サイト登録に失敗しました",
+        )
 
     site_data = result.data[0]
     org_name_map = _get_org_name_map(supabase, [org_id]) if org_id else {}
