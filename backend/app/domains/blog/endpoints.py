@@ -899,12 +899,13 @@ async def get_generation_history(
     """生成履歴を取得（blog_context等の大きなフィールドを除外）"""
     supabase = get_supabase_client()
 
-    # 必要なカラムだけ取得（blog_context, uploaded_images, conversation_history等を除外）
+    # 必要なカラムだけ取得 + wordpress_sites をJOINしてサイト名を取得
     columns = (
         "id, status, current_step_name, progress_percentage, "
         "user_prompt, reference_url, "
         "draft_post_id, draft_preview_url, draft_edit_url, "
-        "error_message, created_at, updated_at"
+        "error_message, uploaded_images, created_at, updated_at, "
+        "wordpress_sites(site_name)"
     )
 
     result = supabase.table("blog_generation_state").select(
@@ -913,8 +914,17 @@ async def get_generation_history(
         "user_id", user_id
     ).order("created_at", desc=True).range(offset, offset + limit - 1).execute()
 
-    return [
-        BlogGenerationHistoryItem(
+    items = []
+    for state in result.data:
+        # wordpress_sites JOINの結果からサイト名を取得
+        wp_site = state.get("wordpress_sites")
+        site_name = wp_site.get("site_name") if isinstance(wp_site, dict) else None
+
+        # uploaded_imagesの件数を計算
+        uploaded_images = state.get("uploaded_images") or []
+        image_count = len(uploaded_images) if isinstance(uploaded_images, list) else 0
+
+        items.append(BlogGenerationHistoryItem(
             id=state["id"],
             status=state["status"],
             current_step_name=state.get("current_step_name"),
@@ -925,11 +935,13 @@ async def get_generation_history(
             draft_preview_url=state.get("draft_preview_url"),
             draft_edit_url=state.get("draft_edit_url"),
             error_message=state.get("error_message"),
+            wordpress_site_name=site_name,
+            image_count=image_count,
             created_at=state["created_at"],
             updated_at=state["updated_at"],
-        )
-        for state in result.data
-    ]
+        ))
+
+    return items
 
 
 # =====================================================

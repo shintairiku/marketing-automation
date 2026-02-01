@@ -1179,6 +1179,31 @@ docker compose logs -f backend                        # ログ確認
 - **新規UI**: `/admin/blog-usage` ページを追加し、入力/出力/総トークン、キャッシュ/推論、推定コスト、ツール回数、モデルを一覧表示。
 - **ナビ更新**: 管理者サイドバーに「記事別Usage」を追加。
 
+### 17. Blog History ページ UX リデザイン + Activity Feed 高さ最適化 (2026-02-02)
+
+#### Blog History ページ全面リデザイン
+**コンセプト**: 「Mission Control」— 2ゾーン分離型レイアウト
+
+**変更ファイル**:
+- `frontend/src/app/(tools)/blog/history/page.tsx` — 全面リライト (469行 → 380行)
+- `backend/app/domains/blog/schemas.py` — `BlogGenerationHistoryItem` に `wordpress_site_name`, `image_count` フィールド追加
+- `backend/app/domains/blog/endpoints.py` — `GET /blog/generation/history` に `wordpress_sites` JOIN追加、`uploaded_images` 件数計算追加
+
+**UI設計**:
+- **Active Zone**: 進行中/入力待ちアイテムをSVGプログレスリング付きの目立つカードで表示。入力待ちは青系グラデーション + 「回答する」ボタン、生成中はamber系 + リング内にパーセント表示
+- **Past Zone**: 完了/エラー/キャンセルを日付グループ（今日/昨日/今週/今月）ごとにまとめた白背景のコンパクト行。ステータスアイコン(7x7角丸)、WordPressプレビューリンク、サイト名・画像数をドット区切りで表示
+- **空状態**: グラデーション背景アイコン + パルスアニメーションのSparklesアイコン
+
+**機能改善**:
+- Load More ページネーション (20件ずつ、バックエンドの `offset`/`limit` パラメータ活用)
+- アクティブアイテム存在時は12秒間隔で自動ポーリング
+- ローディングスケルトン (パルスアニメーション)
+- バックエンドAPI拡張: `wordpress_sites` テーブルをJOINしてサイト名を返却、`uploaded_images` 配列長を `image_count` として返却
+
+#### Activity Feed 高さ最適化
+- `frontend/src/app/(tools)/blog/[processId]/page.tsx` — Activity Feed の `max-h-[300px] md:max-h-[420px]` を `calc(100dvh - 355px)` + `min-h-[250px]` に変更。ビューポートの残りスペースを動的に活用
+- タイムスタンプをモバイルでは常時表示に (`md:opacity-0 md:group-hover:opacity-100`)
+
 
 > ## **【最重要・再掲】記憶の更新は絶対に忘れるな**
 > **このファイルの冒頭にも書いたが、改めて念押しする。**

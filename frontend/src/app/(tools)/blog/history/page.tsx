@@ -1,31 +1,42 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
 import {
   AlertCircle,
   ArrowRight,
   CheckCircle2,
-  Clock,
-  Edit3,
+  ChevronRight,
   ExternalLink,
-  Eye,
   FileText,
+  Globe,
+  ImageIcon,
   Loader2,
-  MessageSquareWarning,
+  MessageCircle,
+  PenLine,
   Plus,
-  RefreshCw,
+  Sparkles,
   XCircle,
 } from "lucide-react";
 
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { cn } from "@/utils/cn";
 import { useAuth } from "@clerk/nextjs";
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
 
 interface BlogGenerationHistoryItem {
   id: string;
-  status: "pending" | "in_progress" | "completed" | "error" | "user_input_required" | "cancelled";
+  status:
+    | "pending"
+    | "in_progress"
+    | "completed"
+    | "error"
+    | "user_input_required"
+    | "cancelled";
   current_step_name: string | null;
   progress_percentage: number;
   user_prompt: string | null;
@@ -36,433 +47,576 @@ interface BlogGenerationHistoryItem {
   error_message: string | null;
   created_at: string;
   updated_at: string;
+  wordpress_site_name?: string | null;
+  wordpress_site_url?: string | null;
+  image_count?: number;
 }
 
-const statusConfig = {
-  pending: {
-    label: "待機中",
-    icon: Clock,
-    color: "bg-stone-100 text-stone-600 border-stone-200",
-  },
-  in_progress: {
-    label: "生成中",
-    icon: Loader2,
-    color: "bg-amber-50 text-amber-700 border-amber-200",
-  },
-  completed: {
-    label: "完了",
-    icon: CheckCircle2,
-    color: "bg-emerald-50 text-emerald-700 border-emerald-200",
-  },
-  error: {
-    label: "エラー",
-    icon: XCircle,
-    color: "bg-red-50 text-red-700 border-red-200",
-  },
-  user_input_required: {
-    label: "入力待ち",
-    icon: MessageSquareWarning,
-    color: "bg-blue-50 text-blue-700 border-blue-200",
-  },
-  cancelled: {
-    label: "キャンセル",
-    icon: XCircle,
-    color: "bg-stone-100 text-stone-500 border-stone-200",
-  },
-};
+// ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
+
+const ACTIVE_STATUSES = new Set([
+  "in_progress",
+  "pending",
+  "user_input_required",
+]);
+const PAGE_SIZE = 20;
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function formatRelative(dateString: string): string {
+  const date = new Date(dateString);
+  const now = new Date();
+  const diffMs = now.getTime() - date.getTime();
+  const diffMin = Math.floor(diffMs / 60000);
+  const diffHour = Math.floor(diffMs / 3600000);
+  const diffDay = Math.floor(diffMs / 86400000);
+
+  if (diffMin < 1) return "たった今";
+  if (diffMin < 60) return `${diffMin}分前`;
+  if (diffHour < 24) return `${diffHour}時間前`;
+  if (diffDay < 7) return `${diffDay}日前`;
+
+  return date.toLocaleDateString("ja-JP", {
+    month: "short",
+    day: "numeric",
+  });
+}
+
+function formatFullDate(dateString: string): string {
+  return new Date(dateString).toLocaleString("ja-JP", {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function groupByDate(
+  items: BlogGenerationHistoryItem[]
+): { label: string; items: BlogGenerationHistoryItem[] }[] {
+  const groups = new Map<string, BlogGenerationHistoryItem[]>();
+
+  for (const item of items) {
+    const d = new Date(item.created_at);
+    const now = new Date();
+    const diffDays = Math.floor(
+      (now.getTime() - d.getTime()) / 86400000
+    );
+
+    let key: string;
+    if (diffDays === 0) key = "today";
+    else if (diffDays === 1) key = "yesterday";
+    else if (diffDays < 7) key = "thisWeek";
+    else if (diffDays < 30) key = "thisMonth";
+    else
+      key = d.toLocaleDateString("ja-JP", {
+        year: "numeric",
+        month: "long",
+      });
+
+    const arr = groups.get(key) || [];
+    arr.push(item);
+    groups.set(key, arr);
+  }
+
+  const labelMap: Record<string, string> = {
+    today: "今日",
+    yesterday: "昨日",
+    thisWeek: "今週",
+    thisMonth: "今月",
+  };
+
+  return Array.from(groups.entries()).map(([key, items]) => ({
+    label: labelMap[key] || key,
+    items,
+  }));
+}
+
+// ---------------------------------------------------------------------------
+// Main Page
+// ---------------------------------------------------------------------------
 
 export default function BlogHistoryPage() {
   const router = useRouter();
   const { getToken } = useAuth();
   const [history, setHistory] = useState<BlogGenerationHistoryItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [hasMore, setHasMore] = useState(true);
+  const offsetRef = useRef(0);
 
-  const fetchHistory = async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const token = await getToken();
-      const response = await fetch("/api/proxy/blog/generation/history?limit=50", {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (response.ok) {
-        const data = await response.json();
-        setHistory(Array.isArray(data) ? data : []);
-      } else {
-        const errData = await response.json().catch(() => null);
-        setError(
-          errData?.detail
-            ? typeof errData.detail === "string"
-              ? errData.detail
-              : "データの取得に失敗しました"
-            : `サーバーエラー (${response.status})`
-        );
+  const fetchHistory = useCallback(
+    async (loadMore = false) => {
+      if (loadMore) setLoadingMore(true);
+      else {
+        setLoading(true);
+        offsetRef.current = 0;
       }
-    } catch (err) {
-      console.error("Failed to fetch history:", err);
-      setError("ネットワークエラーが発生しました");
-    } finally {
-      setLoading(false);
-    }
-  };
+      setError(null);
+
+      try {
+        const token = await getToken();
+        const currentOffset = loadMore ? offsetRef.current : 0;
+        const res = await fetch(
+          `/api/proxy/blog/generation/history?limit=${PAGE_SIZE}&offset=${currentOffset}`,
+          { headers: { Authorization: `Bearer ${token}` } }
+        );
+
+        if (res.ok) {
+          const data: BlogGenerationHistoryItem[] = await res.json();
+          const items = Array.isArray(data) ? data : [];
+          if (loadMore) setHistory((prev) => [...prev, ...items]);
+          else setHistory(items);
+          offsetRef.current = currentOffset + items.length;
+          setHasMore(items.length === PAGE_SIZE);
+        } else {
+          const errData = await res.json().catch(() => null);
+          setError(
+            errData?.detail
+              ? typeof errData.detail === "string"
+                ? errData.detail
+                : "データの取得に失敗しました"
+              : `サーバーエラー (${res.status})`
+          );
+        }
+      } catch {
+        setError("ネットワークエラーが発生しました");
+      } finally {
+        setLoading(false);
+        setLoadingMore(false);
+      }
+    },
+    [getToken]
+  );
 
   useEffect(() => {
     fetchHistory();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [fetchHistory]);
 
-  const formatDate = (dateString: string) => {
-    const date = new Date(dateString);
-    const now = new Date();
-    const diffMs = now.getTime() - date.getTime();
-    const diffMin = Math.floor(diffMs / 60000);
-    const diffHour = Math.floor(diffMs / 3600000);
-    const diffDay = Math.floor(diffMs / 86400000);
+  // Auto-poll when active items exist
+  useEffect(() => {
+    const hasActive = history.some((h) => ACTIVE_STATUSES.has(h.status));
+    if (!hasActive) return;
+    const interval = setInterval(() => fetchHistory(), 12000);
+    return () => clearInterval(interval);
+  }, [history, fetchHistory]);
 
-    if (diffMin < 1) return "たった今";
-    if (diffMin < 60) return `${diffMin}分前`;
-    if (diffHour < 24) return `${diffHour}時間前`;
-    if (diffDay < 7) return `${diffDay}日前`;
+  const activeItems = history.filter((h) => ACTIVE_STATUSES.has(h.status));
+  const pastItems = history.filter((h) => !ACTIVE_STATUSES.has(h.status));
+  const dateGroups = groupByDate(pastItems);
 
-    return date.toLocaleDateString("ja-JP", {
-      year: "numeric",
-      month: "short",
-      day: "numeric",
-    });
-  };
-
-  const formatFullDate = (dateString: string) => {
-    return new Date(dateString).toLocaleString("ja-JP", {
-      year: "numeric",
-      month: "short",
-      day: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-  };
-
-  const truncateText = (text: string | null, maxLength: number) => {
-    if (!text) return "";
-    return text.length > maxLength ? text.substring(0, maxLength) + "..." : text;
-  };
-
-  const handleCardClick = (item: BlogGenerationHistoryItem) => {
-    // どのステータスでも詳細ページへ遷移可能
-    router.push(`/blog/${item.id}`);
-  };
-
-  // ステータス別に分類
-  const activeItems = history.filter(
-    (h) => h.status === "in_progress" || h.status === "user_input_required" || h.status === "pending"
-  );
-  const completedItems = history.filter((h) => h.status === "completed");
-  const otherItems = history.filter(
-    (h) => h.status === "error" || h.status === "cancelled"
-  );
+  // ---------------------------------------------------------------------------
+  // Render
+  // ---------------------------------------------------------------------------
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-amber-50/50 via-white to-emerald-50/30">
-      <div className="max-w-4xl mx-auto px-4 py-6 md:px-6 md:py-10">
-        {/* Header */}
+    <div className="max-w-3xl mx-auto px-4 py-4 md:px-6 md:py-8">
+      {/* ─── Header ─── */}
+      <motion.div
+        initial={{ opacity: 0, y: 12 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="flex items-center justify-between mb-6"
+      >
+        <div>
+          <h1 className="text-lg font-bold text-stone-800 tracking-tight">
+            生成履歴
+          </h1>
+          <p className="text-xs text-stone-400 mt-0.5">
+            {history.length > 0
+              ? `${history.length}件の記事`
+              : "ブログ記事の生成履歴"}
+          </p>
+        </div>
+        <Button
+          size="sm"
+          onClick={() => router.push("/blog/new")}
+          className="rounded-xl bg-stone-800 hover:bg-stone-700 text-white shadow-none"
+        >
+          <Plus className="w-3.5 h-3.5 mr-1.5" />
+          新規作成
+        </Button>
+      </motion.div>
+
+      {/* ─── Error ─── */}
+      <AnimatePresence>
+        {error && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: "auto" }}
+            exit={{ opacity: 0, height: 0 }}
+            className="overflow-hidden mb-4"
+          >
+            <div className="flex items-center gap-2 px-3 py-2.5 rounded-xl bg-red-50 border border-red-200/60 text-red-600 text-sm">
+              <AlertCircle className="w-4 h-4 shrink-0" />
+              <span>{error}</span>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ─── Loading skeleton ─── */}
+      {loading ? (
+        <div className="space-y-3 mt-8">
+          {[...Array(4)].map((_, i) => (
+            <div
+              key={i}
+              className="h-16 rounded-2xl bg-stone-100/60 animate-pulse"
+              style={{ animationDelay: `${i * 100}ms` }}
+            />
+          ))}
+        </div>
+      ) : history.length === 0 && !error ? (
+        /* ─── Empty state ─── */
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between mb-6 md:mb-8"
+          className="flex flex-col items-center py-20"
         >
-          <div>
-            <h1 className="text-3xl font-bold text-stone-800 mb-1">生成履歴</h1>
-            <p className="text-stone-500 text-sm">
-              過去に生成したブログ記事の一覧です
-              {history.length > 0 && (
-                <span className="ml-2 text-stone-400">({history.length}件)</span>
-              )}
-            </p>
-          </div>
-          <div className="flex items-center gap-2">
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={fetchHistory}
-              disabled={loading}
-              className="text-stone-500"
-            >
-              <RefreshCw className={`w-4 h-4 mr-1.5 ${loading ? "animate-spin" : ""}`} />
-              更新
-            </Button>
-            <Button
-              size="sm"
-              onClick={() => router.push("/blog/new")}
-            >
-              <Plus className="w-4 h-4 mr-1.5" />
-              新規作成
-            </Button>
-          </div>
-        </motion.div>
-
-        {/* Error */}
-        <AnimatePresence>
-          {error && (
+          <div className="relative mb-6">
+            <div className="w-16 h-16 rounded-3xl bg-gradient-to-br from-amber-100 to-emerald-100 flex items-center justify-center">
+              <PenLine className="w-7 h-7 text-stone-400" />
+            </div>
             <motion.div
-              initial={{ opacity: 0, y: -10 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -10 }}
-              className="p-4 rounded-xl bg-red-50 border border-red-200 text-red-700 text-sm mb-6"
+              className="absolute -top-1 -right-1 w-6 h-6 rounded-full bg-custom-orange flex items-center justify-center"
+              animate={{ scale: [1, 1.15, 1] }}
+              transition={{ duration: 2, repeat: Infinity }}
             >
-              <div className="flex items-center gap-2">
-                <AlertCircle className="w-4 h-4 shrink-0" />
-                <span>{error}</span>
-              </div>
+              <Sparkles className="w-3 h-3 text-white" />
             </motion.div>
-          )}
-        </AnimatePresence>
-
-        {/* Content */}
-        {loading ? (
-          <div className="flex items-center justify-center py-20">
-            <Loader2 className="w-8 h-8 animate-spin text-amber-500" />
           </div>
-        ) : history.length === 0 && !error ? (
-          <motion.div
-            initial={{ opacity: 0, scale: 0.95 }}
-            animate={{ opacity: 1, scale: 1 }}
-            className="text-center py-20"
+          <p className="text-stone-700 font-medium mb-1">
+            まだ記事がありません
+          </p>
+          <p className="text-sm text-stone-400 mb-6 text-center max-w-xs">
+            AIがリサーチからWordPress投稿まで自動で行います
+          </p>
+          <Button
+            onClick={() => router.push("/blog/new")}
+            className="rounded-xl bg-stone-800 hover:bg-stone-700"
           >
-            <FileText className="w-16 h-16 text-stone-300 mx-auto mb-4" />
-            <p className="text-lg text-stone-500 mb-2">まだ生成履歴がありません</p>
-            <p className="text-sm text-stone-400 mb-6">
-              ブログ記事を作成すると、ここに履歴が表示されます
-            </p>
-            <Button onClick={() => router.push("/blog/new")}>
-              新規ブログ記事を作成
-              <ArrowRight className="w-4 h-4 ml-2" />
-            </Button>
-          </motion.div>
-        ) : (
-          <div className="space-y-8">
-            {/* 進行中 */}
+            最初の記事を作成する
+            <ArrowRight className="w-4 h-4 ml-1.5" />
+          </Button>
+        </motion.div>
+      ) : (
+        <div className="space-y-6">
+          {/* ═══════════════════════════════════════════
+              ACTIVE ZONE — "Now"
+          ═══════════════════════════════════════════ */}
+          <AnimatePresence>
             {activeItems.length > 0 && (
-              <section>
-                <h2 className="text-sm font-semibold text-stone-400 uppercase tracking-wider mb-3">
+              <motion.section
+                initial={{ opacity: 0, y: 16 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -8 }}
+                className="space-y-2.5"
+              >
+                <p className="text-[11px] font-semibold text-amber-600/80 uppercase tracking-widest px-1">
                   進行中
-                </h2>
-                <div className="space-y-3">
-                  {activeItems.map((item, index) => (
-                    <HistoryCard
-                      key={item.id}
-                      item={item}
-                      index={index}
-                      formatDate={formatDate}
-                      formatFullDate={formatFullDate}
-                      truncateText={truncateText}
-                      onClick={() => handleCardClick(item)}
-                    />
-                  ))}
-                </div>
-              </section>
+                </p>
+                {activeItems.map((item, i) => (
+                  <ActiveCard
+                    key={item.id}
+                    item={item}
+                    index={i}
+                    onClick={() => router.push(`/blog/${item.id}`)}
+                  />
+                ))}
+              </motion.section>
             )}
+          </AnimatePresence>
 
-            {/* 完了済み */}
-            {completedItems.length > 0 && (
-              <section>
-                <h2 className="text-sm font-semibold text-stone-400 uppercase tracking-wider mb-3">
-                  完了済み
-                </h2>
-                <div className="space-y-3">
-                  {completedItems.map((item, index) => (
-                    <HistoryCard
-                      key={item.id}
-                      item={item}
-                      index={index}
-                      formatDate={formatDate}
-                      formatFullDate={formatFullDate}
-                      truncateText={truncateText}
-                      onClick={() => handleCardClick(item)}
-                    />
-                  ))}
-                </div>
-              </section>
-            )}
+          {/* ═══════════════════════════════════════════
+              PAST ZONE — date-grouped timeline
+          ═══════════════════════════════════════════ */}
+          {dateGroups.length > 0 && (
+            <section className="space-y-5">
+              {activeItems.length > 0 && pastItems.length > 0 && (
+                <div className="h-px bg-stone-200/60" />
+              )}
+              {dateGroups.map((group, gi) => (
+                <motion.div
+                  key={group.label}
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: gi * 0.04 }}
+                >
+                  <p className="text-[11px] font-semibold text-stone-400 uppercase tracking-widest px-1 mb-2">
+                    {group.label}
+                  </p>
+                  <div className="rounded-2xl border border-stone-200/60 bg-white overflow-hidden divide-y divide-stone-100">
+                    {group.items.map((item, i) => (
+                      <PastRow
+                        key={item.id}
+                        item={item}
+                        index={i}
+                        onClick={() => router.push(`/blog/${item.id}`)}
+                      />
+                    ))}
+                  </div>
+                </motion.div>
+              ))}
 
-            {/* エラー・キャンセル */}
-            {otherItems.length > 0 && (
-              <section>
-                <h2 className="text-sm font-semibold text-stone-400 uppercase tracking-wider mb-3">
-                  その他
-                </h2>
-                <div className="space-y-3">
-                  {otherItems.map((item, index) => (
-                    <HistoryCard
-                      key={item.id}
-                      item={item}
-                      index={index}
-                      formatDate={formatDate}
-                      formatFullDate={formatFullDate}
-                      truncateText={truncateText}
-                      onClick={() => handleCardClick(item)}
-                    />
-                  ))}
+              {/* Load more */}
+              {hasMore && (
+                <div className="flex justify-center pt-2">
+                  <button
+                    onClick={() => fetchHistory(true)}
+                    disabled={loadingMore}
+                    className="text-sm text-stone-400 hover:text-stone-600 transition-colors disabled:opacity-50"
+                  >
+                    {loadingMore ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      "もっと見る"
+                    )}
+                  </button>
                 </div>
-              </section>
-            )}
-          </div>
-        )}
-      </div>
+              )}
+            </section>
+          )}
+        </div>
+      )}
     </div>
   );
 }
 
-function HistoryCard({
+// ---------------------------------------------------------------------------
+// ActiveCard — breathing, prominent card for running/waiting items
+// ---------------------------------------------------------------------------
+
+function ActiveCard({
   item,
   index,
-  formatDate,
-  formatFullDate,
-  truncateText,
   onClick,
 }: {
   item: BlogGenerationHistoryItem;
   index: number;
-  formatDate: (d: string) => string;
-  formatFullDate: (d: string) => string;
-  truncateText: (t: string | null, max: number) => string;
   onClick: () => void;
 }) {
-  const status = statusConfig[item.status];
-  const StatusIcon = status.icon;
+  const isWaiting = item.status === "user_input_required";
+  const progress = item.progress_percentage;
+
+  // SVG ring params
+  const radius = 18;
+  const circumference = 2 * Math.PI * radius;
+  const strokeDashoffset = circumference - (progress / 100) * circumference;
 
   return (
-    <motion.div
+    <motion.button
       initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ delay: index * 0.03 }}
-      className="bg-white rounded-2xl border border-stone-200 p-5 hover:border-stone-300 hover:shadow-md transition-all cursor-pointer group"
+      transition={{ delay: index * 0.06 }}
       onClick={onClick}
+      className={cn(
+        "w-full text-left rounded-2xl p-4 transition-all group relative overflow-hidden",
+        isWaiting
+          ? "bg-gradient-to-r from-blue-50 to-indigo-50/50 border border-blue-200/50 hover:border-blue-300/70"
+          : "bg-gradient-to-r from-amber-50/80 to-orange-50/40 border border-amber-200/50 hover:border-amber-300/70"
+      )}
     >
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
+      {/* Subtle animated gradient overlay */}
+      <motion.div
+        className={cn(
+          "absolute inset-0 opacity-[0.03]",
+          isWaiting
+            ? "bg-gradient-to-r from-blue-400 to-indigo-400"
+            : "bg-gradient-to-r from-amber-400 to-orange-400"
+        )}
+        animate={{ opacity: [0.03, 0.06, 0.03] }}
+        transition={{ duration: 3, repeat: Infinity, ease: "easeInOut" }}
+      />
+
+      <div className="relative flex items-center gap-3.5">
+        {/* Progress ring */}
+        <div className="relative flex-shrink-0 w-11 h-11">
+          <svg
+            className="w-11 h-11 -rotate-90"
+            viewBox="0 0 44 44"
+          >
+            <circle
+              cx="22"
+              cy="22"
+              r={radius}
+              fill="none"
+              stroke={isWaiting ? "#dbeafe" : "#fde68a"}
+              strokeWidth="3"
+            />
+            <motion.circle
+              cx="22"
+              cy="22"
+              r={radius}
+              fill="none"
+              stroke={isWaiting ? "#3b82f6" : "#f59e0b"}
+              strokeWidth="3"
+              strokeLinecap="round"
+              strokeDasharray={circumference}
+              initial={{ strokeDashoffset: circumference }}
+              animate={{ strokeDashoffset }}
+              transition={{ duration: 0.8, ease: "easeOut" }}
+            />
+          </svg>
+          <div className="absolute inset-0 flex items-center justify-center">
+            {isWaiting ? (
+              <MessageCircle className="w-4 h-4 text-blue-500" />
+            ) : item.status === "pending" ? (
+              <Loader2 className="w-4 h-4 text-amber-500 animate-spin" />
+            ) : (
+              <span className="text-[10px] font-bold tabular-nums text-amber-700">
+                {progress}
+              </span>
+            )}
+          </div>
+        </div>
+
+        {/* Content */}
         <div className="flex-1 min-w-0">
-          {/* ステータス + 日時 */}
-          <div className="flex items-center gap-2 mb-2.5">
-            <Badge
-              variant="outline"
-              className={`${status.color} text-xs font-medium px-2 py-0.5`}
-            >
-              <StatusIcon
-                className={`w-3 h-3 mr-1 ${
-                  item.status === "in_progress" ? "animate-spin" : ""
-                }`}
-              />
-              {status.label}
-            </Badge>
-            <span
-              className="text-xs text-stone-400"
-              title={formatFullDate(item.created_at)}
-            >
-              {formatDate(item.created_at)}
+          <p className="text-sm font-medium text-stone-700 truncate">
+            {item.user_prompt || "（プロンプトなし）"}
+          </p>
+          <div className="flex items-center gap-2 mt-1">
+            {isWaiting ? (
+              <span className="text-xs font-medium text-blue-600">
+                入力を待っています
+              </span>
+            ) : item.current_step_name ? (
+              <span className="text-xs text-amber-600">
+                {item.current_step_name}
+              </span>
+            ) : (
+              <span className="text-xs text-stone-400">準備中...</span>
+            )}
+            <span className="text-[10px] text-stone-300">
+              {formatRelative(item.created_at)}
             </span>
           </div>
-
-          {/* プロンプト */}
-          <p className="text-stone-800 text-sm font-medium leading-relaxed mb-1">
-            {truncateText(item.user_prompt, 120) || "（プロンプトなし）"}
-          </p>
-
-          {/* 参考URL */}
-          {item.reference_url && (
-            <p className="text-xs text-stone-400 truncate">
-              参考: {item.reference_url}
-            </p>
-          )}
-
-          {/* 進行状況バー */}
-          {item.status === "in_progress" && (
-            <div className="flex items-center gap-2 mt-3">
-              <div className="flex-1 bg-stone-100 rounded-full h-1.5 max-w-xs">
-                <div
-                  className="bg-amber-500 h-1.5 rounded-full transition-all duration-500"
-                  style={{ width: `${item.progress_percentage}%` }}
-                />
-              </div>
-              <span className="text-xs text-stone-400 tabular-nums">
-                {item.progress_percentage}%
-              </span>
-            </div>
-          )}
-
-          {/* ステップ名 */}
-          {item.status === "in_progress" && item.current_step_name && (
-            <p className="text-xs text-amber-600 mt-1.5">
-              {item.current_step_name}
-            </p>
-          )}
-
-          {/* エラーメッセージ */}
-          {item.error_message && (
-            <p className="text-xs text-red-500 mt-2 bg-red-50 rounded-lg px-2.5 py-1.5 inline-block">
-              {truncateText(item.error_message, 100)}
-            </p>
-          )}
         </div>
 
-        {/* アクションボタン */}
-        <div className="flex items-center gap-1.5 flex-shrink-0 flex-wrap">
-          {item.status === "completed" && item.draft_preview_url && (
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-8 px-2.5 text-xs"
-              asChild
-              onClick={(e) => e.stopPropagation()}
-            >
-              <a
-                href={item.draft_preview_url}
-                target="_blank"
-                rel="noopener noreferrer"
-                title="プレビュー"
-              >
-                <Eye className="w-3.5 h-3.5 mr-1" />
-                プレビュー
-              </a>
-            </Button>
+        {/* Action hint */}
+        <div className="flex-shrink-0">
+          {isWaiting ? (
+            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-blue-500 text-white text-xs font-medium shadow-sm">
+              回答する
+            </span>
+          ) : (
+            <ChevronRight className="w-4 h-4 text-stone-300 group-hover:text-stone-500 transition-colors" />
           )}
-          {item.status === "completed" && item.draft_edit_url && (
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-8 px-2.5 text-xs"
-              asChild
-              onClick={(e) => e.stopPropagation()}
-            >
-              <a
-                href={item.draft_edit_url}
-                target="_blank"
-                rel="noopener noreferrer"
-                title="編集"
-              >
-                <Edit3 className="w-3.5 h-3.5 mr-1" />
-                編集
-              </a>
-            </Button>
-          )}
-          {(item.status === "in_progress" ||
-            item.status === "user_input_required" ||
-            item.status === "pending") && (
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-8 px-2.5 text-xs"
-              onClick={(e) => {
-                e.stopPropagation();
-                onClick();
-              }}
-            >
-              {item.status === "user_input_required" ? "回答する" : "詳細"}
-              <ArrowRight className="w-3.5 h-3.5 ml-1" />
-            </Button>
-          )}
-          {/* どのステータスでもカード全体クリックで詳細遷移可能を示す矢印 */}
-          <ArrowRight className="w-4 h-4 text-stone-300 group-hover:text-stone-500 transition-colors ml-1" />
         </div>
       </div>
-    </motion.div>
+    </motion.button>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// PastRow — compact, dense row for completed/error/cancelled items
+// ---------------------------------------------------------------------------
+
+function PastRow({
+  item,
+  index,
+  onClick,
+}: {
+  item: BlogGenerationHistoryItem;
+  index: number;
+  onClick: () => void;
+}) {
+  const isCompleted = item.status === "completed";
+  const isError = item.status === "error";
+
+  return (
+    <motion.button
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      transition={{ delay: Math.min(index * 0.02, 0.2) }}
+      onClick={onClick}
+      className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-stone-50/80 active:bg-stone-100/60 transition-colors group"
+    >
+      {/* Status icon */}
+      <div className="flex-shrink-0">
+        {isCompleted ? (
+          <div className="w-7 h-7 rounded-lg bg-emerald-50 flex items-center justify-center">
+            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
+          </div>
+        ) : isError ? (
+          <div className="w-7 h-7 rounded-lg bg-red-50 flex items-center justify-center">
+            <XCircle className="w-3.5 h-3.5 text-red-400" />
+          </div>
+        ) : (
+          <div className="w-7 h-7 rounded-lg bg-stone-100 flex items-center justify-center">
+            <XCircle className="w-3.5 h-3.5 text-stone-400" />
+          </div>
+        )}
+      </div>
+
+      {/* Content */}
+      <div className="flex-1 min-w-0">
+        <p
+          className={cn(
+            "text-sm truncate",
+            isCompleted ? "text-stone-700" : "text-stone-400"
+          )}
+        >
+          {item.user_prompt || "（プロンプトなし）"}
+        </p>
+        <div className="flex items-center gap-1.5 mt-0.5">
+          <span
+            className="text-[11px] text-stone-400"
+            title={formatFullDate(item.created_at)}
+          >
+            {formatRelative(item.created_at)}
+          </span>
+          {isError && item.error_message && (
+            <>
+              <span className="text-stone-300">·</span>
+              <span className="text-[11px] text-red-400 truncate max-w-[180px]">
+                {item.error_message}
+              </span>
+            </>
+          )}
+          {item.wordpress_site_name && (
+            <>
+              <span className="text-stone-300">·</span>
+              <span className="text-[11px] text-stone-400 flex items-center gap-0.5">
+                <Globe className="w-2.5 h-2.5" />
+                {item.wordpress_site_name}
+              </span>
+            </>
+          )}
+          {item.image_count != null && item.image_count > 0 && (
+            <>
+              <span className="text-stone-300">·</span>
+              <span className="text-[11px] text-stone-400 flex items-center gap-0.5">
+                <ImageIcon className="w-2.5 h-2.5" />
+                {item.image_count}
+              </span>
+            </>
+          )}
+        </div>
+      </div>
+
+      {/* Right actions */}
+      <div className="flex-shrink-0 flex items-center gap-1">
+        {isCompleted && item.draft_preview_url && (
+          <a
+            href={item.draft_preview_url}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={(e) => e.stopPropagation()}
+            className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-medium text-emerald-700 bg-emerald-50 hover:bg-emerald-100 transition-colors"
+            title="WordPressで開く"
+          >
+            <ExternalLink className="w-3 h-3" />
+            <span className="hidden sm:inline">開く</span>
+          </a>
+        )}
+        <ChevronRight className="w-4 h-4 text-stone-300 group-hover:text-stone-500 transition-colors" />
+      </div>
+    </motion.button>
   );
 }

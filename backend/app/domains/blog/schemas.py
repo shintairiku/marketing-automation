@@ -163,6 +163,8 @@ class BlogGenerationHistoryItem(BaseModel):
     draft_preview_url: Optional[str] = None
     draft_edit_url: Optional[str] = None
     error_message: Optional[str] = None
+    wordpress_site_name: Optional[str] = None
+    image_count: int = 0
     created_at: datetime
     updated_at: datetime
 
