@@ -8,6 +8,7 @@ import {
   ArrowLeft,
   Check,
   CheckCircle2,
+  ChevronDown,
   Edit3,
   ExternalLink,
   FileText,
@@ -175,6 +176,9 @@ export default function BlogProcessPage() {
   const [activities, setActivities] = useState<ActivityEntry[]>([]);
   const activityEndRef = useRef<HTMLDivElement>(null);
   const [, setTick] = useState(0); // for elapsed time refresh
+  const [activityLogOpen, setActivityLogOpen] = useState(false);
+  const [justCompleted, setJustCompleted] = useState(false);
+  const prevStatusRef = useRef<string | null>(null);
 
   // ---- Fetch initial state ----
   const fetchState = useCallback(async () => {
@@ -213,7 +217,7 @@ export default function BlogProcessPage() {
         return {
           id,
           type: "thinking",
-          message: "分析・構成を検討中...",
+          message: event_data.message || "分析・構成を検討中...",
           status: "done",
           timestamp: created_at,
           sequence: event_sequence,
@@ -344,6 +348,22 @@ export default function BlogProcessPage() {
       return () => clearInterval(interval);
     }
   }, [state]);
+
+  // ---- Detect completion transition ----
+  useEffect(() => {
+    if (
+      prevStatusRef.current &&
+      prevStatusRef.current !== "completed" &&
+      state?.status === "completed"
+    ) {
+      setJustCompleted(true);
+      const timer = setTimeout(() => setJustCompleted(false), 2000);
+      return () => clearTimeout(timer);
+    }
+    if (state?.status) {
+      prevStatusRef.current = state.status;
+    }
+  }, [state?.status]);
 
   // ---- Auto-scroll activity feed ----
   useEffect(() => {
@@ -542,15 +562,68 @@ export default function BlogProcessPage() {
           transition={{ duration: 0.5, delay: 0.05 }}
           className="mb-8"
         >
-          <h1 className="text-2xl font-bold text-stone-800 tracking-tight mb-1.5">
-            {state.status === "completed"
-              ? "記事の生成が完了しました"
-              : state.status === "error"
-                ? "エラーが発生しました"
-                : state.status === "user_input_required"
-                  ? "追加情報をお聞きしています"
-                  : "ブログ記事を生成しています"}
-          </h1>
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-1.5">
+            <AnimatePresence mode="wait">
+              <motion.h1
+                key={state.status}
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -8 }}
+                transition={{ duration: 0.3 }}
+                className="text-2xl font-bold text-stone-800 tracking-tight"
+              >
+                {state.status === "completed"
+                  ? "記事の生成が完了しました"
+                  : state.status === "error"
+                    ? "エラーが発生しました"
+                    : state.status === "user_input_required"
+                      ? "追加情報をお聞きしています"
+                      : "ブログ記事を生成しています"}
+              </motion.h1>
+            </AnimatePresence>
+            {state.status === "completed" && (
+              <motion.div
+                className="flex gap-2 flex-shrink-0"
+                initial={{ opacity: 0, x: 10 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ delay: 0.4, duration: 0.4, ease: [0.22, 1, 0.36, 1] }}
+              >
+                {state.draft_preview_url && (
+                  <Button
+                    asChild
+                    size="sm"
+                    className="rounded-lg bg-stone-800 hover:bg-stone-700 text-xs h-9 px-4"
+                  >
+                    <a
+                      href={state.draft_preview_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      <ExternalLink className="w-3.5 h-3.5 mr-1.5" />
+                      プレビューを見る
+                    </a>
+                  </Button>
+                )}
+                {state.draft_edit_url && (
+                  <Button
+                    variant="outline"
+                    asChild
+                    size="sm"
+                    className="rounded-lg text-xs h-9 px-4"
+                  >
+                    <a
+                      href={state.draft_edit_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      <Edit3 className="w-3.5 h-3.5 mr-1.5" />
+                      編集
+                    </a>
+                  </Button>
+                )}
+              </motion.div>
+            )}
+          </div>
           {state.user_prompt && (
             <p className="text-stone-400 text-sm leading-relaxed line-clamp-2">
               {state.user_prompt}
@@ -564,15 +637,21 @@ export default function BlogProcessPage() {
             <motion.div
               initial={{ opacity: 0, scaleY: 0 }}
               animate={{ opacity: 1, scaleY: 1 }}
-              exit={{ opacity: 0, scaleY: 0 }}
+              exit={{ opacity: 0, height: 0, marginBottom: 0, transition: { duration: 0.4, delay: 0.1, ease: "easeInOut" } }}
+              transition={{ duration: 0.3 }}
               style={{ originY: 0 }}
               className="mb-6"
             >
               <div className="relative h-1 w-full rounded-full bg-stone-100 overflow-hidden">
                 <motion.div
-                  className="absolute inset-y-0 left-0 rounded-full bg-gradient-to-r from-amber-400 via-orange-400 to-emerald-500"
+                  className="absolute inset-y-0 left-0 rounded-full"
                   initial={{ width: 0 }}
-                  animate={{ width: `${state.progress_percentage}%` }}
+                  animate={{
+                    width: `${state.progress_percentage}%`,
+                    background: state.progress_percentage >= 100
+                      ? "linear-gradient(to right, #34d399, #10b981)"
+                      : "linear-gradient(to right, #fbbf24, #f97316, #10b981)",
+                  }}
                   transition={{ duration: 0.8, ease: "easeOut" }}
                 />
                 {/* Shimmer overlay */}
@@ -596,30 +675,163 @@ export default function BlogProcessPage() {
           {state.status === "completed" && (
             <motion.div
               key="completed"
-              initial={{ opacity: 0, y: 20 }}
+              initial={{ opacity: 0, y: 30 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -10 }}
-              transition={{ duration: 0.5 }}
+              transition={{
+                duration: 0.6,
+                delay: 0.15,
+                ease: [0.22, 1, 0.36, 1],
+              }}
               className="space-y-5"
             >
-              {/* Success banner */}
-              <div className="flex items-start gap-3 p-5 rounded-2xl bg-emerald-50/70 border border-emerald-200/60">
-                <div className="mt-0.5 w-7 h-7 rounded-full bg-emerald-500 flex items-center justify-center flex-shrink-0">
-                  <Check className="w-4 h-4 text-white" strokeWidth={3} />
-                </div>
-                <div className="min-w-0">
-                  <p className="text-stone-700 font-medium text-sm">
-                    下書き記事がWordPressに保存されました
-                  </p>
-                  <p className="text-stone-500 text-xs mt-0.5">
-                    プレビューを確認して、必要に応じて編集してください
-                  </p>
-                </div>
+              {/* Success banner — collapsible to reveal activity log */}
+              <div className={`rounded-2xl border border-emerald-200/60 bg-emerald-50/70 overflow-hidden ${
+                justCompleted ? "animate-[successGlow_1s_ease-out]" : ""
+              }`}>
+                {/* Clickable header */}
+                <button
+                  type="button"
+                  onClick={() => activities.length > 0 && setActivityLogOpen((prev) => !prev)}
+                  className={`w-full flex items-center gap-3 p-5 text-left transition-colors ${
+                    activities.length > 0 ? "cursor-pointer hover:bg-emerald-50" : "cursor-default"
+                  }`}
+                >
+                  <motion.div
+                    className="w-7 h-7 rounded-full bg-emerald-500 flex items-center justify-center flex-shrink-0"
+                    initial={justCompleted ? { scale: 0 } : { scale: 1 }}
+                    animate={{ scale: 1 }}
+                    transition={
+                      justCompleted
+                        ? { type: "spring", stiffness: 400, damping: 15, delay: 0.3 }
+                        : { duration: 0 }
+                    }
+                  >
+                    <Check className="w-4 h-4 text-white" strokeWidth={3} />
+                  </motion.div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-stone-700 font-medium text-sm">
+                      下書き記事がWordPressに保存されました
+                    </p>
+                    <p className="text-stone-500 text-xs mt-0.5">
+                      {activities.length > 0
+                        ? "タップして生成プロセスの詳細を表示"
+                        : "プレビューを確認して、必要に応じて編集してください"}
+                    </p>
+                  </div>
+                  {activities.length > 0 && (
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                      <span className="text-xs text-stone-400 tabular-nums hidden sm:inline">
+                        {activities.filter((a) => a.status === "done").length}件
+                      </span>
+                      <motion.div
+                        animate={{ rotate: activityLogOpen ? 180 : 0 }}
+                        transition={{ duration: 0.2 }}
+                      >
+                        <ChevronDown className="w-4 h-4 text-stone-400" />
+                      </motion.div>
+                    </div>
+                  )}
+                </button>
+
+                {/* Collapsible activity feed */}
+                <AnimatePresence initial={false}>
+                  {activityLogOpen && activities.length > 0 && (
+                    <motion.div
+                      key="activity-log"
+                      initial={{ height: 0, opacity: 0 }}
+                      animate={{ height: "auto", opacity: 1 }}
+                      exit={{ height: 0, opacity: 0 }}
+                      transition={{ duration: 0.25, ease: [0.25, 0.46, 0.45, 0.94] }}
+                      className="overflow-hidden"
+                    >
+                      <div className="border-t border-emerald-200/40 bg-white/60">
+                        <div
+                          className="overflow-y-auto overscroll-contain"
+                          style={{ maxHeight: "400px" }}
+                        >
+                          <div className="divide-y divide-stone-100">
+                            {activities.map((entry, idx) => (
+                              <div
+                                key={entry.id || idx}
+                                className="flex items-start gap-3 px-5 py-3 group"
+                              >
+                                {/* Status dot */}
+                                <div className="mt-1.5 flex-shrink-0">
+                                  {entry.status === "running" ? (
+                                    <span className="relative flex h-2 w-2">
+                                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75" />
+                                      <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500" />
+                                    </span>
+                                  ) : entry.status === "error" ? (
+                                    <span className="inline-flex rounded-full h-2 w-2 bg-red-400" />
+                                  ) : entry.type === "thinking" ? (
+                                    <span className="inline-flex rounded-full h-2 w-2 bg-stone-300" />
+                                  ) : (
+                                    <span className="inline-flex rounded-full h-2 w-2 bg-emerald-400" />
+                                  )}
+                                </div>
+
+                                {/* Content */}
+                                <div className="flex-1 min-w-0">
+                                  {entry.type === "thinking" ? (
+                                    <div className="text-xs text-stone-400 italic [&_p]:my-0.5 [&_ul]:my-1 [&_ol]:my-1 [&_*]:text-xs [&_p]:text-stone-400 [&_strong]:text-stone-500 [&_li]:text-stone-400 [&_.prose]:text-xs">
+                                      <ChatMarkdown
+                                        content={entry.message}
+                                        className="!text-xs !leading-snug"
+                                      />
+                                    </div>
+                                  ) : (
+                                    <p
+                                      className={`text-sm leading-snug ${
+                                        entry.status === "running"
+                                          ? "text-stone-700"
+                                          : "text-stone-500"
+                                      }`}
+                                    >
+                                      {entry.message}
+                                    </p>
+                                  )}
+                                  {entry.phase && entry.type === "tool" && (
+                                    <p className="text-[11px] text-stone-300 mt-0.5">
+                                      {entry.phase}
+                                    </p>
+                                  )}
+                                </div>
+
+                                {/* Timestamp */}
+                                <span className="text-[11px] text-stone-300 tabular-nums flex-shrink-0 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
+                                  {elapsedLabel(entry.timestamp)}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+
+                        {/* Footer */}
+                        <div className="flex items-center justify-between px-5 py-2.5 border-t border-stone-100 bg-stone-50/50">
+                          <span className="text-[11px] text-stone-400">
+                            {activities.filter((a) => a.status === "done").length} 件完了
+                          </span>
+                          <span className="text-[11px] text-stone-300 tabular-nums">
+                            {state.created_at &&
+                              `開始: ${new Date(state.created_at).toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" })}`}
+                          </span>
+                        </div>
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
               </div>
 
               {/* Agent message */}
               {state.blog_context.agent_message && (
-                <div className="p-5 rounded-2xl bg-white/70 border border-stone-200/60">
+                <motion.div
+                  initial={{ opacity: 0, y: 16 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.25, duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
+                  className="p-5 rounded-2xl bg-white/70 border border-stone-200/60"
+                >
                   <p className="text-xs font-medium text-stone-400 mb-3 flex items-center gap-1.5 uppercase tracking-wider">
                     <FileText className="w-3.5 h-3.5" />
                     AIからのメッセージ
@@ -628,39 +840,8 @@ export default function BlogProcessPage() {
                     content={state.blog_context.agent_message}
                     className="text-stone-600"
                   />
-                </div>
+                </motion.div>
               )}
-
-              {/* Action buttons */}
-              <div className="flex flex-col gap-2 sm:flex-row sm:gap-3">
-                {state.draft_preview_url && (
-                  <Button
-                    asChild
-                    className="rounded-xl bg-stone-800 hover:bg-stone-700"
-                  >
-                    <a
-                      href={state.draft_preview_url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                    >
-                      <ExternalLink className="w-4 h-4 mr-2" />
-                      プレビューを見る
-                    </a>
-                  </Button>
-                )}
-                {state.draft_edit_url && (
-                  <Button variant="outline" asChild className="rounded-xl">
-                    <a
-                      href={state.draft_edit_url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                    >
-                      <Edit3 className="w-4 h-4 mr-2" />
-                      WordPressで編集
-                    </a>
-                  </Button>
-                )}
-              </div>
             </motion.div>
           )}
 
@@ -898,7 +1079,8 @@ export default function BlogProcessPage() {
               key="progress"
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -10 }}
+              exit={{ opacity: 0, y: 10, scale: 0.97, filter: "blur(4px)", transition: { duration: 0.35, ease: "easeIn" } }}
+              transition={{ duration: 0.4 }}
               className="space-y-4"
             >
               {/* Current activity indicator */}
@@ -961,17 +1143,24 @@ export default function BlogProcessPage() {
 
                           {/* Content */}
                           <div className="flex-1 min-w-0">
-                            <p
-                              className={`text-sm leading-snug ${
-                                entry.type === "thinking"
-                                  ? "text-stone-400 italic"
-                                  : entry.status === "running"
+                            {entry.type === "thinking" ? (
+                              <div className="text-xs text-stone-400 italic [&_p]:my-0.5 [&_ul]:my-1 [&_ol]:my-1 [&_*]:text-xs [&_p]:text-stone-400 [&_strong]:text-stone-500 [&_li]:text-stone-400 [&_.prose]:text-xs">
+                                <ChatMarkdown
+                                  content={entry.message}
+                                  className="!text-xs !leading-snug"
+                                />
+                              </div>
+                            ) : (
+                              <p
+                                className={`text-sm leading-snug ${
+                                  entry.status === "running"
                                     ? "text-stone-700"
                                     : "text-stone-500"
-                              }`}
-                            >
-                              {entry.message}
-                            </p>
+                                }`}
+                              >
+                                {entry.message}
+                              </p>
+                            )}
                             {entry.phase && entry.type === "tool" && (
                               <p className="text-[11px] text-stone-300 mt-0.5">
                                 {entry.phase}
@@ -1048,6 +1237,17 @@ export default function BlogProcessPage() {
           }
           100% {
             transform: translateX(100%);
+          }
+        }
+        @keyframes successGlow {
+          0% {
+            box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.4);
+          }
+          50% {
+            box-shadow: 0 0 20px 4px rgba(16, 185, 129, 0.15);
+          }
+          100% {
+            box-shadow: 0 0 0 0 rgba(16, 185, 129, 0);
           }
         }
       `}</style>

@@ -115,6 +115,9 @@ ask_user_questions(
 
 ## 利用可能なツール
 
+### Web検索
+- web_search: Webで最新情報を検索する。記事のリサーチ、事実確認、統計データの取得に活用する
+
 ### ユーザー対話系
 - ask_user_questions: ユーザーに質問して追加情報を収集（上記「ユーザーへの質問」参照）
 
@@ -162,9 +165,10 @@ ask_user_questions(
 2. カテゴリ一覧を確認 (`wp_get_categories`) して、どのカテゴリに記事を作成するか決定
 3. 参考記事があれば取得・分析 (`wp_get_post_by_url` または `wp_get_recent_posts`)
 4. カテゴリ内の既存記事からパターンを分析 (`wp_analyze_category_format_patterns`)
-5. **追加情報が必要な場合は `ask_user_questions` でユーザーに質問**（インタビュー記事など）
-6. 分析結果とユーザー入力を参考に、Gutenbergブロック形式で記事を作成
-7. 最後に `wp_create_draft_post` で下書き記事を作成
+5. **`web_search` で記事トピックに関する最新情報・統計・事実を調査**
+6. **追加情報が必要な場合は `ask_user_questions` でユーザーに質問**（インタビュー記事など）
+7. 分析結果とユーザー入力を参考に、Gutenbergブロック形式で記事を作成
+8. 最後に `wp_create_draft_post` で下書き記事を作成
 
 ## ユーザーアップロード画像の活用
 
@@ -217,7 +221,7 @@ def build_blog_writer_agent() -> Agent:
         instructions=BLOG_WRITER_INSTRUCTIONS,
         model=settings.blog_generation_model,  # gpt-5.2
         model_settings=ModelSettings(
-            reasoning=Reasoning(effort="medium")
+            reasoning=Reasoning(effort=settings.blog_generation_reasoning_effort, summary=settings.blog_generation_reasoning_summary)
         ),
         tools=ALL_WORDPRESS_TOOLS,
     )

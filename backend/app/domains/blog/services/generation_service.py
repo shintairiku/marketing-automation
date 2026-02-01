@@ -26,6 +26,8 @@ from agents.items import (
     MessageOutputItem,
 )
 
+from openai import AsyncOpenAI
+
 from app.common.database import supabase
 from app.domains.usage.service import usage_service
 import logging
@@ -93,7 +95,35 @@ TOOL_STEP_MAPPING: Dict[str, tuple[str, str]] = {
     "wp_get_article_regulations": ("情報収集中", "レギュレーション設定を取得しています"),
     # ユーザー質問
     "ask_user_questions": ("情報収集中", "ユーザーに追加情報を確認しています"),
+    # Web検索
+    "web_search": ("リサーチ中", "Webで情報を検索しています"),
 }
+
+# 組み込みツールの type → ツール名マッピング
+# OpenAI の組み込みツール（WebSearchTool等）は raw_item に "name" 属性がなく "type" で識別する
+_BUILTIN_TOOL_TYPE_MAP: Dict[str, str] = {
+    "web_search_call": "web_search",
+    "file_search_call": "file_search",
+    "code_interpreter_call": "code_interpreter",
+    "image_generation_call": "image_generation",
+    "computer_call": "computer_use",
+    "mcp_call": "mcp_call",
+}
+
+
+def _resolve_tool_name(raw_item: Any) -> str:
+    """ToolCallItem の raw_item からツール名を解決する。
+
+    function_tool の場合は raw_item.name、組み込みツール（WebSearchTool等）の場合は
+    raw_item.type から逆引きする。
+    """
+    name = getattr(raw_item, "name", None)
+    if name:
+        return name
+    item_type = getattr(raw_item, "type", None)
+    if item_type and item_type in _BUILTIN_TOOL_TYPE_MAP:
+        return _BUILTIN_TOOL_TYPE_MAP[item_type]
+    return "unknown_tool"
 
 
 class BlogGenerationService:
@@ -464,7 +494,7 @@ class BlogGenerationService:
                 # ツール呼び出しログ
                 if execution_id and logging_service and isinstance(event, RunItemStreamEvent):
                     if isinstance(event.item, ToolCallItem):
-                        tool_name = getattr(event.item.raw_item, "name", None) or "unknown_tool"
+                        tool_name = _resolve_tool_name(event.item.raw_item)
                         call_id = (
                             getattr(event.item.raw_item, "call_id", None)
                             or getattr(event.item.raw_item, "id", None)
@@ -520,7 +550,7 @@ class BlogGenerationService:
                     if isinstance(event.item, ToolCallItem):
                         tool_call_count += 1
                         # ask_user_questions の引数を検出
-                        tool_name = getattr(event.item.raw_item, "name", None)
+                        tool_name = _resolve_tool_name(event.item.raw_item)
                         if tool_name == "ask_user_questions":
                             pending_user_questions = self._extract_user_questions(
                                 event.item.raw_item
@@ -646,7 +676,7 @@ class BlogGenerationService:
 
                 # ツール呼び出し開始
                 if isinstance(item, ToolCallItem):
-                    tool_name = getattr(item.raw_item, "name", None) or "unknown_tool"
+                    tool_name = _resolve_tool_name(item.raw_item)
                     step_info = TOOL_STEP_MAPPING.get(
                         tool_name, ("記事生成中", f"{tool_name}を実行しています")
                     )
@@ -695,10 +725,24 @@ class BlogGenerationService:
 
                 # AI思考中（Reasoning）
                 elif isinstance(item, ReasoningItem):
+                    # reasoning summary テキストを抽出
+                    summary_text = None
+                    if hasattr(item.raw_item, 'summary') and item.raw_item.summary:
+                        texts = [s.text for s in item.raw_item.summary if hasattr(s, 'text') and s.text]
+                        if texts:
+                            summary_text = " ".join(texts)
+
+                    # 英語 summary → 日本語に翻訳
+                    if summary_text:
+                        summary_text = await self._translate_to_japanese(summary_text)
+
                     await self._publish_event(
                         process_id, user_id,
                         "reasoning",
-                        {"message": "AIが考えています..."},
+                        {
+                            "message": summary_text or "AIが考えています...",
+                            "has_summary": summary_text is not None,
+                        },
                     )
 
                 # メッセージ出力
@@ -1505,6 +1549,23 @@ class BlogGenerationService:
         supabase.table("blog_generation_state").update(
             update_data
         ).eq("id", process_id).execute()
+
+    async def _translate_to_japanese(self, text: str) -> str:
+        """英語の reasoning summary を gpt-5-nano で日本語に翻訳"""
+        try:
+            client = AsyncOpenAI(api_key=settings.openai_api_key)
+            response = await client.responses.create(
+                model=settings.reasoning_translate_model,
+                instructions="Translate the following text to Japanese. Output ONLY the translated text, nothing else. Keep any markdown formatting intact.",
+                input=text,
+                reasoning={"effort": "minimal", "summary": None},
+                text={"verbosity": "low"},
+                store=False,
+            )
+            return response.output_text or text
+        except Exception as e:
+            logger.warning(f"Reasoning summary 翻訳失敗、原文を使用: {e}")
+            return text
 
     async def _publish_event(
         self,

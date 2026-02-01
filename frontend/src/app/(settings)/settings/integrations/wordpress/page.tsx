@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertCircle,
   Building2,
@@ -8,6 +8,7 @@ import {
   Clock,
   ExternalLink,
   Globe,
+  Link2,
   Loader2,
   MinusCircle,
   RefreshCw,
@@ -53,6 +54,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useAuth, useUser } from "@clerk/nextjs";
 
@@ -112,6 +114,13 @@ export default function WordPressIntegrationPage() {
   const [testDialogOpen, setTestDialogOpen] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [updatingOrgId, setUpdatingOrgId] = useState<string | null>(null);
+
+  // 接続URL入力
+  const [connectionUrl, setConnectionUrl] = useState("");
+  const [connectingByUrl, setConnectingByUrl] = useState(false);
+  const [connectUrlError, setConnectUrlError] = useState<string | null>(null);
+  const [connectUrlSuccess, setConnectUrlSuccess] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   const currentUserId = user?.id ?? null;
 
@@ -253,6 +262,56 @@ export default function WordPressIntegrationPage() {
     }
   };
 
+  const handleConnectByUrl = async () => {
+    const url = connectionUrl.trim();
+    if (!url) return;
+
+    // 簡易バリデーション
+    try {
+      const parsed = new URL(url);
+      if (!parsed.searchParams.get("code")) {
+        setConnectUrlError("接続URLにcodeパラメータが含まれていません。WordPress管理画面で生成された接続URLを貼り付けてください。");
+        return;
+      }
+    } catch {
+      setConnectUrlError("有効なURLを入力してください。");
+      return;
+    }
+
+    setConnectingByUrl(true);
+    setConnectUrlError(null);
+    setConnectUrlSuccess(false);
+
+    try {
+      const token = await getToken();
+      const response = await fetch("/api/proxy/blog/connect/wordpress/url", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          connection_url: url,
+        }),
+      });
+
+      if (response.ok) {
+        setConnectUrlSuccess(true);
+        setConnectionUrl("");
+        await fetchSites();
+        // 3秒後に成功メッセージを消す
+        setTimeout(() => setConnectUrlSuccess(false), 4000);
+      } else {
+        const data = await response.json();
+        setConnectUrlError(data.detail || "連携に失敗しました");
+      }
+    } catch {
+      setConnectUrlError("ネットワークエラーが発生しました");
+    } finally {
+      setConnectingByUrl(false);
+    }
+  };
+
   const siteGroups = useMemo((): SiteGroup[] => {
     const personalSites: WordPressSite[] = [];
     const orgMap = new Map<string, WordPressSite[]>();
@@ -343,34 +402,80 @@ export default function WordPressIntegrationPage() {
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
-            <Globe className="w-5 h-5" />
-            連携方法
+            <Link2 className="w-5 h-5" />
+            WordPressサイトを連携する
           </CardTitle>
+          <CardDescription>
+            WordPress管理画面の「設定 → MCP連携」で生成された接続URLを貼り付けてください
+          </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="bg-muted/50 p-4 rounded-lg space-y-3">
-            <h3 className="font-semibold">WordPress MCPプラグインの設定手順</h3>
-            <ol className="list-decimal list-inside space-y-2 text-sm text-muted-foreground">
-              <li>WordPressの管理画面にログインします</li>
-              <li>「プラグイン」→「新規追加」からMCPプラグインをインストール</li>
-              <li>プラグインを有効化後、「設定」→「MCP連携」を開きます</li>
-              <li>「外部サービスと連携する」ボタンをクリック</li>
-              <li>
-                このページに自動的にリダイレクトされ、連携が完了します
-              </li>
-            </ol>
+          {/* 接続URL入力 */}
+          <div className="space-y-3">
+            <div className="flex gap-2">
+              <Input
+                ref={inputRef}
+                type="url"
+                placeholder="https://example.com/wp-json/wp-mcp/v1/register?code=..."
+                value={connectionUrl}
+                onChange={(e) => {
+                  setConnectionUrl(e.target.value);
+                  setConnectUrlError(null);
+                  setConnectUrlSuccess(false);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && connectionUrl.trim()) {
+                    handleConnectByUrl();
+                  }
+                }}
+                disabled={connectingByUrl}
+                className="flex-1 font-mono text-sm"
+              />
+              <Button
+                onClick={handleConnectByUrl}
+                disabled={connectingByUrl || !connectionUrl.trim()}
+              >
+                {connectingByUrl ? (
+                  <>
+                    <Loader2 className="w-4 h-4 mr-1.5 animate-spin" />
+                    接続中
+                  </>
+                ) : (
+                  "連携する"
+                )}
+              </Button>
+            </div>
+
+            {/* 成功メッセージ */}
+            {connectUrlSuccess && (
+              <div className="flex items-center gap-2 p-3 rounded-lg bg-green-50 text-green-700 text-sm">
+                <CheckCircle2 className="w-4 h-4 flex-shrink-0" />
+                WordPressサイトの連携が完了しました
+              </div>
+            )}
+
+            {/* エラーメッセージ */}
+            {connectUrlError && (
+              <div className="flex items-start gap-2 p-3 rounded-lg bg-red-50 text-red-700 text-sm">
+                <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+                <span>{connectUrlError}</span>
+              </div>
+            )}
           </div>
-          <Button variant="outline" asChild>
-            <a
-              href="https://example.com/wp-mcp-plugin"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center gap-2"
-            >
-              <ExternalLink className="w-4 h-4" />
-              MCPプラグインのダウンロード
-            </a>
-          </Button>
+
+          {/* 手順ガイド */}
+          <div className="bg-muted/50 p-4 rounded-lg space-y-2">
+            <h3 className="font-semibold text-sm">接続URLの取得方法</h3>
+            <ol className="list-decimal list-inside space-y-1.5 text-sm text-muted-foreground">
+              <li>WordPressの管理画面にログイン</li>
+              <li>「設定」→「MCP連携」を開く</li>
+              <li>接続名を入力して「接続URLを生成する」をクリック</li>
+              <li>生成されたURLをコピーして上のフィールドに貼り付け</li>
+            </ol>
+            <p className="text-xs text-muted-foreground mt-2">
+              ※ 接続URLは生成から10分間有効です。期限切れの場合は再度生成してください。
+            </p>
+          </div>
         </CardContent>
       </Card>
 
