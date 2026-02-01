@@ -1173,6 +1173,12 @@ docker compose logs -f backend                        # ログ確認
 - **バックエンド**: `GET /admin/usage/blog` を新設。`agent_log_sessions`（workflow_type=blog_generation）と `blog_generation_state` を結合し、`llm_call_logs` / `tool_call_logs` から集計。
 - **フロント**: `frontend/src/app/(admin)/admin/blog-usage/page.tsx` でテーブル表示、サイドバーに「記事別Usage」を追加。
 
+### 16. 管理者向け「記事別Usage」実装ログ (2026-02-01)
+
+- **新規API**: `GET /admin/usage/blog` を追加。Blog AI の `process_id` 単位で `agent_log_sessions` と `blog_generation_state` を結合し、`llm_call_logs` / `tool_call_logs` を集計。
+- **新規UI**: `/admin/blog-usage` ページを追加し、入力/出力/総トークン、キャッシュ/推論、推定コスト、ツール回数、モデルを一覧表示。
+- **ナビ更新**: 管理者サイドバーに「記事別Usage」を追加。
+
 
 > ## **【最重要・再掲】記憶の更新は絶対に忘れるな**
 > **このファイルの冒頭にも書いたが、改めて念押しする。**
