@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
+import { backendFetch } from '@/lib/backend-fetch';
 import { auth } from '@clerk/nextjs/server';
-
-const BACKEND_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8080';
 
 /**
  * GET /api/organizations/[id]/members
@@ -21,12 +20,7 @@ export async function GET(
     }
 
     const { id } = await params;
-    const response = await fetch(`${BACKEND_URL}/organizations/${id}/members`, {
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      },
-    });
+    const response = await backendFetch(`/organizations/${id}/members`, token);
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({ detail: 'Request failed' }));

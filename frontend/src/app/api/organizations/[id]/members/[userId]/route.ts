@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
+import { backendFetch } from '@/lib/backend-fetch';
 import { auth } from '@clerk/nextjs/server';
-
-const BACKEND_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8080';
 
 /**
  * DELETE /api/organizations/[id]/members/[userId]
@@ -21,15 +20,10 @@ export async function DELETE(
     }
 
     const { id, userId } = await params;
-    const response = await fetch(
-      `${BACKEND_URL}/organizations/${id}/members/${userId}`,
-      {
-        method: 'DELETE',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-      }
+    const response = await backendFetch(
+      `/organizations/${id}/members/${userId}`,
+      token,
+      { method: 'DELETE' }
     );
 
     if (!response.ok) {

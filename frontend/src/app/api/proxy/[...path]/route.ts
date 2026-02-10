@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
+import { getCloudRunIdToken } from '@/lib/google-auth';
+
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8080';
 
 /**
@@ -75,8 +77,8 @@ async function toNextResponse(response: Response): Promise<NextResponse> {
   });
 }
 
-// Authorization ヘッダーを含む共通ヘッダーを構築
-function buildHeaders(request: NextRequest, includeContentType = true): Record<string, string> {
+// Authorization + Cloud Run IAM ヘッダーを含む共通ヘッダーを構築
+async function buildHeaders(request: NextRequest, includeContentType = true): Promise<Record<string, string>> {
   const headers: Record<string, string> = {};
   if (includeContentType) {
     headers['Content-Type'] = 'application/json';
@@ -85,6 +87,14 @@ function buildHeaders(request: NextRequest, includeContentType = true): Record<s
   if (authHeader) {
     headers['Authorization'] = authHeader;
   }
+
+  // Cloud Run IAM 認証 (X-Serverless-Authorization)
+  // Cloud Run がこのヘッダーで IAM を検証し、除去後に Authorization をそのまま転送する
+  const idToken = await getCloudRunIdToken();
+  if (idToken) {
+    headers['X-Serverless-Authorization'] = `Bearer ${idToken}`;
+  }
+
   return headers;
 }
 
@@ -96,7 +106,7 @@ export async function GET(
   const pathString = ensureTrailingSlash(pathArray.join('/'));
   const searchParams = request.nextUrl.searchParams.toString();
   const url = `${API_BASE_URL}/${pathString}${searchParams ? `?${searchParams}` : ''}`;
-  const headers = buildHeaders(request);
+  const headers = await buildHeaders(request);
 
   console.log(`📡 [PROXY-GET] ${url} | auth: ${headers['Authorization'] ? 'yes' : 'NO'}`);
 
@@ -124,7 +134,7 @@ export async function POST(
   const isFormData = contentType?.includes('multipart/form-data');
 
   let body: BodyInit;
-  const headers = buildHeaders(request, !isFormData);
+  const headers = await buildHeaders(request, !isFormData);
 
   if (isFormData) {
     body = await request.formData();
@@ -154,7 +164,7 @@ export async function PUT(
   const pathString = ensureTrailingSlash(pathArray.join('/'));
   const url = `${API_BASE_URL}/${pathString}`;
   const body = await request.text();
-  const headers = buildHeaders(request);
+  const headers = await buildHeaders(request);
 
   try {
     const response = await fetchWithRedirect(url, { method: 'PUT', headers, body });
@@ -176,7 +186,7 @@ export async function PATCH(
   const pathString = ensureTrailingSlash(pathArray.join('/'));
   const url = `${API_BASE_URL}/${pathString}`;
   const body = await request.text();
-  const headers = buildHeaders(request);
+  const headers = await buildHeaders(request);
 
   try {
     const response = await fetchWithRedirect(url, { method: 'PATCH', headers, body });
@@ -197,7 +207,7 @@ export async function DELETE(
   const { path: pathArray } = await params;
   const pathString = ensureTrailingSlash(pathArray.join('/'));
   const url = `${API_BASE_URL}/${pathString}`;
-  const headers = buildHeaders(request);
+  const headers = await buildHeaders(request);
 
   try {
     const response = await fetchWithRedirect(url, { method: 'DELETE', headers });

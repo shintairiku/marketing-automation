@@ -18,14 +18,8 @@ const nextConfig = {
     // Extend proxy timeout so long-running agent edits don't get reset by Next.js dev/prod proxy.
     proxyTimeout: 120_000,
   },
-  async rewrites() {
-    return [
-      {
-        source: '/api/proxy/:path*',
-        destination: `${process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000'}/:path*`,
-      },
-    ];
-  },
+  // rewrites は削除: Cloud Run 非公開化に伴い、全リクエストを route handler 経由に集約。
+  // route handler で X-Serverless-Authorization (Google ID Token) を付与する。
 };
 
 module.exports = nextConfig;

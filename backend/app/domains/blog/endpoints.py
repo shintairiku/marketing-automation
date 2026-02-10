@@ -192,43 +192,15 @@ def _get_org_site(supabase, site_id: str, user_id: str):
 # WordPress連携エンドポイント
 # =====================================================
 
-@router.get(
-    "/connect/wordpress",
-    summary="WordPress連携開始（リダイレクト）",
-    description="WordPressプラグインからのOAuth風コールバックを受け取り、フロントエンドにリダイレクト",
-)
-async def connect_wordpress_redirect(
-    action: Optional[str] = Query(None),
-    site_url: Optional[str] = Query(None),
-    site_name: Optional[str] = Query(None),
-    mcp_endpoint: Optional[str] = Query(None),
-    register_endpoint: Optional[str] = Query(None),
-    registration_code: Optional[str] = Query(None),
-    callback_url: Optional[str] = Query(None),
-):
-    """WordPressプラグインからのリクエストをフロントエンドにリダイレクト"""
-    from fastapi.responses import RedirectResponse
-    import urllib.parse
-
-    logger.info(f"WordPress連携リダイレクト: site_url={site_url}, action={action}")
-
-    # フロントエンドの連携確認ページにリダイレクト
-    # クエリパラメータを引き継ぐ
-    frontend_url = settings.frontend_url
-
-    params = {
-        "site_url": site_url or "",
-        "site_name": site_name or "",
-        "mcp_endpoint": mcp_endpoint or "",
-        "register_endpoint": register_endpoint or "",
-        "registration_code": registration_code or "",
-        "callback_url": callback_url or "",
-    }
-
-    query_string = urllib.parse.urlencode(params)
-    redirect_url = f"{frontend_url}/settings/integrations/wordpress/connect?{query_string}"
-
-    return RedirectResponse(url=redirect_url, status_code=302)
+# Cloud Run 非公開化に伴い無効化。URL貼り付け方式 (POST /connect/wordpress/url) を使用。
+# 旧 WordPress プラグインの OAuth リダイレクト方式は廃止。
+# @router.get(
+#     "/connect/wordpress",
+#     summary="WordPress連携開始（リダイレクト）",
+#     description="WordPressプラグインからのOAuth風コールバックを受け取り、フロントエンドにリダイレクト",
+# )
+# async def connect_wordpress_redirect(...):
+#     ...
 
 
 @router.post(

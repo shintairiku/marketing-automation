@@ -1,602 +1,344 @@
-# セキュリティ監査レポート
+# Security Audit Report
 
-**対象**: BlogAI / Marketing Automation Platform
-**監査日**: 2026-02-03
-**監査者**: Claude Opus 4.5 (自動セキュリティ監査)
-**対象ブランチ**: develop (コミット 58a65c3)
-
----
-
-## エグゼクティブサマリー
-
-本プラットフォームは、FastAPI バックエンド (Cloud Run) + Next.js 15 フロントエンド + Supabase (PostgreSQL) + Clerk 認証 + Stripe 課金で構成されるSaaS型ブログ自動生成サービスである。
-
-監査の結果、**Critical 2件、High 7件、Medium 8件、Low 5件**の脆弱性を検出した。
-
-最も深刻な問題は以下の2点:
-1. **Cloud Run上のバックエンドAPIが認証なしで直接アクセス可能**: Cloud Runのパブリックエンドポイントに直接HTTPリクエストを送れば、フロントエンドのプロキシとNext.js middlewareの認証チェックを完全にバイパスできる。
-2. **RLSポリシーの全面削除**: Clerk移行時にSupabaseのRow Level Securityポリシーが全テーブルから削除されており、バックエンドのservice_roleキー経由でデータベースにアクセスする全ての処理が、適切なアクセス制御なしにデータを読み書きできる状態になっている。
+**Project:** Marketing Automation / Blog AI Platform
+**Date:** 2026-02-10
+**Auditor:** Claude Opus 4.6 (Automated Security Audit)
+**Scope:** Full codebase review (backend, frontend, infrastructure, database)
+**Branch:** develop (commit 8e162b8)
 
 ---
 
-## Critical（致命的）脆弱性
+## Executive Summary
 
-### CRIT-01: Cloud Run バックエンドAPI の直接アクセスによる認証バイパス
+This security audit of the Marketing Automation / Blog AI platform identified **4 Critical**, **7 High**, **8 Medium**, and **6 Low** severity vulnerabilities across the codebase.
 
-- **場所**: `backend/main.py` (全体), Cloud Run デプロイメント構成
-- **CWE**: CWE-306 (Missing Authentication for Critical Function)
-- **CVSS**: 9.8 (Critical)
+The most urgent finding is the **exposure of live production secrets** (API keys, database credentials, encryption keys, and webhook secrets) in plaintext within local `.env` files that, while not committed to Git, are present on disk and could be leaked through backup, developer machine compromise, or accidental inclusion. A closely related critical finding is the **DEBUG mode JWT bypass** mechanism that completely disables authentication signature verification when the `DEBUG` environment variable is set to `true`.
 
-- **説明**:
-  本アプリケーションのアーキテクチャでは、フロントエンド (Next.js) がバックエンド (FastAPI) への唯一のゲートウェイとして機能し、`/api/proxy/[...path]/route.ts` がリクエストを転送する設計になっている。しかし、Cloud Run にデプロイされたバックエンドAPIは**パブリックURLで直接アクセス可能**である。
+Additional critical issues include **unauthenticated API endpoints** that allow arbitrary image generation consuming cloud resources, and a **Server-Side Request Forgery (SSRF) vector** in the WordPress connection URL endpoint that can be abused to probe internal network services.
 
-  攻撃者が Cloud Run の URL を知っている場合（DNS、ネットワーク通信の観察、エラーメッセージのリーク等で取得可能）、フロントエンドの認証ミドルウェアを完全にバイパスし、バックエンドの全エンドポイントに直接アクセスできる。
+The platform has solid foundations in many areas -- Clerk JWT verification with JWKS rotation, AES-256-GCM credential encryption, Stripe webhook signature verification, and path traversal prevention on image serving. However, several gaps in rate limiting, input validation, CORS configuration, and data access controls require immediate attention before or shortly after production deployment.
 
-  バックエンド側にも Clerk JWT 検証（`get_current_user_id_from_token`）は実装されているが、**一部のエンドポイントは認証なしでアクセス可能**:
+**Risk Score: HIGH** -- Immediate remediation of Critical and High items is recommended before continued public exposure.
+
+---
+
+## Critical Vulnerabilities
+
+### CRIT-01: Live Production Secrets Exposed in Local `.env` Files
+
+- **Location:** `/home/als0028/study/shintairiku/marketing-automation/backend/.env` (lines 1-100+), `/home/als0028/study/shintairiku/marketing-automation/frontend/.env.local` (lines 1-40+)
+- **Description:** Both `backend/.env` and `frontend/.env.local` contain plaintext production/test secrets including:
+  - OpenAI API key (`sk-proj-HryhRJdP...`)
+  - Supabase service role key (full JWT with `service_role` claim)
+  - Supabase database password (`4NFiXju7HQzYwCfR`)
+  - Stripe secret key (`sk_test_51RBxQo...`)
+  - Stripe webhook secret (multiple instances)
+  - Clerk secret key (`sk_test_23X1pk...`)
+  - Google AI API key (`AIzaSyAuQBm8...`)
+  - Anthropic API key (`sk-ant-api03-16b5hc...`)
+  - Notion API key (`ntn_Ex755093...`)
+  - WandB API key (`e6a4460ed7...`)
+  - Credential encryption key (`Hy1SVRBanr...`)
+  - Google OAuth client secret (`GOCSPX-JU0XEEvV9...`)
+
+  While `.env` is listed in `.gitignore` and is not tracked in Git, the files exist on the local filesystem. If a developer's machine is compromised, if these files are accidentally included in a Docker image, or if they are backed up to an unencrypted location, all of these secrets are exposed. The Supabase service role key is particularly dangerous as it bypasses all Row Level Security policies.
+
+- **Impact:** Complete compromise of all connected services. An attacker with these keys could: access and modify all database records (bypassing RLS), make unlimited AI API calls at the project's expense, access Stripe billing data and manipulate subscriptions, impersonate any user via Clerk, read/write to Google Cloud Storage, and decrypt WordPress credentials.
+
+- **Remediation Checklist:**
+  - [ ] **Immediately rotate all secrets** listed above in their respective service dashboards (OpenAI, Supabase, Stripe, Clerk, Google Cloud, Anthropic, Notion, WandB)
+  - [ ] Use a secrets manager (Google Secret Manager, since the platform is deployed on Cloud Run) instead of `.env` files for production deployments
+  - [ ] Add `backend/.env` and `frontend/.env.local` to a pre-commit hook that prevents accidental commits of files containing secret patterns
+  - [ ] In Docker builds, inject secrets via Cloud Run environment variables or Secret Manager volume mounts -- never copy `.env` files into images
+  - [ ] Remove the `SUPABASE_DB_PASSWORD` from frontend `.env.local` entirely -- the frontend should never have direct database access
+  - [ ] Ensure `.env.example` files contain only placeholder values (already the case, but verify regularly)
+
+- **References:** [OWASP Secrets Management Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Secrets_Management_Cheat_Sheet.html), CWE-798
+
+---
+
+### CRIT-02: DEBUG Mode Completely Disables JWT Signature Verification
+
+- **Location:** `/home/als0028/study/shintairiku/marketing-automation/backend/app/common/auth.py` (lines 139-153)
+- **Description:** When the environment variable `DEBUG=true` is set, the `verify_clerk_token()` function skips all JWT signature verification:
 
   ```python
-  # backend/app/domains/image_generation/endpoints.py
-  @router.get("/serve/{image_filename}")
-  async def serve_image(image_filename: str):
-      # 認証チェックなし - 誰でもアクセス可能
-  ```
-
-  ```python
-  # backend/main.py
-  @app.get("/")
-  async def read_root():
-      return {"message": "Welcome to the SEO Article Generation API (WebSocket)!"}
-
-  @app.get("/health")
-  async def health_check():
-      return {"status": "healthy", "message": "API is running", "version": "2.0.0"}
-  ```
-
-  また、Cloud Runのバックエンドに直接アクセスした場合、CORS設定 (`ALLOWED_ORIGINS`) のみが制限となるが、CORSはブラウザの制約であり、`curl` や任意のHTTPクライアントでは無視される。
-
-- **影響**:
-  - 認証なしで生成画像にアクセス可能
-  - 有効な JWT トークンがあれば、フロントエンドの特権チェック（`@shintairiku.jp` ドメインチェック）やサブスクリプションチェックをバイパス可能
-  - APIのバージョン情報やエンドポイント構造が露出
-
-- **修正チェックリスト**:
-  - [ ] **Cloud Run にIAM認証を設定**: Cloud Run サービスを「認証が必要」に変更し、フロントエンド（Next.js）のサービスアカウントのみにinvoker権限を付与する。もしくは Cloud Run の前段に API Gateway / Cloud Load Balancer + IAP を配置する
-  - [ ] **代替策: バックエンドに独自のAPIキー認証を追加**: フロントエンドのプロキシが固定のAPIキーをヘッダーに付与し、バックエンドのミドルウェアで検証する
-  - [ ] `/images/serve/{image_filename}` エンドポイントに認証チェックを追加する
-  - [ ] FastAPI の `docs` / `redoc` エンドポイントを本番環境では無効化する（`app = FastAPI(docs_url=None, redoc_url=None)` を `DEBUG=false` 時に適用）
-
-- **参考**: [OWASP API Security Top 10 - API2:2023 Broken Authentication](https://owasp.org/API-Security/editions/2023/en/0xa2-broken-authentication/)
-
----
-
-### CRIT-02: Supabase RLSポリシーの全面削除
-
-- **場所**: `shared/supabase/migrations/20260130000003_fix_org_clerk_compat.sql`
-- **CWE**: CWE-862 (Missing Authorization)
-- **CVSS**: 9.1 (Critical)
-
-- **説明**:
-  Clerk 移行時に `auth.uid()` に依存していたRLSポリシーがすべて削除された。削除されたポリシーは以下のテーブルに及ぶ:
-
-  ```sql
-  -- 20260130000003_fix_org_clerk_compat.sql より抜粋
-  DROP POLICY IF EXISTS "Organization owners can manage their organizations" ON organizations;
-  DROP POLICY IF EXISTS "Organization members can view their organizations" ON organizations;
-  DROP POLICY IF EXISTS "Organization owners and admins can manage members" ON organization_members;
-  DROP POLICY IF EXISTS "Members can view organization memberships" ON organization_members;
-  DROP POLICY IF EXISTS "Users can manage their own generation processes" ON generated_articles_state;
-  DROP POLICY IF EXISTS "Users can manage their own articles" ON articles;
-  -- ... 他多数（合計20以上のポリシー）
-  ```
-
-  RLSは有効（`ENABLE ROW LEVEL SECURITY`）のままだが、**ポリシーが存在しない**。
-
-  バックエンドは `supabase_service_role_key` を使用しているため、RLSはバイパスされ実質影響しないが、以下のリスクがある:
-  1. フロントエンドの Supabase クライアント（anon key使用）が Realtime サブスクリプションでデータを取得する際、ポリシーがないため**全データへのアクセスが拒否される**（意図しない動作）
-  2. 万が一 anon key がクライアントに露出した場合（`NEXT_PUBLIC_SUPABASE_ANON_KEY` はクライアントに送信される）、RLSポリシーがないためデータへの直接アクセスが不可能になるが、**新しいポリシーを定義せず「全て拒否」の状態を放置するのは防御の不備**である
-  3. バックエンドの認証ロジックにバグがあった場合、RLSという第二の防衛ラインが機能しない
-
-- **影響**:
-  - データベースの多層防御が崩壊している
-  - バックエンドの認証バイパスが即座にデータ漏洩に繋がる
-
-- **修正チェックリスト**:
-  - [ ] Clerk JWT の `sub` クレームを使用する新しい RLS ポリシーを全テーブルに作成する。Supabase の `request.jwt.claims` を使って Clerk トークンからユーザーIDを取得する方式に移行する
-  - [ ] 新マイグレーションファイルを作成し、以下のテーブルに最低限のポリシーを追加:
-    - `organizations`: メンバーのみ参照可能
-    - `organization_members`: 自身のメンバーシップのみ参照可能
-    - `articles`: 自身の記事のみ参照/更新可能
-    - `generated_articles_state`: 自身のプロセスのみ参照/更新可能
-    - `wordpress_sites`: 自身のサイトのみ参照可能
-  - [ ] フロントエンドの Supabase Realtime サブスクリプションが正常に動作するか検証する
-
-- **参考**: [Supabase RLS Guide](https://supabase.com/docs/guides/auth/row-level-security), [OWASP - Broken Access Control](https://owasp.org/Top10/A01_2021-Broken_Access_Control/)
-
----
-
-## High（高）脆弱性
-
-### HIGH-01: DEBUG モードによるJWT署名検証スキップ
-
-- **場所**: `backend/app/common/auth.py` 139-146行目
-- **CWE**: CWE-287 (Improper Authentication)
-
-- **説明**:
-  `DEBUG=true` 環境変数が設定されている場合、JWT署名検証が完全にスキップされる:
-
-  ```python
-  # backend/app/common/auth.py
+  # backend/app/common/auth.py lines 139-153
   if DEBUG_MODE:
       logger.warning("⚠️ [AUTH] DEBUG MODE: Skipping JWT signature verification!")
+      logger.warning("⚠️ [AUTH] This is insecure and should NOT be used in production!")
       try:
           decoded = jwt.decode(token, options={"verify_signature": False})
           return decoded
+      except jwt.InvalidTokenError as e:
+          raise HTTPException(status_code=401, detail=f"Invalid token format: {e}")
   ```
 
-  攻撃者が任意のJWTトークンを偽造し、任意のユーザーになりすますことが可能。Cloud Run の環境変数に `DEBUG=true` が設定されていた場合、本番環境で悪用される。
+  This means any attacker can craft a JWT with an arbitrary `sub` claim (user ID) and access any endpoint as any user. The `DEBUG` variable is controlled by environment configuration and defaults to `false`, but there is no runtime safeguard preventing it from being accidentally enabled in production. Additionally, the current `backend/.env` has `ENABLE_DEBUG_CONSOLE=true` and `OPENAI_AGENTS_TRACE_INCLUDE_SENSITIVE_DATA=true`, indicating a pattern of debug features being left enabled.
 
-- **影響**: 完全な認証バイパス、任意のユーザーへのなりすまし
+  A separate function `validate_token_without_signature()` (line 318) also exists with no signature verification, though it appears to be for testing only.
 
-- **修正チェックリスト**:
-  - [ ] `DEBUG_MODE` による署名検証スキップを完全に削除する。デバッグ用の検証スキップは開発環境でも使用すべきではない
-  - [ ] Cloud Run のデプロイメントで `DEBUG` 環境変数が `false` に設定されていることを確認する
-  - [ ] `validate_token_without_signature()` 関数も削除する（テスト用であっても本番コードに含めるべきではない）
-  - [ ] CI/CD パイプラインで `DEBUG=true` が本番デプロイに含まれないことをチェックする
+- **Impact:** If `DEBUG=true` is ever set in production (accidentally or through environment variable injection), **all API authentication is completely bypassed**. An attacker could impersonate any user, access admin endpoints, modify data, and perform billing operations.
+
+- **Remediation Checklist:**
+  - [ ] **Remove the DEBUG mode bypass entirely** from `verify_clerk_token()`. Production code should never have a "skip authentication" switch
+  - [ ] If a debug mode is absolutely needed for local development, implement it as a compile-time flag or a separate development-only auth module that is not included in production builds
+  - [ ] Remove the `validate_token_without_signature()` function or gate it behind `if __name__ == "__main__"` for CLI testing only
+  - [ ] Add a startup check in `main.py` that logs a CRITICAL error and exits if `DEBUG=true` is detected alongside production-like configuration (e.g., non-localhost `SUPABASE_URL`)
+  - [ ] Set `DEBUG=false` explicitly in Cloud Run environment configuration and document that it must never be set to `true` in production
+
+  ```python
+  # Recommended: Remove debug bypass entirely
+  def verify_clerk_token(token: str) -> dict:
+      try:
+          jwk_client = _get_jwk_client()
+          signing_key = jwk_client.get_signing_key(token)
+          decoded = jwt.decode(
+              token,
+              signing_key.key,
+              algorithms=["RS256"],
+              options={
+                  "verify_signature": True,
+                  "verify_exp": True,
+                  "verify_iat": True,
+                  "require": ["exp", "iat", "sub"],
+              }
+          )
+          return decoded
+      except jwt.ExpiredSignatureError:
+          raise HTTPException(status_code=401, detail="Token has expired")
+      except jwt.InvalidTokenError as e:
+          raise HTTPException(status_code=401, detail=f"Invalid token: {e}")
+      except PyJWKClientError:
+          raise HTTPException(status_code=503, detail="Authentication service temporarily unavailable")
+  ```
+
+- **References:** CWE-287 (Improper Authentication), CWE-489 (Active Debug Code)
 
 ---
 
-### HIGH-02: APIレート制限の欠如
+### CRIT-03: Unauthenticated Endpoints Exposing Expensive Operations
 
-- **場所**: `backend/main.py`, 全エンドポイント
-- **CWE**: CWE-770 (Allocation of Resources Without Limits or Throttling)
+- **Location:** `/home/als0028/study/shintairiku/marketing-automation/backend/app/domains/image_generation/endpoints.py`
+- **Description:** Two endpoints in the image generation module lack authentication:
 
-- **説明**:
-  バックエンドAPIにはグローバルなレート制限が一切実装されていない。特に以下のエンドポイントが危険:
-  - `POST /blog/generation/start` - AI記事生成（OpenAI API呼び出し、高コスト）
-  - `POST /articles/generation/start` - SEO記事生成（同上）
-  - `POST /images/generate` - 画像生成（Vertex AI呼び出し、高コスト）
-  - `POST /blog/ai-questions` - AI質問生成
+  1. **`GET /images/test-config`** (line 67) -- Exposes internal Google Cloud configuration including project ID, credential status, and client type. No authentication required.
 
-  使用量制限（`usage_service.check_can_generate`）は月間の記事数上限のみで、**1分あたりのリクエスト数**を制限していない。
+  2. **`POST /images/generate-from-placeholder`** (line 258) -- Triggers Vertex AI image generation (Imagen-4) without any authentication. Any anonymous user can call this endpoint to generate images, consuming Google Cloud resources at the project's expense.
 
-- **影響**:
-  - APIの過負荷によるサービス拒否（DoS）
-  - AI API呼び出しによる莫大なコスト発生（OpenAI/Vertex AI の請求）
-  - 正当なユーザーのサービス品質低下
+  ```python
+  # Line 258-276 -- No Depends(get_current_user_id_from_token) parameter
+  @router.post("/generate-from-placeholder", response_model=ImageGenerationResponse)
+  async def generate_image_from_placeholder(request: GenerateImageFromPlaceholderRequest):
+      """画像プレースホルダーの情報から画像を生成する"""
+      try:
+          result = await image_generation_service.generate_image_from_placeholder(
+              placeholder_id=request.placeholder_id,
+              description_jp=request.description_jp,
+              prompt_en=request.prompt_en,
+              additional_context=request.additional_context
+          )
+          ...
+  ```
 
-- **修正チェックリスト**:
-  - [ ] `slowapi` または FastAPI の依存ライブラリを使ってグローバルレート制限を追加する
-  - [ ] AI生成エンドポイントには厳格なレート制限を設定する（例: ユーザーあたり 5 req/min）
-  - [ ] 認証なしのエンドポイント（`/health`, `/images/serve/*`）にはIPベースのレート制限を設定する
-  - [ ] Cloud Run のサービス設定で最大同時リクエスト数を適切に設定する
+  Since the backend is publicly accessible on Cloud Run, these endpoints are accessible to anyone on the internet.
+
+- **Impact:**
+  - Financial: Unlimited Vertex AI image generation costs charged to the project's GCP billing account
+  - Information disclosure: The `test-config` endpoint reveals infrastructure details useful for further attacks
+  - Resource exhaustion: Repeated calls could exhaust GCP quotas, causing denial of service for legitimate users
+
+- **Remediation Checklist:**
+  - [ ] Add `current_user_id: str = Depends(get_current_user_id_from_token)` to `generate_image_from_placeholder`
+  - [ ] Either remove `test-config` entirely or protect it with `admin_email: str = Depends(get_admin_user_email_from_token)`
+  - [ ] Audit all other endpoints to verify they require authentication (search for `async def` without `Depends(get_current_user_id_from_token)` or `Depends(get_admin_user_email_from_token)`)
+
+- **References:** CWE-306 (Missing Authentication for Critical Function), OWASP API2:2023 Broken Authentication
 
 ---
 
-### HIGH-03: フロントエンドプロキシのオープンリレー
+### CRIT-04: Server-Side Request Forgery (SSRF) via WordPress Connection URL
 
-- **場所**: `frontend/src/app/api/proxy/[...path]/route.ts`
-- **CWE**: CWE-918 (Server-Side Request Forgery - SSRF)
+- **Location:** `/home/als0028/study/shintairiku/marketing-automation/backend/app/domains/blog/endpoints.py` (lines 476-580)
+- **Description:** The `POST /blog/connect/wordpress/url` endpoint accepts an arbitrary URL from the user, parses it, and makes an HTTP POST request to the derived `register_endpoint` from the server side:
 
-- **説明**:
-  フロントエンドのAPIプロキシは、パスを結合してバックエンドに転送するが、パスの検証やホワイトリストチェックが行われていない:
+  ```python
+  # Line 519-534
+  register_endpoint = f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
 
-  ```typescript
-  // frontend/src/app/api/proxy/[...path]/route.ts
-  const url = `${API_BASE_URL}/${pathString}${searchParams ? `?${searchParams}` : ''}`;
-  const response = await fetchWithRedirect(url, { method: 'GET', headers });
+  async with httpx.AsyncClient(timeout=30.0) as client:
+      register_response = await client.post(
+          register_endpoint,
+          json={
+              "registration_code": registration_code,
+              "saas_identifier": "BlogAI",
+          },
+      )
   ```
 
-  `API_BASE_URL` は環境変数で固定されているため直接的なSSRFリスクは限定的だが、以下の問題がある:
-  1. **認証ヘッダーの無条件転送**: リクエストにAuthorizationヘッダーがあれば、そのままバックエンドに転送される。プロキシ自体には認証チェックがない
-  2. **CORS ヘッダー `Access-Control-Allow-Origin: *`**: プロキシのレスポンスに `*` が設定されており、任意のオリジンからプロキシ経由でバックエンドにアクセス可能
+  There is no validation that the URL points to an actual WordPress site or an external host. An attacker can supply URLs like:
+  - `http://169.254.169.254/computeMetadata/v1/?code=x` -- GCP metadata service
+  - `http://localhost:8000/admin/users?code=x` -- Internal backend API
+  - `http://10.0.0.1/internal-service?code=x` -- Internal network services
 
-  ```typescript
-  headers: {
-      'Access-Control-Allow-Origin': '*',  // 危険
+  On Cloud Run, the GCP metadata server at `169.254.169.254` is accessible and could leak service account tokens, project configuration, and other sensitive metadata.
+
+- **Impact:** An attacker could:
+  - Read GCP metadata including service account access tokens
+  - Probe internal network services not exposed to the internet
+  - Potentially access other Cloud Run services in the same VPC
+  - Use the server as a proxy for port scanning internal infrastructure
+
+- **Remediation Checklist:**
+  - [ ] Implement URL validation that rejects internal/private IP addresses and metadata endpoints:
+    ```python
+    import ipaddress
+    from urllib.parse import urlparse
+
+    BLOCKED_HOSTS = {'169.254.169.254', 'metadata.google.internal', 'localhost', '127.0.0.1'}
+
+    def validate_external_url(url: str) -> bool:
+        parsed = urlparse(url)
+        hostname = parsed.hostname
+        if not hostname:
+            return False
+        if hostname in BLOCKED_HOSTS:
+            return False
+        try:
+            ip = ipaddress.ip_address(hostname)
+            if ip.is_private or ip.is_loopback or ip.is_link_local:
+                return False
+        except ValueError:
+            pass  # hostname is a domain name, not an IP
+        if parsed.scheme not in ('http', 'https'):
+            return False
+        return True
+    ```
+  - [ ] Apply the same validation to the `GET /blog/connect/wordpress` redirect endpoint (line 201) which passes `mcp_endpoint` and `register_endpoint` to the frontend
+  - [ ] Apply the same validation to the `POST /blog/connect/wordpress` (site register) endpoint and `POST /blog/sites/register` endpoint
+  - [ ] Consider restricting the WordPress connection URL to HTTPS-only schemes
+
+- **References:** CWE-918 (SSRF), OWASP API8:2023 Security Misconfiguration
+
+---
+
+## High Vulnerabilities
+
+### HIGH-01: API Proxy Has No Path Restriction -- Open Relay Risk
+
+- **Location:** `/home/als0028/study/shintairiku/marketing-automation/frontend/src/app/api/proxy/[...path]/route.ts`, `/home/als0028/study/shintairiku/marketing-automation/frontend/next.config.js` (rewrite rules)
+- **Description:** The API proxy at `/api/proxy/[...path]` forwards any request to `NEXT_PUBLIC_API_BASE_URL` with no path restrictions. While it correctly forwards the Authorization header, it does not validate or restrict which backend paths can be accessed. Combined with the `next.config.js` rewrite rule, this creates two proxy layers:
+
+  ```javascript
+  // next.config.js
+  async rewrites() {
+    return [{
+      source: '/api/proxy/:path*',
+      destination: `${process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000'}/:path*`,
+    }];
   }
   ```
 
-- **影響**:
-  - 任意のWebサイトからプロキシ経由でバックエンドAPIにアクセス可能
-  - 認証トークンがあれば、悪意のあるサイトからユーザーの操作を代行可能
-
-- **修正チェックリスト**:
-  - [ ] プロキシのレスポンスから `Access-Control-Allow-Origin: *` を削除する。Next.js のフロントエンド自体がオリジンなので、クロスオリジンヘッダーは不要
-  - [ ] プロキシにClerk認証チェック（`auth()` の呼び出し）を追加し、認証されたリクエストのみ転送する
-  - [ ] 転送先パスのホワイトリスト（許可するAPIプレフィックスのリスト）を実装する
-
----
-
-### HIGH-04: セキュリティヘッダーの欠如
-
-- **場所**: `backend/main.py`, `frontend/next.config.js`
-- **CWE**: CWE-693 (Protection Mechanism Failure)
-
-- **説明**:
-  バックエンド・フロントエンド共に、以下のセキュリティヘッダーが設定されていない:
-  - `Strict-Transport-Security` (HSTS)
-  - `X-Content-Type-Options: nosniff`
-  - `X-Frame-Options: DENY`
-  - `Content-Security-Policy`
-  - `Referrer-Policy`
-  - `Permissions-Policy`
-
-- **影響**: クリックジャッキング、MIMEスニッフィング、HTTPSダウングレード攻撃のリスク
-
-- **修正チェックリスト**:
-  - [ ] `next.config.js` に `headers()` 関数を追加し、セキュリティヘッダーを設定する:
-    ```javascript
-    async headers() {
-      return [{
-        source: '/(.*)',
-        headers: [
-          { key: 'X-Frame-Options', value: 'DENY' },
-          { key: 'X-Content-Type-Options', value: 'nosniff' },
-          { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
-          { key: 'Permissions-Policy', value: 'camera=(), microphone=(), geolocation=()' },
-          { key: 'Strict-Transport-Security', value: 'max-age=63072000; includeSubDomains; preload' },
-        ],
-      }];
-    }
-    ```
-  - [ ] バックエンドにも `starlette.middleware` でセキュリティヘッダーを追加する
-
----
-
-### HIGH-05: XSS脆弱性 - dangerouslySetInnerHTML の多用
-
-- **場所**: 以下のフロントエンドファイル（合計19箇所以上）
-  - `frontend/src/features/tools/seo/generate/edit-article/EditArticlePage.tsx` (5箇所)
-  - `frontend/src/features/tools/seo/generate/new-article/component/CompactGenerationFlow.tsx` (4箇所)
-  - `frontend/src/features/tools/seo/generate/new-article/component/CompletedArticleView.tsx` (1箇所)
-  - `frontend/src/features/tools/seo/generate/new-article/component/ContentGeneration.tsx` (1箇所)
-  - `frontend/src/features/tools/seo/manage/list/display/indexPage.tsx` (1箇所)
-  - `frontend/src/features/tools/seo/generate/edit-article/components/UnifiedDiffViewer.tsx` (3箇所)
-  - `frontend/src/components/article-generation/enhanced-article-generation.tsx` (1箇所)
-- **CWE**: CWE-79 (Cross-Site Scripting)
-
-- **説明**:
-  AI生成コンテンツ（HTMLを含む記事本文）が `dangerouslySetInnerHTML` でサニタイズなしにレンダリングされている:
-
-  ```tsx
-  // frontend/src/features/tools/seo/generate/edit-article/EditArticlePage.tsx:1515
-  dangerouslySetInnerHTML={{ __html: block.content }}
-
-  // frontend/src/features/tools/seo/manage/list/display/indexPage.tsx:473
-  dangerouslySetInnerHTML={{ __html: selectedArticle.content }}
+  The proxy also sets overly permissive CORS headers:
+  ```typescript
+  // route.ts OPTIONS handler
+  headers: {
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Methods': 'GET, POST, PUT, PATCH, DELETE, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+  }
   ```
 
-  AI生成コンテンツは信頼できるソースとはいえ、以下のリスクがある:
-  1. AIモデルのプロンプトインジェクションにより悪意のあるスクリプトが生成される可能性
-  2. 外部参考URL（`reference_url`）からスクレイピングしたコンテンツにXSSペイロードが含まれる可能性
-  3. ユーザーが記事を編集する際にスクリプトを挿入する可能性
+  If `NEXT_PUBLIC_API_BASE_URL` is ever changed to an internal service URL, the proxy becomes a full SSRF relay. Additionally, the `Access-Control-Allow-Origin: '*'` on the proxy allows any website to make cross-origin requests through it.
 
-- **影響**: Stored XSS、セッションハイジャック、クレデンシャル窃取
+- **Impact:** Any website can make cross-origin requests to the backend API via this proxy. If the backend URL is misconfigured, the proxy could be used to access internal services.
 
-- **修正チェックリスト**:
-  - [ ] `DOMPurify` ライブラリを導入し、`dangerouslySetInnerHTML` に渡す前に全てのHTMLをサニタイズする
-  - [ ] バックエンド側でも記事保存時にHTMLサニタイズを実行する（許可タグのホワイトリスト方式）
-  - [ ] `Content-Security-Policy` ヘッダーで `script-src 'self'` を設定し、インラインスクリプトの実行を防ぐ
+- **Remediation Checklist:**
+  - [ ] Implement an allowlist of permitted path prefixes in the proxy (e.g., `/articles/`, `/blog/`, `/organizations/`, `/companies/`, `/images/`, `/usage/`, `/admin/`, `/style-templates/`)
+  - [ ] Remove `Access-Control-Allow-Origin: '*'` from the proxy responses; use the specific frontend origin instead
+  - [ ] Remove the OPTIONS handler that returns `*` for all CORS headers
+  - [ ] Consider removing the dual proxy setup (Next.js rewrite + route handler) and using only one mechanism
+
+- **References:** CWE-441 (Unintended Proxy or Intermediary), OWASP API8:2023
 
 ---
 
-### HIGH-06: バックエンドが全てservice_roleキーでDBアクセス
+### HIGH-02: No Rate Limiting on Expensive AI Operations
 
-- **場所**: `backend/app/common/database.py` 12行目
-- **CWE**: CWE-250 (Execution with Unnecessary Privileges)
+- **Location:** Backend endpoints: `/blog/generation/start`, `/articles/generation/start`, `/images/generate`, `/images/generate-and-link`, `/articles/ai-content-generation`, `/blog/ai-questions`
+- **Description:** There is no rate limiting on any API endpoint. AI generation operations (LLM calls, image generation) are expensive and can be triggered repeatedly by authenticated users. While the usage limit system tracks article generation counts, there is:
+  - No per-minute/per-hour rate limit on any endpoint
+  - No rate limit on `/blog/ai-questions` which triggers LLM calls
+  - No rate limit on image generation endpoints
+  - No rate limit on the `/articles/ai-content-generation` endpoint
+  - No rate limit on login/auth attempts
+  - No rate limit on the API proxy
 
-- **説明**:
-  バックエンドの全てのDB操作が `supabase_service_role_key` を使用しており、RLSを完全にバイパスしている:
+  The backend FastAPI application has no rate-limiting middleware. Cloud Run can auto-scale, but this means costs scale with abuse rather than being capped.
+
+- **Impact:** An authenticated user (or attacker with a valid token) could:
+  - Generate thousands of dollars in AI API costs in minutes
+  - Exhaust API quotas for OpenAI, Google Cloud, Anthropic, etc.
+  - Cause denial of service for other users by consuming all available Cloud Run instances
+  - Brute-force the admin authentication by trying many tokens
+
+- **Remediation Checklist:**
+  - [ ] Add a rate-limiting middleware to FastAPI (e.g., `slowapi` or a custom middleware using Redis/Memorystore):
+    ```python
+    from slowapi import Limiter
+    from slowapi.util import get_remote_address
+
+    limiter = Limiter(key_func=get_remote_address)
+    app.state.limiter = limiter
+
+    @router.post("/generation/start")
+    @limiter.limit("10/minute")
+    async def start_generation(request: Request, ...):
+        ...
+    ```
+  - [ ] Implement per-user rate limits (using the authenticated user ID as the key) for expensive operations
+  - [ ] Set Cloud Run maximum instance limits to cap auto-scaling costs
+  - [ ] Add rate limiting to the Next.js API routes for subscription/webhook endpoints
+  - [ ] Consider implementing request cost budgets per user per time window
+
+- **References:** CWE-770 (Allocation of Resources Without Limits), OWASP API4:2023 Unrestricted Resource Consumption
+
+---
+
+### HIGH-03: Backend Uses Supabase Service Role Key for All Operations -- RLS Bypassed
+
+- **Location:** `/home/als0028/study/shintairiku/marketing-automation/backend/app/common/database.py` (line 12-13)
+- **Description:** The backend creates a single global Supabase client using the `service_role` key:
 
   ```python
-  # backend/app/common/database.py
   def create_supabase_client() -> Client:
       supabase_client = create_client(
           settings.supabase_url,
-          settings.supabase_service_role_key  # RLSバイパス
+          settings.supabase_service_role_key  # Bypasses all RLS
       )
       return supabase_client
   ```
 
-  CRIT-02 と組み合わせると、バックエンドの認証ロジックの一箇所でもバグがあれば、全テーブルの全データにアクセスできる。
+  The `service_role` key has full access to all tables, bypassing all Row Level Security (RLS) policies. While migration `20260130000003_fix_org_clerk_compat.sql` acknowledges this by removing many RLS policies (since they relied on `auth.uid()` which is `NULL` when using service_role), this means the backend application code is solely responsible for access control. Any bug in user ID filtering in queries allows cross-user data access.
 
-- **影響**: 認証バイパス時のデータ漏洩範囲が最大化される
+  For example, if a developer forgets to add `.eq("user_id", current_user_id)` to a query, all users' data would be returned. The codebase already has one authenticated endpoint (`POST /images/generate-from-placeholder`) that lacks user scoping entirely.
 
-- **修正チェックリスト**:
-  - [ ] 読み取り操作には anon key + RLSポリシーを使用するSupabaseクライアントを作成し、認証済みユーザーのJWTトークンを設定する
-  - [ ] service_role キーの使用は Webhook処理やバックグラウンドタスクなど、ユーザーコンテキストがない処理に限定する
-  - [ ] 各エンドポイントで `user_id` によるフィルタリングが確実に行われていることをユニットテストで検証する
+- **Impact:** A single missing `.eq("user_id", ...)` filter in any query exposes data across all users. There is no defense-in-depth layer at the database level.
 
----
+- **Remediation Checklist:**
+  - [ ] For user-facing queries, create a request-scoped Supabase client that uses a custom JWT with the user's ID, so RLS policies can function as a second layer of defense
+  - [ ] Re-enable RLS policies on critical tables (articles, company_info, style_guide_templates, wordpress_sites) with service-role-aware policies that still filter by user_id
+  - [ ] Audit all Supabase queries to ensure they include proper user_id filtering
+  - [ ] Add integration tests that verify cross-user data isolation for each endpoint
 
-### HIGH-07: Stripe Webhook シークレット未設定時の処理続行
-
-- **場所**: `frontend/src/app/api/subscription/webhook/route.ts` 52-58行目
-- **CWE**: CWE-347 (Improper Verification of Cryptographic Signature)
-
-- **説明**:
-  Webhook シークレットが未設定の場合、エラーレスポンスは返されるが、`webhookSecret` の存在チェックは条件付きで行われている。シークレットが空文字列 (`""`) の場合、`constructEvent` が呼ばれる可能性がある:
-
-  ```typescript
-  const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
-  // webhookSecret が undefined ならバリデーションされるが、
-  // "" (空文字) の場合の動作が Stripe SDK のバージョンに依存する
-  ```
-
-  更に、Webhook の重複チェックが `subscription_events` テーブルに依存しているが、初回のイベントは検証なしに処理される可能性がある。
-
-- **修正チェックリスト**:
-  - [ ] `!webhookSecret` を `!webhookSecret || webhookSecret.trim() === ''` に変更する
-  - [ ] アプリケーション起動時に `STRIPE_WEBHOOK_SECRET` の存在を検証し、未設定なら起動を拒否する
-  - [ ] Webhook エンドポイントのIP制限を検討する（Stripe の [IP アドレスリスト](https://docs.stripe.com/ips)）
+- **References:** CWE-284 (Improper Access Control), CWE-862 (Missing Authorization)
 
 ---
 
-## Medium（中）脆弱性
+### HIGH-04: JWT Token Does Not Validate `iss` (Issuer) or `aud` (Audience) Claims
 
-### MED-01: 機密情報を含むエラーメッセージの露出
-
-- **場所**: 複数ファイル（以下は代表例）
-  - `backend/app/domains/image_generation/endpoints.py` 276, 379, 507, 538行目
-  - `backend/app/core/exceptions.py` 20-23行目
-  - `backend/app/common/auth.py` 180行目
-- **CWE**: CWE-209 (Generation of Error Message Containing Sensitive Information)
-
-- **説明**:
-  例外の内容がそのままHTTPレスポンスに含まれている:
-
-  ```python
-  # backend/app/domains/image_generation/endpoints.py
-  raise HTTPException(status_code=500, detail=f"予期せぬエラーが発生しました: {str(e)}")
-  raise HTTPException(status_code=500, detail=f"画像置き換えに失敗しました: {str(e)}")
-  ```
-
-  ```python
-  # backend/app/core/exceptions.py
-  content={"detail": f"An unexpected internal server error occurred: {type(exc).__name__}"},
-  ```
-
-  ```python
-  # backend/app/common/auth.py
-  raise HTTPException(status_code=500, detail=f"Authentication error: {e}")
-  ```
-
-  例外メッセージにはファイルパス、DB接続情報、内部実装の詳細が含まれる可能性がある。
-
-- **修正チェックリスト**:
-  - [ ] 本番環境では内部エラーの詳細をレスポンスに含めない。`DEBUG=false` 時は汎用メッセージのみ返す
-  - [ ] `generic_exception_handler` を修正し、本番環境では `type(exc).__name__` をレスポンスに含めない
-  - [ ] エラーの詳細はサーバーサイドのログにのみ記録する
-
----
-
-### MED-02: CORS設定の不備
-
-- **場所**: `backend/main.py` 23-33行目
-- **CWE**: CWE-942 (Permissive Cross-domain Policy)
-
-- **説明**:
-  CORS設定で `allow_headers=["*"]` が使用されており、`allow_credentials=True` と組み合わされている:
-
-  ```python
-  app.add_middleware(
-      CORSMiddleware,
-      allow_origins=allowed_origins,
-      allow_credentials=True,
-      allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-      allow_headers=["*"],  # 全ヘッダーを許可
-  )
-  ```
-
-  `allow_credentials=True` と `allow_origins=["*"]` の組み合わせはブラウザにブロックされるが、`ALLOWED_ORIGINS` が適切に設定されていない場合（デフォルト値 `http://localhost:3000`）、本番環境で意図しないオリジンからのアクセスを許可する可能性がある。
-
-- **修正チェックリスト**:
-  - [ ] `allow_headers` を必要なヘッダーのみに限定する（`["Content-Type", "Authorization"]`）
-  - [ ] 本番環境の `ALLOWED_ORIGINS` に正確な本番ドメインのみが設定されていることを確認する
-  - [ ] `ALLOWED_ORIGINS` のデフォルト値を空にし、未設定時はCORSを拒否する
-
----
-
-### MED-03: ファイルアップロードの不十分な検証
-
-- **場所**:
-  - `backend/app/domains/blog/endpoints.py` (upload_image, start_blog_generation)
-  - `backend/app/domains/image_generation/endpoints.py` (upload_image)
-  - `backend/app/domains/blog/services/image_utils.py`
-- **CWE**: CWE-434 (Unrestricted Upload of File with Dangerous Type)
-
-- **説明**:
-  画像アップロード処理で以下の検証が不足:
-
-  ```python
-  # backend/app/domains/blog/endpoints.py - start_blog_generation
-  files: List[UploadFile] = File(default=[], description="記事に含めたい画像（最大5枚）")
-  # ファイルサイズの制限がない
-  # Content-Type の検証がない
-  # マジックバイトの検証がない
-  ```
-
-  `image_utils.py` の `convert_and_save_as_webp` は Pillow で画像を開くが、Pillow は悪意のある画像ファイルによるDoS攻撃（画像爆弾/decompression bomb）に脆弱な場合がある:
-
-  ```python
-  # backend/app/domains/blog/services/image_utils.py
-  img = Image.open(io.BytesIO(image_bytes))
-  # Pillow の MAX_IMAGE_PIXELS はデフォルトで ~178M ピクセルだが、
-  # メモリ消費は依然として大きい
-  ```
-
-- **修正チェックリスト**:
-  - [ ] ファイルサイズの上限を設定する（例: 10MB）
-  - [ ] Content-Type を画像フォーマットのみに制限する（`image/jpeg`, `image/png`, `image/webp`, `image/gif`）
-  - [ ] Pillow の `Image.MAX_IMAGE_PIXELS` を明示的に設定する
-  - [ ] ファイル名のサニタイズを強化する（パストラバーサル文字の除去）
-
----
-
-### MED-04: APIキーのログ出力
-
-- **場所**: `backend/app/core/config.py` 133行目
-- **CWE**: CWE-532 (Insertion of Sensitive Information into Log File)
-
-- **説明**:
-  OpenAI APIキーの最初の8文字がログに出力されている:
-
-  ```python
-  # backend/app/core/config.py
-  print(f"OpenAI API キーを設定しました: {settings.openai_api_key[:8]}...")
-  ```
-
-  また、JWT検証時にトークンの長さやクレーム内容がINFOレベルでログに記録されている:
-
-  ```python
-  # backend/app/common/auth.py
-  logger.info(f"🔒 [AUTH] Processing JWT token, length: {len(token)}")
-  logger.info(f"🔒 [AUTH] JWT claims: iss={decoded.get('iss')}, azp={decoded.get('azp')}, exp={decoded.get('exp')}")
-  ```
-
-- **修正チェックリスト**:
-  - [ ] APIキーの部分出力をログから削除する
-  - [ ] JWT クレームのログレベルを `DEBUG` に変更する
-  - [ ] 本番環境でのログレベルを `WARNING` 以上に設定する
-
----
-
-### MED-05: 依存パッケージのバージョン固定なし
-
-- **場所**: `backend/pyproject.toml`
-- **CWE**: CWE-1104 (Use of Unmaintained Third Party Components)
-
-- **説明**:
-  バックエンドの全依存パッケージがバージョン制約なし（ピンなし）で指定されている:
-
-  ```toml
-  dependencies = [
-      "fastapi",       # バージョン指定なし
-      "openai",        # バージョン指定なし
-      "supabase",      # バージョン指定なし
-      "pyjwt",         # バージョン指定なし
-      # ...
-  ]
-  ```
-
-  `uv.lock` で固定されるが、`uv sync` 実行時に意図しないメジャーアップデートが適用される可能性がある。
-
-- **修正チェックリスト**:
-  - [ ] 最低限メジャーバージョンを固定する（例: `"fastapi>=0.128,<1.0"`）
-  - [ ] セキュリティに重要なパッケージ（`pyjwt`, `cryptography`）は特に慎重にバージョン管理する
-  - [ ] `uv.lock` をGitにコミットし、CI/CDで `--frozen` フラグを使用する
-  - [ ] 定期的に `pip-audit` や `safety` で脆弱性スキャンを実行する
-
----
-
-### MED-06: Docker コンテナの非rootユーザー未使用
-
-- **場所**: `backend/Dockerfile`
-- **CWE**: CWE-250 (Execution with Unnecessary Privileges)
-
-- **説明**:
-  Dockerfileでrootユーザーのまま実行されている:
-
-  ```dockerfile
-  FROM python:3.12-slim
-  WORKDIR /app
-  COPY . .
-  CMD ["sh", "-c", "uv run uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000}"]
-  # USER ディレクティブがない = rootで実行
-  ```
-
-- **修正チェックリスト**:
-  - [ ] `Dockerfile` にnonrootユーザーを追加する:
-    ```dockerfile
-    RUN groupadd -r appuser && useradd -r -g appuser appuser
-    USER appuser
-    ```
-  - [ ] `/tmp/blog_uploads` や画像保存ディレクトリの書き込み権限を `appuser` に設定する
-
----
-
-### MED-07: Supabase Service Role キーのフロントエンド配置
-
-- **場所**: `frontend/src/libs/supabase/supabase-admin.ts`
-- **CWE**: CWE-798 (Use of Hard-coded Credentials)
-
-- **説明**:
-  `SUPABASE_SERVICE_ROLE_KEY` がフロントエンドのNext.jsサーバーサイドコードで使用されている:
-
-  ```typescript
-  // frontend/src/libs/supabase/supabase-admin.ts
-  export const supabaseAdminClient = createClient<Database>(
-    getEnvVar(process.env.NEXT_PUBLIC_SUPABASE_URL, 'NEXT_PUBLIC_SUPABASE_URL'),
-    getEnvVar(process.env.SUPABASE_SERVICE_ROLE_KEY, 'SUPABASE_SERVICE_ROLE_KEY')
-  );
-  ```
-
-  このキーは `NEXT_PUBLIC_` プレフィックスがないためクライアントには送信されないが、Next.js のサーバーサイドコード全体（API Routes, Server Components, middleware）からアクセス可能。Service Role キーが漏洩した場合、RLSバイパスで全データにアクセスできる。
-
-- **修正チェックリスト**:
-  - [ ] フロントエンドでの `service_role_key` 使用を最小限に抑え、必要な処理をバックエンドに移動することを検討する
-  - [ ] 環境変数の名前を `SUPABASE_SERVICE_ROLE_KEY` から `__INTERNAL_SUPABASE_SERVICE_ROLE_KEY` 等に変更し、誤用を防ぐ
-  - [ ] 最低限、Webhook ハンドラーと subscription status API のみで使用するように制限する
-
----
-
-### MED-08: docker-compose.yml でのシークレット露出リスク
-
-- **場所**: `docker-compose.yml` 26-29行目
-- **CWE**: CWE-312 (Cleartext Storage of Sensitive Information)
-
-- **説明**:
-  `docker-compose.yml` のビルド引数に機密情報が含まれている:
-
-  ```yaml
-  frontend_prod:
-    build:
-      args:
-        STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY}
-        SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY}
-  ```
-
-  これらの値はDockerイメージのビルドレイヤーに含まれ、`docker history` で確認可能。
-
-- **修正チェックリスト**:
-  - [ ] ビルド引数ではなく、ランタイムの環境変数としてのみ渡す
-  - [ ] Docker の `--secret` 機能を使用する
-  - [ ] `.env` ファイルが `.gitignore` に含まれていることを確認する（確認済み: 含まれている）
-
----
-
-## Low（低）脆弱性
-
-### LOW-01: 画像配信エンドポイントのパストラバーサル対策の不完全性
-
-- **場所**: `backend/app/domains/image_generation/endpoints.py` (`serve_image`)
-- **CWE**: CWE-22 (Path Traversal)
-
-- **説明**:
-  パストラバーサル対策は実装されているが、`resolve()` による正規化のみに依存している:
-
-  ```python
-  image_path = storage_path / image_filename
-  if not str(image_path.resolve()).startswith(str(storage_path.resolve())):
-      raise HTTPException(status_code=400, detail="Invalid file path")
-  ```
-
-  シンボリックリンクを使った攻撃には脆弱な可能性がある。また、認証チェックがないため（CRIT-01に関連）、URLの推測で画像にアクセス可能。
-
-- **修正チェックリスト**:
-  - [ ] `image_filename` に `..` や `/` が含まれていないことを正規表現でチェックする
-  - [ ] 認証チェックを追加する
-  - [ ] ファイル名をUUIDベースに統一し、元のファイル名を推測不可能にする
-
----
-
-### LOW-02: JWT の `issuer` 検証の欠如
-
-- **場所**: `backend/app/common/auth.py` 155-166行目
-- **CWE**: CWE-345 (Insufficient Verification of Data Authenticity)
-
-- **説明**:
-  JWT検証時に `issuer` (iss) と `audience` (aud/azp) の検証が行われていない:
+- **Location:** `/home/als0028/study/shintairiku/marketing-automation/backend/app/common/auth.py` (lines 159-168)
+- **Description:** The JWT verification checks `exp`, `iat`, and `sub` claims, but does not validate `iss` (issuer) or `aud` (audience):
 
   ```python
   decoded = jwt.decode(
@@ -608,93 +350,556 @@
           "verify_exp": True,
           "verify_iat": True,
           "require": ["exp", "iat", "sub"],
-          # issuer, audience の検証がない
       }
+      # Missing: issuer= and audience= parameters
   )
   ```
 
-- **修正チェックリスト**:
-  - [ ] `options` に `"verify_iss": True` を追加し、`issuer` パラメータにClerkのissuer URLを設定する
-  - [ ] `audience` (azp) の検証も追加する
+  Without `iss` and `aud` validation, a JWT issued by a different Clerk application (sharing the same JWKS endpoint or a key collision scenario) could be accepted. While the RS256 signature verification with JWKS mitigates most token forgery attacks, the lack of audience validation is a deviation from JWT security best practices.
+
+- **Impact:** In a multi-tenant Clerk environment or if Clerk keys are shared across applications, tokens from other applications could potentially be accepted. This is a defense-in-depth concern.
+
+- **Remediation Checklist:**
+  - [ ] Add `issuer` and `audience` validation to the `jwt.decode()` call:
+    ```python
+    decoded = jwt.decode(
+        token,
+        signing_key.key,
+        algorithms=["RS256"],
+        issuer=f"https://{clerk_frontend_api}",
+        audience="your-clerk-app-id",  # or use azp claim
+        options={
+            "verify_signature": True,
+            "verify_exp": True,
+            "verify_iat": True,
+            "verify_iss": True,
+            "verify_aud": True,
+            "require": ["exp", "iat", "sub"],
+        }
+    )
+    ```
+
+- **References:** CWE-287, [RFC 7519 Section 4.1](https://tools.ietf.org/html/rfc7519#section-4.1)
 
 ---
 
-### LOW-03: CI/CDパイプラインでのセキュリティスキャン欠如
+### HIGH-05: Sensitive Data Tracing Enabled in Production Configuration
 
-- **場所**: `.github/workflows/backend-docker-build.yml`
-- **CWE**: CWE-1395 (Dependency on Vulnerable Third-Party Component)
+- **Location:** `/home/als0028/study/shintairiku/marketing-automation/backend/.env` (line 34), `/home/als0028/study/shintairiku/marketing-automation/backend/app/core/config.py` (line 111)
+- **Description:** The backend `.env` file sets `OPENAI_AGENTS_TRACE_INCLUDE_SENSITIVE_DATA=true`, which causes the OpenAI Agents SDK to include full model inputs and outputs (including user content, article text, and potentially PII) in tracing data sent to OpenAI's servers:
 
-- **説明**:
-  CI/CDパイプラインにはDockerビルドテストのみが含まれ、以下が欠如:
-  - 依存パッケージの脆弱性スキャン
-  - SAST（静的アプリケーションセキュリティテスト）
-  - Dockerイメージのセキュリティスキャン
-  - シークレットの検出
+  ```
+  # backend/.env
+  OPENAI_AGENTS_TRACE_INCLUDE_SENSITIVE_DATA=true
+  ```
 
-- **修正チェックリスト**:
-  - [ ] `pip-audit` / `safety` によるPython依存パッケージスキャンをCIに追加する
-  - [ ] `npm audit` / `bun audit` によるフロントエンド依存パッケージスキャンを追加する
-  - [ ] `trivy` によるDockerイメージスキャンを追加する
-  - [ ] `gitleaks` によるシークレット検出を追加する
+  Additionally, `ENABLE_DEBUG_CONSOLE=true` is set, though its effect depends on how it is consumed.
 
----
+- **Impact:** User-generated content, business data, and potentially PII are sent to OpenAI's tracing servers. This may violate data protection regulations (GDPR, APPI) and user privacy expectations.
 
-### LOW-04: `cryptography` ライブラリの間接依存
+- **Remediation Checklist:**
+  - [ ] Set `OPENAI_AGENTS_TRACE_INCLUDE_SENSITIVE_DATA=false` in production `.env`
+  - [ ] Remove `ENABLE_DEBUG_CONSOLE=true` from production configuration
+  - [ ] Ensure the default value in `config.py` remains `false` (already the case)
+  - [ ] Document that sensitive data tracing should only be enabled in isolated development environments
 
-- **場所**: `backend/pyproject.toml` (間接依存)
-- **CWE**: CWE-327 (Use of a Broken or Risky Cryptographic Algorithm)
-
-- **説明**:
-  WordPress認証情報の暗号化に `cryptography` ライブラリの AES-256-GCM が使用されているが、`pyproject.toml` に直接の依存として明記されていない。間接依存としてインストールされるため、バージョン管理が不十分。
-
-- **修正チェックリスト**:
-  - [ ] `cryptography` を `pyproject.toml` の明示的な依存に追加する
-  - [ ] バージョンを固定し、既知の脆弱性がないことを確認する
+- **References:** CWE-532 (Insertion of Sensitive Information into Log File), GDPR Article 5(1)(c) (Data Minimization)
 
 ---
 
-### LOW-05: 管理者認証でのClerk APIへの毎回のアクセス
+### HIGH-06: CORS Configuration Allows Any Origin in Production
 
-- **場所**: `backend/app/common/admin_auth.py`
-- **CWE**: CWE-400 (Uncontrolled Resource Consumption)
+- **Location:** `/home/als0028/study/shintairiku/marketing-automation/backend/main.py` (lines 25-33)
+- **Description:** The CORS middleware reads allowed origins from the `ALLOWED_ORIGINS` environment variable. While the default is `http://localhost:3000`, the configuration allows all HTTP methods and **all headers** (`allow_headers=["*"]`):
 
-- **説明**:
-  管理者認証チェックのたびにClerk APIにHTTPリクエストが発生する。キャッシュが実装されていないため、管理者ダッシュボードのページロード時に複数のAPI呼び出しが発生し、レイテンシ増加とClerk API レート制限のリスクがある。
+  ```python
+  allowed_origins = os.getenv("ALLOWED_ORIGINS", "http://localhost:3000").split(",")
+  app.add_middleware(
+      CORSMiddleware,
+      allow_origins=allowed_origins,
+      allow_credentials=True,
+      allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+      allow_headers=["*"],  # Too permissive
+  )
+  ```
 
-- **修正チェックリスト**:
-  - [ ] Clerk JWTのカスタムクレームにメールアドレスを含めるようClerkダッシュボードで設定する
-  - [ ] メールアドレスのキャッシュ（TTL付き）を実装する
-  - [ ] フォールバックとしてDB（`user_subscriptions.email`）からメールを取得する
+  Combined with `allow_credentials=True`, if the `ALLOWED_ORIGINS` is ever set to include `*` (or a broad wildcard), it would allow any website to make authenticated cross-origin requests to the backend, enabling CSRF-like attacks.
 
----
+  The API proxy (`frontend/src/app/api/proxy/[...path]/route.ts`) also returns `Access-Control-Allow-Origin: *` in its responses.
 
-## セキュリティ全般の推奨事項
+- **Impact:** If CORS origins are misconfigured, any malicious website could make authenticated API calls on behalf of logged-in users.
 
-- [ ] **セキュリティテストの自動化**: OWASP ZAP やBurp Suite によるDAST（動的テスト）を定期的に実行する
-- [ ] **ログの集約と監視**: Cloud Logging / Cloud Monitoring で不正アクセスパターンを検出するアラートを設定する
-- [ ] **インシデント対応計画**: セキュリティインシデント発生時の連絡先、対応手順、エスカレーションパスを文書化する
-- [ ] **定期的な依存パッケージ更新**: Dependabot / Renovate を導入し、セキュリティパッチを自動的に適用する
-- [ ] **ペネトレーションテスト**: 本番デプロイ前に第三者によるペネトレーションテストを実施する
-- [ ] **バックアップと暗号化**: Supabase のバックアップが暗号化されていることを確認する
-- [ ] **アクセスログの保持**: 全APIエンドポイントのアクセスログを最低90日間保持する
+- **Remediation Checklist:**
+  - [ ] Restrict `allow_headers` to only the headers actually used: `["Content-Type", "Authorization", "Accept"]`
+  - [ ] Add validation at startup that rejects `*` as an allowed origin when `allow_credentials=True`
+  - [ ] Remove `Access-Control-Allow-Origin: *` from the API proxy response headers
+  - [ ] Ensure the production `ALLOWED_ORIGINS` contains only the exact production frontend domain
 
----
-
-## セキュリティ態勢改善計画（優先順位順）
-
-| 優先度 | 対策 | 予想工数 | 影響 |
-|--------|------|----------|------|
-| 1 | Cloud Run のIAM認証設定 (CRIT-01) | 2-4時間 | バックエンドへの直接アクセスを遮断 |
-| 2 | RLSポリシーの再構築 (CRIT-02) | 8-16時間 | データベースの多層防御を復活 |
-| 3 | DEBUG モードの署名スキップ削除 (HIGH-01) | 30分 | 認証バイパスリスクを排除 |
-| 4 | レート制限の実装 (HIGH-02) | 4-8時間 | DoS/コスト攻撃を防止 |
-| 5 | セキュリティヘッダーの追加 (HIGH-04) | 1-2時間 | 基本的なブラウザセキュリティを強化 |
-| 6 | XSSサニタイズの実装 (HIGH-05) | 4-8時間 | Stored XSSを防止 |
-| 7 | フロントエンドプロキシの修正 (HIGH-03) | 2-4時間 | CORS/認証バイパスを防止 |
-| 8 | エラーメッセージの修正 (MED-01) | 2-4時間 | 情報漏洩を防止 |
-| 9 | CI/CDセキュリティスキャン追加 (LOW-03) | 2-4時間 | 継続的なセキュリティ監視 |
-| 10 | その他のMedium/Low修正 | 8-16時間 | 全体的なセキュリティ態勢強化 |
+- **References:** CWE-942 (Permissive Cross-domain Policy), OWASP CORS Misconfiguration
 
 ---
 
-*本レポートは自動セキュリティ監査ツールによる静的コード分析に基づいています。実行時のテストや侵入テストは含まれていません。*
+### HIGH-07: Potential SQL Injection via Supabase `.or_()` with User-Controlled Input
+
+- **Location:** `/home/als0028/study/shintairiku/marketing-automation/backend/app/domains/image_generation/endpoints.py` (line 434)
+- **Description:** The Supabase PostgREST `.or_()` method is called with an f-string that includes user-controlled input (`request.image_url`) directly:
+
+  ```python
+  image_result = supabase.table("images").select("*").eq("user_id", current_user_id).or_(
+      f"gcs_url.eq.{request.image_url},file_path.like.%{request.image_url.split('/')[-1]}"
+  ).execute()
+  ```
+
+  The `request.image_url` value is inserted directly into the PostgREST filter string without sanitization. While PostgREST filter syntax is not standard SQL and has limited injection surface compared to raw SQL, specially crafted URLs containing PostgREST filter operators (e.g., `,`, `.eq.`, `.or.`) could manipulate the query logic to bypass the `user_id` filter or access other users' data.
+
+  Similarly, in `flow_service.py` (line 211):
+  ```python
+  query = query.or_(f"user_id.eq.{user_id},is_template.eq.true")
+  ```
+  While `user_id` comes from the authenticated token (trusted), this pattern sets a dangerous precedent.
+
+- **Impact:** An attacker could craft a malicious `image_url` that manipulates the PostgREST filter, potentially accessing or modifying images belonging to other users.
+
+- **Remediation Checklist:**
+  - [ ] Use parameterized PostgREST filters instead of f-strings. Break the query into chained filter calls:
+    ```python
+    # Instead of .or_(f"gcs_url.eq.{request.image_url},...")
+    # Use separate queries or validated input:
+    filename = os.path.basename(urlparse(request.image_url).path)
+    # Validate filename contains only safe characters
+    if not re.match(r'^[\w.-]+$', filename):
+        raise HTTPException(status_code=400, detail="Invalid image URL")
+
+    images_by_url = supabase.table("images").select("*") \
+        .eq("user_id", current_user_id) \
+        .eq("gcs_url", request.image_url) \
+        .execute()
+    ```
+  - [ ] Audit all `.or_()` usages with user-controlled input across the codebase
+  - [ ] Sanitize/validate `request.image_url` before using it in any query
+
+- **References:** CWE-89 (SQL Injection), CWE-943 (Improper Neutralization of Special Elements in Data Query Logic)
+
+---
+
+## Medium Vulnerabilities
+
+### MED-01: Stored XSS via AI-Generated Content Rendered with `dangerouslySetInnerHTML`
+
+- **Location:** Multiple frontend files (22+ instances):
+  - `/home/als0028/study/shintairiku/marketing-automation/frontend/src/features/tools/seo/manage/list/display/indexPage.tsx` (line 473)
+  - `/home/als0028/study/shintairiku/marketing-automation/frontend/src/features/tools/seo/generate/new-article/component/ContentGeneration.tsx` (line 159)
+  - `/home/als0028/study/shintairiku/marketing-automation/frontend/src/features/tools/seo/generate/edit-article/EditArticlePage.tsx` (lines 1515, 1521, 2037, 2046, 2271)
+  - Multiple other SEO article display components
+
+- **Description:** AI-generated article content is rendered using React's `dangerouslySetInnerHTML` without sanitization:
+  ```tsx
+  dangerouslySetInnerHTML={{ __html: selectedArticle.content }}
+  ```
+  While the content is AI-generated (reducing the likelihood of malicious scripts), several attack vectors exist:
+  1. AI prompt injection could cause the LLM to generate HTML with embedded `<script>` tags
+  2. User-editable article content (via the rich text editor) could contain malicious HTML
+  3. Content imported from external sources (SERP scraping, reference URLs) could contain XSS payloads
+
+  The backend does have a `sanitize_dom` function (`backend/app/domains/seo_article/endpoints.py`), but it is not consistently applied before storage or rendering.
+
+- **Impact:** Stored XSS could execute JavaScript in other users' browsers when viewing shared articles, potentially stealing session tokens or performing actions on their behalf.
+
+- **Remediation Checklist:**
+  - [ ] Implement a client-side HTML sanitization library (e.g., `dompurify`) for all `dangerouslySetInnerHTML` usages:
+    ```tsx
+    import DOMPurify from 'dompurify';
+
+    <div dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(article.content) }} />
+    ```
+  - [ ] Ensure the backend `sanitize_dom()` function is applied to all content before storing in the database
+  - [ ] Add Content Security Policy (CSP) headers to prevent inline script execution (see MED-04)
+
+- **References:** CWE-79 (Cross-site Scripting), OWASP XSS Prevention Cheat Sheet
+
+---
+
+### MED-02: No File Type Validation on Image Uploads
+
+- **Location:** `/home/als0028/study/shintairiku/marketing-automation/backend/app/domains/blog/endpoints.py` (upload-image endpoint), `/home/als0028/study/shintairiku/marketing-automation/backend/app/domains/image_generation/endpoints.py` (upload endpoint)
+- **Description:** Image upload endpoints accept files and process them with Pillow for WebP conversion, but do not validate:
+  1. File MIME type against an allowlist
+  2. File extension against an allowlist
+  3. File size before reading into memory
+  4. That the file is actually a valid image (though Pillow's `Image.open()` would fail on non-images)
+
+  The `image_utils.py` WebP conversion function does call `Image.open()` which provides some implicit validation, but malformed image files can trigger Pillow vulnerabilities (e.g., decompression bombs).
+
+- **Impact:** Potential denial of service via decompression bombs (huge images that consume excessive memory during processing), or exploitation of Pillow vulnerabilities with specially crafted image files.
+
+- **Remediation Checklist:**
+  - [ ] Add file size limits before processing (e.g., max 10MB):
+    ```python
+    MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB
+    content = await file.read()
+    if len(content) > MAX_FILE_SIZE:
+        raise HTTPException(status_code=413, detail="File too large (max 10MB)")
+    ```
+  - [ ] Validate file extension and MIME type against an allowlist (`['image/jpeg', 'image/png', 'image/gif', 'image/webp']`)
+  - [ ] Set `Image.MAX_IMAGE_PIXELS` to prevent decompression bombs:
+    ```python
+    from PIL import Image
+    Image.MAX_IMAGE_PIXELS = 25_000_000  # ~5000x5000
+    ```
+
+- **References:** CWE-434 (Unrestricted Upload of File with Dangerous Type), CWE-400 (Uncontrolled Resource Consumption)
+
+---
+
+### MED-03: Secrets Baked into Docker Build Layer (Frontend)
+
+- **Location:** `/home/als0028/study/shintairiku/marketing-automation/frontend/Dockerfile` (lines 25-31), `/home/als0028/study/shintairiku/marketing-automation/docker-compose.yml` (lines 39-42)
+- **Description:** The frontend Dockerfile passes `STRIPE_SECRET_KEY` and `SUPABASE_SERVICE_ROLE_KEY` as build arguments for the production build:
+
+  ```dockerfile
+  ARG STRIPE_SECRET_KEY
+  ARG SUPABASE_SERVICE_ROLE_KEY
+  ENV STRIPE_SECRET_KEY=${STRIPE_SECRET_KEY}
+  ENV SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY}
+  ```
+
+  Build arguments are stored in the Docker image's layer history and can be extracted using `docker history --no-trunc`. Additionally, `ENV` makes them available as environment variables in the running container's `/proc/1/environ`.
+
+  The `docker-compose.yml` also passes these secrets as build args.
+
+- **Impact:** Anyone with access to the Docker image (e.g., from a container registry) can extract these secrets from the image layers.
+
+- **Remediation Checklist:**
+  - [ ] Use multi-stage builds where secrets are only available during the build stage and not copied to the production image:
+    ```dockerfile
+    FROM deps AS builder
+    # Use --mount=type=secret for build-time secrets
+    RUN --mount=type=secret,id=stripe_key \
+        STRIPE_SECRET_KEY=$(cat /run/secrets/stripe_key) bun run build
+    ```
+  - [ ] Inject runtime secrets via environment variables at container start time (Cloud Run environment variables), not at build time
+  - [ ] Remove `STRIPE_SECRET_KEY` and `SUPABASE_SERVICE_ROLE_KEY` from the Dockerfile `ARG` and `ENV` directives
+  - [ ] Use `.dockerignore` to exclude `.env.local` from the build context
+
+- **References:** CWE-312 (Cleartext Storage of Sensitive Information), Docker Security Best Practices
+
+---
+
+### MED-04: Missing Security Headers
+
+- **Location:** `/home/als0028/study/shintairiku/marketing-automation/frontend/next.config.js`, `/home/als0028/study/shintairiku/marketing-automation/backend/main.py`
+- **Description:** Neither the Next.js frontend nor the FastAPI backend sets standard security headers:
+  - `Content-Security-Policy` (CSP) -- prevents XSS
+  - `X-Content-Type-Options: nosniff` -- prevents MIME sniffing
+  - `X-Frame-Options: DENY` or `SAMEORIGIN` -- prevents clickjacking
+  - `Strict-Transport-Security` (HSTS) -- enforces HTTPS
+  - `Referrer-Policy` -- controls referrer information leakage
+  - `Permissions-Policy` -- restricts browser features
+
+- **Impact:** Missing CSP allows XSS attacks to execute arbitrary scripts. Missing X-Frame-Options allows clickjacking. Missing HSTS allows downgrade attacks.
+
+- **Remediation Checklist:**
+  - [ ] Add security headers to `next.config.js`:
+    ```javascript
+    async headers() {
+      return [{
+        source: '/(.*)',
+        headers: [
+          { key: 'X-Content-Type-Options', value: 'nosniff' },
+          { key: 'X-Frame-Options', value: 'DENY' },
+          { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
+          { key: 'Permissions-Policy', value: 'camera=(), microphone=(), geolocation=()' },
+          { key: 'Strict-Transport-Security', value: 'max-age=31536000; includeSubDomains' },
+        ],
+      }];
+    }
+    ```
+  - [ ] Add CSP headers (start with report-only mode to avoid breaking functionality)
+  - [ ] Add `X-Content-Type-Options: nosniff` to FastAPI middleware
+
+- **References:** OWASP Secure Headers Project, CWE-693 (Protection Mechanism Failure)
+
+---
+
+### MED-05: Unpinned Dependencies Allow Supply Chain Attacks
+
+- **Location:** `/home/als0028/study/shintairiku/marketing-automation/backend/pyproject.toml` (lines 7-31)
+- **Description:** All backend Python dependencies are specified without version constraints:
+
+  ```toml
+  dependencies = [
+      "fastapi",
+      "uvicorn[standard]",
+      "openai",
+      "openai-agents",
+      "supabase",
+      "pillow",
+      "numpy",
+      "httpx",
+      # ... all without version pins
+  ]
+  ```
+
+  While `uv.lock` provides reproducible builds (when used correctly), the `pyproject.toml` without version constraints means:
+  1. A `uv sync` without `--frozen` could pull in a compromised newer version
+  2. If `uv.lock` is regenerated, any dependency could be updated to a malicious version
+  3. No CI step verifies dependency integrity
+
+  The frontend `package.json` uses caret versions (`^`), which is better but still allows minor/patch updates.
+
+- **Impact:** A supply chain attack on any dependency could inject malicious code into the application.
+
+- **Remediation Checklist:**
+  - [ ] Add minimum version constraints to `pyproject.toml` (e.g., `"fastapi>=0.128.0"`)
+  - [ ] Always use `uv sync --frozen` in CI/CD and production builds
+  - [ ] Add a dependency audit step to the CI pipeline (e.g., `pip-audit` for Python, `bun audit` for JavaScript)
+  - [ ] Consider using a tool like `safety` or `pip-audit` in the CI workflow
+  - [ ] Add Dependabot or Renovate bot for automated dependency update PRs with review
+
+- **References:** CWE-1104 (Use of Unmaintained Third-Party Components), OWASP Supply Chain Security
+
+---
+
+### MED-06: No CI/CD Security Scanning
+
+- **Location:** `/home/als0028/study/shintairiku/marketing-automation/.github/workflows/backend-docker-build.yml`
+- **Description:** The only CI/CD pipeline is a Docker build test. There is no:
+  - Static Application Security Testing (SAST)
+  - Dependency vulnerability scanning
+  - Secret detection in commits
+  - Container image scanning
+  - Frontend security testing
+  - Linting for security issues (e.g., `bandit` for Python, `eslint-plugin-security` for JS)
+
+- **Impact:** Security regressions and known vulnerability introductions go undetected until manual review.
+
+- **Remediation Checklist:**
+  - [ ] Add `pip-audit` or `safety check` to the CI pipeline for Python dependency scanning
+  - [ ] Add `trivy` or `snyk container` for Docker image scanning
+  - [ ] Add `bandit` for Python SAST
+  - [ ] Add `gitleaks` or `trufflehog` for secret detection in commits
+  - [ ] Add `eslint-plugin-security` to the frontend ESLint configuration
+  - [ ] Run `bun audit` in the frontend CI step
+
+- **References:** OWASP DevSecOps Guidelines, CWE-1395
+
+---
+
+### MED-07: Error Responses Leak Internal Details
+
+- **Location:** `/home/als0028/study/shintairiku/marketing-automation/backend/app/core/exceptions.py` (lines 39-48, 54-56), `/home/als0028/study/shintairiku/marketing-automation/backend/app/common/auth.py` (line 188)
+- **Description:** Several error handlers include exception details in the response body:
+
+  ```python
+  # exceptions.py line 41
+  detail = f"Agent processing error: {type(exc).__name__} - {str(exc)}"
+
+  # exceptions.py line 55
+  content={"detail": f"An unexpected internal server error occurred: {type(exc).__name__}"},
+
+  # auth.py line 188
+  raise HTTPException(status_code=500, detail=f"Authentication error: {e}")
+  ```
+
+  These expose internal exception class names and error messages that could reveal implementation details (library versions, file paths, database schema information) to attackers.
+
+- **Impact:** Information disclosure that aids attackers in crafting targeted exploits.
+
+- **Remediation Checklist:**
+  - [ ] Return generic error messages in production:
+    ```python
+    async def generic_exception_handler(request: Request, exc: Exception):
+        logger.error(f"Unhandled exception: {type(exc).__name__} - {str(exc)}")
+        return JSONResponse(
+            status_code=500,
+            content={"detail": "An internal server error occurred"},
+        )
+    ```
+  - [ ] Only include detailed error information when `DEBUG=true` (but fix CRIT-02 first)
+  - [ ] Log full exception details server-side but return only sanitized messages to clients
+
+- **References:** CWE-209 (Generation of Error Message Containing Sensitive Information)
+
+---
+
+### MED-08: Invitation Token Security Weaknesses
+
+- **Location:** `/home/als0028/study/shintairiku/marketing-automation/backend/app/domains/organization/service.py`
+- **Description:** Organization invitation tokens are used to accept or decline invitations. While invitations have an `expires_at` field, the invitation flow uses email-based matching which has several concerns:
+  1. Invitation tokens are passed as query parameters in URLs, which can be logged in browser history and server logs
+  2. There is no brute-force protection on the invitation response endpoint (`POST /organizations/invitations/respond`)
+  3. The invitation acceptance only checks the token value, not a cryptographic binding to the invited user's identity
+
+- **Impact:** An attacker who obtains or guesses an invitation token could join an organization, gaining access to the organization's WordPress sites, article generation quota, and shared data.
+
+- **Remediation Checklist:**
+  - [ ] Ensure invitation tokens are cryptographically random with sufficient entropy (at least 256 bits)
+  - [ ] Add rate limiting on the invitation response endpoint
+  - [ ] Verify that the accepting user's email matches the invited email
+  - [ ] Consider using HMAC-signed invitation tokens to prevent tampering
+
+- **References:** CWE-640 (Weak Password Recovery Mechanism for Forgotten Password), OWASP Session Management
+
+---
+
+## Low Vulnerabilities
+
+### LOW-01: Excessive Logging of Authentication Details
+
+- **Location:** `/home/als0028/study/shintairiku/marketing-automation/backend/app/common/auth.py` (lines 173-176), `/home/als0028/study/shintairiku/marketing-automation/backend/app/common/admin_auth.py` (lines 137-139)
+- **Description:** Successful authentication logs include JWT claim details:
+  ```python
+  logger.info(f"🔒 [AUTH] JWT claims: iss={decoded.get('iss')}, azp={decoded.get('azp')}, exp={decoded.get('exp')}")
+  logger.info(f"🔒 [AUTH] Decoded JWT token keys: {list(decoded_token.keys())}")
+  ```
+  In high-traffic production, this generates excessive log volume and may include sensitive JWT metadata.
+
+- **Remediation Checklist:**
+  - [ ] Reduce authentication success logging to DEBUG level
+  - [ ] Remove logging of JWT claim details in production
+  - [ ] Only log authentication failures at INFO/WARNING level
+
+- **References:** CWE-532, OWASP Logging Cheat Sheet
+
+---
+
+### LOW-02: Hardcoded Absolute Path in Configuration
+
+- **Location:** `/home/als0028/study/shintairiku/marketing-automation/backend/app/core/config.py` (line 132)
+- **Description:** The Pydantic settings configuration includes a hardcoded absolute path:
+  ```python
+  model_config = SettingsConfigDict(
+      env_file=[
+          '.env',
+          Path(__file__).parent.parent.parent / '.env',
+          '/home/als0028/study/shintairiku/marketing-automation/backend/.env'  # Hardcoded
+      ],
+  ```
+  This path is developer-specific and would not work in other environments.
+
+- **Remediation Checklist:**
+  - [ ] Remove the hardcoded absolute path from the `env_file` list
+  - [ ] Use only relative paths for `.env` file discovery
+
+- **References:** CWE-668 (Exposure of Resource to Wrong Sphere)
+
+---
+
+### LOW-03: Docker Container Runs as Root (Backend)
+
+- **Location:** `/home/als0028/study/shintairiku/marketing-automation/backend/Dockerfile`
+- **Description:** The backend Dockerfile does not specify a non-root user. The application runs as `root` inside the container, which means any code execution vulnerability could lead to container escape or host compromise.
+
+  The frontend production Dockerfile correctly uses `USER node` (line 65).
+
+- **Remediation Checklist:**
+  - [ ] Add a non-root user to the backend Dockerfile:
+    ```dockerfile
+    RUN adduser --disabled-password --gecos '' appuser
+    USER appuser
+    ```
+  - [ ] Ensure the image storage path is writable by the non-root user
+
+- **References:** CWE-250 (Execution with Unnecessary Privileges), Docker Security Best Practices
+
+---
+
+### LOW-04: OpenAI API Key Partially Logged at Startup
+
+- **Location:** `/home/als0028/study/shintairiku/marketing-automation/backend/app/core/config.py` (line 174)
+- **Description:** The OpenAI API key's first 8 characters are logged at startup:
+  ```python
+  print(f"OpenAI API キーを設定しました: {settings.openai_api_key[:8]}...")
+  ```
+  While only a prefix, this information could be useful for targeted attacks on OpenAI's API key format.
+
+- **Remediation Checklist:**
+  - [ ] Remove API key prefix logging or replace with a masked indicator: `print("OpenAI API key configured: [set]")`
+
+- **References:** CWE-532 (Insertion of Sensitive Information into Log File)
+
+---
+
+### LOW-05: GCS Service Account JSON File Referenced by Name in `.gitignore`
+
+- **Location:** `/home/als0028/study/shintairiku/marketing-automation/.gitignore` (lines 47-49)
+- **Description:** The `.gitignore` file lists specific service account filenames:
+  ```
+  marketing-automation-461305-f94de589a90c.json
+  marketing-automation-461305-d3821e14ba9f.json
+  backend/marketing-automation-461305-f4cb0b7367b7.json
+  ```
+  This reveals the GCP project name (`marketing-automation-461305`) and confirms that service account JSON files are used locally. A more robust approach would use a pattern-based exclusion.
+
+- **Remediation Checklist:**
+  - [ ] Replace specific filenames with a pattern: `*-service-account*.json` or `*.json` in the project root
+  - [ ] Consider using a nested `.gitignore` in the backend directory for sensitive file patterns
+
+- **References:** CWE-200 (Exposure of Sensitive Information)
+
+---
+
+### LOW-06: Health Check Endpoint Exposes Version Information
+
+- **Location:** `/home/als0028/study/shintairiku/marketing-automation/backend/main.py` (lines 52-54)
+- **Description:** The health check endpoint returns the application version:
+  ```python
+  @app.get("/health")
+  async def health_check():
+      return {"status": "healthy", "message": "API is running", "version": "2.0.0"}
+  ```
+
+- **Remediation Checklist:**
+  - [ ] Remove the `version` field from the health check response, or make it configurable
+  - [ ] Health checks should return minimal information (just `{"status": "ok"}`)
+
+- **References:** CWE-200 (Exposure of Sensitive Information)
+
+---
+
+## General Security Recommendations
+
+- [ ] **Implement a Web Application Firewall (WAF):** Deploy Google Cloud Armor or Cloudflare in front of the Cloud Run services to filter malicious traffic, apply geo-blocking if the service is Japan-only, and rate-limit requests at the edge
+- [ ] **Enable Cloud Run authentication:** Consider requiring IAM-based authentication for the backend Cloud Run service, with the frontend acting as the sole authenticated caller via a service account. This eliminates direct public access to the backend API
+- [ ] **Implement Content Security Policy (CSP):** Add CSP headers to prevent inline script execution, mitigating stored XSS risks from AI-generated content
+- [ ] **Add request ID tracking:** Generate a unique request ID for each API call and include it in logs and error responses for correlation and debugging without exposing internal details
+- [ ] **Implement an API gateway:** Use an API gateway (e.g., Google Cloud API Gateway or Apigee) in front of the backend to centralize authentication, rate limiting, and request validation
+- [ ] **Regular secret rotation:** Establish a process for rotating API keys and credentials quarterly, with automated rotation where possible (e.g., Stripe webhook secrets)
+- [ ] **Add CSRF protection:** While Clerk handles auth tokens via headers (not cookies), the Stripe webhook and Clerk webhook endpoints should verify that requests originate from expected sources (already done via signature verification, but add IP allowlisting as an additional layer)
+
+---
+
+## Security Posture Improvement Plan
+
+### Immediate (Week 1)
+1. Rotate all exposed secrets (CRIT-01)
+2. Remove DEBUG mode authentication bypass (CRIT-02)
+3. Add authentication to unauthenticated endpoints (CRIT-03)
+4. Implement SSRF protection on WordPress URL endpoint (CRIT-04)
+
+### Short-term (Weeks 2-4)
+5. Add rate limiting to expensive operations (HIGH-02)
+6. Fix CORS configuration (HIGH-06)
+7. Fix PostgREST injection vulnerability (HIGH-07)
+8. Add JWT issuer/audience validation (HIGH-04)
+9. Disable sensitive data tracing in production (HIGH-05)
+10. Add security headers (MED-04)
+
+### Medium-term (Months 2-3)
+11. Implement HTML sanitization for AI-generated content (MED-01)
+12. Add file upload validation (MED-02)
+13. Fix Docker secret handling (MED-03)
+14. Add CI/CD security scanning (MED-06)
+15. Pin dependency versions (MED-05)
+16. Implement request-scoped Supabase clients with RLS (HIGH-03)
+17. Add path restrictions to API proxy (HIGH-01)
+
+### Ongoing
+18. Regular dependency updates and vulnerability scanning
+19. Periodic security audits
+20. Security awareness training for developers
+21. Incident response planning and documentation
+
+---
+
+*Report generated by Claude Opus 4.6 security audit. This report should be reviewed by a human security professional before implementing remediation steps. Some findings may require additional investigation in the production environment.*
