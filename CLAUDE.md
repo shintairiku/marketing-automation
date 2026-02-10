@@ -1543,8 +1543,20 @@ const baseURL = USE_PROXY ? '/api/proxy' : API_BASE_URL;
 - 本番 (Vercel): `NODE_ENV=production` → `/api/proxy` → route handler → IAMトークン付与 → Cloud Run
 - 開発: `/api/proxy` 不使用 → `localhost:8080` 直接 → IAM不要
 
+### 25. API Proxy リダイレクトループ恒久修正 (2026-02-10)
+
+- **問題**: `/api/proxy/[...path]` で `ensureTrailingSlash()` が `/blog/sites` を `/blog/sites/` に変換し、FastAPI (`redirect_slashes=True`) が 307 で逆向きリダイレクト。さらに Cloud Run の `Location` が `http://*.run.app` になり、手動追従で 302/307 が連鎖していた。
+- **修正ファイル**: `frontend/src/app/api/proxy/[...path]/route.ts`
+  - `ensureTrailingSlash()` を削除（パスの末尾 `/` を強制しない）
+  - `fetchWithRedirect()` を 1回追従から **最大3ホップ追従** に変更
+  - `301/302/303/307/308` を手動追従対象に統一
+  - `normalizeRedirectUrl()` を追加し、`http://*.run.app` を `https://` に正規化
+- **効果**: `POST /blog/connect/wordpress/url` や `GET /blog/sites` で発生していたプロキシ由来の `302/307` 応答を解消し、認証ヘッダーを保持したまま安定して Cloud Run へ到達可能に。
+
 ### 2026-02-10 自己改善
 - **再検証の重要性**: 実装完了後のユーザー再検証要求で、`useArticles.ts` と `admin/plans/page.tsx` に `USE_PROXY` パターンが欠けているバグを発見した。最初の実装時にサーバーサイドAPI Routes (9ファイル) のみに注力し、クライアントサイドhooksの直接fetch呼び出しを見落としていた。**サーバーサイド→バックエンド通信だけでなく、ブラウザ→バックエンド通信パスも全て確認すべき。**
+- **FastAPI末尾スラッシュ + Cloud Run scheme 変換の複合問題**: `frontend/src/app/api/proxy/[...path]/route.ts` の `ensureTrailingSlash()` が `/blog/sites` を `/blog/sites/` に変換し、FastAPI (`redirect_slashes=True`) が 307 で `/blog/sites` へ戻す。さらに Cloud Run の `Location` が `http://...run.app/...` になり、プロキシがそれを手動追従すると Cloud Run 側で 302/307 が連鎖する。**手動リダイレクト追従を使う場合は、(1) 末尾スラッシュ強制をしない、(2) `Location` が `http://` でも `https://` に正規化する、の両方を実施すべき。**
+- **リダイレクト処理の不完全実装**: これまでの実装は「1回だけ追従」だったため、Cloud Run の多段リダイレクト（FastAPI 307 + Cloud Run 302）で取りこぼしが起きた。**手動追従ロジックは最初から最大ホップ数を持つループ実装にするべき。**
 
 ### 2026-02-02 自己改善
 - **記憶の即時更新**: コード変更を完了した直後に CLAUDE.md を更新せず、ユーザーに「また記憶してないでしょ」と指摘された。**変更を加えたら、次のユーザー応答の前に必ず CLAUDE.md を更新する。これは最優先の義務。**
