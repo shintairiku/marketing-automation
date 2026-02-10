@@ -7,16 +7,25 @@ const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8
 /**
  * バックエンドAPIへのプロキシ
  *
- * 注意: FastAPI はデフォルトで redirect_slashes=True のため、
- * /organizations → 307 → /organizations/ にリダイレクトする。
- * Node.js の fetch はリダイレクト時に Authorization ヘッダーを削除するため、
- * redirect: 'manual' で手動処理する。
+ * 注意:
+ * - FastAPI は `redirect_slashes=True` のため、末尾スラッシュ差分で 307 が発生する。
+ * - Node.js fetch の自動リダイレクトでは認証ヘッダー喪失のリスクがあるため、
+ *   `redirect: 'manual'` で手動追従する。
+ * - Cloud Run が返す Location が `http://*.run.app` の場合があるため、https に補正する。
  */
 
-// 末尾スラッシュを付与して 307 リダイレクトを回避
-function ensureTrailingSlash(path: string): string {
-  if (path.endsWith('/') || path.includes('?') || path.includes('.')) return path;
-  return `${path}/`;
+const REDIRECT_STATUS_CODES = new Set([301, 302, 303, 307, 308]);
+const MAX_REDIRECT_HOPS = 3;
+
+function normalizeRedirectUrl(location: string, baseUrl: string): string {
+  const url = new URL(location, baseUrl);
+
+  // Cloud Run は https 運用なので、http で返ってきたら強制的に https に補正
+  if (url.hostname.endsWith('.run.app') && url.protocol === 'http:') {
+    url.protocol = 'https:';
+  }
+
+  return url.toString();
 }
 
 // リダイレクト対応の fetch ラッパー
@@ -24,27 +33,34 @@ async function fetchWithRedirect(
   url: string,
   init: RequestInit & { headers: Record<string, string> }
 ): Promise<Response> {
-  const response = await fetch(url, {
-    ...init,
-    redirect: 'manual', // リダイレクトを自動追従しない
-  });
+  let currentUrl = url;
 
-  // 307/308 リダイレクトの場合、ヘッダーを保持して再リクエスト
-  if (response.status === 307 || response.status === 308 || response.status === 301 || response.status === 302) {
-    const location = response.headers.get('location');
-    if (location) {
-      const redirectUrl = location.startsWith('http')
-        ? location
-        : `${API_BASE_URL}${location}`;
-      console.log(`🔄 [PROXY] Redirect ${response.status} → ${redirectUrl}`);
-      return fetch(redirectUrl, {
-        ...init,
-        redirect: 'manual',
-      });
+  for (let hop = 0; hop <= MAX_REDIRECT_HOPS; hop += 1) {
+    const response = await fetch(currentUrl, {
+      ...init,
+      redirect: 'manual', // リダイレクトを自動追従しない
+    });
+
+    if (!REDIRECT_STATUS_CODES.has(response.status)) {
+      return response;
     }
+
+    // 3xx リダイレクトの場合、ヘッダーを保持して再リクエスト
+    const location = response.headers.get('location');
+    if (!location) {
+      return response;
+    }
+
+    const redirectUrl = normalizeRedirectUrl(location, currentUrl);
+    console.log(`🔄 [PROXY] Redirect ${response.status} → ${redirectUrl}`);
+    currentUrl = redirectUrl;
   }
 
-  return response;
+  // ループ上限到達時は最後のURLへ通常リクエストして結果を返す
+  return fetch(currentUrl, {
+    ...init,
+    redirect: 'manual',
+  });
 }
 
 // レスポンスを NextResponse に変換
@@ -103,7 +119,7 @@ export async function GET(
   { params }: { params: Promise<{ path: string[] }> }
 ) {
   const { path: pathArray } = await params;
-  const pathString = ensureTrailingSlash(pathArray.join('/'));
+  const pathString = pathArray.join('/');
   const searchParams = request.nextUrl.searchParams.toString();
   const url = `${API_BASE_URL}/${pathString}${searchParams ? `?${searchParams}` : ''}`;
   const headers = await buildHeaders(request);
@@ -127,7 +143,7 @@ export async function POST(
   { params }: { params: Promise<{ path: string[] }> }
 ) {
   const { path: pathArray } = await params;
-  const pathString = ensureTrailingSlash(pathArray.join('/'));
+  const pathString = pathArray.join('/');
   const url = `${API_BASE_URL}/${pathString}`;
 
   const contentType = request.headers.get('content-type');
@@ -161,7 +177,7 @@ export async function PUT(
   { params }: { params: Promise<{ path: string[] }> }
 ) {
   const { path: pathArray } = await params;
-  const pathString = ensureTrailingSlash(pathArray.join('/'));
+  const pathString = pathArray.join('/');
   const url = `${API_BASE_URL}/${pathString}`;
   const body = await request.text();
   const headers = await buildHeaders(request);
@@ -183,7 +199,7 @@ export async function PATCH(
   { params }: { params: Promise<{ path: string[] }> }
 ) {
   const { path: pathArray } = await params;
-  const pathString = ensureTrailingSlash(pathArray.join('/'));
+  const pathString = pathArray.join('/');
   const url = `${API_BASE_URL}/${pathString}`;
   const body = await request.text();
   const headers = await buildHeaders(request);
@@ -205,7 +221,7 @@ export async function DELETE(
   { params }: { params: Promise<{ path: string[] }> }
 ) {
   const { path: pathArray } = await params;
-  const pathString = ensureTrailingSlash(pathArray.join('/'));
+  const pathString = pathArray.join('/');
   const url = `${API_BASE_URL}/${pathString}`;
   const headers = await buildHeaders(request);
 
