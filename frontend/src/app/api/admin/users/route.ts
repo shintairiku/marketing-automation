@@ -1,8 +1,7 @@
 import { NextResponse } from 'next/server';
 
+import { backendFetch } from '@/lib/backend-fetch';
 import { auth } from '@clerk/nextjs/server';
-
-const BACKEND_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8080';
 
 export async function GET() {
   try {
@@ -13,12 +12,7 @@ export async function GET() {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const response = await fetch(`${BACKEND_URL}/admin/users`, {
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      },
-    });
+    const response = await backendFetch('/admin/users', token);
 
     const bodyText = await response.text();
     let data: unknown = null;

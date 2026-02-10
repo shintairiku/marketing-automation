@@ -68,6 +68,8 @@ interface UseAllProcessesResult {
 }
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8080";
+const USE_PROXY = process.env.NODE_ENV === 'production';
+const baseURL = USE_PROXY ? '/api/proxy' : API_BASE_URL;
 
 export interface ArticleStats {
   total_generated: number;
@@ -105,7 +107,7 @@ export function useArticleStats(): UseArticleStatsResult {
       }
 
       // 全プロセスを取得して統計を計算
-      const response = await fetch(`${API_BASE_URL}/articles/all-processes?limit=1000`, {
+      const response = await fetch(`${baseURL}/articles/all-processes?limit=1000`, {
         method: "GET",
         headers,
       });
@@ -195,7 +197,7 @@ export function useArticles(pageSize: number = 20, statusFilter?: string): UseAr
         headers["Authorization"] = `Bearer ${token}`;
       }
 
-      const response = await fetch(`${API_BASE_URL}/articles/?${params}`, {
+      const response = await fetch(`${baseURL}/articles/?${params}`, {
         method: "GET",
         headers,
       });
@@ -265,7 +267,7 @@ export function useArticleDetail(articleId: string | null): UseArticleDetailResu
         headers["Authorization"] = `Bearer ${token}`;
       }
 
-      const response = await fetch(`${API_BASE_URL}/articles/${id}`, {
+      const response = await fetch(`${baseURL}/articles/${id}`, {
         method: "GET",
         headers,
       });
@@ -344,7 +346,7 @@ export function useAllProcesses(pageSize: number = 20, statusFilter?: string): U
         headers["Authorization"] = `Bearer ${token}`;
       }
 
-      const response = await fetch(`${API_BASE_URL}/articles/all-processes?${params}`, {
+      const response = await fetch(`${baseURL}/articles/all-processes?${params}`, {
         method: "GET",
         headers,
       });
@@ -386,7 +388,7 @@ export function useAllProcesses(pageSize: number = 20, statusFilter?: string): U
         headers["Authorization"] = `Bearer ${token}`;
       }
 
-      const response = await fetch(`${API_BASE_URL}/articles/${articleId}/status`, {
+      const response = await fetch(`${baseURL}/articles/${articleId}/status`, {
         method: "PATCH",
         headers,
         body: JSON.stringify({ status }),

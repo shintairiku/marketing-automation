@@ -62,34 +62,7 @@ class UploadImageResponse(BaseModel):
     error_message: Optional[str] = Field(default=None, description="エラーメッセージ")
     metadata: Dict[str, Any] = Field(default_factory=dict, description="画像メタデータ")
 
-# --- Test Endpoints ---
-
-@router.get("/test-config")
-async def test_config():
-    """Google Cloud設定のテスト"""
-    try:
-        service = ImageGenerationService()
-        
-        # 初期化状況を確認
-        config_status = {
-            "service_initialized": service._initialized,
-            "project_id": service.project_id or "Not configured",
-            "location": service.location,
-            "has_credentials": service._credentials is not None,
-            "client_type": "genai" if service._client else "vertex_ai_legacy",
-        }
-        
-        return {
-            "status": "ok",
-            "config": config_status
-        }
-        
-    except Exception as e:
-        logger.error(f"設定テストエラー: {e}")
-        return {
-            "status": "error",
-            "error": str(e)
-        }
+# test-config エンドポイントは削除 (GCP設定情報の公開リスク)
 
 # --- Main Generation Endpoints ---
 
@@ -256,7 +229,10 @@ async def generate_and_link_image(
         )
 
 @router.post("/generate-from-placeholder", response_model=ImageGenerationResponse)
-async def generate_image_from_placeholder(request: GenerateImageFromPlaceholderRequest):
+async def generate_image_from_placeholder(
+    request: GenerateImageFromPlaceholderRequest,
+    current_user_id: str = Depends(get_current_user_id_from_token)
+):
     """画像プレースホルダーの情報から画像を生成する"""
     try:
         result = await image_generation_service.generate_image_from_placeholder(

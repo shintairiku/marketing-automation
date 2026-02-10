@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
+import { backendFetch } from '@/lib/backend-fetch';
 import { auth } from '@clerk/nextjs/server';
-
-const BACKEND_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8080';
 
 export async function GET(
   request: NextRequest,
@@ -17,12 +16,7 @@ export async function GET(
     }
 
     const resolvedParams = await params;
-    const response = await fetch(`${BACKEND_URL}/companies/${resolvedParams.id}`, {
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      },
-    });
+    const response = await backendFetch(`/companies/${resolvedParams.id}`, token);
 
     if (!response.ok) {
       const errorData = await response.json();
@@ -55,12 +49,8 @@ export async function PUT(
     const body = await request.json();
     const resolvedParams = await params;
 
-    const response = await fetch(`${BACKEND_URL}/companies/${resolvedParams.id}`, {
+    const response = await backendFetch(`/companies/${resolvedParams.id}`, token, {
       method: 'PUT',
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      },
       body: JSON.stringify(body),
     });
 
@@ -93,12 +83,8 @@ export async function DELETE(
     }
 
     const resolvedParams = await params;
-    const response = await fetch(`${BACKEND_URL}/companies/${resolvedParams.id}`, {
+    const response = await backendFetch(`/companies/${resolvedParams.id}`, token, {
       method: 'DELETE',
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      },
     });
 
     if (!response.ok) {

@@ -1448,6 +1448,104 @@ print('usage:', resp.usage)
 - Google AI: https://ai.google.dev/gemini-api/docs/pricing (Gemini 2.5 Pro)
 - Anthropic: https://docs.anthropic.com/en/docs/about-claude/models (Claude 4 Sonnet)
 
+### 24. Cloud Run IAM認証 + セキュリティ修正 (2026-02-10)
+
+**概要**: Cloud Runバックエンドを非公開化し、Vercelサービスアカウント経由でのみアクセス可能にする。加えて、セキュリティ監査で発見された重大な脆弱性を修正。
+
+#### Cloud Run IAM認証 (X-Serverless-Authorization 方式)
+
+**核心的な発見**: Cloud Runは `X-Serverless-Authorization` ヘッダーをサポート:
+- このヘッダーでIAM認証を検証後、ヘッダーを除去
+- `Authorization` ヘッダー (Clerk JWT) はそのままコンテナに転送
+- → **バックエンドのauth.py変更不要**
+
+**新規ファイル**:
+- `frontend/src/lib/google-auth.ts` — Google ID Token生成ユーティリティ
+  - `google-auth-library` の `GoogleAuth` + `IdTokenClient` を使用
+  - モジュールスコープでキャッシュ（Vercel warm invocation間で再利用）
+  - `CLOUD_RUN_AUDIENCE_URL` 未設定時（開発環境）は `null` 返却
+  - トークンは google-auth-library が自動キャッシュ (~1時間有効)
+- `frontend/src/lib/backend-fetch.ts` — バックエンドfetchヘルパー
+  - Clerk JWT (`Authorization`) + Google ID Token (`X-Serverless-Authorization`) の両ヘッダーを付与
+  - 全9箇所のバックエンド呼び出しで使用
+
+**変更ファイル**:
+- `frontend/src/app/api/proxy/[...path]/route.ts` — `buildHeaders()` をasync化、`X-Serverless-Authorization` 追加
+- `frontend/src/app/api/companies/route.ts` — `backendFetch()` 使用に置換
+- `frontend/src/app/api/companies/[id]/route.ts` — 同上
+- `frontend/src/app/api/companies/default/route.ts` — 同上
+- `frontend/src/app/api/companies/set-default/route.ts` — 同上
+- `frontend/src/app/api/organizations/[id]/members/route.ts` — 同上
+- `frontend/src/app/api/organizations/[id]/members/[userId]/route.ts` — 同上
+- `frontend/src/app/api/organizations/[id]/invitations/route.ts` — 同上
+- `frontend/src/app/api/admin/users/route.ts` — 同上
+- `frontend/next.config.js` — `rewrites()` 削除（route handler経由に集約）
+- `frontend/package.json` — `google-auth-library` v10.5.0 追加
+
+**Vercel環境変数** (デプロイ時に設定が必要):
+```
+CLOUD_RUN_AUDIENCE_URL=https://<service>-<hash>-<region>.a.run.app
+GOOGLE_SA_KEY_BASE64=<base64エンコードされたSAキーJSON>
+```
+
+**GCPコマンド** (デプロイ時に実行が必要):
+```bash
+# SA作成 + Invokerロール付与 + キー生成 + Cloud Run非公開化
+gcloud iam service-accounts create vercel-invoker --display-name="Vercel Cloud Run Invoker"
+gcloud run services add-iam-policy-binding <SERVICE> --member="serviceAccount:vercel-invoker@<PROJECT>.iam.gserviceaccount.com" --role="roles/run.invoker" --region=<REGION>
+gcloud iam service-accounts keys create sa-key.json --iam-account=vercel-invoker@<PROJECT>.iam.gserviceaccount.com
+gcloud run services remove-iam-policy-binding <SERVICE> --member="allUsers" --role="roles/run.invoker" --region=<REGION>
+```
+
+#### セキュリティ修正
+
+1. **DEBUG認証バイパス削除**: `backend/app/common/auth.py` から `DEBUG_MODE` 分岐を完全削除。`DEBUG=true` で署名検証スキップされる重大な脆弱性を修正。
+2. **認証なしエンドポイント修正**: `backend/app/domains/image_generation/endpoints.py`
+   - `POST /images/generate-from-placeholder` に `Depends(get_current_user_id_from_token)` 追加
+   - `GET /images/test-config` を削除（GCP設定情報の公開リスク）
+3. **WordPress OAuthリダイレクト無効化**: `backend/app/domains/blog/endpoints.py` の `GET /blog/connect/wordpress` をコメントアウト（URL貼り付け方式に移行済み）
+
+#### 技術的知見: Cloud Run IAM認証
+
+**情報ソース**:
+- https://docs.cloud.google.com/run/docs/authenticating/service-to-service
+- https://cloud.google.com/blog/products/serverless/cloud-run-supports-new-authorization-mechanisms
+
+**ヘッダーの使い分け**:
+| ヘッダー | 動作 |
+|---------|------|
+| `Authorization: Bearer <ID_TOKEN>` | Cloud Runが検証し、署名を除去してコンテナに転送 |
+| `X-Serverless-Authorization: Bearer <ID_TOKEN>` | Cloud Runが検証し、**ヘッダーごと除去**。`Authorization`はそのまま転送 |
+
+→ 2つのヘッダーが共存する場合、`X-Serverless-Authorization` のみが検証される
+
+**audience**: カスタムドメインは不可。必ず `*.run.app` URLを使用。
+**Vercel注意点**: Edge Runtime不可（`google-auth-library`はNode.js `crypto`が必要）。SA JSONキーはBase64エンコードで環境変数に格納（Vercelの4KB制限内）。
+
+**開発環境への影響なし**: `CLOUD_RUN_AUDIENCE_URL` 未設定時は従来通り動作。
+
+#### クライアントサイド USE_PROXY パターン修正（再検証で発見）
+
+**問題**: 再検証で、ブラウザからCloud Runに直接fetchするコードが2箇所発見された。Cloud Run非公開化後に403エラーで壊れるバグ。
+
+**修正ファイル**:
+- `frontend/src/hooks/useArticles.ts` — `USE_PROXY` パターン追加、全fetch呼び出しを `baseURL` (本番: `/api/proxy`) 経由に修正
+- `frontend/src/app/(admin)/admin/plans/page.tsx` — 同上、`API_BASE` を `USE_PROXY` 条件分岐で切り替え
+
+**確認済み安全なクライアントサイドファイル** (既にUSE_PROXYパターンあり):
+- `lib/api.ts`, `hooks/useAgentChat.ts`, `admin/page.tsx`, `admin/blog-usage/page.tsx`, `admin/users/page.tsx`, `admin/users/[userId]/page.tsx`
+
+**USE_PROXY パターン**:
+```typescript
+const USE_PROXY = process.env.NODE_ENV === 'production';
+const baseURL = USE_PROXY ? '/api/proxy' : API_BASE_URL;
+```
+- 本番 (Vercel): `NODE_ENV=production` → `/api/proxy` → route handler → IAMトークン付与 → Cloud Run
+- 開発: `/api/proxy` 不使用 → `localhost:8080` 直接 → IAM不要
+
+### 2026-02-10 自己改善
+- **再検証の重要性**: 実装完了後のユーザー再検証要求で、`useArticles.ts` と `admin/plans/page.tsx` に `USE_PROXY` パターンが欠けているバグを発見した。最初の実装時にサーバーサイドAPI Routes (9ファイル) のみに注力し、クライアントサイドhooksの直接fetch呼び出しを見落としていた。**サーバーサイド→バックエンド通信だけでなく、ブラウザ→バックエンド通信パスも全て確認すべき。**
+
 ### 2026-02-02 自己改善
 - **記憶の即時更新**: コード変更を完了した直後に CLAUDE.md を更新せず、ユーザーに「また記憶してないでしょ」と指摘された。**変更を加えたら、次のユーザー応答の前に必ず CLAUDE.md を更新する。これは最優先の義務。**
 - **Framer Motion `transition` の `exit` キー**: `transition={{ exit: { duration: 0.35 } }}` は型エラー。正しくは `exit={{ ..., transition: { duration: 0.35 } }}` — exit prop 内に transition を入れる。ビルドで初めて気付くのではなく、書く時点で型を意識すべき。

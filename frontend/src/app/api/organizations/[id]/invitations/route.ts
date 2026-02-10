@@ -1,9 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 
+import { backendFetch } from '@/lib/backend-fetch';
 import { supabaseAdminClient } from '@/libs/supabase/supabase-admin';
 import { auth, clerkClient } from '@clerk/nextjs/server';
-
-const BACKEND_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8080';
 
 /**
  * GET /api/organizations/[id]/invitations
@@ -162,17 +161,10 @@ export async function POST(
 
     // バックエンドにも記録（追跡用）
     try {
-      await fetch(
-        `${BACKEND_URL}/organizations/${id}/invitations`,
-        {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ email, role }),
-        }
-      );
+      await backendFetch(`/organizations/${id}/invitations`, token, {
+        method: 'POST',
+        body: JSON.stringify({ email, role }),
+      });
     } catch (backendError) {
       // バックエンド記録の失敗はClerk招待には影響させない
       console.warn('Failed to record invitation in backend:', backendError);

@@ -29,9 +29,6 @@ CLERK_SECRET_KEY = os.getenv("CLERK_SECRET_KEY", "")
 # JWKSのキャッシュ有効期限（秒）
 JWKS_CACHE_TTL = 3600  # 1時間
 
-# 開発モードフラグ（本番環境ではFalseにすること）
-DEBUG_MODE = os.getenv("DEBUG", "false").lower() == "true"
-
 
 def _get_clerk_jwks_url() -> str:
     """
@@ -141,17 +138,6 @@ def verify_clerk_token(token: str) -> dict:
     Raises:
         HTTPException: トークンが無効な場合
     """
-    # 開発モードでは署名検証をスキップ（警告を出力）
-    if DEBUG_MODE:
-        logger.warning("⚠️ [AUTH] DEBUG MODE: Skipping JWT signature verification!")
-        logger.warning("⚠️ [AUTH] This is insecure and should NOT be used in production!")
-        try:
-            decoded = jwt.decode(token, options={"verify_signature": False})
-            return decoded
-        except jwt.InvalidTokenError as e:
-            raise HTTPException(status_code=401, detail=f"Invalid token format: {e}")
-
-    # 本番モード: 完全な署名検証
     try:
         # JWKクライアントから署名鍵を取得
         jwk_client = _get_jwk_client()

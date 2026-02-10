@@ -42,7 +42,9 @@ import {
 } from '@/components/ui/table';
 import { useAuth } from '@clerk/nextjs';
 
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || '';
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || '';
+const USE_PROXY = process.env.NODE_ENV === 'production';
+const API_BASE = USE_PROXY ? '/api/proxy' : API_BASE_URL;
 
 interface PlanTier {
   id: string;
