@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "stripe:listen": "stripe listen --forward-to=localhost:3000/api/webhooks",
+    "stripe:listen": "stripe listen --forward-to=localhost:3000/api/subscription/webhook",
     "generate-types": "npx supabase gen types typescript --project-id wptklzekgtduiluwzhap --schema public > src/libs/supabase/types.ts",
     "supabase:link": "env-cmd -f ./.env.local supabase link --project-ref wptklzekgtduiluwzhap",
     "migration:new": "supabase migration new",

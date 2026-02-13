@@ -30,6 +30,7 @@ from app.domains.admin.schemas import (
     UpdatePlanTierRequest,
     ApplyLimitsResult,
 )
+from app.infrastructure.stripe_client import get_stripe_client
 
 logger = logging.getLogger(__name__)
 
@@ -836,27 +837,41 @@ class AdminService:
         Update user subscription status
         """
         try:
-            # Format current_period_end for database
-            period_end = None
-            if request.current_period_end:
-                period_end = request.current_period_end.isoformat()
+            sub_data = self._get_subscription_for_user(user_id) or {}
+            stripe_subscription_id = sub_data.get("stripe_subscription_id")
+            if not stripe_subscription_id:
+                raise ValueError("Stripe subscription ID not found for this user")
 
-            # Upsert subscription record
-            supabase.from_("user_subscriptions").upsert(
-                {
-                    "user_id": user_id,
-                    "status": request.status,
-                    "current_period_end": period_end,
-                    "cancel_at_period_end": request.cancel_at_period_end,
-                },
-                on_conflict="user_id",
-            ).execute()
+            stripe_client = get_stripe_client()
 
-            logger.info(
-                f"Updated subscription for user {user_id}: status={request.status}"
-            )
+            # Map admin actions to Stripe API operations.
+            if request.status in ("canceled", "expired"):
+                stripe_client.Subscription.delete(stripe_subscription_id)
+                logger.info(
+                    f"Stripe subscription canceled for user {user_id}: {stripe_subscription_id}"
+                )
+            elif request.cancel_at_period_end:
+                stripe_client.Subscription.modify(
+                    stripe_subscription_id,
+                    cancel_at_period_end=True,
+                )
+                logger.info(
+                    f"Stripe subscription set to cancel at period end for user {user_id}: {stripe_subscription_id}"
+                )
+            elif request.status == "active":
+                stripe_client.Subscription.modify(
+                    stripe_subscription_id,
+                    cancel_at_period_end=False,
+                )
+                logger.info(
+                    f"Stripe subscription reactivated for user {user_id}: {stripe_subscription_id}"
+                )
+            else:
+                raise ValueError(
+                    f"Unsupported admin subscription status change: {request.status}"
+                )
 
-            # Return updated user
+            # Supabase update is handled by Stripe webhooks.
             return self.get_user_by_id(user_id)
 
         except Exception as e:

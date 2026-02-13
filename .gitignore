@@ -25,6 +25,8 @@ package-lock.json
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+stripe-listen*.log
+stripe-listen.pid
 
 # local env files
 .env*.local

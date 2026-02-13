@@ -129,7 +129,7 @@ npm run dev
 Stripe のイベントをローカルで受け取るために、別のターミナルで以下のコマンドを実行します。
 
 ```bash
-stripe listen --forward-to=localhost:3000/api/webhooks
+stripe listen --forward-to=localhost:3000/api/subscription/webhook
 ```
 
 表示された Webhook signing secret (`whsec_...`) を `.env.local` の `STRIPE_WEBHOOK_SECRET` に設定してください。

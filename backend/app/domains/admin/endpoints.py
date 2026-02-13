@@ -233,7 +233,7 @@ async def update_user_subscription(
             raise HTTPException(status_code=404, detail="User not found")
         return UserUpdateResponse(
             success=True,
-            message=f"Subscription updated: status={request.status}",
+            message="Stripe subscription update requested; webhook will update Supabase shortly.",
             user=user,
         )
     except HTTPException:
