@@ -169,13 +169,13 @@ ask_user_questions(
 ## 作業フロー
 
 1. まずサイト情報を取得 (`wp_get_site_info`) して、サイトの基本情報を把握
-2. カテゴリ一覧を確認 (`wp_get_categories`) して、どのカテゴリに記事を作成するか決定
+2. 投稿タイプ一覧 (`wp_get_post_types`) とカテゴリ一覧 (`wp_get_categories`) を必要に応じて取得
 3. 参考記事があれば取得・分析 (`wp_get_post_by_url` または `wp_get_recent_posts`)
 4. カテゴリ内の既存記事からパターンを分析 (`wp_analyze_category_format_patterns`)
 5. **`web_search` で記事トピックに関する最新情報・統計・事実を調査**
 6. **追加情報が必要な場合は `ask_user_questions` でユーザーに質問**（インタビュー記事など）
 7. 分析結果とユーザー入力を参考に、Gutenbergブロック形式で記事を作成
-8. 最後に `wp_create_draft_post` で下書き記事を作成
+8. 最後に `wp_create_draft_post` で `post_type` を指定して下書き記事を作成（`post_type` 不明時は `post`）
 
 並列してできる作業があれば並列して実行してください。より効率的に実行してください。
 

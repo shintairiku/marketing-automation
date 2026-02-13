@@ -16,6 +16,7 @@ from app.domains.blog.services.wordpress_mcp_service import (
     call_wordpress_mcp_tool,
     get_current_process_id,
     MCP_LONG_TIMEOUT,
+    MCPError,
 )
 
 logger = logging.getLogger(__name__)
@@ -210,6 +211,7 @@ async def wp_get_reusable_blocks(per_page: Optional[int] = None) -> str:
 async def wp_create_draft_post(
     title: str,
     content: str,
+    post_type: Optional[str] = None,
     category_ids: Optional[List[int]] = None,
     tag_ids: Optional[List[int]] = None,
     excerpt: Optional[str] = None,
@@ -217,22 +219,49 @@ async def wp_create_draft_post(
     """GutenbergブロックHTMLで新規下書きを作成します。
 
     必ず下書き（draft）として保存されます。公開（publish）にはしません。
+    指定した投稿タイプが無効な場合は、post で再試行します。
 
     Args:
         title: 記事タイトル
         content: ブロックHTML形式のコンテンツ
+        post_type: 投稿タイプ（デフォルト: post）
         category_ids: カテゴリIDの配列
         tag_ids: タグIDの配列
         excerpt: 抜粋
     """
     args = {"title": title, "content": content}
+    if post_type is not None:
+        args["post_type"] = post_type
     if category_ids is not None:
         args["category_ids"] = category_ids
     if tag_ids is not None:
         args["tag_ids"] = tag_ids
     if excerpt is not None:
         args["excerpt"] = excerpt
-    return await call_wordpress_mcp_tool("wp-mcp-create-draft-post", args)
+
+    requested_post_type = args.get("post_type")
+
+    try:
+        return await call_wordpress_mcp_tool("wp-mcp-create-draft-post", args)
+    except MCPError as e:
+        # 新仕様の invalid_post_type に対して post へフォールバック（後方互換のため）
+        error_message = (e.message or "").lower()
+        error_code = str(e.code).lower() if e.code is not None else ""
+        is_invalid_post_type = (
+            "invalid_post_type" in error_message
+            or "invalid_post_type" in error_code
+            or "post_type not found" in error_message
+        )
+        if requested_post_type and requested_post_type != "post" and is_invalid_post_type:
+            logger.warning(
+                "投稿タイプ '%s' が無効のため post にフォールバックします: %s",
+                requested_post_type,
+                e.message,
+            )
+            fallback_args = dict(args)
+            fallback_args["post_type"] = "post"
+            return await call_wordpress_mcp_tool("wp-mcp-create-draft-post", fallback_args)
+        raise
 
 
 @function_tool
