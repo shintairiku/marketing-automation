@@ -869,7 +869,9 @@ class BlogGenerationService:
         parts.append(
             "\n## 指示\n\n"
             "上記のリクエストに基づいて、WordPressブログ記事を作成してください。\n"
-            "必ず `wp_create_draft_post` ツールを使って下書きを保存してください。"
+            "`wp_get_post_types` は未取得の場合のみ実行し、取得済みなら再利用してください。\n"
+            "投稿タイプエラー（`invalid_post_type`）時のみ `wp_get_post_types` を再取得してください。\n"
+            "`wp_create_draft_post` で `post_type` を指定して下書きを保存してください。"
         )
 
         text_content = "\n".join(parts)
@@ -969,7 +971,9 @@ class BlogGenerationService:
             )
 
         text_parts.append(
-            "\n上記の情報をもとに、記事を作成して `wp_create_draft_post` で下書き保存してください。"
+            "\n上記の情報をもとに、`wp_get_post_types` は未取得の場合のみ実行し、取得済みなら再利用してください。\n"
+            "投稿タイプエラー（`invalid_post_type`）時のみ `wp_get_post_types` を再取得してください。\n"
+            "`wp_create_draft_post` で `post_type` を指定して下書き保存してください。"
         )
 
         text_content = "\n".join(text_parts)
