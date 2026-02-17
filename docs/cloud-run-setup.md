@@ -31,6 +31,26 @@ base64 -w 0 sa-key.json
 gcloud run services remove-iam-policy-binding marketing-automation --member="allUsers" --role="roles/run.invoker" --region=asia-northeast1 --project=marketing-automation-461305
 ```
 
+## Step 6b: 現在の認証設定を確認
+
+```bash
+gcloud run services describe marketing-automation --region=asia-northeast1 --project=marketing-automation-461305 --format="value(metadata.annotations)"
+```
+
+## Step 6c: IAM認証チェックを有効化
+
+```bash
+gcloud run services update marketing-automation --update-annotations="run.googleapis.com/invoker-iam-disabled=false" --region=asia-northeast1 --project=marketing-automation-461305
+```
+
+## Step 7: 非公開化の確認
+
+```bash
+curl -s -o /dev/null -w "%{http_code}" https://marketing-automation-742231208085.asia-northeast1.run.app/health
+```
+
+403が返ればOK。
+
 ## ロールバック (問題発生時)
 
 ```bash
