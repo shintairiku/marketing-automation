@@ -37,7 +37,7 @@ const isPublicRoute = createRouteMatcher([
   '/sign-in(.*)',
   '/sign-up(.*)',
   '/invitation(.*)',
-  '/api/webhooks(.*)',
+  '/api/webhooks/clerk(.*)',
 ]);
 
 const PRIVILEGED_EMAIL_DOMAIN = '@shintairiku.jp';
