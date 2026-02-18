@@ -131,7 +131,6 @@ class Settings(BaseSettings):
         env_file=[
             '.env',
             Path(__file__).parent.parent.parent / '.env',
-            '/home/als0028/study/shintairiku/marketing-automation/backend/.env'
         ],
         env_file_encoding='utf-8',
         env_ignore_empty=False,  # 空の環境変数も読み込む

@@ -6,7 +6,7 @@ const nextConfig = {
         protocol: 'https',
         hostname: 'storage.googleapis.com',
         port: '',
-        pathname: '/marketing-automation-images/**',
+        pathname: `/${process.env.NEXT_PUBLIC_GCS_BUCKET_NAME || 'marketing-automation-images'}/**`,
       },
       {
         protocol: 'https',
