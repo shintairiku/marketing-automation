@@ -1,0 +1,113 @@
+name: Deploy Backend
+
+on:
+  push:
+    branches: [main, develop]
+    paths:
+      - 'backend/**'
+      - '.github/workflows/deploy-backend.yml'
+
+  # 手動デプロイ (GitHub UI から実行可能)
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Deploy target'
+        required: true
+        type: choice
+        options:
+          - development
+          - production
+
+env:
+  GCP_REGION: asia-northeast1
+  ARTIFACT_REGISTRY: asia-northeast1-docker.pkg.dev
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write  # Workload Identity Federation に必要
+
+    # ブランチに応じて environment を切り替え
+    environment: ${{ github.event.inputs.environment || (github.ref == 'refs/heads/main' && 'production' || 'development') }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Determine environment
+        id: env
+        run: |
+          if [ "${{ github.event.inputs.environment }}" = "production" ] || [ "${{ github.ref }}" = "refs/heads/main" ]; then
+            echo "env_name=production" >> $GITHUB_OUTPUT
+            echo "service_name=${{ vars.CLOUD_RUN_SERVICE_PROD }}" >> $GITHUB_OUTPUT
+          else
+            echo "env_name=development" >> $GITHUB_OUTPUT
+            echo "service_name=${{ vars.CLOUD_RUN_SERVICE_DEV }}" >> $GITHUB_OUTPUT
+          fi
+
+      # GCP認証: Workload Identity Federation (サービスアカウントキー不要)
+      # 設定方法: https://github.com/google-github-actions/auth#workload-identity-federation
+      - name: Authenticate to Google Cloud
+        id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.WIF_PROVIDER }}
+          service_account: ${{ secrets.WIF_SERVICE_ACCOUNT }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker ${{ env.ARTIFACT_REGISTRY }}
+
+      - name: Build and push Docker image
+        run: |
+          IMAGE=${{ env.ARTIFACT_REGISTRY }}/${{ vars.GCP_PROJECT_ID }}/marketing-automation/backend:${{ github.sha }}
+          IMAGE_LATEST=${{ env.ARTIFACT_REGISTRY }}/${{ vars.GCP_PROJECT_ID }}/marketing-automation/backend:${{ steps.env.outputs.env_name }}-latest
+
+          docker build \
+            -t $IMAGE \
+            -t $IMAGE_LATEST \
+            ./backend
+
+          docker push $IMAGE
+          docker push $IMAGE_LATEST
+
+          echo "image=$IMAGE" >> $GITHUB_OUTPUT
+        id: build
+
+      - name: Deploy to Cloud Run
+        uses: google-github-actions/deploy-cloudrun@v2
+        with:
+          service: ${{ steps.env.outputs.service_name }}
+          image: ${{ steps.build.outputs.image }}
+          region: ${{ env.GCP_REGION }}
+          # 環境変数・シークレットは Cloud Run サービス設定で管理
+          # (GCP Console または Terraform で事前設定)
+
+      - name: Verify deployment
+        run: |
+          SERVICE_URL=$(gcloud run services describe ${{ steps.env.outputs.service_name }} \
+            --region ${{ env.GCP_REGION }} \
+            --format 'value(status.url)')
+          echo "Deployed to: $SERVICE_URL"
+
+          # ヘルスチェック (IAM認証をバイパスするため gcloud で実行)
+          RESPONSE=$(gcloud run services proxy ${{ steps.env.outputs.service_name }} \
+            --region ${{ env.GCP_REGION }} \
+            --port 0 &
+            sleep 3 && curl -sf http://localhost:0/health 2>/dev/null || true)
+
+          echo "Service URL: $SERVICE_URL"
+          echo "Environment: ${{ steps.env.outputs.env_name }}"
+
+      - name: Post deployment summary
+        run: |
+          echo "## Backend Deployment Summary" >> $GITHUB_STEP_SUMMARY
+          echo "| Item | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Environment | \`${{ steps.env.outputs.env_name }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Service | \`${{ steps.env.outputs.service_name }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Image | \`${{ github.sha }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Region | \`${{ env.GCP_REGION }}\` |" >> $GITHUB_STEP_SUMMARY

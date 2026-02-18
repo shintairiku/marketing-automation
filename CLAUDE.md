@@ -680,29 +680,75 @@ docker compose logs -f backend                        # ログ確認
 
 ---
 
-## Deployment
+## Deployment & Environment Separation
+
+### 環境構成 (2環境)
+
+| レイヤー | Development | Production |
+|---------|------------|------------|
+| Git ブランチ | `develop` | `main` |
+| Backend | Cloud Run `marketing-automation-dev` | Cloud Run `marketing-automation-prod` |
+| Frontend | Vercel Preview (自動) | Vercel Production (自動) |
+| Database | Supabase dev プロジェクト | Supabase prod プロジェクト |
+| Auth | Clerk Development インスタンス | Clerk Production インスタンス |
+| Payment | Stripe Test Mode (`sk_test_*`) | Stripe Live Mode (`sk_live_*`) |
+| Storage | GCS `*-images-dev` | GCS `*-images-prod` |
+
+### デプロイフロー
+```
+feature branch → PR → develop → PR → main
+                  ↓                    ↓
+            Dev環境に自動デプロイ   Prod環境に自動デプロイ
+```
 
 ### Backend
 - **Dockerfile**: `python:3.12-slim` + `uv` でインストール
 - **起動コマンド**: `uv run uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000}`
-- Cloud Run等のPORT環境変数に追従
+- Cloud Run の PORT 環境変数に追従
+- **環境変数**: GCP Secret Manager + Cloud Run サービス設定で管理
 
 ### Frontend
 - **Dockerfile**: Next.js `standalone` 出力 → `node server.js`
 - **ポート**: 3000
+- **デプロイ**: Vercel Git Integration (自動)
+- **環境変数**: Vercel Dashboard の Environment Variables (Production/Preview/Development)
 
-### CI/CD
-- **GitHub Actions**: `backend-docker-build.yml`
-  - トリガー: `backend/` 配下の変更 (push/PR to main/develop)
-  - Docker Buildx + キャッシュ
-  - コンテナ起動テスト + HTTPリクエストテスト
+### CI/CD (GitHub Actions)
+
+| ワークフロー | トリガー | 動作 |
+|-------------|---------|------|
+| `ci.yml` | PR to main/develop | backend lint + build test, frontend lint + build |
+| `deploy-backend.yml` | push to main/develop, manual | Cloud Run にデプロイ (branch → environment 自動判別) |
+| `deploy-frontend.yml` | manual | Vercel CLI デプロイ (通常は Git Integration で自動) |
+| `migrate-database.yml` | push migrations to main/develop, manual | Supabase マイグレーション適用 |
+| `backend-docker-build.yml` | push backend to main/develop | Docker ビルドテスト (レガシー) |
+
+### GCP 認証方式
+- **CI/CD → Cloud Run**: Workload Identity Federation (WIF) — サービスアカウントキー不要
+- **Vercel → Cloud Run**: `X-Serverless-Authorization` ヘッダー (Google ID Token)
+- **ローカル → Cloud Run**: IAM なし (CLOUD_RUN_AUDIENCE_URL 未設定時はスキップ)
+
+### 環境変数の管理場所
+
+| 場所 | 用途 |
+|------|------|
+| `backend/.env` | ローカル開発 (gitignore済み) |
+| `frontend/.env.local` | ローカル開発 (gitignore済み) |
+| GCP Secret Manager | Cloud Run のシークレット (APIキー等) |
+| Cloud Run 環境変数 | Cloud Run の非シークレット設定 |
+| Vercel Environment Variables | Vercel (Production/Preview/Development 別) |
+| GitHub Environments Secrets | CI/CD ワークフロー用 |
+
+### セットアップ詳細
+→ `docs/deployment-guide.md` を参照
 
 ---
 
 ## Git Branching
-- **main**: 本番ブランチ
-- **develop**: 開発ブランチ（現在のブランチ）
-- PRは `develop` → `main`
+- **main**: 本番ブランチ → Production デプロイ
+- **develop**: 開発ブランチ → Development デプロイ
+- 開発フロー: `feature/*` → PR → `develop` → PR → `main`
+- Branch Protection: main は PR + 承認必須、develop は CI pass 必須
 
 ---
 
@@ -1562,6 +1608,47 @@ const baseURL = USE_PROXY ? '/api/proxy' : API_BASE_URL;
 - **記憶の即時更新**: コード変更を完了した直後に CLAUDE.md を更新せず、ユーザーに「また記憶してないでしょ」と指摘された。**変更を加えたら、次のユーザー応答の前に必ず CLAUDE.md を更新する。これは最優先の義務。**
 - **Framer Motion `transition` の `exit` キー**: `transition={{ exit: { duration: 0.35 } }}` は型エラー。正しくは `exit={{ ..., transition: { duration: 0.35 } }}` — exit prop 内に transition を入れる。ビルドで初めて気付くのではなく、書く時点で型を意識すべき。
 - **`bun run build` を使う**: ユーザーに指摘されたとおり、`npx next build` ではなく `bun run build` を使用すること。
+
+### 26. Dev/Prod 環境分離 & CI/CD パイプライン構築 (2026-02-18)
+
+**概要**: SaaS 提供に向けた Development / Production 2環境構成の設計と CI/CD 自動デプロイ基盤を構築。
+
+**新規ファイル**:
+- `.github/workflows/ci.yml` — PR 時の CI (backend lint + build test, frontend lint + build)
+  - `astral-sh/setup-uv` で uv セットアップ、`oven-sh/setup-bun` で Bun セットアップ
+  - フロントエンドビルドはダミー `NEXT_PUBLIC_*` 環境変数で型チェック通過
+- `.github/workflows/deploy-backend.yml` — Cloud Run 自動デプロイ
+  - ブランチで環境自動判別: `main` → production, `develop` → development
+  - Workload Identity Federation (WIF) で GCP 認証（SA キー不要）
+  - Artifact Registry にイメージ push → Cloud Run にデプロイ
+  - `workflow_dispatch` で手動デプロイも可能
+  - GitHub Environments (`development` / `production`) で secrets/variables を分離
+- `.github/workflows/deploy-frontend.yml` — Vercel CLI による手動デプロイ（通常は Git Integration で自動）
+- `.github/workflows/migrate-database.yml` — Supabase マイグレーション自動適用
+  - `shared/supabase/migrations/` の変更で自動トリガー
+  - GitHub Environments の `SUPABASE_PROJECT_REF` で dev/prod 切り替え
+- `docs/deployment-guide.md` — 環境構築手順の詳細ガイド
+  - Git ブランチ戦略、Supabase/Clerk/Stripe/GCP/Vercel の設定手順
+  - WIF セットアップコマンド、Branch Protection Rules
+  - ロールバック手順
+
+**変更ファイル**:
+- `backend/.env.example` — dev/prod の違いをコメントで明記、GCS バケット名・FRONTEND_URL 等を追加
+- `frontend/.env.example` — Stripe Price ID、Cloud Run IAM 認証設定、環境別 URL を追記
+- `docker-compose.yml` — `version` キー削除 (Docker Compose v2)、backend に `--reload` 追加、Stripe CLI の env_file を削除
+- `CLAUDE.md` — Deployment セクションを全面書き換え (環境構成表、デプロイフロー図、CI/CDワークフロー一覧、環境変数管理場所)
+
+**GitHub で必要な設定**:
+1. GitHub Environments: `development` と `production` を作成し、secrets/variables を設定
+2. WIF: GCP で Workload Identity Pool + OIDC Provider を作成し、SA にバインド
+3. Branch Protection: `main` に PR + 承認必須、`develop` に CI pass 必須
+4. Vercel: Git Integration で `frontend/` を Root Directory に設定
+
+**GCP で必要な設定**:
+1. Artifact Registry リポジトリ `marketing-automation` 作成
+2. Cloud Run サービス `marketing-automation-dev` と `marketing-automation-prod` 作成
+3. 各サービスに環境変数 + Secret Manager シークレットを設定
+4. GCS バケット `*-images-dev` と `*-images-prod` 作成
 
 > ## **【最重要・再掲】記憶の更新は絶対に忘れるな**
 > **このファイルの冒頭にも書いたが、改めて念押しする。**
