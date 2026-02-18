@@ -1553,6 +1553,81 @@ const baseURL = USE_PROXY ? '/api/proxy' : API_BASE_URL;
   - `normalizeRedirectUrl()` を追加し、`http://*.run.app` を `https://` に正規化
 - **効果**: `POST /blog/connect/wordpress/url` や `GET /blog/sites` で発生していたプロキシ由来の `302/307` 応答を解消し、認証ヘッダーを保持したまま安定して Cloud Run へ到達可能に。
 
+### 26. 環境分離 + DB移行 + レガシー削除 (2026-02-18)
+
+#### 概要
+開発環境 (dev) と本番環境 (prod) を正式に分離。Supabaseプロジェクトを新規作成し、クリーンなベースラインマイグレーションでスキーマを適用、全データを移行。レガシーコード19ファイルを削除し、CI/CDパイプラインを整備。
+
+#### Supabase環境分離
+- **Production (新)**: `tkkbhglcudsxcwxdyplp` — ベースラインマイグレーション適用済み、全31テーブルデータ移行済み
+- **Development (旧)**: `pytxohnkkyshobprrjqh` — 旧33マイグレーション状態。リセット待ち
+- **ベースラインマイグレーション**: `supabase/migrations/00000000000000_baseline.sql` (3,409行) — 旧33ファイルを1ファイルに統合
+- **旧マイグレーション**: `supabase/migrations/_archive/` に33ファイルをアーカイブ
+- **除外したレガシーテーブル**: `users`, `customers`, `products`, `prices`, `subscriptions`, `prompt_templates`, `task_dependencies`
+- **除外したレガシーenum**: `pricing_type`, `pricing_plan_interval`
+- **除外したビュー**: `image_urls`, `agent_performance_metrics`, `error_analysis`, `latest_step_snapshots`, `article_version_summary`
+- **Realtime Publication**: 28テーブル → 6テーブルに削減 (`generated_articles_state`, `articles`, `blog_generation_state`, `blog_process_events`, `process_events`, `user_subscriptions`)
+
+#### レガシーコード削除 (19ファイル)
+- `frontend/src/app/api/webhooks/route.ts` (旧Stripe webhook)
+- `frontend/src/features/account/controllers/` (4ファイル: get-customer-id, get-subscription, get-or-create-customer, upsert-user-subscription)
+- `frontend/src/features/pricing/` (7ファイル: controllers/3, components/2, actions/1, types.ts, models/1)
+- `frontend/src/components/sexy-boarder.tsx`, `frontend/src/libs/stripe/stripe-admin.ts`, `frontend/src/utils/get-url.ts`
+- `frontend/src/app/(account)/`, `frontend/src/app/(article-generation)/` (ゴーストルートグループ)
+- `middleware.ts`: `/api/webhooks(.*)` → `/api/webhooks/clerk(.*)` に変更
+- `docker-compose.yml`: stripe-cli forward先を `/api/subscription/webhook` に変更
+
+#### コードベース修正
+- `backend/app/core/config.py`: ローカル絶対パス `/home/als0028/...` を `env_file` リストから削除
+- `frontend/next.config.js`: GCSバケット名 `marketing-automation-images` → `process.env.NEXT_PUBLIC_GCS_BUCKET_NAME` に環境変数化
+- `frontend/Dockerfile`: シークレットARG (`STRIPE_SECRET_KEY`, `SUPABASE_SERVICE_ROLE_KEY`) を削除。`NEXT_PUBLIC_*` 変数のみビルドARGに
+- `frontend/src/libs/supabase/types.ts`: 新Production DBから型再生成。レガシーテーブルの型が除去された
+- `(supabase as any)` キャスト: webhook/status/addon で大部分除去。`organization_subscriptions` テーブルのみ supabase-js 型推論の問題で `as any` 残存
+- `.env.example`: 両ファイルから本番URL削除、プレースホルダーに置換、欠落変数追加
+
+#### CI/CD ワークフロー (5ファイル新規作成)
+- `.github/workflows/ci-frontend.yml` — PR時: bun install → lint → build
+- `.github/workflows/ci-backend.yml` — PR時: ruff check → ruff format → Docker build + health check
+- `.github/workflows/deploy-frontend.yml` — develop→Preview, main→Production (Vercel CLI)
+- `.github/workflows/deploy-backend.yml` — develop→dev Cloud Run, main→prod Cloud Run (Workload Identity Federation)
+- `.github/workflows/db-migrations.yml` — supabase db push (develop→dev, main→prod)
+
+#### データ移行
+- `scripts/migrate-data.py`: Supabase REST API経由の移行スクリプト (IPv6問題回避)
+- 全31テーブル、ミスマッチ0で移行完了
+- `process_events` はトリガー (`publish_process_event`) が `generated_articles_state` INSERT時に自動生成するため、トリガー生成分 + 移行分で旧より多い行数になる（正常）
+- `generated_articles_state.current_snapshot_id` は循環FK参照のため、INSERT時にNULL → snapshots移行後にUPDATE（deferred FK戦略）
+- `article_agent_messages.sequence` は GENERATED ALWAYS カラムのため、移行時にsequenceカラムを除外してINSERT
+
+#### 環境分離戦略ドキュメント
+- `docs/deployment/environment-separation-strategy.md` に全戦略を記録
+- Phase B (Dashboard作業) の詳細手順: Clerk/Stripe/Supabase/GCP/Vercel の環境別設定
+- 環境変数の完全マトリックス: Frontend/Backend × Dev/Prod
+
+#### 残タスク (Dashboard作業 = 手動)
+- Supabase-Clerk Third-Party Auth 連携 (両プロジェクト)
+- Clerk Production インスタンス作成 + カスタムドメイン
+- Stripe ライブモード設定 (Products/Prices/Webhook)
+- Vercel 環境変数設定 (Production/Preview スコープ別)
+- Cloud Run dev/prod サービス作成
+- GitHub Environments + Secrets 設定
+- ブランチ保護ルール設定
+- 本番切替 (env vars変更 → 再デプロイ → 検証)
+
+#### 技術的知見
+- **Supabase CLI `db push` のパスワード**: `supabase link --password` で渡しても `db push` 時にはキャッシュされない。`SUPABASE_DB_PASSWORD=xxx supabase db push` で環境変数として渡す
+- **pg_dump のステートメント順序問題**: pg_dump は関数をテーブルより先に出力するが、`%ROWTYPE` を使う関数はテーブルが先に必要。ベースライン作成時にENUM→TABLE→FUNCTION→RESTの順に再配置が必要
+- **pg_dump のビュー残骸**: `CREATE VIEW` を削除しても、ビューのSELECT本体がインラインで残ることがある。statement単位でパースして除去が必要
+- **`ALTER TABLE` + `ADD CONSTRAINT` のペア削除**: 行単位のフィルタリングでは `ALTER TABLE ONLY` 行が残り `ADD CONSTRAINT` 行が消えて構文エラーになる。statement単位（セミコロンまで）でパースすべき
+- **Supabase REST API でのデータ移行**: `pg_dump` / `psql` (IPv6問題、pooler認証問題) より REST API経由の方が確実。HTTPS通信なのでネットワーク問題を回避
+- **`organization_subscriptions` テーブルの supabase-js 型問題**: PKが `id: text` (Stripe subscription ID) でDBデフォルト値なし。supabase-js の upsert overload 解決が壊れるため `as any` キャストが必要
+- **Realtime トリガーとデータ移行の競合**: `generated_articles_state` への INSERT で `publish_process_event` トリガーが `process_events` に自動挿入。移行スクリプトで同じイベントを再INSERT→重複キーエラー。トリガー生成分が既に正しいので、移行側のSKIPは問題なし
+
+### 2026-02-18 自己改善
+- **記憶の即時更新（再び）**: コード変更後、ユーザーに「CLAUDE.mdだけ更新しといてね」と言われた。変更完了→コミット前のCLAUDE.md更新を忘れるパターンが繰り返されている。**コミットメッセージを書く前に必ずCLAUDE.mdを更新するルーチンを確立すべき。**
+- **pg_dumpベースのベースライン生成は複数パスが必要**: 最初のフィルタリングで行単位→statement残骸が残る→statement単位で再パース、という3段階が必要だった。**最初からstatement単位パーサーで処理すべきだった。**
+- **Supabase接続のIPv6問題 (WSL2)**: `db.xxx.supabase.co` はIPv6で解決されるがWSL2はIPv6非対応。pooler (`aws-0-*.pooler.supabase.com`) はIPv4だがリージョン不一致で `Tenant not found`。**WSL2環境ではREST API経由が最も確実。**
+
 ### 2026-02-10 自己改善
 - **再検証の重要性**: 実装完了後のユーザー再検証要求で、`useArticles.ts` と `admin/plans/page.tsx` に `USE_PROXY` パターンが欠けているバグを発見した。最初の実装時にサーバーサイドAPI Routes (9ファイル) のみに注力し、クライアントサイドhooksの直接fetch呼び出しを見落としていた。**サーバーサイド→バックエンド通信だけでなく、ブラウザ→バックエンド通信パスも全て確認すべき。**
 - **FastAPI末尾スラッシュ + Cloud Run scheme 変換の複合問題**: `frontend/src/app/api/proxy/[...path]/route.ts` の `ensureTrailingSlash()` が `/blog/sites` を `/blog/sites/` に変換し、FastAPI (`redirect_slashes=True`) が 307 で `/blog/sites` へ戻す。さらに Cloud Run の `Location` が `http://...run.app/...` になり、プロキシがそれを手動追従すると Cloud Run 側で 302/307 が連鎖する。**手動リダイレクト追従を使う場合は、(1) 末尾スラッシュ強制をしない、(2) `Location` が `http://` でも `https://` に正規化する、の両方を実施すべき。**
