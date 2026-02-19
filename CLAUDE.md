@@ -1560,7 +1560,7 @@ const baseURL = USE_PROXY ? '/api/proxy' : API_BASE_URL;
 
 #### Supabase環境分離
 - **Production (新)**: `tkkbhglcudsxcwxdyplp` — ベースラインマイグレーション適用済み、全31テーブルデータ移行済み
-- **Development (旧)**: `pytxohnkkyshobprrjqh` — 旧33マイグレーション状態。リセット待ち
+- **Development (新)**: `dddprfuwksduqsimiylg` — 新規作成、クリーン状態
 - **ベースラインマイグレーション**: `supabase/migrations/00000000000000_baseline.sql` (3,409行) — 旧33ファイルを1ファイルに統合
 - **旧マイグレーション**: `supabase/migrations/_archive/` に33ファイルをアーカイブ
 - **除外したレガシーテーブル**: `users`, `customers`, `products`, `prices`, `subscriptions`, `prompt_templates`, `task_dependencies`
@@ -1623,50 +1623,107 @@ const baseURL = USE_PROXY ? '/api/proxy' : API_BASE_URL;
 - **`organization_subscriptions` テーブルの supabase-js 型問題**: PKが `id: text` (Stripe subscription ID) でDBデフォルト値なし。supabase-js の upsert overload 解決が壊れるため `as any` キャストが必要
 - **Realtime トリガーとデータ移行の競合**: `generated_articles_state` への INSERT で `publish_process_event` トリガーが `process_events` に自動挿入。移行スクリプトで同じイベントを再INSERT→重複キーエラー。トリガー生成分が既に正しいので、移行側のSKIPは問題なし
 
-### 27. ローカルSupabase環境構築 (2026-02-19)
+### 27. ローカルSupabase環境構築 + DB開発ワークフロー (2026-02-19)
 
-**概要**: ローカル開発用Supabase環境を構築。`supabase start` でDocker上にPostgreSQL + Realtime + Studio + Auth + APIを起動。
+#### ローカルSupabase
 
-**config.toml 全面刷新**: 旧config（`[auth]`のみ、`[db]`セクションなし）→ CLI v2.76 の最新フォーマットに更新
-- **有効**: API (PostgREST), DB (PostgreSQL 17), Realtime, Studio, Auth (Clerk Third-Party Auth)
-- **無効**: Storage (GCS使用), Edge Functions (未使用), Analytics (不要), Inbucket (Clerk管理)
-- **Clerk Third-Party Auth**: `[auth.third_party.clerk]` を `enabled = true` + `domain = "env(CLERK_DOMAIN)"` で設定。`auth.uid()` が Clerk user_id を返すようになる
+**config.toml 全面刷新**: 旧config（`[auth]`のみ）→ CLI v2.76 最新フォーマット
+- **有効**: API, DB (PostgreSQL 17), Realtime, Studio, Auth (Clerk Third-Party Auth)
+- **無効**: Storage (GCS使用), Edge Functions, Analytics, Inbucket
+- **Clerk**: `[auth.third_party.clerk]` enabled + `domain = "env(CLERK_DOMAIN)"` → `auth.uid()` が Clerk user_id を返す
 
-**新規ファイル**:
-- `supabase/.env` — `CLERK_DOMAIN=fitting-glowworm-29.clerk.accounts.dev` (`.gitignore` 済み)
-- `supabase/config.toml` — 全面リライト
+**新規ファイル**: `supabase/.env` (`CLERK_DOMAIN=fitting-glowworm-29.clerk.accounts.dev`, `.gitignore` 済み)
 
-**ローカルSupabase接続情報**:
+**接続情報**:
 | サービス | URL |
 |---------|-----|
 | Studio (GUI) | http://127.0.0.1:54323 |
 | API (PostgREST) | http://127.0.0.1:54321 |
 | Database | postgresql://postgres:postgres@127.0.0.1:54322/postgres |
 
-**開発ワークフロー**:
+#### DB開発ワークフロー（Local → Dev → Prod）
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│  LOCAL (WSL2 Docker)                                         │
+│                                                              │
+│  npx supabase start           ← 起動                        │
+│  ↓                                                           │
+│  Studio (localhost:54323) でテーブル変更                       │
+│  or マイグレーションSQL手書き                                  │
+│  ↓                                                           │
+│  npx supabase db diff -f <name>   ← 差分SQL自動生成          │
+│  or npx supabase migration new <name>  ← 空ファイル作成→編集 │
+│  ↓                                                           │
+│  npx supabase db reset        ← 全migration再適用で検証      │
+│  ↓                                                           │
+│  git add supabase/migrations/YYYYMMDD_<name>.sql             │
+│  git push origin develop                                     │
+└──────────────┬───────────────────────────────────────────────┘
+               │
+               ▼
+┌──────────────────────────────────────────────────────────────┐
+│  DEVELOP ブランチ → GitHub Actions (db-migrations.yml)       │
+│                                                              │
+│  トリガー: supabase/migrations/** に変更があるpush           │
+│  実行: npx supabase db push                                  │
+│  対象: Dev Supabase (dddprfuwksduqsimiylg)                   │
+│  → 新しいマイグレーションだけ差分適用される                    │
+└──────────────┬───────────────────────────────────────────────┘
+               │ PR: develop → main
+               ▼
+┌──────────────────────────────────────────────────────────────┐
+│  MAIN ブランチ → GitHub Actions (db-migrations.yml)          │
+│                                                              │
+│  トリガー: supabase/migrations/** に変更があるpush           │
+│  実行: npx supabase db push (dry-run 後に本実行)             │
+│  対象: Prod Supabase (tkkbhglcudsxcwxdyplp)                  │
+│  → devで検証済みのマイグレーションが本番に適用される           │
+└──────────────────────────────────────────────────────────────┘
+```
+
+**日常の開発手順**:
 ```bash
-# 起動
+# 1. ローカルSupabase起動
 npx supabase start
 
-# スキーマ変更 (方法A: SQL直書き)
-npx supabase migration new <name>
-# → migrations/YYYYMMDDHHMMSS_<name>.sql を編集
+# 2. スキーマ変更（どちらかの方法）
+# 方法A: Studio GUIでテーブル追加/変更 → diffで自動生成
+npx supabase db diff -f add_new_feature
+# → supabase/migrations/20260219XXXXXX_add_new_feature.sql が生成される
 
-# スキーマ変更 (方法B: Studio GUIで変更 → diff自動生成)
-npx supabase db diff -f <name>
+# 方法B: SQLファイル手書き
+npx supabase migration new add_new_feature
+# → 空ファイルが生成される → エディタで中身を書く
 
-# ローカルDB全リセット (migration + seed 再適用)
+# 3. ローカルで検証（全migration + seed を再適用）
 npx supabase db reset
 
-# 停止
+# 4. コミット & プッシュ → CI/CDが自動でdev Supabaseに適用
+git add supabase/migrations/20260219XXXXXX_add_new_feature.sql
+git push origin develop
+
+# 5. develop → main にPR → マージ後に本番Supabaseに自動適用
+
+# 6. 停止（作業終了時）
 npx supabase stop
 ```
 
-**踏んだ罠: `99-roles.sql` クラッシュループ**:
+**Supabase型再生成** (新テーブル/カラム追加後):
+```bash
+cd frontend && bun run generate-types
+```
+
+#### Dev Supabaseのマイグレーション履歴問題 → 解決済み
+
+旧Dev Supabase (`pytxohnkkyshobprrjqh`) はマイグレーション履歴不整合のため廃止。新規プロジェクト (`dddprfuwksduqsimiylg`) を作成し、クリーン状態から `db push` でベースラインを適用する方式に変更。
+
+#### 踏んだ罠: `99-roles.sql` クラッシュループ
+
 - **症状**: `psql: error: /docker-entrypoint-initdb.d/init-scripts/99-roles.sql: No such file or directory` → DBコンテナが unhealthy → 無限リスタート
-- **原因**: `supabase/.temp/postgres-version` にリモートプロジェクトの古いPostgreSQLバージョン (17.4) がキャッシュされ、CLIが間違ったDockerイメージの初期化パスを使用
-- **解決**: `rm -rf supabase/.temp` → `npx supabase start` で最新版 (17.6) が pull される
-- **注意**: Dockerボリューム (`supabase_db_*`) もWSL側から `docker volume rm` で削除が必要。PowerShellの `docker system prune` だけでは不十分な場合がある
+- **原因**: `supabase/.temp/postgres-version` にリモートの古いPGバージョンがキャッシュ → CLIが間違ったDockerイメージの初期化パスを使用
+- **解決**: `rm -rf supabase/.temp` → `npx supabase start`
+- **注意**: Dockerボリューム (`supabase_db_*`) もWSL側から `docker volume rm` で削除が必要。PowerShellの `docker system prune` だけでは不十分
 - **情報ソース**: https://github.com/supabase/cli/issues/3664, https://github.com/supabase/cli/issues/3639
 
 ### 2026-02-19 自己改善

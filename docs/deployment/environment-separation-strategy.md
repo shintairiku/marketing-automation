@@ -41,7 +41,7 @@
 | 用途 | Project Ref | 名前 | 状態 |
 |------|------------|------|------|
 | **Production (新)** | `tkkbhglcudsxcwxdyplp` | (新規作成) | ベースライン適用済み、全データ移行済み |
-| **Development (旧)** | `pytxohnkkyshobprrjqh` | `-dev` | 旧33マイグレーション状態のまま。リセット待ち |
+| **Development (新)** | `dddprfuwksduqsimiylg` | `-dev` | 新規作成、クリーン状態 |
 
 ### 1.3 未完了 (コードベースの問題)
 
@@ -101,7 +101,7 @@
 |---------|-------------|------------|
 | **Frontend** | Vercel Preview (`develop` ブランチ) | Vercel Production (`main` ブランチ) |
 | **Backend** | Cloud Run `backend-dev` (min=0) | Cloud Run `backend-prod` (min=1) |
-| **DB** | Supabase `pytxohnkkyshobprrjqh` | Supabase `tkkbhglcudsxcwxdyplp` |
+| **DB** | Supabase `dddprfuwksduqsimiylg` | Supabase `tkkbhglcudsxcwxdyplp` |
 | **Auth** | Clerk Development (`pk_test_*`) | Clerk Production (`pk_live_*`) |
 | **決済** | Stripe テストモード (`sk_test_*`) | Stripe ライブモード (`sk_live_*`) |
 | **Storage** | GCS `blogai-images-dev` | GCS `blogai-images-prod` |
@@ -142,7 +142,7 @@
 
 | Supabase プロジェクト | 接続する Clerk |
 |---------------------|---------------|
-| `pytxohnkkyshobprrjqh` (dev) | Clerk Development インスタンス |
+| `dddprfuwksduqsimiylg` (dev) | Clerk Development インスタンス |
 | `tkkbhglcudsxcwxdyplp` (prod) | Clerk Production インスタンス |
 
 設定手順 (各環境で実施):
@@ -267,9 +267,9 @@
 
 ### 4.3 Supabase
 
-#### Development (`pytxohnkkyshobprrjqh`)
+#### Development (`dddprfuwksduqsimiylg`)
 ```
-1. supabase link --project-ref pytxohnkkyshobprrjqh
+1. supabase link --project-ref dddprfuwksduqsimiylg
 2. supabase db reset  # 全データ削除 → ベースライン適用 → seed実行
 3. Clerk Dev インスタンスと Third-Party Auth 連携
 ```

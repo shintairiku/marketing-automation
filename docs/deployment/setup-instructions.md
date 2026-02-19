@@ -272,7 +272,7 @@ GOOGLE_SERVICE_ACCOUNT_JSON=google-service-account-json:latest"
 # === Development ===
 gcloud run services update marketing-automation-backend-dev \
   --region=asia-northeast1 \
-  --update-env-vars="SUPABASE_URL=https://pytxohnkkyshobprrjqh.supabase.co,\
+  --update-env-vars="SUPABASE_URL=https://dddprfuwksduqsimiylg.supabase.co,\
 SUPABASE_ANON_KEY=DEV_ANON_KEY,\
 CLERK_PUBLISHABLE_KEY=pk_test_...,\
 ALLOWED_ORIGINS=https://dev.blogai.jp,\
@@ -387,7 +387,7 @@ Production と Development の両方で同じ手順を実施します。
 
 **場所 (Production)**: https://supabase.com/dashboard/project/tkkbhglcudsxcwxdyplp/auth/providers
 
-**場所 (Development)**: https://supabase.com/dashboard/project/pytxohnkkyshobprrjqh/auth/providers
+**場所 (Development)**: https://supabase.com/dashboard/project/dddprfuwksduqsimiylg/auth/providers
 
 1. 左サイドバー **Authentication** → **Sign In / Up** (または **Providers**)
 2. **Third Party Auth** セクションで **「Add provider」**
@@ -400,7 +400,7 @@ Production と Development の両方で同じ手順を実施します。
 | 組み合わせ | Clerk インスタンス | Supabase プロジェクト |
 |-----------|------------------|---------------------|
 | Production | Production (`pk_live_*`) | `tkkbhglcudsxcwxdyplp` |
-| Development | Development (`pk_test_*`) | `pytxohnkkyshobprrjqh` |
+| Development | Development (`pk_test_*`) | `dddprfuwksduqsimiylg` |
 
 ---
 
@@ -500,7 +500,7 @@ Production と Development の両方で同じ手順を実施します。
 
 | 変数名 | 値 |
 |--------|-----|
-| `NEXT_PUBLIC_SUPABASE_URL` | `https://pytxohnkkyshobprrjqh.supabase.co` |
+| `NEXT_PUBLIC_SUPABASE_URL` | `https://dddprfuwksduqsimiylg.supabase.co` |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | (dev anon key) |
 | `SUPABASE_SERVICE_ROLE_KEY` | (dev service role key) |
 | `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` | `pk_test_...` |
@@ -544,7 +544,7 @@ Production と Development の両方で同じ手順を実施します。
 
 | Secret 名 | 値 |
 |-----------|-----|
-| `SUPABASE_PROJECT_ID` | `pytxohnkkyshobprrjqh` |
+| `SUPABASE_PROJECT_ID` | `dddprfuwksduqsimiylg` |
 | `SUPABASE_ACCESS_TOKEN` | (Supabase CLI アクセストークン) |
 | `SUPABASE_DB_PASSWORD` | (dev DB パスワード) |
 | `GCP_WORKLOAD_IDENTITY_PROVIDER` | (Step 1-2 の出力) |
@@ -693,7 +693,7 @@ python scripts/migrate-data.py
 本番切替が安定したら、旧 Supabase をクリーンなdev環境にリセットします。
 
 ```bash
-supabase link --project-ref pytxohnkkyshobprrjqh
+supabase link --project-ref dddprfuwksduqsimiylg
 SUPABASE_DB_PASSWORD=YOUR_DEV_PW supabase db reset
 ```
 
