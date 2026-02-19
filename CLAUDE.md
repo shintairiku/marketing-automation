@@ -1613,39 +1613,61 @@ const baseURL = USE_PROXY ? '/api/proxy' : API_BASE_URL;
 - ブランチ保護ルール設定
 - TypeScript型再生成 (`bun run generate-types`)
 
-### 28. GitHub Actions ワークフロー整理 + Vercel環境分離 (2026-02-19)
+### 28. CI/CD + Vercel/Cloud Run環境分離 (2026-02-19〜20)
 
-#### 概要
-Vercel Git IntegrationとCloud Run自動デプロイが有効なため、重複するデプロイワークフローを削除。Vercel環境変数をProduction/Previewスコープに分離。GitHub Environments + Supabase Secretsを設定。
+#### GitHub Actions ワークフロー最終構成 (2ファイル)
 
-#### 削除したワークフロー (3ファイル)
-- `.github/workflows/deploy-frontend.yml` — Vercel Git Integrationと完全重複（両方動くと二重デプロイ）
-- `.github/workflows/deploy-backend.yml` — Cloud Run自動デプロイと完全重複
-- `.github/workflows/backend-docker-build.yml` — `ci-backend.yml`と重複（push+PRで同じdocker build）
+| ワークフロー | トリガー | 内容 |
+|---|---|---|
+| `ci-backend.yml` | PR to main/develop | ruff lint + Docker build (Secrets不要) |
+| `db-migrations.yml` | PR + push to main/develop | PR: dry-run検証 / push: 実適用 |
 
-#### 残したワークフロー (3ファイル)
-- `ci-frontend.yml` — PR時: lint + build (Secrets不要)
-- `ci-backend.yml` — PR時: ruff + docker build + health check (Secrets不要)
-- `db-migrations.yml` — push時: supabase db push (Secrets: SUPABASE_PROJECT_ID, SUPABASE_ACCESS_TOKEN, SUPABASE_DB_PASSWORD)
+**削除したワークフロー (4ファイル)**:
+- `ci-frontend.yml` — Vercel Git IntegrationがPR時にビルドチェックを実行するため完全重複
+- `deploy-frontend.yml` — Vercel Git Integrationと完全重複
+- `deploy-backend.yml` — Cloud Run自動デプロイと完全重複
+- `backend-docker-build.yml` — `ci-backend.yml`と重複
 
-#### Vercel環境変数分離
-- Production スコープ → Prod Supabase (`tkkbhglcudsxcwxdyplp`), Stripe live, Clerk prod
-- Preview スコープ → Dev Supabase (`dddprfuwksduqsimiylg`), Stripe test, Clerk dev
-- `develop` ブランチ → `marketing-automation-git-develop-...vercel.app` (Preview環境変数使用)
-- `main` ブランチ → Production URL (Production環境変数使用)
+#### db-migrations.yml の設計
+
+```
+PR作成時 → validate-migration (dry-run) → 成功/失敗がPR上に表示
+develop push → migrate-development → Dev Supabase に実適用
+main push → dry-run + migrate-production → Prod Supabase に実適用
+```
+
+**config.toml の `env()` 問題と解決**: `supabase link` が `config.toml` を読むが、CI環境には `CLERK_DOMAIN` 等の環境変数がない。解決: ワークフロー内で `supabase/.env` をプレースホルダー値で生成。GitHub Environment variablesへの依存なし。
+
+**seed data はCI自動実行しない**: `seed.sql` (plan_tiers, flow templates) は新DB初回セットアップ時にSupabase SQL Editorで手動実行。料金変更は管理画面で直接UPDATE。`ON CONFLICT DO NOTHING` でidempotent。
+
+#### Vercel環境分離 (設定済み)
+- **Production スコープ** (`main`) → Prod Supabase (`tkkbhglcudsxcwxdyplp`), Stripe live, Clerk prod
+- **Preview スコープ** (`develop` 等) → Dev Supabase (`dddprfuwksduqsimiylg`), Stripe test, Clerk dev
+- Preview URL: `marketing-automation-git-develop-...vercel.app`
+
+#### Cloud Run 環境分離 (設定済み)
+| サービス | 用途 | IAM |
+|---------|------|-----|
+| `marketing-automation` | 本番 | `vercel-invoker` SA に `run.invoker` 付与済み |
+| `marketing-automation-develop` | 開発 | `vercel-invoker` SA に `run.invoker` 付与済み |
+
+**Vercel → Cloud Run 認証チェーン**: `CLOUD_RUN_AUDIENCE_URL` (*.run.app URL) + `GOOGLE_SA_KEY_BASE64` (SA key Base64) → `X-Serverless-Authorization` ヘッダーで IAM 認証
 
 #### GitHub Environments + Secrets (設定済み)
-- `development` 環境: `SUPABASE_PROJECT_ID=dddprfuwksduqsimiylg` + ACCESS_TOKEN + DB_PASSWORD
-- `production` 環境: `SUPABASE_PROJECT_ID=tkkbhglcudsxcwxdyplp` + ACCESS_TOKEN + DB_PASSWORD
+- `development`: `SUPABASE_PROJECT_ID=dddprfuwksduqsimiylg` + ACCESS_TOKEN + DB_PASSWORD
+- `production`: `SUPABASE_PROJECT_ID=tkkbhglcudsxcwxdyplp` + ACCESS_TOKEN + DB_PASSWORD
 
 #### Dev Supabase 新規作成
 - 旧Dev Supabase (`pytxohnkkyshobprrjqh`) を廃止、新規 (`dddprfuwksduqsimiylg`) に移行
-- 理由: 旧DBは33マイグレーション履歴が残っており、ベースライン方式と不整合
-- 新DBはクリーン状態、マージ後の `db push` でベースラインが自動適用される
+- 新DBはクリーン状態。`db push` でベースラインが自動適用される
+- seed data はSQL Editorで手動投入が必要
 
-#### その他
-- ルート `.env.example` を削除（古い、frontend/backendの個別.env.exampleで十分）
-- docs内の旧project ref省略形 (`pytxohnkky..`) を新ref (`dddprfuwk..`) に更新
+#### CI修正で得た知見
+- **Vercel CIとの重複**: Vercel Git Integrationが全ブランチでビルドチェック+ステータス表示するため、`ci-frontend.yml` は不要。サーバーサイド環境変数のプレースホルダー管理も不要に
+- **Next.js ビルド時のモジュール初期化**: `const supabase = createClient(...)` のモジュールレベル初期化はビルド時に実行される。`function getSupabase()` に遅延化して回避
+- **Backend Docker CIの限界**: FastAPIコンテナは環境変数なしだと起動しない。CIではDocker build成功のみ検証
+- **ruff lint設定**: `pyproject.toml` に `[tool.ruff.lint]` で E402/E701/E741/F823 を ignore。format check は `continue-on-error` (既存コードの大規模フォーマットは別途)
+- **Cloud Run IAM**: 新しいCloud Runサービスには都度 `gcloud run services add-iam-policy-binding` でSAにinvoker権限を付与する必要がある
 
 #### 技術的知見
 - **Supabase CLI `db push` のパスワード**: `supabase link --password` で渡しても `db push` 時にはキャッシュされない。`SUPABASE_DB_PASSWORD=xxx supabase db push` で環境変数として渡す
