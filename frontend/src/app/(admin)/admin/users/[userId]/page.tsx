@@ -15,6 +15,7 @@ import {
   CreditCard,
   Crown,
   FileText,
+  Gift,
   Loader2,
   RefreshCw,
   User,
@@ -24,7 +25,24 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { Progress } from '@/components/ui/progress';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { Separator } from '@/components/ui/separator';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
@@ -87,6 +105,18 @@ interface BlogAiUsageStats {
   tools: Array<{ tool_name: string; count: number }>;
   models: string[];
   last_run_at: string | null;
+}
+
+interface FreeTrialGrant {
+  id: string;
+  user_id: string;
+  stripe_coupon_id: string;
+  duration_months: number;
+  status: 'pending' | 'active' | 'expired' | 'revoked';
+  granted_by: string;
+  note: string | null;
+  created_at: string;
+  used_at: string | null;
 }
 
 interface UserDetailResponse {
@@ -239,6 +269,14 @@ export default function AdminUserDetailPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // Free trial grant state
+  const [grants, setGrants] = useState<FreeTrialGrant[]>([]);
+  const [showGrantDialog, setShowGrantDialog] = useState(false);
+  const [grantDuration, setGrantDuration] = useState('1');
+  const [grantNote, setGrantNote] = useState('');
+  const [grantLoading, setGrantLoading] = useState(false);
+  const [grantMessage, setGrantMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
   const fetchUserDetail = useCallback(async () => {
     try {
       setLoading(true);
@@ -270,9 +308,70 @@ export default function AdminUserDetailPage() {
     }
   }, [getToken, userId]);
 
+  const fetchGrants = useCallback(async () => {
+    try {
+      const res = await fetch('/api/admin/free-trials');
+      if (!res.ok) return;
+      const json = await res.json();
+      // このユーザーの grants のみフィルタ
+      setGrants(
+        (json.grants || []).filter((g: FreeTrialGrant) => g.user_id === userId)
+      );
+    } catch {
+      // ignore
+    }
+  }, [userId]);
+
+  const handleGrantTrial = async () => {
+    setGrantLoading(true);
+    setGrantMessage(null);
+    try {
+      const res = await fetch('/api/admin/free-trials', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          user_id: userId,
+          duration_months: parseInt(grantDuration, 10),
+          note: grantNote || undefined,
+        }),
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        setGrantMessage({ type: 'error', text: err.error || '付与に失敗しました' });
+        return;
+      }
+
+      setGrantMessage({ type: 'success', text: 'トライアルを付与しました' });
+      setShowGrantDialog(false);
+      setGrantNote('');
+      setGrantDuration('1');
+      await fetchGrants();
+    } catch {
+      setGrantMessage({ type: 'error', text: 'エラーが発生しました' });
+    } finally {
+      setGrantLoading(false);
+    }
+  };
+
+  const handleRevokeGrant = async (grantId: string) => {
+    try {
+      const res = await fetch(`/api/admin/free-trials/${grantId}`, {
+        method: 'DELETE',
+      });
+      if (res.ok || res.status === 204) {
+        await fetchGrants();
+        setGrantMessage({ type: 'success', text: 'トライアルを取り消しました' });
+      }
+    } catch {
+      // ignore
+    }
+  };
+
   useEffect(() => {
     fetchUserDetail();
-  }, [fetchUserDetail]);
+    fetchGrants();
+  }, [fetchUserDetail, fetchGrants]);
 
   // -- Loading state --------------------------------------------------------
   if (loading) {
@@ -618,6 +717,140 @@ export default function AdminUserDetailPage() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Free trial grant card */}
+      <Card>
+        <CardHeader className="pb-3">
+          <div className="flex items-center justify-between">
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Gift className="h-4 w-4" />
+              無料トライアル
+            </CardTitle>
+            <Button
+              size="sm"
+              onClick={() => setShowGrantDialog(true)}
+              disabled={grants.some((g) => g.status === 'pending')}
+            >
+              <Gift className="mr-1.5 h-3.5 w-3.5" />
+              トライアルを付与
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {grantMessage && (
+            <div
+              className={cn(
+                'mb-4 rounded-md px-3 py-2 text-sm',
+                grantMessage.type === 'success'
+                  ? 'bg-green-50 text-green-700'
+                  : 'bg-red-50 text-red-700'
+              )}
+            >
+              {grantMessage.text}
+            </div>
+          )}
+
+          {grants.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-6 text-muted-foreground">
+              <Gift className="h-8 w-8 mb-2" />
+              <p className="text-sm">トライアル履歴なし</p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {grants.map((grant) => {
+                const statusConfig = {
+                  pending: { label: '未使用', variant: 'secondary' as const, color: 'text-blue-600' },
+                  active: { label: '利用中', variant: 'default' as const, color: 'text-green-600' },
+                  expired: { label: '期限切れ', variant: 'outline' as const, color: 'text-muted-foreground' },
+                  revoked: { label: '取り消し', variant: 'destructive' as const, color: 'text-red-600' },
+                };
+                const config = statusConfig[grant.status];
+
+                return (
+                  <div
+                    key={grant.id}
+                    className="flex items-center justify-between rounded-lg border px-4 py-3"
+                  >
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-medium">
+                          {grant.duration_months}ヶ月無料
+                        </span>
+                        <Badge variant={config.variant}>{config.label}</Badge>
+                      </div>
+                      <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                        <span>付与: {formatDate(grant.created_at)}</span>
+                        {grant.used_at && <span>使用: {formatDate(grant.used_at)}</span>}
+                        {grant.note && <span>{grant.note}</span>}
+                      </div>
+                    </div>
+                    {grant.status === 'pending' && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="text-red-500 hover:text-red-700 hover:bg-red-50"
+                        onClick={() => handleRevokeGrant(grant.id)}
+                      >
+                        <XCircle className="h-4 w-4" />
+                      </Button>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Grant trial dialog */}
+      <Dialog open={showGrantDialog} onOpenChange={setShowGrantDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>無料トライアルを付与</DialogTitle>
+            <DialogDescription>
+              {data?.user.full_name || data?.user.email || userId} に無料トライアルを付与します。
+              ユーザーはクレジットカードなしでサービスを利用開始できます。
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-2">
+            <div className="space-y-2">
+              <Label>無料期間</Label>
+              <Select value={grantDuration} onValueChange={setGrantDuration}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="1">1ヶ月</SelectItem>
+                  <SelectItem value="2">2ヶ月</SelectItem>
+                  <SelectItem value="3">3ヶ月</SelectItem>
+                  <SelectItem value="6">6ヶ月</SelectItem>
+                  <SelectItem value="12">12ヶ月</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <Label>メモ (任意)</Label>
+              <Input
+                placeholder="例: 初期ユーザー特典"
+                value={grantNote}
+                onChange={(e) => setGrantNote(e.target.value)}
+              />
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowGrantDialog(false)}>
+              キャンセル
+            </Button>
+            <Button onClick={handleGrantTrial} disabled={grantLoading}>
+              {grantLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              付与する
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Generation history table */}
       <Card>

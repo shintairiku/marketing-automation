@@ -203,6 +203,22 @@ export async function POST(request: Request) {
     // 9. 個人サブスク（従来通り）
     const stripe = getStripe();
 
+    // 9.1 無料トライアル grant の自動検出
+    let freeTrialGrant: { id: string; stripe_coupon_id: string } | null = null;
+    try {
+      const { data: grant } = await (supabase as any)
+        .from('free_trial_grants')
+        .select('id, stripe_coupon_id')
+        .eq('user_id', userId)
+        .eq('status', 'pending')
+        .maybeSingle();
+      if (grant) {
+        freeTrialGrant = grant;
+      }
+    } catch {
+      // テーブル未作成時は無視
+    }
+
     const sessionParams: Stripe.Checkout.SessionCreateParams = {
       mode: 'subscription',
       payment_method_types: ['card'],
@@ -216,18 +232,25 @@ export async function POST(request: Request) {
       cancel_url: cancelUrl,
       metadata: {
         user_id: userId,
+        ...(freeTrialGrant && { free_trial_grant_id: freeTrialGrant.id }),
       },
       subscription_data: {
         metadata: {
           user_id: userId,
+          ...(freeTrialGrant && { free_trial_grant_id: freeTrialGrant.id }),
         },
       },
       automatic_tax: { enabled: true },
-      billing_address_collection: 'required',
+      billing_address_collection: freeTrialGrant ? undefined : 'required',
       customer_email: existingUserSub?.stripe_customer_id ? undefined : userEmail,
       customer: existingUserSub?.stripe_customer_id || undefined,
-      allow_promotion_codes: true,
+      allow_promotion_codes: freeTrialGrant ? undefined : true,
       locale: 'ja',
+      // 無料トライアル: クーポン適用 + クレカ入力スキップ
+      ...(freeTrialGrant && {
+        discounts: [{ coupon: freeTrialGrant.stripe_coupon_id }],
+        payment_method_collection: 'if_required' as const,
+      }),
     };
 
     const session = await stripe.checkout.sessions.create(sessionParams);

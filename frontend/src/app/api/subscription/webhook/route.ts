@@ -271,6 +271,20 @@ async function handleCheckoutCompleted(
 
     console.log(`Checkout completed for user ${userId}`);
   }
+
+  // 無料トライアル grant のステータスを active に更新
+  const freeTrialGrantId = session.metadata?.free_trial_grant_id;
+  if (freeTrialGrantId) {
+    try {
+      await (supabase as any)
+        .from('free_trial_grants')
+        .update({ status: 'active', used_at: new Date().toISOString() })
+        .eq('id', freeTrialGrantId);
+      console.log(`Free trial grant ${freeTrialGrantId} activated for user ${userId}`);
+    } catch (err) {
+      console.warn('Failed to update free trial grant status:', err);
+    }
+  }
 }
 
 // ============================================

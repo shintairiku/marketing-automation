@@ -1606,6 +1606,71 @@ class BlogCompletionOutput(BaseModel):
 
 **フロントエンド変更なし**: 既存の `state.draft_preview_url` / `state.draft_edit_url` 条件分岐でボタンが表示される
 
+### 28. Stripe フリートライアル付与システム (2026-02-19)
+
+**概要**: 管理者が特定ユーザーにクレカ入力なしの無料トライアルを付与する仕組み。Stripe Coupon (100% off) + `payment_method_collection: 'if_required'` で実現。
+
+**設計**:
+- 管理者がユーザー詳細ページから期間を選択して付与
+- Stripe に 100% OFF Coupon を動的作成、DB に `free_trial_grants` レコード保存
+- ユーザーが Checkout すると自動的にクーポン適用 + クレカ入力スキップ
+- Checkout 完了 Webhook で grant ステータスを `active` に更新
+
+**DB マイグレーション**: `shared/supabase/migrations/20260219000001_add_free_trial_grants.sql`
+- `free_trial_grants` テーブル (id, user_id, stripe_coupon_id, duration_months, status, granted_by, note, created_at, used_at, expires_at)
+- status: `pending` → `active` → `expired` / `revoked`
+- RLS: service_role のみフルアクセス
+
+**フロントエンド API Routes** (Stripe操作はフロントエンド側に集約):
+| Method | Path | 概要 |
+|--------|------|------|
+| POST | `/api/admin/free-trials` | トライアル付与 (Stripe Coupon 作成 + DB 保存) |
+| GET | `/api/admin/free-trials` | 一覧取得 |
+| DELETE | `/api/admin/free-trials/[id]` | 取り消し (Stripe Coupon 削除 + DB 更新) |
+
+**Checkout 修正**: `frontend/src/app/api/subscription/checkout/route.ts`
+- 個人サブスク Checkout 時に `free_trial_grants` テーブルから pending な grant を自動検出
+- grant あり → `discounts: [{ coupon }]` + `payment_method_collection: 'if_required'` を適用
+- grant あり → `allow_promotion_codes` と `billing_address_collection` を無効化（Stripe は discounts と allow_promotion_codes の同時使用不可）
+- metadata に `free_trial_grant_id` を含めて Webhook で追跡
+
+**Webhook 修正**: `frontend/src/app/api/subscription/webhook/route.ts`
+- `handleCheckoutCompleted` で `free_trial_grant_id` を metadata から取得
+- grant ステータスを `active` に更新、`used_at` をセット
+
+**管理画面 UI**:
+- `frontend/src/app/(admin)/admin/users/[userId]/page.tsx` — トライアル付与カード追加
+  - 「トライアルを付与」ボタン → ダイアログ（期間セレクター + メモ欄）
+  - 付与履歴リスト（ステータスバッジ、付与日、使用日、取り消しボタン）
+- `frontend/src/app/(admin)/admin/free-trials/page.tsx` — 全 grant 一覧ページ（新規）
+  - サマリーカード（未使用/利用中/期限切れ/取り消し）
+  - ステータスフィルタータブ
+  - テーブル（ユーザーID→詳細リンク、期間、ステータス、付与日、使用日、メモ、取り消しボタン）
+- `frontend/src/app/(admin)/admin/layout.tsx` — ナビに「フリートライアル」追加 (Gift アイコン)
+
+**Stripe Coupon パラメータ**:
+- `percent_off: 100`
+- `duration: 'once'` (1ヶ月) or `'repeating'` (2ヶ月以上)
+- `duration_in_months`: 2ヶ月以上の場合に設定
+- metadata に `granted_by`, `granted_to`, `type: 'free_trial_grant'` を付与
+
+**フロー**:
+```
+管理者: ユーザー詳細 → 「トライアルを付与」→ 期間選択 → 確認
+  ↓
+Stripe Coupon 作成 + free_trial_grants INSERT (status: pending)
+  ↓
+ユーザー: /settings/billing → プラン選択 → Checkout
+  ↓
+checkout/route.ts: pending grant 検出 → discounts + payment_method_collection: 'if_required'
+  ↓
+Stripe Checkout: クレカ入力なし、確認のみ → サブスク作成 ($0)
+  ↓
+Webhook: checkout.session.completed → grant status → active
+  ↓
+クーポン期間終了 → 次回請求で課金開始（カード未登録なら past_due → 3日猶予 → canceled）
+```
+
 ### 2026-02-10 自己改善
 - **再検証の重要性**: 実装完了後のユーザー再検証要求で、`useArticles.ts` と `admin/plans/page.tsx` に `USE_PROXY` パターンが欠けているバグを発見した。最初の実装時にサーバーサイドAPI Routes (9ファイル) のみに注力し、クライアントサイドhooksの直接fetch呼び出しを見落としていた。**サーバーサイド→バックエンド通信だけでなく、ブラウザ→バックエンド通信パスも全て確認すべき。**
 - **FastAPI末尾スラッシュ + Cloud Run scheme 変換の複合問題**: `frontend/src/app/api/proxy/[...path]/route.ts` の `ensureTrailingSlash()` が `/blog/sites` を `/blog/sites/` に変換し、FastAPI (`redirect_slashes=True`) が 307 で `/blog/sites` へ戻す。さらに Cloud Run の `Location` が `http://...run.app/...` になり、プロキシがそれを手動追従すると Cloud Run 側で 302/307 が連鎖する。**手動リダイレクト追従を使う場合は、(1) 末尾スラッシュ強制をしない、(2) `Location` が `http://` でも `https://` に正規化する、の両方を実施すべき。**
