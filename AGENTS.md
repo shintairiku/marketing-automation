@@ -1,7 +1,7 @@
 # AGENTS.md — OpenAI Codex CLI / その他AIエージェント用プロジェクト設定
 
 > **このファイルは Codex CLI (OpenAI) やその他のAIエージェントツール向けの設定ファイルです。**
-> Claude Code を使用している場合は `CLAUDE.md` を参照してください。
+> Codex CLI を使用している場合は `CLAUDE.md` も併せて参照してください（詳細な設計情報・変更履歴はそちらに集約）。
 
 ---
 
