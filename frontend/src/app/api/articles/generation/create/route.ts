@@ -3,10 +3,12 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { createClient } from '@supabase/supabase-js';
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
+function getSupabase() {
+  return createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!
+  );
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -37,7 +39,7 @@ export async function POST(request: NextRequest) {
     // デフォルト会社情報の取得（任意項目含む）
     let defaultCompany: any = null;
     try {
-      const { data: companyData } = await supabase
+      const { data: companyData } = await getSupabase()
         .from('company_info')
         .select('*')
         .eq('user_id', userId)
@@ -78,7 +80,7 @@ export async function POST(request: NextRequest) {
     };
 
     // プロセス作成
-    const { data, error } = await supabase
+    const { data, error } = await getSupabase()
       .from('generated_articles_state')
       .insert({
         flow_id: null, // 従来の記事生成ではフローを使用しない
