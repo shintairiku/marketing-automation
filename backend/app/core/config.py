@@ -127,6 +127,11 @@ class Settings(BaseSettings):
     temp_upload_dir: str = Field(default_factory=lambda: os.getenv("TEMP_UPLOAD_DIR", "/tmp/blog_uploads"))
     frontend_url: str = Field(default_factory=lambda: os.getenv("FRONTEND_URL", "http://localhost:3000"))
 
+    # Email notification (Resend)
+    resend_api_key: str = Field(default_factory=lambda: os.getenv("RESEND_API_KEY", ""))
+    resend_from_domain: str = Field(default_factory=lambda: os.getenv("RESEND_FROM_DOMAIN", "resend.dev"))
+    contact_notification_email: str = Field(default_factory=lambda: os.getenv("CONTACT_NOTIFICATION_EMAIL", ""))
+
     model_config = SettingsConfigDict(
         env_file=[
             '.env',
