@@ -1585,12 +1585,11 @@ const baseURL = USE_PROXY ? '/api/proxy' : API_BASE_URL;
 - `(supabase as any)` キャスト: webhook/status/addon で大部分除去。`organization_subscriptions` テーブルのみ supabase-js 型推論の問題で `as any` 残存
 - `.env.example`: 両ファイルから本番URL削除、プレースホルダーに置換、欠落変数追加
 
-#### CI/CD ワークフロー (5ファイル新規作成)
-- `.github/workflows/ci-frontend.yml` — PR時: bun install → lint → build
-- `.github/workflows/ci-backend.yml` — PR時: ruff check → ruff format → Docker build + health check
-- `.github/workflows/deploy-frontend.yml` — develop→Preview, main→Production (Vercel CLI)
-- `.github/workflows/deploy-backend.yml` — develop→dev Cloud Run, main→prod Cloud Run (Workload Identity Federation)
-- `.github/workflows/db-migrations.yml` — supabase db push (develop→dev, main→prod)
+#### CI/CD ワークフロー (3ファイル)
+- `.github/workflows/ci-frontend.yml` — PR時: bun install → lint → build (Secrets不要)
+- `.github/workflows/ci-backend.yml` — PR時: ruff check → ruff format → Docker build + health check (Secrets不要)
+- `.github/workflows/db-migrations.yml` — supabase db push (develop→dev, main→prod, Secrets: SUPABASE_*)
+- **削除**: `deploy-frontend.yml` (Vercel Git Integrationと重複), `deploy-backend.yml` (Cloud Run自動デプロイと重複), `backend-docker-build.yml` (ci-backend.ymlと重複)
 
 #### データ移行
 - `scripts/migrate-data.py`: Supabase REST API経由の移行スクリプト (IPv6問題回避)
@@ -1608,11 +1607,45 @@ const baseURL = USE_PROXY ? '/api/proxy' : API_BASE_URL;
 - Supabase-Clerk Third-Party Auth 連携 (両プロジェクト)
 - Clerk Production インスタンス作成 + カスタムドメイン
 - Stripe ライブモード設定 (Products/Prices/Webhook)
-- Vercel 環境変数設定 (Production/Preview スコープ別)
-- Cloud Run dev/prod サービス作成
-- GitHub Environments + Secrets 設定
+- ~~Vercel 環境変数設定~~ → **完了** (Production/Preview スコープ別に設定済み)
+- ~~GitHub Environments + Secrets 設定~~ → **完了** (development/production + Supabase Secrets)
+- ~~ルート .env.example 整理~~ → **完了** (古いファイル削除、frontend/backend個別で管理)
 - ブランチ保護ルール設定
-- 本番切替 (env vars変更 → 再デプロイ → 検証)
+- TypeScript型再生成 (`bun run generate-types`)
+
+### 28. GitHub Actions ワークフロー整理 + Vercel環境分離 (2026-02-19)
+
+#### 概要
+Vercel Git IntegrationとCloud Run自動デプロイが有効なため、重複するデプロイワークフローを削除。Vercel環境変数をProduction/Previewスコープに分離。GitHub Environments + Supabase Secretsを設定。
+
+#### 削除したワークフロー (3ファイル)
+- `.github/workflows/deploy-frontend.yml` — Vercel Git Integrationと完全重複（両方動くと二重デプロイ）
+- `.github/workflows/deploy-backend.yml` — Cloud Run自動デプロイと完全重複
+- `.github/workflows/backend-docker-build.yml` — `ci-backend.yml`と重複（push+PRで同じdocker build）
+
+#### 残したワークフロー (3ファイル)
+- `ci-frontend.yml` — PR時: lint + build (Secrets不要)
+- `ci-backend.yml` — PR時: ruff + docker build + health check (Secrets不要)
+- `db-migrations.yml` — push時: supabase db push (Secrets: SUPABASE_PROJECT_ID, SUPABASE_ACCESS_TOKEN, SUPABASE_DB_PASSWORD)
+
+#### Vercel環境変数分離
+- Production スコープ → Prod Supabase (`tkkbhglcudsxcwxdyplp`), Stripe live, Clerk prod
+- Preview スコープ → Dev Supabase (`dddprfuwksduqsimiylg`), Stripe test, Clerk dev
+- `develop` ブランチ → `marketing-automation-git-develop-...vercel.app` (Preview環境変数使用)
+- `main` ブランチ → Production URL (Production環境変数使用)
+
+#### GitHub Environments + Secrets (設定済み)
+- `development` 環境: `SUPABASE_PROJECT_ID=dddprfuwksduqsimiylg` + ACCESS_TOKEN + DB_PASSWORD
+- `production` 環境: `SUPABASE_PROJECT_ID=tkkbhglcudsxcwxdyplp` + ACCESS_TOKEN + DB_PASSWORD
+
+#### Dev Supabase 新規作成
+- 旧Dev Supabase (`pytxohnkkyshobprrjqh`) を廃止、新規 (`dddprfuwksduqsimiylg`) に移行
+- 理由: 旧DBは33マイグレーション履歴が残っており、ベースライン方式と不整合
+- 新DBはクリーン状態、マージ後の `db push` でベースラインが自動適用される
+
+#### その他
+- ルート `.env.example` を削除（古い、frontend/backendの個別.env.exampleで十分）
+- docs内の旧project ref省略形 (`pytxohnkky..`) を新ref (`dddprfuwk..`) に更新
 
 #### 技術的知見
 - **Supabase CLI `db push` のパスワード**: `supabase link --password` で渡しても `db push` 時にはキャッシュされない。`SUPABASE_DB_PASSWORD=xxx supabase db push` で環境変数として渡す

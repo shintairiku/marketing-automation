@@ -84,7 +84,7 @@
 │              │  (dev service)  │  │  (prod service)│        │
 │              │                 │  │                │        │
 │              │  Supabase       │  │  Supabase      │        │
-│              │  pytxohnkky..   │  │  tkkbhglcu..   │        │
+│              │  dddprfuwk..   │  │  tkkbhglcu..   │        │
 │              │                 │  │                │        │
 │              │  Clerk Dev      │  │  Clerk Prod    │        │
 │              │  pk_test_*      │  │  pk_live_*     │        │
@@ -157,22 +157,22 @@
 
 ### Phase A: コードベース修正 (ブランチ内作業、無停止)
 
-| # | タスク | 優先度 | 詳細 |
+| # | タスク | 優先度 | 状態 |
 |---|--------|--------|------|
-| A1 | `config.py` 絶対パス削除 | HIGH | `backend/app/core/config.py:143` の `/home/als0028/...` を削除 |
-| A2 | GCSバケット名を環境変数化 | HIGH | `frontend/next.config.js` の `marketing-automation-images` → `process.env.NEXT_PUBLIC_GCS_BUCKET_NAME` |
-| A3 | `.env.example` 更新 | HIGH | 本番URLを削除、`NEXT_PUBLIC_GCS_BUCKET_NAME` 追加、移行用変数テンプレート削除 |
-| A4 | `backend/.env` から移行用変数削除 | MEDIUM | `OLD_SUPABASE_*`, `NEW_SUPABASE_*` を削除 |
-| A5 | TypeScript型再生成 | MEDIUM | 新Supabaseにリンク → `bun run generate-types` → `(supabase as any)` キャスト除去 |
-| A6 | `@shintairiku.jp` ハードコードを環境変数化 | LOW | backend 3箇所 + frontend 5箇所 → `ADMIN_EMAIL_DOMAIN` 環境変数 |
-| A7 | `frontend/Dockerfile` からシークレットARG削除 | MEDIUM | `STRIPE_SECRET_KEY`, `SUPABASE_SERVICE_ROLE_KEY` のビルドARGを削除 |
+| A1 | `config.py` 絶対パス削除 | HIGH | **完了** |
+| A2 | GCSバケット名を環境変数化 | HIGH | **完了** |
+| A3 | `.env.example` 更新 | HIGH | **完了** (ルートの古い.env.exampleは削除、frontend/backendの個別.env.exampleは整備済み) |
+| A4 | `backend/.env` から移行用変数削除 | MEDIUM | **完了** |
+| A5 | TypeScript型再生成 | MEDIUM | 未完了 — 新Supabaseにリンク → `bun run generate-types` → `(supabase as any)` キャスト除去 |
+| A6 | `@shintairiku.jp` ハードコードを環境変数化 | LOW | 未完了 |
+| A7 | `frontend/Dockerfile` からシークレットARG削除 | MEDIUM | **完了** |
 
 ### Phase B: 外部サービス設定 (Dashboard作業、無停止)
 
 | # | タスク | 優先度 | 詳細 |
 |---|--------|--------|------|
 | B1 | Supabase-Clerk連携 (prod) | HIGH | 新Supabase `tkkbhglcu..` に Clerk Third-Party Auth を設定 |
-| B2 | Supabase-Clerk連携 (dev) | HIGH | 旧Supabase `pytxohnkky..` にも同様に設定 |
+| B2 | Supabase-Clerk連携 (dev) | HIGH | 旧Supabase `dddprfuwk..` にも同様に設定 |
 | B3 | Clerk Production インスタンス作成 | HIGH | カスタムドメイン設定、OAuth Client登録、Webhook endpoint登録 |
 | B4 | Stripe ライブモード設定 | HIGH | Products/Prices作成、Webhook endpoint登録、signing secret取得 |
 | B5 | Stripe 旧Webhook削除 | MEDIUM | Dashboard で `/api/webhooks` endpoint が残っていれば削除 |
@@ -182,19 +182,19 @@
 | B9 | Vercel 環境変数設定 | HIGH | Production / Preview のスコープ別に全変数設定 |
 | B10 | Cloud Run prod/dev サービス作成 | HIGH | `backend-prod` (min=1) + `backend-dev` (min=0) |
 | B11 | カスタムドメイン設定 | HIGH | Vercel + Cloud Run + Clerk に本番ドメインを設定 |
-| B12 | Dev Supabase リセット | LOW | `pytxohnkky..` を `supabase db reset` でクリーンベースライン化 |
+| B12 | Dev Supabase リセット | LOW | `dddprfuwk..` を `supabase db reset` でクリーンベースライン化 |
 
 ### Phase C: CI/CD パイプライン (ブランチ内作業、無停止)
 
-| # | タスク | 優先度 | 詳細 |
+| # | タスク | 優先度 | 状態 |
 |---|--------|--------|------|
-| C1 | `ci-frontend.yml` 作成 | HIGH | PR時: lint + build チェック |
-| C2 | `ci-backend.yml` 作成 | HIGH | PR時: ruff + Docker build テスト |
-| C3 | `deploy-frontend.yml` 作成 | HIGH | develop→Staging, main→Production (Vercel CLI) |
-| C4 | `deploy-backend.yml` 作成 | HIGH | develop→dev Cloud Run, main→prod Cloud Run |
-| C5 | `db-migrations.yml` 作成 | MEDIUM | migration変更時: Supabase db push |
-| C6 | GitHub Environments 作成 | MEDIUM | `development`, `production` + 保護ルール |
-| C7 | ブランチ保護ルール設定 | MEDIUM | main: PR必須+レビュー+CI通過, develop: PR必須+CI通過 |
+| C1 | `ci-frontend.yml` | HIGH | **完了** — PR時: lint + build チェック |
+| C2 | `ci-backend.yml` | HIGH | **完了** — PR時: ruff + Docker build テスト |
+| C3 | `deploy-frontend.yml` | - | **削除** — Vercel Git Integrationが自動デプロイするため不要 |
+| C4 | `deploy-backend.yml` | - | **削除** — Cloud Run自動デプロイが有効なため不要 |
+| C5 | `db-migrations.yml` | MEDIUM | **完了** — migration変更時: Supabase db push。Secrets設定済み |
+| C6 | GitHub Environments 作成 | MEDIUM | **完了** — `development`, `production` + Supabase Secrets |
+| C7 | ブランチ保護ルール設定 | MEDIUM | 未完了 — main: PR必須+CI通過 |
 
 ### Phase D: 本番切替 (ダウンタイム30-60分)
 
@@ -224,7 +224,7 @@
 
 #### Development (現在使用中のインスタンス)
 - 既存のまま使用
-- Supabase dev プロジェクト (`pytxohnkky..`) と Third-Party Auth 連携を設定
+- Supabase dev プロジェクト (`dddprfuwk..`) と Third-Party Auth 連携を設定
 
 #### Production (新規作成)
 ```
@@ -366,12 +366,14 @@ vercel env add NEXT_PUBLIC_SUPABASE_URL development       # dev Supabase URL
 
 ```
 .github/workflows/
-├── ci-frontend.yml        # PR時: lint + build
-├── ci-backend.yml         # PR時: ruff + Docker build
-├── deploy-frontend.yml    # develop/main push: Vercel デプロイ
-├── deploy-backend.yml     # develop/main push: Cloud Run デプロイ
-└── db-migrations.yml      # migration変更時: Supabase db push
+├── ci-frontend.yml        # PR時: lint + build (Secrets不要)
+├── ci-backend.yml         # PR時: ruff + Docker build (Secrets不要)
+└── db-migrations.yml      # migration変更時: Supabase db push (Secrets: SUPABASE_*)
 ```
+
+> **NOTE**: `deploy-frontend.yml` と `deploy-backend.yml` は削除。
+> Vercel Git Integration と Cloud Run 自動デプロイがそれぞれ担当。
+> `backend-docker-build.yml` も `ci-backend.yml` と重複のため削除。
 
 ### 5.2 トリガーマトリックス
 
@@ -397,7 +399,7 @@ vercel env add NEXT_PUBLIC_SUPABASE_URL development       # dev Supabase URL
 
 | 変数 | Development (local) | Preview (develop) | Production (main) |
 |------|--------------------|--------------------|-------------------|
-| `NEXT_PUBLIC_SUPABASE_URL` | pytxohnkky.. | pytxohnkky.. | tkkbhglcu.. |
+| `NEXT_PUBLIC_SUPABASE_URL` | dddprfuwk.. | dddprfuwk.. | tkkbhglcu.. |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | dev anon key | dev anon key | prod anon key |
 | `SUPABASE_SERVICE_ROLE_KEY` | dev service key | dev service key | prod service key |
 | `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` | `pk_test_*` | `pk_test_*` | `pk_live_*` |
@@ -418,7 +420,7 @@ vercel env add NEXT_PUBLIC_SUPABASE_URL development       # dev Supabase URL
 
 | 変数 | Development | Production | 管理方法 |
 |------|-------------|------------|---------|
-| `SUPABASE_URL` | pytxohnkky.. | tkkbhglcu.. | Secret Manager |
+| `SUPABASE_URL` | dddprfuwk.. | tkkbhglcu.. | Secret Manager |
 | `SUPABASE_ANON_KEY` | dev key | prod key | Secret Manager |
 | `SUPABASE_SERVICE_ROLE_KEY` | dev key | prod key | Secret Manager |
 | `OPENAI_API_KEY` | 共通 | 共通 | Secret Manager |
