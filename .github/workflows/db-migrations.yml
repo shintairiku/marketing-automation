@@ -24,6 +24,7 @@ jobs:
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
           SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+          CLERK_DOMAIN: ${{ vars.CLERK_DOMAIN }}
 
       - name: Push migrations
         run: supabase db push
@@ -47,6 +48,7 @@ jobs:
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
           SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+          CLERK_DOMAIN: ${{ vars.CLERK_DOMAIN }}
 
       - name: Dry run
         run: supabase db push --dry-run
