@@ -24,6 +24,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { compressImages } from "@/utils/image-compress";
 import { useAuth } from "@clerk/nextjs";
 
 interface WordPressSite {
@@ -56,6 +57,7 @@ export default function BlogNewPage() {
   const [selectedImages, setSelectedImages] = useState<File[]>([]);
   const [imagePreviewUrls, setImagePreviewUrls] = useState<string[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [compressingImages, setCompressingImages] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -120,6 +122,17 @@ export default function BlogNewPage() {
     try {
       const token = await getToken();
 
+      // 画像を圧縮（大きい画像をプロキシ経由で送れるようにする）
+      let imagesToUpload = selectedImages;
+      if (selectedImages.length > 0) {
+        setCompressingImages(true);
+        try {
+          imagesToUpload = await compressImages(selectedImages);
+        } finally {
+          setCompressingImages(false);
+        }
+      }
+
       // FormData で送信（画像あり・なし共通）
       const formData = new FormData();
       formData.append("user_prompt", userPrompt);
@@ -127,7 +140,7 @@ export default function BlogNewPage() {
       if (referenceUrl) {
         formData.append("reference_url", referenceUrl);
       }
-      for (const img of selectedImages) {
+      for (const img of imagesToUpload) {
         formData.append("files", img);
       }
 
@@ -516,7 +529,12 @@ export default function BlogNewPage() {
                 }
               `}
             >
-              {isSubmitting ? (
+              {isSubmitting && compressingImages ? (
+                <span className="flex items-center gap-2">
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                  画像を最適化中...
+                </span>
+              ) : isSubmitting ? (
                 <span className="flex items-center gap-2">
                   <Loader2 className="w-5 h-5 animate-spin" />
                   生成を開始中...

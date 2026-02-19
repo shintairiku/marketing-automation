@@ -12,6 +12,7 @@ from openai.types.shared.reasoning import Reasoning
 
 from app.core.config import settings
 from app.domains.blog.agents.tools import ALL_WORDPRESS_TOOLS
+from app.domains.blog.schemas import BlogCompletionOutput
 
 logger = logging.getLogger(__name__)
 
@@ -169,13 +170,13 @@ ask_user_questions(
 ## 作業フロー
 
 1. まずサイト情報を取得 (`wp_get_site_info`) して、サイトの基本情報を把握
-2. カテゴリ一覧を確認 (`wp_get_categories`) して、どのカテゴリに記事を作成するか決定
+2. 投稿タイプ一覧 (`wp_get_post_types`) とカテゴリ一覧 (`wp_get_categories`) を必要に応じて取得
 3. 参考記事があれば取得・分析 (`wp_get_post_by_url` または `wp_get_recent_posts`)
 4. カテゴリ内の既存記事からパターンを分析 (`wp_analyze_category_format_patterns`)
 5. **`web_search` で記事トピックに関する最新情報・統計・事実を調査**
 6. **追加情報が必要な場合は `ask_user_questions` でユーザーに質問**（インタビュー記事など）
 7. 分析結果とユーザー入力を参考に、Gutenbergブロック形式で記事を作成
-8. 最後に `wp_create_draft_post` で下書き記事を作成
+8. 最後に `wp_create_draft_post` で `post_type` を指定して下書き記事を作成（`post_type` 不明時は `post`）
 
 並列してできる作業があれば並列して実行してください。より効率的に実行してください。
 
@@ -213,6 +214,19 @@ ask_user_questions(
 )
 ```
 
+## 最終出力（構造化出力）
+
+作業が完了したら、以下のフィールドを含む構造化出力を返してください:
+
+- **post_id**: `wp_create_draft_post` の戻り値に含まれる投稿ID（整数）。下書き作成に失敗した場合は null
+- **preview_url**: `wp_create_draft_post` の戻り値に含まれるプレビューURL（`preview_url` または `link` フィールド）。取得できなかった場合は null
+- **edit_url**: `wp_create_draft_post` の戻り値に含まれる編集URL（`edit_url` または `edit_link` フィールド）。取得できなかった場合は null
+- **summary**: 作成した記事についてのまとめ（タイトル、主な内容、工夫した点など）を日本語で記述
+
+`wp_create_draft_post` のレスポンスに含まれる `post_id`、`preview_url`（または `link`）、`edit_url`（または `edit_link`）を正確に抽出してください。
+
+ユーザーへの質問中（`ask_user_questions` 使用後）は、`post_id`/`preview_url`/`edit_url` を全て null にし、`summary` に質問の意図を記述してください。
+
 ## 注意事項
 
 - ユーザーの入力を尊重しつつ、SEOとユーザビリティを意識した記事を作成
@@ -233,4 +247,5 @@ def build_blog_writer_agent() -> Agent:
             reasoning=Reasoning(effort=settings.blog_generation_reasoning_effort, summary=settings.blog_generation_reasoning_summary)
         ),
         tools=ALL_WORDPRESS_TOOLS,
+        output_type=BlogCompletionOutput,
     )

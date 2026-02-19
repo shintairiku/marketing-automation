@@ -966,9 +966,16 @@ async def start_blog_generation(
     now = datetime.utcnow().isoformat()
 
     # 画像をWebPに変換して保存
+    MAX_IMAGE_SIZE = 20 * 1024 * 1024  # 20MB per file
     uploaded_images = []
     for file in files:
         if file.filename and file.size and file.size > 0:
+            if file.size > MAX_IMAGE_SIZE:
+                logger.warning(f"画像サイズ超過: {file.filename} ({file.size} bytes)")
+                raise HTTPException(
+                    status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                    detail=f"画像「{file.filename}」のサイズが大きすぎます（上限: 20MB）",
+                )
             try:
                 content = await file.read()
                 local_path = convert_and_save_as_webp(
@@ -1363,6 +1370,14 @@ async def upload_image(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="生成プロセスが見つかりません",
+        )
+
+    # ファイルサイズチェック
+    MAX_IMAGE_SIZE = 20 * 1024 * 1024  # 20MB
+    if file.size and file.size > MAX_IMAGE_SIZE:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail=f"画像のサイズが大きすぎます（上限: 20MB）",
         )
 
     # 画像を読み込み → WebP 変換 → 保存

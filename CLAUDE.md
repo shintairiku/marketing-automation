@@ -1768,6 +1768,59 @@ cd frontend && bun run generate-types
 - **pg_dumpベースのベースライン生成は複数パスが必要**: 最初のフィルタリングで行単位→statement残骸が残る→statement単位で再パース、という3段階が必要だった。**最初からstatement単位パーサーで処理すべきだった。**
 - **Supabase接続のIPv6問題 (WSL2)**: `db.xxx.supabase.co` はIPv6で解決されるがWSL2はIPv6非対応。pooler (`aws-0-*.pooler.supabase.com`) はIPv4だがリージョン不一致で `Tenant not found`。**WSL2環境ではREST API経由が最も確実。**
 
+### 29. Blog AI 画像アップロード サイズ最適化 (2026-02-19)
+
+**問題**: Blog AI の初期画像入力（`/blog/new`）や質問フェーズの画像アップロード（`/blog/[processId]`）で、大きな画像（スマホ写真 5-15MB 等）をそのまま送信するとエラーになっていた。
+- Next.js/Vercel のボディサイズ上限（~4.5MB）を超過
+- プロキシルート経由でバックエンドに到達できない
+
+**解決**: クライアントサイドで Canvas API によるリサイズ+JPEG 圧縮をアップロード前に実施。
+
+**変更ファイル**:
+| ファイル | 変更種別 | 概要 |
+|---------|---------|------|
+| `frontend/src/utils/image-compress.ts` | **新規** | Canvas API で画像をリサイズ (max 2048px) + JPEG 圧縮 (quality 0.85→段階的低下)。800KB 以下はスキップ。3MB 以内に収める |
+| `frontend/src/app/(tools)/blog/new/page.tsx` | 改修 | `handleSubmit` で `compressImages()` を呼び出し、圧縮済み画像を FormData に設定。圧縮中の UI 表示追加 |
+| `frontend/src/app/(tools)/blog/[processId]/page.tsx` | 改修 | `uploadQuestionImages` で各画像を `compressImage()` で圧縮してからアップロード |
+| `backend/app/domains/blog/endpoints.py` | 改修 | 生成開始・画像アップロードの両エンドポイントに 20MB/ファイルの上限バリデーション追加 (413 エラー) |
+
+**圧縮の設計**:
+- **閾値**: 800KB 以下のファイルは圧縮スキップ（バックエンドの WebP 変換で十分）
+- **リサイズ**: 長辺が 2048px を超える場合のみリサイズ（アスペクト比維持）
+- **品質段階低下**: 0.85 → 0.70 → 0.55 → 0.40 と品質を下げて 3MB 以内に収める
+- **出力形式**: JPEG（全ブラウザ対応。バックエンドで別途 WebP に変換される）
+- **エラー耐性**: 圧縮失敗時は元ファイルをそのまま使用（バックエンドでエラーになる可能性あり）
+
+### 30. Blog AI 構造化出力 (output_type) 導入 (2026-02-19)
+
+**問題**: Blog AI エージェントの最終出力がプレーンテキストだったため、`_extract_draft_info()` で正規表現パースしてプレビューURL/編集URLを抽出していた。エージェントの出力フォーマットが変わるとURLが取得できなくなるリスクがあった。
+
+**解決**: OpenAI Agents SDK の `output_type` パラメータで構造化出力を強制。
+
+**変更ファイル**:
+| ファイル | 変更種別 | 概要 |
+|---------|---------|------|
+| `backend/app/domains/blog/schemas.py` | 追加 | `BlogCompletionOutput` Pydantic モデル追加 (post_id, preview_url, edit_url, summary) |
+| `backend/app/domains/blog/agents/definitions.py` | 改修 | `output_type=BlogCompletionOutput` 設定、プロンプトに構造化出力セクション追加 |
+| `backend/app/domains/blog/services/generation_service.py` | 改修 | `_process_result` が `BlogCompletionOutput` を直接受け取るように変更、`_extract_draft_info()` 正規表現パーサーを削除、`re` import 削除 |
+
+**構造化出力スキーマ**:
+```python
+class BlogCompletionOutput(BaseModel):
+    post_id: Optional[int] = None       # WordPress投稿ID
+    preview_url: Optional[str] = None   # プレビューURL
+    edit_url: Optional[str] = None      # 編集URL
+    summary: str                        # ユーザーへのまとめメッセージ（日本語）
+```
+
+**動作**:
+- エージェントが `wp_create_draft_post` の戻り値から `post_id`, `preview_url`, `edit_url` を構造化出力に含める
+- `result.final_output` が `BlogCompletionOutput` インスタンスとして返る
+- `_process_result` がフィールドを直接参照してDB保存
+- `ask_user_questions` 使用時は post_id/URL が全て null、summary に質問意図が入る
+
+**フロントエンド変更なし**: 既存の `state.draft_preview_url` / `state.draft_edit_url` 条件分岐でボタンが表示される
+
 ### 2026-02-10 自己改善
 - **再検証の重要性**: 実装完了後のユーザー再検証要求で、`useArticles.ts` と `admin/plans/page.tsx` に `USE_PROXY` パターンが欠けているバグを発見した。最初の実装時にサーバーサイドAPI Routes (9ファイル) のみに注力し、クライアントサイドhooksの直接fetch呼び出しを見落としていた。**サーバーサイド→バックエンド通信だけでなく、ブラウザ→バックエンド通信パスも全て確認すべき。**
 - **FastAPI末尾スラッシュ + Cloud Run scheme 変換の複合問題**: `frontend/src/app/api/proxy/[...path]/route.ts` の `ensureTrailingSlash()` が `/blog/sites` を `/blog/sites/` に変換し、FastAPI (`redirect_slashes=True`) が 307 で `/blog/sites` へ戻す。さらに Cloud Run の `Location` が `http://...run.app/...` になり、プロキシがそれを手動追従すると Cloud Run 側で 302/307 が連鎖する。**手動リダイレクト追従を使う場合は、(1) 末尾スラッシュ強制をしない、(2) `Location` が `http://` でも `https://` に正規化する、の両方を実施すべき。**

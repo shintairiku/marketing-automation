@@ -8,7 +8,6 @@ Blog AI Domain - Generation Service
 """
 
 import json
-import re
 import time
 from datetime import datetime
 from typing import Any, Dict, List, Optional
@@ -34,6 +33,7 @@ import logging
 
 from app.core.config import settings
 from app.domains.blog.agents.definitions import build_blog_writer_agent
+from app.domains.blog.schemas import BlogCompletionOutput
 from app.domains.blog.services.wordpress_mcp_service import (
     clear_mcp_client_cache,
     set_mcp_context,
@@ -556,12 +556,18 @@ class BlogGenerationService:
                                 event.item.raw_item
                             )
 
-            # 最終結果を取得
-            final_result = result.final_output
+            # 最終結果を取得（構造化出力: BlogCompletionOutput）
+            final_result: Optional[BlogCompletionOutput] = result.final_output
             logger.info(f"Agent実行完了: process_id={process_id}")
-            logger.debug(
-                f"Agent出力: {final_result[:500] if final_result else 'None'}..."
-            )
+            if final_result:
+                logger.debug(
+                    f"Agent構造化出力: post_id={final_result.post_id}, "
+                    f"preview_url={final_result.preview_url}, "
+                    f"edit_url={final_result.edit_url}, "
+                    f"summary={final_result.summary[:200] if final_result.summary else 'None'}"
+                )
+            else:
+                logger.debug("Agent出力: None（構造化出力なし）")
 
             # ========================================
             # 会話履歴を取得（to_input_list）
@@ -601,7 +607,7 @@ class BlogGenerationService:
                     "question_context": pending_user_questions.get("context"),
                 }
                 if final_result:
-                    blog_ctx["agent_message"] = final_result
+                    blog_ctx["agent_message"] = final_result.summary
                 # 会話履歴を保存（次回継続時に使用）
                 if conversation_history is not None:
                     blog_ctx["conversation_history"] = conversation_history
@@ -642,7 +648,7 @@ class BlogGenerationService:
                 "processing_result",
                 {"message": "結果を処理しています..."},
             )
-            await self._process_result(process_id, user_id, final_result or "")
+            await self._process_result(process_id, user_id, final_result)
         except Exception as e:
             if execution_id and logging_service:
                 try:
@@ -869,7 +875,9 @@ class BlogGenerationService:
         parts.append(
             "\n## 指示\n\n"
             "上記のリクエストに基づいて、WordPressブログ記事を作成してください。\n"
-            "必ず `wp_create_draft_post` ツールを使って下書きを保存してください。"
+            "`wp_get_post_types` は未取得の場合のみ実行し、取得済みなら再利用してください。\n"
+            "投稿タイプエラー（`invalid_post_type`）時のみ `wp_get_post_types` を再取得してください。\n"
+            "`wp_create_draft_post` で `post_type` を指定して下書きを保存してください。"
         )
 
         text_content = "\n".join(parts)
@@ -969,7 +977,9 @@ class BlogGenerationService:
             )
 
         text_parts.append(
-            "\n上記の情報をもとに、記事を作成して `wp_create_draft_post` で下書き保存してください。"
+            "\n上記の情報をもとに、`wp_get_post_types` は未取得の場合のみ実行し、取得済みなら再利用してください。\n"
+            "投稿タイプエラー（`invalid_post_type`）時のみ `wp_get_post_types` を再取得してください。\n"
+            "`wp_create_draft_post` で `post_type` を指定して下書き保存してください。"
         )
 
         text_content = "\n".join(text_parts)
@@ -1366,42 +1376,41 @@ class BlogGenerationService:
         self,
         process_id: str,
         user_id: str,
-        output_text: str,
+        output: Optional[BlogCompletionOutput],
     ) -> None:
         """
-        Agent実行結果を処理
-
-        wp_create_draft_post の結果からプレビューURLなどを抽出
+        Agent実行結果を処理（構造化出力から直接プレビューURL等を取得）
         """
-        draft_info = self._extract_draft_info(output_text)
-
         blog_ctx: Dict[str, Any] = {}
-        if output_text:
-            blog_ctx["agent_message"] = output_text
+        if output and output.summary:
+            blog_ctx["agent_message"] = output.summary
 
-        if draft_info:
+        has_draft_info = output and (output.post_id or output.preview_url or output.edit_url)
+
+        if has_draft_info:
             await self._update_state(
                 process_id,
                 status="completed",
                 current_step_name="完了",
                 progress_percentage=100,
-                draft_post_id=draft_info.get("post_id"),
-                draft_preview_url=draft_info.get("preview_url"),
-                draft_edit_url=draft_info.get("edit_url"),
+                draft_post_id=output.post_id,
+                draft_preview_url=output.preview_url,
+                draft_edit_url=output.edit_url,
                 blog_context=blog_ctx if blog_ctx else None,
             )
             await self._publish_event(
                 process_id, user_id,
                 "generation_completed",
                 {
-                    "draft_post_id": draft_info.get("post_id"),
-                    "preview_url": draft_info.get("preview_url"),
-                    "edit_url": draft_info.get("edit_url"),
+                    "draft_post_id": output.post_id,
+                    "preview_url": output.preview_url,
+                    "edit_url": output.edit_url,
                     "message": "記事の下書きが作成されました！",
                 },
             )
         else:
-            logger.warning(f"下書き情報が見つかりません: {output_text[:500]}")
+            summary_preview = output.summary[:500] if output and output.summary else "(出力なし)"
+            logger.warning(f"下書き情報が構造化出力に含まれていません: {summary_preview}")
             await self._update_state(
                 process_id,
                 status="completed",
@@ -1415,7 +1424,7 @@ class BlogGenerationService:
                 {
                     "message": "記事生成は完了しましたが、下書きURLの取得に失敗しました。"
                         "WordPressの下書き一覧を確認してください。",
-                    "output": output_text[:1000],
+                    "summary": output.summary if output else None,
                 },
             )
 
@@ -1457,50 +1466,6 @@ class BlogGenerationService:
             return None
         except Exception:
             return None
-
-    @staticmethod
-    def _extract_draft_info(output_text: str) -> Optional[Dict[str, Any]]:
-        """Agent出力から下書き情報を抽出"""
-        json_patterns = [
-            r'\{[^{}]*"post_id"[^{}]*\}',
-            r'\{[^{}]*"preview_url"[^{}]*\}',
-            r'\{[^{}]*"id"[^{}]*"link"[^{}]*\}',
-        ]
-
-        for pattern in json_patterns:
-            matches = re.findall(pattern, output_text, re.DOTALL)
-            for match in matches:
-                try:
-                    data = json.loads(match)
-                    if "post_id" in data or "id" in data:
-                        return {
-                            "post_id": data.get("post_id") or data.get("id"),
-                            "preview_url": data.get("preview_url") or data.get("link"),
-                            "edit_url": data.get("edit_url") or data.get("edit_link"),
-                        }
-                except json.JSONDecodeError:
-                    continue
-
-        preview_url_match = re.search(
-            r'https?://[^\s]+[?&]preview[^\s]*',
-            output_text
-        )
-        if preview_url_match:
-            return {
-                "post_id": None,
-                "preview_url": preview_url_match.group(0),
-                "edit_url": None,
-            }
-
-        post_id_match = re.search(r'"?post_id"?\s*[:=]\s*(\d+)', output_text)
-        if post_id_match:
-            return {
-                "post_id": int(post_id_match.group(1)),
-                "preview_url": None,
-                "edit_url": None,
-            }
-
-        return None
 
     # ===========================================================
     # DB操作

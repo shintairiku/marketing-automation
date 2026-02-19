@@ -172,6 +172,18 @@ class BlogGenerationHistoryItem(BaseModel):
         from_attributes = True
 
 
+class BlogCompletionOutput(BaseModel):
+    """Blog AI エージェントの構造化最終出力
+
+    エージェントが wp_create_draft_post の結果から抽出した情報と、
+    ユーザーへのまとめメッセージを構造化して返す。
+    """
+    post_id: Optional[int] = Field(None, description="WordPress下書きの投稿ID")
+    preview_url: Optional[str] = Field(None, description="下書きプレビューURL")
+    edit_url: Optional[str] = Field(None, description="WordPress管理画面の編集URL")
+    summary: str = Field(..., description="ユーザーへの完了メッセージ（日本語）。記事の概要・ポイント等を含む")
+
+
 class BlogDraftResult(BaseModel):
     """ブログ下書き作成結果"""
     success: bool
