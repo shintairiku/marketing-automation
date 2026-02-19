@@ -1,10 +1,9 @@
 # -*- coding: utf-8 -*-
 # 既存のスクリプトからツール定義をここに移動
-from typing import Dict, Any, Optional, List # <<< Optional, List をインポート
+from typing import Optional, List # <<< Optional, List をインポート
 from rich.console import Console # ログ出力用にConsoleを残すか、loggingに切り替える
-from agents import function_tool, RunContextWrapper, WebSearchTool, FileSearchTool, Tool # <<< Tool をインポート
+from agents import WebSearchTool, FileSearchTool, Tool # <<< Tool をインポート
 # ArticleContext を直接インポート
-from app.domains.seo_article.context import ArticleContext # <<< 修正: 直接インポート
 
 console = Console() # または logging を使用
 

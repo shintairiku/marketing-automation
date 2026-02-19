@@ -8,7 +8,7 @@ Blog AI Domain - Pydantic Schemas
 from datetime import datetime
 from typing import Any, Dict, List, Literal, Optional
 
-from pydantic import BaseModel, Field, HttpUrl
+from pydantic import BaseModel, Field
 
 
 # =====================================================

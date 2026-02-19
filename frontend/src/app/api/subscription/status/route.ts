@@ -151,7 +151,7 @@ export async function GET() {
       // まず個人の使用量を検索
       // Note: usage_tracking は型生成前のため any キャストを使用
       let usageTracking = null;
-      const { data: personalUsage } = await (supabase as any)
+      const { data: personalUsage } = await supabase
         .from('usage_tracking')
         .select('*')
         .eq('user_id', userId)
@@ -163,7 +163,7 @@ export async function GET() {
 
       // 個人の使用量がない場合、組織の使用量を検索
       if (!usageTracking && orgSubscription) {
-        const { data: orgUsage } = await (supabase as any)
+        const { data: orgUsage } = await supabase
           .from('usage_tracking')
           .select('*')
           .eq('organization_id', orgSubscription.organization_id)
@@ -182,8 +182,8 @@ export async function GET() {
           .eq('user_id', userId);
 
         if (memberOrgs && memberOrgs.length > 0) {
-          const orgIds = memberOrgs.map((m: Record<string, unknown>) => m.organization_id);
-          const { data: orgUsage } = await (supabase as any)
+          const orgIds = memberOrgs.map((m) => m.organization_id);
+          const { data: orgUsage } = await supabase
             .from('usage_tracking')
             .select('*')
             .in('organization_id', orgIds)
@@ -216,7 +216,7 @@ export async function GET() {
         // usage_tracking レコードがないがサブスクリプションはアクティブな場合
         // plan_tiers のデフォルト値でフォールバック表示を提供
         try {
-          const { data: defaultTier } = await (supabase as any)
+          const { data: defaultTier } = await supabase
             .from('plan_tiers')
             .select('monthly_article_limit, addon_unit_amount')
             .eq('id', 'default')

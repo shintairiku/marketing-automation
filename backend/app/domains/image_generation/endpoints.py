@@ -465,7 +465,7 @@ async def replace_placeholder_with_image(
         logger.info(f"更新結果: {placeholder_update_result.data if placeholder_update_result.data else 'No data returned'}")
         
         if not placeholder_update_result.data:
-            logger.warning(f"プレースホルダー更新が空の結果を返しました - おそらく対象レコードが見つからなかった可能性があります")
+            logger.warning("プレースホルダー更新が空の結果を返しました - おそらく対象レコードが見つからなかった可能性があります")
         
         logger.info(f"画像置き換え成功 - article_id: {request.article_id}, placeholder_id: {request.placeholder_id}, image_id: {image_id}")
         

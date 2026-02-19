@@ -1553,7 +1553,222 @@ const baseURL = USE_PROXY ? '/api/proxy' : API_BASE_URL;
   - `normalizeRedirectUrl()` を追加し、`http://*.run.app` を `https://` に正規化
 - **効果**: `POST /blog/connect/wordpress/url` や `GET /blog/sites` で発生していたプロキシ由来の `302/307` 応答を解消し、認証ヘッダーを保持したまま安定して Cloud Run へ到達可能に。
 
-### 26. Blog AI 画像アップロード サイズ最適化 (2026-02-19)
+### 26. 環境分離 + DB移行 + レガシー削除 (2026-02-18)
+
+#### 概要
+開発環境 (dev) と本番環境 (prod) を正式に分離。Supabaseプロジェクトを新規作成し、クリーンなベースラインマイグレーションでスキーマを適用、全データを移行。レガシーコード19ファイルを削除し、CI/CDパイプラインを整備。
+
+#### Supabase環境分離
+- **Production (新)**: `tkkbhglcudsxcwxdyplp` — ベースラインマイグレーション適用済み、全31テーブルデータ移行済み
+- **Development (新)**: `dddprfuwksduqsimiylg` — 新規作成、クリーン状態
+- **ベースラインマイグレーション**: `supabase/migrations/00000000000000_baseline.sql` (3,409行) — 旧33ファイルを1ファイルに統合
+- **旧マイグレーション**: `supabase/migrations/_archive/` に33ファイルをアーカイブ
+- **除外したレガシーテーブル**: `users`, `customers`, `products`, `prices`, `subscriptions`, `prompt_templates`, `task_dependencies`
+- **除外したレガシーenum**: `pricing_type`, `pricing_plan_interval`
+- **除外したビュー**: `image_urls`, `agent_performance_metrics`, `error_analysis`, `latest_step_snapshots`, `article_version_summary`
+- **Realtime Publication**: 28テーブル → 6テーブルに削減 (`generated_articles_state`, `articles`, `blog_generation_state`, `blog_process_events`, `process_events`, `user_subscriptions`)
+
+#### レガシーコード削除 (19ファイル)
+- `frontend/src/app/api/webhooks/route.ts` (旧Stripe webhook)
+- `frontend/src/features/account/controllers/` (4ファイル: get-customer-id, get-subscription, get-or-create-customer, upsert-user-subscription)
+- `frontend/src/features/pricing/` (7ファイル: controllers/3, components/2, actions/1, types.ts, models/1)
+- `frontend/src/components/sexy-boarder.tsx`, `frontend/src/libs/stripe/stripe-admin.ts`, `frontend/src/utils/get-url.ts`
+- `frontend/src/app/(account)/`, `frontend/src/app/(article-generation)/` (ゴーストルートグループ)
+- `middleware.ts`: `/api/webhooks(.*)` → `/api/webhooks/clerk(.*)` に変更
+- `docker-compose.yml`: stripe-cli forward先を `/api/subscription/webhook` に変更
+
+#### コードベース修正
+- `backend/app/core/config.py`: ローカル絶対パス `/home/als0028/...` を `env_file` リストから削除
+- `frontend/next.config.js`: GCSバケット名 `marketing-automation-images` → `process.env.NEXT_PUBLIC_GCS_BUCKET_NAME` に環境変数化
+- `frontend/Dockerfile`: シークレットARG (`STRIPE_SECRET_KEY`, `SUPABASE_SERVICE_ROLE_KEY`) を削除。`NEXT_PUBLIC_*` 変数のみビルドARGに
+- `frontend/src/libs/supabase/types.ts`: 新Production DBから型再生成。レガシーテーブルの型が除去された
+- `(supabase as any)` キャスト: webhook/status/addon で大部分除去。`organization_subscriptions` テーブルのみ supabase-js 型推論の問題で `as any` 残存
+- `.env.example`: 両ファイルから本番URL削除、プレースホルダーに置換、欠落変数追加
+
+#### CI/CD ワークフロー (3ファイル)
+- `.github/workflows/ci-frontend.yml` — PR時: bun install → lint → build (Secrets不要)
+- `.github/workflows/ci-backend.yml` — PR時: ruff check → ruff format → Docker build + health check (Secrets不要)
+- `.github/workflows/db-migrations.yml` — supabase db push (develop→dev, main→prod, Secrets: SUPABASE_*)
+- **削除**: `deploy-frontend.yml` (Vercel Git Integrationと重複), `deploy-backend.yml` (Cloud Run自動デプロイと重複), `backend-docker-build.yml` (ci-backend.ymlと重複)
+
+#### データ移行
+- `scripts/migrate-data.py`: Supabase REST API経由の移行スクリプト (IPv6問題回避)
+- 全31テーブル、ミスマッチ0で移行完了
+- `process_events` はトリガー (`publish_process_event`) が `generated_articles_state` INSERT時に自動生成するため、トリガー生成分 + 移行分で旧より多い行数になる（正常）
+- `generated_articles_state.current_snapshot_id` は循環FK参照のため、INSERT時にNULL → snapshots移行後にUPDATE（deferred FK戦略）
+- `article_agent_messages.sequence` は GENERATED ALWAYS カラムのため、移行時にsequenceカラムを除外してINSERT
+
+#### 環境分離戦略ドキュメント
+- `docs/deployment/environment-separation-strategy.md` に全戦略を記録
+- Phase B (Dashboard作業) の詳細手順: Clerk/Stripe/Supabase/GCP/Vercel の環境別設定
+- 環境変数の完全マトリックス: Frontend/Backend × Dev/Prod
+
+#### 残タスク (Dashboard作業 = 手動)
+- Supabase-Clerk Third-Party Auth 連携 (両プロジェクト)
+- Clerk Production インスタンス作成 + カスタムドメイン
+- Stripe ライブモード設定 (Products/Prices/Webhook)
+- ~~Vercel 環境変数設定~~ → **完了** (Production/Preview スコープ別に設定済み)
+- ~~GitHub Environments + Secrets 設定~~ → **完了** (development/production + Supabase Secrets)
+- ~~ルート .env.example 整理~~ → **完了** (古いファイル削除、frontend/backend個別で管理)
+- ブランチ保護ルール設定
+- TypeScript型再生成 (`bun run generate-types`)
+
+### 28. GitHub Actions ワークフロー整理 + Vercel環境分離 (2026-02-19)
+
+#### 概要
+Vercel Git IntegrationとCloud Run自動デプロイが有効なため、重複するデプロイワークフローを削除。Vercel環境変数をProduction/Previewスコープに分離。GitHub Environments + Supabase Secretsを設定。
+
+#### 削除したワークフロー (3ファイル)
+- `.github/workflows/deploy-frontend.yml` — Vercel Git Integrationと完全重複（両方動くと二重デプロイ）
+- `.github/workflows/deploy-backend.yml` — Cloud Run自動デプロイと完全重複
+- `.github/workflows/backend-docker-build.yml` — `ci-backend.yml`と重複（push+PRで同じdocker build）
+
+#### 残したワークフロー (3ファイル)
+- `ci-frontend.yml` — PR時: lint + build (Secrets不要)
+- `ci-backend.yml` — PR時: ruff + docker build + health check (Secrets不要)
+- `db-migrations.yml` — push時: supabase db push (Secrets: SUPABASE_PROJECT_ID, SUPABASE_ACCESS_TOKEN, SUPABASE_DB_PASSWORD)
+
+#### Vercel環境変数分離
+- Production スコープ → Prod Supabase (`tkkbhglcudsxcwxdyplp`), Stripe live, Clerk prod
+- Preview スコープ → Dev Supabase (`dddprfuwksduqsimiylg`), Stripe test, Clerk dev
+- `develop` ブランチ → `marketing-automation-git-develop-...vercel.app` (Preview環境変数使用)
+- `main` ブランチ → Production URL (Production環境変数使用)
+
+#### GitHub Environments + Secrets (設定済み)
+- `development` 環境: `SUPABASE_PROJECT_ID=dddprfuwksduqsimiylg` + ACCESS_TOKEN + DB_PASSWORD
+- `production` 環境: `SUPABASE_PROJECT_ID=tkkbhglcudsxcwxdyplp` + ACCESS_TOKEN + DB_PASSWORD
+
+#### Dev Supabase 新規作成
+- 旧Dev Supabase (`pytxohnkkyshobprrjqh`) を廃止、新規 (`dddprfuwksduqsimiylg`) に移行
+- 理由: 旧DBは33マイグレーション履歴が残っており、ベースライン方式と不整合
+- 新DBはクリーン状態、マージ後の `db push` でベースラインが自動適用される
+
+#### その他
+- ルート `.env.example` を削除（古い、frontend/backendの個別.env.exampleで十分）
+- docs内の旧project ref省略形 (`pytxohnkky..`) を新ref (`dddprfuwk..`) に更新
+
+#### 技術的知見
+- **Supabase CLI `db push` のパスワード**: `supabase link --password` で渡しても `db push` 時にはキャッシュされない。`SUPABASE_DB_PASSWORD=xxx supabase db push` で環境変数として渡す
+- **pg_dump のステートメント順序問題**: pg_dump は関数をテーブルより先に出力するが、`%ROWTYPE` を使う関数はテーブルが先に必要。ベースライン作成時にENUM→TABLE→FUNCTION→RESTの順に再配置が必要
+- **pg_dump のビュー残骸**: `CREATE VIEW` を削除しても、ビューのSELECT本体がインラインで残ることがある。statement単位でパースして除去が必要
+- **`ALTER TABLE` + `ADD CONSTRAINT` のペア削除**: 行単位のフィルタリングでは `ALTER TABLE ONLY` 行が残り `ADD CONSTRAINT` 行が消えて構文エラーになる。statement単位（セミコロンまで）でパースすべき
+- **Supabase REST API でのデータ移行**: `pg_dump` / `psql` (IPv6問題、pooler認証問題) より REST API経由の方が確実。HTTPS通信なのでネットワーク問題を回避
+- **`organization_subscriptions` テーブルの supabase-js 型問題**: PKが `id: text` (Stripe subscription ID) でDBデフォルト値なし。supabase-js の upsert overload 解決が壊れるため `as any` キャストが必要
+- **Realtime トリガーとデータ移行の競合**: `generated_articles_state` への INSERT で `publish_process_event` トリガーが `process_events` に自動挿入。移行スクリプトで同じイベントを再INSERT→重複キーエラー。トリガー生成分が既に正しいので、移行側のSKIPは問題なし
+
+### 27. ローカルSupabase環境構築 + DB開発ワークフロー (2026-02-19)
+
+#### ローカルSupabase
+
+**config.toml 全面刷新**: 旧config（`[auth]`のみ）→ CLI v2.76 最新フォーマット
+- **有効**: API, DB (PostgreSQL 17), Realtime, Studio, Auth (Clerk Third-Party Auth)
+- **無効**: Storage (GCS使用), Edge Functions, Analytics, Inbucket
+- **Clerk**: `[auth.third_party.clerk]` enabled + `domain = "env(CLERK_DOMAIN)"` → `auth.uid()` が Clerk user_id を返す
+
+**新規ファイル**: `supabase/.env` (`CLERK_DOMAIN=fitting-glowworm-29.clerk.accounts.dev`, `.gitignore` 済み)
+
+**接続情報**:
+| サービス | URL |
+|---------|-----|
+| Studio (GUI) | http://127.0.0.1:54323 |
+| API (PostgREST) | http://127.0.0.1:54321 |
+| Database | postgresql://postgres:postgres@127.0.0.1:54322/postgres |
+
+#### DB開発ワークフロー（Local → Dev → Prod）
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│  LOCAL (WSL2 Docker)                                         │
+│                                                              │
+│  npx supabase start           ← 起動                        │
+│  ↓                                                           │
+│  Studio (localhost:54323) でテーブル変更                       │
+│  or マイグレーションSQL手書き                                  │
+│  ↓                                                           │
+│  npx supabase db diff -f <name>   ← 差分SQL自動生成          │
+│  or npx supabase migration new <name>  ← 空ファイル作成→編集 │
+│  ↓                                                           │
+│  npx supabase db reset        ← 全migration再適用で検証      │
+│  ↓                                                           │
+│  git add supabase/migrations/YYYYMMDD_<name>.sql             │
+│  git push origin develop                                     │
+└──────────────┬───────────────────────────────────────────────┘
+               │
+               ▼
+┌──────────────────────────────────────────────────────────────┐
+│  DEVELOP ブランチ → GitHub Actions (db-migrations.yml)       │
+│                                                              │
+│  トリガー: supabase/migrations/** に変更があるpush           │
+│  実行: npx supabase db push                                  │
+│  対象: Dev Supabase (dddprfuwksduqsimiylg)                   │
+│  → 新しいマイグレーションだけ差分適用される                    │
+└──────────────┬───────────────────────────────────────────────┘
+               │ PR: develop → main
+               ▼
+┌──────────────────────────────────────────────────────────────┐
+│  MAIN ブランチ → GitHub Actions (db-migrations.yml)          │
+│                                                              │
+│  トリガー: supabase/migrations/** に変更があるpush           │
+│  実行: npx supabase db push (dry-run 後に本実行)             │
+│  対象: Prod Supabase (tkkbhglcudsxcwxdyplp)                  │
+│  → devで検証済みのマイグレーションが本番に適用される           │
+└──────────────────────────────────────────────────────────────┘
+```
+
+**日常の開発手順**:
+```bash
+# 1. ローカルSupabase起動
+npx supabase start
+
+# 2. スキーマ変更（どちらかの方法）
+# 方法A: Studio GUIでテーブル追加/変更 → diffで自動生成
+npx supabase db diff -f add_new_feature
+# → supabase/migrations/20260219XXXXXX_add_new_feature.sql が生成される
+
+# 方法B: SQLファイル手書き
+npx supabase migration new add_new_feature
+# → 空ファイルが生成される → エディタで中身を書く
+
+# 3. ローカルで検証（全migration + seed を再適用）
+npx supabase db reset
+
+# 4. コミット & プッシュ → CI/CDが自動でdev Supabaseに適用
+git add supabase/migrations/20260219XXXXXX_add_new_feature.sql
+git push origin develop
+
+# 5. develop → main にPR → マージ後に本番Supabaseに自動適用
+
+# 6. 停止（作業終了時）
+npx supabase stop
+```
+
+**Supabase型再生成** (新テーブル/カラム追加後):
+```bash
+cd frontend && bun run generate-types
+```
+
+#### Dev Supabaseのマイグレーション履歴問題 → 解決済み
+
+旧Dev Supabase (`pytxohnkkyshobprrjqh`) はマイグレーション履歴不整合のため廃止。新規プロジェクト (`dddprfuwksduqsimiylg`) を作成し、クリーン状態から `db push` でベースラインを適用する方式に変更。
+
+#### 踏んだ罠: `99-roles.sql` クラッシュループ
+
+- **症状**: `psql: error: /docker-entrypoint-initdb.d/init-scripts/99-roles.sql: No such file or directory` → DBコンテナが unhealthy → 無限リスタート
+- **原因**: `supabase/.temp/postgres-version` にリモートの古いPGバージョンがキャッシュ → CLIが間違ったDockerイメージの初期化パスを使用
+- **解決**: `rm -rf supabase/.temp` → `npx supabase start`
+- **注意**: Dockerボリューム (`supabase_db_*`) もWSL側から `docker volume rm` で削除が必要。PowerShellの `docker system prune` だけでは不十分
+- **情報ソース**: https://github.com/supabase/cli/issues/3664, https://github.com/supabase/cli/issues/3639
+
+### 2026-02-19 自己改善
+- **Supabase CLIの既知バグを事前調査すべきだった**: `99-roles.sql` エラーに対して、config.toml修正→Docker掃除→ボリューム削除と試行錯誤を繰り返したが、最初からGitHub Issuesを検索すべきだった。**ツールのエラーが不可解な場合は、まずGitHub Issuesで同一エラーメッセージを検索する。**
+- **PowerShell と WSL2 の Docker 共有の罠**: `docker system prune -a --volumes -f` をPowerShellで実行しても、WSL2側のSupabaseコンテナ/ボリュームが残る場合がある。**Docker操作はWSL2側で統一すべき。**
+
+### 2026-02-18 自己改善
+- **記憶の即時更新（再び）**: コード変更後、ユーザーに「CLAUDE.mdだけ更新しといてね」と言われた。変更完了→コミット前のCLAUDE.md更新を忘れるパターンが繰り返されている。**コミットメッセージを書く前に必ずCLAUDE.mdを更新するルーチンを確立すべき。**
+- **pg_dumpベースのベースライン生成は複数パスが必要**: 最初のフィルタリングで行単位→statement残骸が残る→statement単位で再パース、という3段階が必要だった。**最初からstatement単位パーサーで処理すべきだった。**
+- **Supabase接続のIPv6問題 (WSL2)**: `db.xxx.supabase.co` はIPv6で解決されるがWSL2はIPv6非対応。pooler (`aws-0-*.pooler.supabase.com`) はIPv4だがリージョン不一致で `Tenant not found`。**WSL2環境ではREST API経由が最も確実。**
+
+### 29. Blog AI 画像アップロード サイズ最適化 (2026-02-19)
 
 **問題**: Blog AI の初期画像入力（`/blog/new`）や質問フェーズの画像アップロード（`/blog/[processId]`）で、大きな画像（スマホ写真 5-15MB 等）をそのまま送信するとエラーになっていた。
 - Next.js/Vercel のボディサイズ上限（~4.5MB）を超過
@@ -1576,7 +1791,7 @@ const baseURL = USE_PROXY ? '/api/proxy' : API_BASE_URL;
 - **出力形式**: JPEG（全ブラウザ対応。バックエンドで別途 WebP に変換される）
 - **エラー耐性**: 圧縮失敗時は元ファイルをそのまま使用（バックエンドでエラーになる可能性あり）
 
-### 27. Blog AI 構造化出力 (output_type) 導入 (2026-02-19)
+### 30. Blog AI 構造化出力 (output_type) 導入 (2026-02-19)
 
 **問題**: Blog AI エージェントの最終出力がプレーンテキストだったため、`_extract_draft_info()` で正規表現パースしてプレビューURL/編集URLを抽出していた。エージェントの出力フォーマットが変わるとURLが取得できなくなるリスクがあった。
 
