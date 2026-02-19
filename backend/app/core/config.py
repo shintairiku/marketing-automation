@@ -127,6 +127,14 @@ class Settings(BaseSettings):
     temp_upload_dir: str = Field(default_factory=lambda: os.getenv("TEMP_UPLOAD_DIR", "/tmp/blog_uploads"))
     frontend_url: str = Field(default_factory=lambda: os.getenv("FRONTEND_URL", "http://localhost:3000"))
 
+    # SMTP / Contact notification settings
+    smtp_host: str = Field(default_factory=lambda: os.getenv("SMTP_HOST", ""))
+    smtp_port: int = Field(default_factory=lambda: int(os.getenv("SMTP_PORT", "587")))
+    smtp_user: str = Field(default_factory=lambda: os.getenv("SMTP_USER", ""))
+    smtp_password: str = Field(default_factory=lambda: os.getenv("SMTP_PASSWORD", ""))
+    smtp_from_email: str = Field(default_factory=lambda: os.getenv("SMTP_FROM_EMAIL", ""))
+    contact_notification_email: str = Field(default_factory=lambda: os.getenv("CONTACT_NOTIFICATION_EMAIL", ""))
+
     model_config = SettingsConfigDict(
         env_file=[
             '.env',
