@@ -1576,6 +1576,36 @@ const baseURL = USE_PROXY ? '/api/proxy' : API_BASE_URL;
 - **出力形式**: JPEG（全ブラウザ対応。バックエンドで別途 WebP に変換される）
 - **エラー耐性**: 圧縮失敗時は元ファイルをそのまま使用（バックエンドでエラーになる可能性あり）
 
+### 27. Blog AI 構造化出力 (output_type) 導入 (2026-02-19)
+
+**問題**: Blog AI エージェントの最終出力がプレーンテキストだったため、`_extract_draft_info()` で正規表現パースしてプレビューURL/編集URLを抽出していた。エージェントの出力フォーマットが変わるとURLが取得できなくなるリスクがあった。
+
+**解決**: OpenAI Agents SDK の `output_type` パラメータで構造化出力を強制。
+
+**変更ファイル**:
+| ファイル | 変更種別 | 概要 |
+|---------|---------|------|
+| `backend/app/domains/blog/schemas.py` | 追加 | `BlogCompletionOutput` Pydantic モデル追加 (post_id, preview_url, edit_url, summary) |
+| `backend/app/domains/blog/agents/definitions.py` | 改修 | `output_type=BlogCompletionOutput` 設定、プロンプトに構造化出力セクション追加 |
+| `backend/app/domains/blog/services/generation_service.py` | 改修 | `_process_result` が `BlogCompletionOutput` を直接受け取るように変更、`_extract_draft_info()` 正規表現パーサーを削除、`re` import 削除 |
+
+**構造化出力スキーマ**:
+```python
+class BlogCompletionOutput(BaseModel):
+    post_id: Optional[int] = None       # WordPress投稿ID
+    preview_url: Optional[str] = None   # プレビューURL
+    edit_url: Optional[str] = None      # 編集URL
+    summary: str                        # ユーザーへのまとめメッセージ（日本語）
+```
+
+**動作**:
+- エージェントが `wp_create_draft_post` の戻り値から `post_id`, `preview_url`, `edit_url` を構造化出力に含める
+- `result.final_output` が `BlogCompletionOutput` インスタンスとして返る
+- `_process_result` がフィールドを直接参照してDB保存
+- `ask_user_questions` 使用時は post_id/URL が全て null、summary に質問意図が入る
+
+**フロントエンド変更なし**: 既存の `state.draft_preview_url` / `state.draft_edit_url` 条件分岐でボタンが表示される
+
 ### 2026-02-10 自己改善
 - **再検証の重要性**: 実装完了後のユーザー再検証要求で、`useArticles.ts` と `admin/plans/page.tsx` に `USE_PROXY` パターンが欠けているバグを発見した。最初の実装時にサーバーサイドAPI Routes (9ファイル) のみに注力し、クライアントサイドhooksの直接fetch呼び出しを見落としていた。**サーバーサイド→バックエンド通信だけでなく、ブラウザ→バックエンド通信パスも全て確認すべき。**
 - **FastAPI末尾スラッシュ + Cloud Run scheme 変換の複合問題**: `frontend/src/app/api/proxy/[...path]/route.ts` の `ensureTrailingSlash()` が `/blog/sites` を `/blog/sites/` に変換し、FastAPI (`redirect_slashes=True`) が 307 で `/blog/sites` へ戻す。さらに Cloud Run の `Location` が `http://...run.app/...` になり、プロキシがそれを手動追従すると Cloud Run 側で 302/307 が連鎖する。**手動リダイレクト追従を使う場合は、(1) 末尾スラッシュ強制をしない、(2) `Location` が `http://` でも `https://` に正規化する、の両方を実施すべき。**
