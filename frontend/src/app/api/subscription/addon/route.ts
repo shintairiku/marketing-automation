@@ -130,7 +130,7 @@ export async function POST(request: Request) {
     // usage_tracking の addon_articles_limit を即時更新
     const now = new Date().toISOString();
     // Note: plan_tiers は型生成前のため any キャストを使用
-    const { data: tier } = await (supabase as any)
+    const { data: tier } = await supabase
       .from('plan_tiers')
       .select('addon_unit_amount')
       .eq('id', tierIdToUse)
@@ -140,14 +140,14 @@ export async function POST(request: Request) {
 
     // Note: usage_tracking は型生成前のため any キャストを使用
     if (orgId) {
-      await (supabase as any)
+      await supabase
         .from('usage_tracking')
         .update({ addon_articles_limit: newAddonLimit })
         .eq('organization_id', orgId)
         .lte('billing_period_start', now)
         .gte('billing_period_end', now);
     } else {
-      await (supabase as any)
+      await supabase
         .from('usage_tracking')
         .update({ addon_articles_limit: newAddonLimit })
         .eq('user_id', userId)

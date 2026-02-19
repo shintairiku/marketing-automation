@@ -11,7 +11,7 @@ Blog AI Domain - API Endpoints
 import os
 import uuid
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Dict, List, Optional
 
 from fastapi import (
     APIRouter,
@@ -31,22 +31,16 @@ from app.common.auth import get_current_user_id_from_token
 from app.core.config import settings
 import logging
 from app.domains.blog.schemas import (
-    BlogDraftResult,
     BlogGenerationHistoryItem,
-    BlogGenerationStartRequest,
     BlogGenerationStateResponse,
-    BlogGenerationUserInput,
     WordPressConnectionTestResult,
     WordPressSiteResponse,
-    AIQuestionsRequest,
     UserAnswers,
 )
 from app.domains.blog.services.crypto_service import get_crypto_service
 from app.domains.blog.services.image_utils import convert_and_save_as_webp
 from app.domains.blog.services.wordpress_mcp_service import (
-    WordPressMcpService,
     WordPressMcpClient,
-    MCPError,
     clear_mcp_client_cache,
 )
 from app.domains.blog.services.generation_service import BlogGenerationService
@@ -64,7 +58,7 @@ security = HTTPBearer(auto_error=False)
 
 def get_supabase_client():
     """Supabaseクライアントを取得（service_role）"""
-    from supabase import create_client, Client
+    from supabase import create_client
 
     return create_client(
         settings.supabase_url,
@@ -557,7 +551,7 @@ async def register_wordpress_site_by_url(
         logger.error(f"WordPress登録リクエストエラー: {e}")
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"WordPressへの接続に失敗しました。サイトが公開されていること、プラグインが有効であることを確認してください。",
+            detail="WordPressへの接続に失敗しました。サイトが公開されていること、プラグインが有効であることを確認してください。",
         )
 
     # 認証情報を暗号化
@@ -711,8 +705,6 @@ async def test_wordpress_connection(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="サイトが見つかりません",
         )
-
-    site = result.data
 
     # MCPクライアントキャッシュをクリア（新鮮な接続でテスト）
     clear_mcp_client_cache(site_id)
@@ -1377,7 +1369,7 @@ async def upload_image(
     if file.size and file.size > MAX_IMAGE_SIZE:
         raise HTTPException(
             status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-            detail=f"画像のサイズが大きすぎます（上限: 20MB）",
+            detail="画像のサイズが大きすぎます（上限: 20MB）",
         )
 
     # 画像を読み込み → WebP 変換 → 保存

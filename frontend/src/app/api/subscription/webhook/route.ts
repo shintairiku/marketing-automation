@@ -179,7 +179,7 @@ async function resolvePlanTierId(
     if (priceId) {
       // plan_tiers.stripe_price_id で逆引き
       // Note: plan_tiers は型生成前のため any キャストを使用
-      const { data: tier } = await (supabase as any)
+      const { data: tier } = await supabase
         .from('plan_tiers')
         .select('id')
         .eq('stripe_price_id', priceId)
@@ -239,7 +239,7 @@ async function handleCheckoutCompleted(
       .eq('id', organizationId);
 
     // organization_subscriptions に upsert
-    await supabase.from('organization_subscriptions').upsert(
+    await (supabase.from('organization_subscriptions') as any).upsert(
       {
         id: subscriptionId,
         organization_id: organizationId,
@@ -309,7 +309,7 @@ async function handleSubscriptionChange(
     const orgStatus = subscription.status as 'active' | 'trialing' | 'canceled' | 'incomplete' | 'incomplete_expired' | 'past_due' | 'unpaid' | 'paused';
     const quantity = subscription.items?.data?.[0]?.quantity || 1;
 
-    await supabase.from('organization_subscriptions').upsert(
+    await ((supabase.from('organization_subscriptions') as any) as any).upsert(
       {
         id: subscription.id,
         organization_id: organizationId,
@@ -361,7 +361,7 @@ async function handleSubscriptionChange(
   } else {
     // ============ 個人サブスク（従来通り） ============
     // Note: plan_tier_id は型生成前のため any キャストを使用
-    await (supabase as any).from('user_subscriptions').upsert(
+    await supabase.from('user_subscriptions').upsert(
       {
         user_id: userId,
         stripe_customer_id: customerId,
@@ -461,8 +461,7 @@ async function handlePaymentSucceeded(
 
   if (organizationId) {
     // ============ 組織サブスク ============
-    await supabase
-      .from('organization_subscriptions')
+    await (supabase.from('organization_subscriptions') as any)
       .update({
         status: 'active',
         current_period_end: periodEndDate,
@@ -561,7 +560,7 @@ async function createUsageTrackingForNewPeriod(
 
     // plan_tiers から月間上限を取得
     // Note: plan_tiers は型生成前のため any キャストを使用
-    const { data: tier } = await (supabase as any)
+    const { data: tier } = await supabase
       .from('plan_tiers')
       .select('monthly_article_limit, addon_unit_amount')
       .eq('id', planTierId)
@@ -585,7 +584,7 @@ async function createUsageTrackingForNewPeriod(
 
     // Note: usage_tracking は型生成前のため any キャストを使用
     if (organizationId) {
-      await (supabase as any).from('usage_tracking').upsert(
+      await supabase.from('usage_tracking').upsert(
         {
           organization_id: organizationId,
           billing_period_start: periodStart,
@@ -598,7 +597,7 @@ async function createUsageTrackingForNewPeriod(
         { onConflict: 'organization_id,billing_period_start' }
       );
     } else {
-      await (supabase as any).from('usage_tracking').upsert(
+      await supabase.from('usage_tracking').upsert(
         {
           user_id: userId,
           billing_period_start: periodStart,
@@ -633,7 +632,7 @@ async function ensureUsageTracking(
 ) {
   try {
     // Note: plan_tiers, usage_tracking は型生成前のため any キャストを使用
-    const { data: tier } = await (supabase as any)
+    const { data: tier } = await supabase
       .from('plan_tiers')
       .select('monthly_article_limit, addon_unit_amount')
       .eq('id', planTierId)
@@ -649,7 +648,7 @@ async function ensureUsageTracking(
 
     // まず既存レコードの更新を試みる
     if (organizationId) {
-      const { data: existing } = await (supabase as any)
+      const { data: existing } = await supabase
         .from('usage_tracking')
         .select('id')
         .eq('organization_id', organizationId)
@@ -659,7 +658,7 @@ async function ensureUsageTracking(
 
       if (existing) {
         // 既存レコードがあれば上限のみ更新
-        await (supabase as any)
+        await supabase
           .from('usage_tracking')
           .update({
             articles_limit: newLimit,
@@ -669,7 +668,7 @@ async function ensureUsageTracking(
           .eq('id', existing.id);
       } else if (periodStartDate && periodEndDate) {
         // レコードがなければ新規作成
-        await (supabase as any).from('usage_tracking').upsert(
+        await supabase.from('usage_tracking').upsert(
           {
             organization_id: organizationId,
             billing_period_start: periodStartDate,
@@ -684,7 +683,7 @@ async function ensureUsageTracking(
         console.log(`Usage tracking created for org=${organizationId}, tier=${planTierId}, limit=${newLimit}+${newAddonLimit}`);
       }
     } else {
-      const { data: existing } = await (supabase as any)
+      const { data: existing } = await supabase
         .from('usage_tracking')
         .select('id')
         .eq('user_id', userId)
@@ -694,7 +693,7 @@ async function ensureUsageTracking(
 
       if (existing) {
         // 既存レコードがあれば上限のみ更新
-        await (supabase as any)
+        await supabase
           .from('usage_tracking')
           .update({
             articles_limit: newLimit,
@@ -704,7 +703,7 @@ async function ensureUsageTracking(
           .eq('id', existing.id);
       } else if (periodStartDate && periodEndDate) {
         // レコードがなければ新規作成
-        await (supabase as any).from('usage_tracking').upsert(
+        await supabase.from('usage_tracking').upsert(
           {
             user_id: userId,
             billing_period_start: periodStartDate,

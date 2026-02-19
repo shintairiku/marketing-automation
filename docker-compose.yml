@@ -67,7 +67,7 @@ services:
   stripe-cli:
     image: stripe/stripe-cli
     container_name: stripe_cli
-    command: "listen --api-key ${STRIPE_SECRET_KEY} --forward-to frontend_dev:3000/api/webhooks" # Forward to frontend_dev
+    command: "listen --api-key ${STRIPE_SECRET_KEY} --forward-to frontend_dev:3000/api/subscription/webhook" # Forward to frontend_dev
     env_file:
       - .env.local # Uses project root .env.local for Stripe keys
     networks:

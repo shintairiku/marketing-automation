@@ -32,6 +32,16 @@ dependencies = [
     "httpx",
 ]
 
+[tool.ruff]
+target-version = "py312"
+
+[tool.ruff.lint]
+# E402: module level import not at top - many existing files use late imports intentionally
+# E701: multiple statements on one line - style preference in existing code
+# E741: ambiguous variable name - used in codex_patch.py comprehensions
+# F823: local variable referenced before assignment - false positive in complex flow manager
+ignore = ["E402", "E701", "E741", "F823"]
+
 [dependency-groups]
 dev = [
     "pytest>=9.0.1",

@@ -3,7 +3,7 @@
 import logging
 from typing import Callable, Awaitable, Union, Any, List, Dict
 from agents import Agent, RunContextWrapper, ModelSettings
-from datetime import datetime, timezone
+from datetime import datetime
 from zoneinfo import ZoneInfo
 
 logger = logging.getLogger(__name__)
@@ -138,9 +138,6 @@ def create_theme_instructions(base_prompt: str) -> Callable[[RunContextWrapper[A
         outline_top_level = getattr(ctx.context, 'outline_top_level_heading', 2) or 2
         if outline_top_level not in (2, 3):
             outline_top_level = 2
-        child_heading_level = min(outline_top_level + 1, 6)
-        advanced_outline_mode = getattr(ctx.context, 'advanced_outline_mode', False)
-        
         # 拡張された会社情報コンテキストを使用
         company_info_str = build_enhanced_company_context(ctx.context)
         
@@ -495,7 +492,6 @@ def create_outline_instructions(base_prompt: str) -> Callable[[RunContextWrapper
         advanced_outline_mode = getattr(ctx.context, 'advanced_outline_mode', False)
 
         # フロー設定に応じてリサーチ結果を処理
-        from app.core.config import settings
         research_text = getattr(ctx.context, "research_sources_tagged", None) or getattr(ctx.context, "research_sources_text", None)
         if not research_text and getattr(ctx.context, "research_report", None):
             research_text = getattr(ctx.context.research_report, "overall_summary", "")
