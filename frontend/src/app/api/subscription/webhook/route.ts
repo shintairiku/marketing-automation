@@ -196,10 +196,11 @@ async function resolvePlanTierId(
 // ============================================
 // ステータスマッピング
 // ============================================
-function mapStripeStatus(stripeStatus: Stripe.Subscription.Status): 'active' | 'past_due' | 'canceled' | 'expired' | 'none' {
+function mapStripeStatus(stripeStatus: Stripe.Subscription.Status): 'trialing' | 'active' | 'past_due' | 'canceled' | 'expired' | 'none' {
   switch (stripeStatus) {
-    case 'active':
     case 'trialing':
+      return 'trialing';
+    case 'active':
       return 'active';
     case 'past_due':
       return 'past_due';
@@ -360,6 +361,11 @@ async function handleSubscriptionChange(
     console.log(`Org subscription ${subscription.id} updated: org=${organizationId}, status=${orgStatus}, qty=${quantity}, addon=${addonQuantity}, tier=${planTierId}`);
   } else {
     // ============ 個人サブスク（従来通り） ============
+    // トライアル情報を取得
+    const trialEnd = subscription.trial_end
+      ? new Date(subscription.trial_end * 1000).toISOString()
+      : null;
+
     // Note: plan_tier_id は型生成前のため any キャストを使用
     await supabase.from('user_subscriptions').upsert(
       {
@@ -370,6 +376,7 @@ async function handleSubscriptionChange(
         current_period_end: periodEndDate,
         cancel_at_period_end: subscription.cancel_at_period_end,
         plan_tier_id: planTierId,
+        ...(userStatus === 'trialing' && trialEnd ? { trial_end: trialEnd } : {}),
       },
       { onConflict: 'user_id' }
     );

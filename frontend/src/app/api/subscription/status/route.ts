@@ -110,8 +110,10 @@ export async function GET() {
           // subscription_status enum を SubscriptionStatus にマッピング
           let orgStatus: SubscriptionStatus = 'none';
           switch (activeSub.status) {
-            case 'active':
             case 'trialing':
+              orgStatus = 'trialing';
+              break;
+            case 'active':
               orgStatus = 'active';
               break;
             case 'past_due':

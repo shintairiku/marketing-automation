@@ -7,7 +7,7 @@ from typing import Optional, Literal
 from datetime import datetime
 
 # サブスクリプションステータスの型定義
-SubscriptionStatusType = Literal["active", "past_due", "canceled", "expired", "none"]
+SubscriptionStatusType = Literal["trialing", "active", "past_due", "canceled", "expired", "none"]
 
 class UserRead(BaseModel):
     """User read schema with subscription info"""
@@ -24,6 +24,7 @@ class UserRead(BaseModel):
     stripe_subscription_id: Optional[str] = None
     current_period_end: Optional[datetime] = None
     cancel_at_period_end: bool = False
+    trial_end: Optional[datetime] = None
 
     class Config:
         from_attributes = True

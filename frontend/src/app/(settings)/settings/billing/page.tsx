@@ -22,6 +22,7 @@ import {
   Crown,
   ExternalLink,
   FileText,
+  Gift,
   Loader2,
   Minus,
   Plus,
@@ -75,6 +76,7 @@ interface UserSubscription {
   cancel_at_period_end: boolean;
   is_privileged: boolean;
   email: string | null;
+  trial_end: string | null;
 }
 
 interface OrgSubscription {
@@ -114,7 +116,7 @@ interface UpgradePreview {
   prorationDate: number;
 }
 
-type SubscriptionStatus = 'active' | 'past_due' | 'canceled' | 'expired' | 'none';
+type SubscriptionStatus = 'trialing' | 'active' | 'past_due' | 'canceled' | 'expired' | 'none';
 
 // ============================================
 // 定数
@@ -145,6 +147,12 @@ const statusConfig: Record<
     icon: typeof CheckCircle;
   }
 > = {
+  trialing: {
+    label: '無料トライアル中',
+    description: '無料トライアル期間中です。期間内はすべての機能をご利用いただけます。',
+    variant: 'default',
+    icon: Gift,
+  },
   active: {
     label: 'アクティブ',
     description: 'サブスクリプションが有効です',
@@ -259,7 +267,8 @@ export default function BillingSettingsPage() {
   // 現在のプラン判定
   const hasIndividualPlan = subStatus?.subscription?.status === 'active';
   const hasTeamPlan = subStatus?.orgSubscription?.status === 'active';
-  const hasAnyPlan = hasIndividualPlan || hasTeamPlan;
+  const isTrialing = subStatus?.subscription?.status === 'trialing';
+  const hasAnyPlan = hasIndividualPlan || hasTeamPlan || isTrialing;
 
   // ステータス表示用
   const currentStatus: SubscriptionStatus = hasTeamPlan
@@ -590,7 +599,13 @@ export default function BillingSettingsPage() {
                           チームプラン ({subStatus.orgSubscription.quantity}シート)
                         </Badge>
                       )}
-                      {hasIndividualPlan && !hasTeamPlan && (
+                      {isTrialing && (
+                        <Badge variant="secondary" className="gap-1 bg-violet-100 text-violet-800 hover:bg-violet-200">
+                          <Gift className="h-3 w-3" />
+                          無料トライアル
+                        </Badge>
+                      )}
+                      {hasIndividualPlan && !hasTeamPlan && !isTrialing && (
                         <Badge variant="secondary" className="gap-1">
                           <Zap className="h-3 w-3" />
                           個人プラン
@@ -604,7 +619,9 @@ export default function BillingSettingsPage() {
                       )}
                     </div>
                     <p className="text-sm text-muted-foreground">
-                      {hasAnyPlan
+                      {isTrialing
+                        ? '無料トライアル期間中 — すべての機能をご利用いただけます'
+                        : hasAnyPlan
                         ? hasTeamPlan
                           ? `¥${(PRICE_PER_SEAT * (subStatus?.orgSubscription?.quantity || 1)).toLocaleString()}/月`
                           : `¥${PRICE_PER_SEAT.toLocaleString()}/月`
@@ -667,6 +684,35 @@ export default function BillingSettingsPage() {
                         この日までサービスをご利用いただけます。
                       </p>
                     )}
+                  </div>
+                )}
+
+                {/* トライアル期間情報 */}
+                {isTrialing && subStatus?.subscription?.trial_end && (
+                  <div className="pt-3 border-t">
+                    <div className="p-3 rounded-lg bg-violet-50 border border-violet-200">
+                      <div className="flex items-center gap-2 text-sm text-violet-800">
+                        <Gift className="h-4 w-4" />
+                        <span className="font-medium">無料トライアル中</span>
+                      </div>
+                      <p className="text-sm text-violet-700 mt-1">
+                        トライアル終了日: {new Date(subStatus.subscription.trial_end).toLocaleDateString('ja-JP', {
+                          year: 'numeric',
+                          month: 'long',
+                          day: 'numeric',
+                        })}
+                        {(() => {
+                          const remaining = Math.ceil(
+                            (new Date(subStatus.subscription.trial_end!).getTime() - Date.now()) / (1000 * 60 * 60 * 24)
+                          );
+                          return remaining > 0 ? ` (残り${remaining}日)` : ' (本日終了)';
+                        })()}
+                      </p>
+                      <p className="text-xs text-violet-600 mt-1">
+                        トライアル期間中はクレジットカードの登録不要ですべての機能をご利用いただけます。
+                        期間終了後も引き続きご利用いただく場合は、プランをご購入ください。
+                      </p>
+                    </div>
                   </div>
                 )}
 
@@ -809,22 +855,24 @@ export default function BillingSettingsPage() {
             </Card>
           )}
 
-          {/* プラン選択セクション (未契約 or 個人→チームアップグレード) */}
-          {!isPrivileged && (!hasAnyPlan || (hasIndividualPlan && !hasTeamPlan)) && (
+          {/* プラン選択セクション (未契約 or トライアル中 or 個人→チームアップグレード) */}
+          {!isPrivileged && (!hasAnyPlan || isTrialing || (hasIndividualPlan && !hasTeamPlan)) && (
             <>
               <div className="space-y-2">
                 <h2 className="text-xl font-semibold">
-                  {hasIndividualPlan ? 'チームプランへアップグレード' : 'プランを選択'}
+                  {hasIndividualPlan && !isTrialing ? 'チームプランへアップグレード' : isTrialing ? 'トライアル終了後のプランを選択' : 'プランを選択'}
                 </h2>
                 <p className="text-sm text-muted-foreground">
-                  {hasIndividualPlan
+                  {hasIndividualPlan && !isTrialing
                     ? '個人プランからチームプランへ変更できます。未使用分は日割り計算で差し引かれます。'
+                    : isTrialing
+                    ? 'トライアル終了後も引き続きご利用いただくには、プランをご購入ください。'
                     : 'すべての機能が使える、わかりやすい月額プラン。いつでもキャンセル可能です。'}
                 </p>
               </div>
 
               {/* プラン切り替えタブ */}
-              {!hasIndividualPlan && (
+              {(!hasIndividualPlan || isTrialing) && (
                 <div className="flex justify-center">
                   <div className="inline-flex rounded-lg bg-muted p-1">
                     <button
@@ -854,7 +902,7 @@ export default function BillingSettingsPage() {
 
               {/* プランカード */}
               <div className="flex justify-center">
-                {(hasIndividualPlan || planTab === 'team') ? (
+                {((hasIndividualPlan && !isTrialing) || planTab === 'team') ? (
                   /* チームプランカード */
                   <Card className="w-full max-w-md border-2 border-primary shadow-lg">
                     <CardHeader className="text-center pb-4">

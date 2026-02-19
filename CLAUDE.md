@@ -1843,6 +1843,62 @@ class BlogCompletionOutput(BaseModel):
 
 **フロントエンド変更なし**: 既存の `state.draft_preview_url` / `state.draft_edit_url` 条件分岐でボタンが表示される
 
+### 31. 無料トライアルシステム (Stripe trial_end 方式) (2026-02-19)
+
+**概要**: 管理者が任意のユーザーに無料トライアルを付与できるシステム。Stripeの`trial_end`パラメータを使用し、クレジットカード不要でサブスクリプションのトライアル期間を設定。
+
+**設計方針**: Stripeクーポンではなく `trial_end` を採用。理由:
+- 任意の日数を自由に設定可能
+- クレジットカード入力不要 (`payment_settings.missing_payment_method: 'cancel'`)
+- サブスクリプションライフサイクルがクリーン（`trialing` → 期限切れで自動キャンセル）
+- クーポンよりシンプル（割引率の管理が不要）
+
+**情報ソース**:
+- https://docs.stripe.com/billing/subscriptions/trials
+- https://docs.stripe.com/api/subscriptions/create#create_subscription-trial_end
+
+**DB マイグレーション**: `supabase/migrations/20260220000001_add_free_trial_support.sql`
+- `user_subscription_status` enum に `trialing` を追加 (`ALTER TYPE ... ADD VALUE IF NOT EXISTS`)
+- `user_subscriptions` に `trial_end` (timestamptz), `trial_granted_by` (text), `trial_granted_at` (timestamptz) カラム追加
+- `idx_user_subscriptions_trial_end` インデックス追加（アクティブトライアル検索用）
+- `update_subscription_from_stripe()` 関数を更新: `trialing` → `trialing` に直接マッピング（従来は `active` にマッピング）
+
+**変更ファイル一覧**:
+
+| ファイル | 変更種別 | 概要 |
+|---------|---------|------|
+| `supabase/migrations/20260220000001_add_free_trial_support.sql` | **新規** | enum追加、カラム追加、インデックス、関数更新 |
+| `frontend/src/lib/subscription/index.ts` | 改修 | `trialing` をSubscriptionStatus型に追加、UserSubscriptionにtrial_end/trial_granted_by/trial_granted_at追加、hasActiveAccess()にtrialing判定追加 |
+| `frontend/src/app/api/subscription/webhook/route.ts` | 改修 | `mapStripeStatus()`で`trialing`→`trialing`（従来は`active`）、`handleSubscriptionChange()`で`trial_end`をDB保存 |
+| `frontend/src/app/api/subscription/status/route.ts` | 改修 | org subscription mapping で`trialing`→`trialing`（従来は`active`） |
+| `frontend/src/app/api/admin/free-trial/route.ts` | **新規** | POST: トライアル付与/延長、DELETE: トライアル取消。Stripe Customer作成→Subscription(trial_end)作成→DB更新→usage_tracking作成 |
+| `frontend/src/app/(admin)/admin/users/page.tsx` | 全面改修 | trialing統計カード、プリセット日数選択(7/14/30/60/90日)＋カスタム入力、付与/延長/取消ダイアログ、残日数表示 |
+| `backend/app/domains/admin/schemas.py` | 改修 | `trialing`をSubscriptionStatusType Literalに追加、UserReadに`trial_end`フィールド追加 |
+| `backend/app/domains/admin/service.py` | 改修 | `get_all_users()`/`get_user_by_id()`に`trial_end`追加、`get_subscription_distribution()`に`trialing`ラベル追加 |
+| `frontend/src/app/(settings)/settings/billing/page.tsx` | 改修 | `trialing`をSubscriptionStatus型/statusConfigに追加、トライアル期間表示(残日数付き)、プラン選択をtrialingユーザーにも表示 |
+| `frontend/src/components/subscription/subscription-guard.tsx` | 改修 | SubscriptionBannerにトライアル中バナー追加（残日数表示、プランへのリンク） |
+
+**トライアル付与フロー** (管理者API):
+1. 管理者認証（`@shintairiku.jp`メール確認）
+2. 対象ユーザーのメール取得（Clerk API）
+3. Stripe Customer 作成/取得（支払い方法なし）
+4. Stripe Subscription 作成: `trial_end` 指定、`payment_settings.missing_payment_method: 'cancel'`
+5. Supabase `user_subscriptions` 更新: status=trialing, trial_end, trial_granted_by, trial_granted_at
+6. `usage_tracking` レコード作成（トライアル期間 = billing period）
+
+**管理者UI機能**:
+- プリセット日数: 7, 14, 30, 60, 90日
+- カスタム日数入力（任意の日数を指定可能）
+- トライアル終了日のプレビュー表示
+- ステータス別フィルタ（「トライアル」フィルタ追加）
+- ユーザーテーブルに残日数表示
+- コンテキスト依存アクションボタン（付与/延長/取消）
+
+**ユーザー側表示**:
+- SubscriptionBanner: 紫色のトライアル中バナー（残日数 + プランリンク）
+- 請求ページ: トライアル情報カード（終了日、残日数、説明文）
+- 請求ページ: プラン選択セクションをトライアルユーザーにも表示（購入促進）
+
 ### 2026-02-10 自己改善
 - **再検証の重要性**: 実装完了後のユーザー再検証要求で、`useArticles.ts` と `admin/plans/page.tsx` に `USE_PROXY` パターンが欠けているバグを発見した。最初の実装時にサーバーサイドAPI Routes (9ファイル) のみに注力し、クライアントサイドhooksの直接fetch呼び出しを見落としていた。**サーバーサイド→バックエンド通信だけでなく、ブラウザ→バックエンド通信パスも全て確認すべき。**
 - **FastAPI末尾スラッシュ + Cloud Run scheme 変換の複合問題**: `frontend/src/app/api/proxy/[...path]/route.ts` の `ensureTrailingSlash()` が `/blog/sites` を `/blog/sites/` に変換し、FastAPI (`redirect_slashes=True`) が 307 で `/blog/sites` へ戻す。さらに Cloud Run の `Location` が `http://...run.app/...` になり、プロキシがそれを手動追従すると Cloud Run 側で 302/307 が連鎖する。**手動リダイレクト追従を使う場合は、(1) 末尾スラッシュ強制をしない、(2) `Location` が `http://` でも `https://` に正規化する、の両方を実施すべき。**

@@ -151,6 +151,7 @@ class AdminService:
                     sub_data.get("current_period_end")
                 )
                 cancel_at_period_end = sub_data.get("cancel_at_period_end", False)
+                trial_end = self._parse_datetime(sub_data.get("trial_end"))
 
                 # Check if email domain is @shintairiku.jp (auto-privileged)
                 if email and email.lower().endswith("@shintairiku.jp"):
@@ -168,6 +169,7 @@ class AdminService:
                     stripe_subscription_id=stripe_subscription_id,
                     current_period_end=current_period_end,
                     cancel_at_period_end=cancel_at_period_end,
+                    trial_end=trial_end,
                 )
                 users.append(user)
 
@@ -225,6 +227,7 @@ class AdminService:
             stripe_subscription_id = sub_data.get("stripe_subscription_id")
             current_period_end = self._parse_datetime(sub_data.get("current_period_end"))
             cancel_at_period_end = sub_data.get("cancel_at_period_end", False)
+            trial_end = self._parse_datetime(sub_data.get("trial_end"))
 
             # Check if email domain is @shintairiku.jp
             if email and email.lower().endswith("@shintairiku.jp"):
@@ -242,6 +245,7 @@ class AdminService:
                 stripe_subscription_id=stripe_subscription_id,
                 current_period_end=current_period_end,
                 cancel_at_period_end=cancel_at_period_end,
+                trial_end=trial_end,
             )
 
         except Exception as e:
@@ -402,6 +406,7 @@ class AdminService:
             sub_map = self._get_subscription_map()
 
             status_labels = {
+                "trialing": "トライアル",
                 "active": "アクティブ",
                 "past_due": "支払い遅延",
                 "canceled": "キャンセル済み",
