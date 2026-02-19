@@ -30,6 +30,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import ChatMarkdown from "@/features/tools/seo/generate/edit-article/components/ChatMarkdown";
+import { compressImage } from "@/utils/image-compress";
 import { useAuth } from "@clerk/nextjs";
 import { createClient } from "@supabase/supabase-js";
 
@@ -418,9 +419,11 @@ export default function BlogProcessPage() {
       const uploadedNames: string[] = [];
 
       for (const file of entry.files) {
-        const formData = new FormData();
-        formData.append("file", file);
         try {
+          // 画像を圧縮してからアップロード
+          const compressed = await compressImage(file).catch(() => file);
+          const formData = new FormData();
+          formData.append("file", compressed);
           const res = await fetch(
             `/api/proxy/blog/generation/${processId}/upload-image`,
             {
