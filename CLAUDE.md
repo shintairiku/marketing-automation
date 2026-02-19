@@ -1623,6 +1623,56 @@ const baseURL = USE_PROXY ? '/api/proxy' : API_BASE_URL;
 - **`organization_subscriptions` テーブルの supabase-js 型問題**: PKが `id: text` (Stripe subscription ID) でDBデフォルト値なし。supabase-js の upsert overload 解決が壊れるため `as any` キャストが必要
 - **Realtime トリガーとデータ移行の競合**: `generated_articles_state` への INSERT で `publish_process_event` トリガーが `process_events` に自動挿入。移行スクリプトで同じイベントを再INSERT→重複キーエラー。トリガー生成分が既に正しいので、移行側のSKIPは問題なし
 
+### 27. ローカルSupabase環境構築 (2026-02-19)
+
+**概要**: ローカル開発用Supabase環境を構築。`supabase start` でDocker上にPostgreSQL + Realtime + Studio + Auth + APIを起動。
+
+**config.toml 全面刷新**: 旧config（`[auth]`のみ、`[db]`セクションなし）→ CLI v2.76 の最新フォーマットに更新
+- **有効**: API (PostgREST), DB (PostgreSQL 17), Realtime, Studio, Auth (Clerk Third-Party Auth)
+- **無効**: Storage (GCS使用), Edge Functions (未使用), Analytics (不要), Inbucket (Clerk管理)
+- **Clerk Third-Party Auth**: `[auth.third_party.clerk]` を `enabled = true` + `domain = "env(CLERK_DOMAIN)"` で設定。`auth.uid()` が Clerk user_id を返すようになる
+
+**新規ファイル**:
+- `supabase/.env` — `CLERK_DOMAIN=fitting-glowworm-29.clerk.accounts.dev` (`.gitignore` 済み)
+- `supabase/config.toml` — 全面リライト
+
+**ローカルSupabase接続情報**:
+| サービス | URL |
+|---------|-----|
+| Studio (GUI) | http://127.0.0.1:54323 |
+| API (PostgREST) | http://127.0.0.1:54321 |
+| Database | postgresql://postgres:postgres@127.0.0.1:54322/postgres |
+
+**開発ワークフロー**:
+```bash
+# 起動
+npx supabase start
+
+# スキーマ変更 (方法A: SQL直書き)
+npx supabase migration new <name>
+# → migrations/YYYYMMDDHHMMSS_<name>.sql を編集
+
+# スキーマ変更 (方法B: Studio GUIで変更 → diff自動生成)
+npx supabase db diff -f <name>
+
+# ローカルDB全リセット (migration + seed 再適用)
+npx supabase db reset
+
+# 停止
+npx supabase stop
+```
+
+**踏んだ罠: `99-roles.sql` クラッシュループ**:
+- **症状**: `psql: error: /docker-entrypoint-initdb.d/init-scripts/99-roles.sql: No such file or directory` → DBコンテナが unhealthy → 無限リスタート
+- **原因**: `supabase/.temp/postgres-version` にリモートプロジェクトの古いPostgreSQLバージョン (17.4) がキャッシュされ、CLIが間違ったDockerイメージの初期化パスを使用
+- **解決**: `rm -rf supabase/.temp` → `npx supabase start` で最新版 (17.6) が pull される
+- **注意**: Dockerボリューム (`supabase_db_*`) もWSL側から `docker volume rm` で削除が必要。PowerShellの `docker system prune` だけでは不十分な場合がある
+- **情報ソース**: https://github.com/supabase/cli/issues/3664, https://github.com/supabase/cli/issues/3639
+
+### 2026-02-19 自己改善
+- **Supabase CLIの既知バグを事前調査すべきだった**: `99-roles.sql` エラーに対して、config.toml修正→Docker掃除→ボリューム削除と試行錯誤を繰り返したが、最初からGitHub Issuesを検索すべきだった。**ツールのエラーが不可解な場合は、まずGitHub Issuesで同一エラーメッセージを検索する。**
+- **PowerShell と WSL2 の Docker 共有の罠**: `docker system prune -a --volumes -f` をPowerShellで実行しても、WSL2側のSupabaseコンテナ/ボリュームが残る場合がある。**Docker操作はWSL2側で統一すべき。**
+
 ### 2026-02-18 自己改善
 - **記憶の即時更新（再び）**: コード変更後、ユーザーに「CLAUDE.mdだけ更新しといてね」と言われた。変更完了→コミット前のCLAUDE.md更新を忘れるパターンが繰り返されている。**コミットメッセージを書く前に必ずCLAUDE.mdを更新するルーチンを確立すべき。**
 - **pg_dumpベースのベースライン生成は複数パスが必要**: 最初のフィルタリングで行単位→statement残骸が残る→statement単位で再パース、という3段階が必要だった。**最初からstatement単位パーサーで処理すべきだった。**

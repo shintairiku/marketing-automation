@@ -1,6 +1,78 @@
+# =============================================================================
+# BlogAI / Marketing Automation Platform — Supabase Local Development Config
+# Reference: https://supabase.com/docs/guides/local-development/cli/config
+# =============================================================================
+
+project_id = "next-supabase-starter"
+
+# -----------------------------------------------------------------------------
+# API (PostgREST) — supabase-js がローカルDBに接続するために必要
+# -----------------------------------------------------------------------------
+[api]
+enabled = true
+port = 54321
+schemas = ["public", "graphql_public"]
+extra_search_path = ["public", "extensions"]
+# 記事一覧・管理画面等で大量行を返す可能性があるため拡張
+max_rows = 1000
+
+[api.tls]
+enabled = false
+
+# -----------------------------------------------------------------------------
+# Database — PostgreSQL 17 (リモートSupabaseと同一バージョン)
+# -----------------------------------------------------------------------------
+[db]
+port = 54322
+shadow_port = 54320
+health_timeout = "2m"
+major_version = 17
+
+[db.pooler]
+enabled = false
+port = 54329
+pool_mode = "transaction"
+default_pool_size = 20
+max_client_conn = 100
+
+[db.migrations]
+enabled = true
+schema_paths = []
+
+[db.seed]
+enabled = true
+sql_paths = ["./seed.sql"]
+
+# -----------------------------------------------------------------------------
+# Realtime — 記事生成・ブログ生成の進捗同期に必須
+# generated_articles_state, blog_generation_state 等をリアルタイム監視
+# -----------------------------------------------------------------------------
+[realtime]
+enabled = true
+
+# -----------------------------------------------------------------------------
+# Studio — ローカルDB管理GUI (http://localhost:54323)
+# テーブル確認、データ編集、SQL実行に便利
+# -----------------------------------------------------------------------------
+[studio]
+enabled = true
+port = 54323
+api_url = "http://127.0.0.1"
+openai_api_key = "env(OPENAI_API_KEY)"
+
+# -----------------------------------------------------------------------------
+# Storage — 無効 (画像はGoogle Cloud Storageを使用)
+# -----------------------------------------------------------------------------
+[storage]
+enabled = false
+
 [storage.image_transformation]
 enabled = false
 
+# -----------------------------------------------------------------------------
+# Auth — Clerk Third-Party Auth で運用
+# Supabase自体の認証機能は最小限。RLSの auth.uid() がClerk user_idを返すために必要
+# -----------------------------------------------------------------------------
 [auth]
 enabled = true
 site_url = "http://localhost:3000"
@@ -8,33 +80,101 @@ additional_redirect_urls = []
 jwt_expiry = 3600
 enable_refresh_token_rotation = true
 refresh_token_reuse_interval = 10
-enable_manual_linking = false
-enable_signup = true
+enable_signup = false
 enable_anonymous_sign_ins = false
+enable_manual_linking = false
 minimum_password_length = 8
-password_requirements = "letters_digits"
-jwt_secret = ""
-anon_key = ""
-service_role_key = ""
+password_requirements = ""
+
+[auth.rate_limit]
+email_sent = 2
+sms_sent = 30
+anonymous_users = 30
+token_refresh = 150
+sign_in_sign_ups = 30
+token_verifications = 30
+web3 = 30
 
 [auth.email]
-enable_signup = true
+enable_signup = false
 double_confirm_changes = true
-enable_confirmations = true
+enable_confirmations = false
 secure_password_change = false
-max_frequency = "1m0s"
+max_frequency = "1s"
 otp_length = 6
-otp_expiry = 1800
-
-[auth.email.template]
+otp_expiry = 3600
 
 [auth.sms]
 enable_signup = false
+enable_confirmations = false
+template = "Your code is {{ .Code }}"
+max_frequency = "5s"
+
+[auth.sms.twilio]
+enabled = false
+account_sid = ""
+message_service_sid = ""
+auth_token = "env(SUPABASE_AUTH_SMS_TWILIO_AUTH_TOKEN)"
+
+[auth.mfa]
+max_enrolled_factors = 10
 
 [auth.mfa.totp]
-enroll_enabled = true
-verify_enabled = true
+enroll_enabled = false
+verify_enabled = false
 
 [auth.mfa.phone]
 enroll_enabled = false
 verify_enabled = false
+otp_length = 6
+template = "Your code is {{ .Code }}"
+max_frequency = "5s"
+
+# Clerk Third-Party Auth — auth.uid() が Clerk user_id を返すようになる
+# domain は Clerk Dashboard > API Keys から取得
+# 例: "your-app-name.clerk.accounts.dev"
+[auth.third_party.clerk]
+enabled = true
+domain = "env(CLERK_DOMAIN)"
+
+[auth.third_party.firebase]
+enabled = false
+
+[auth.third_party.auth0]
+enabled = false
+
+[auth.third_party.aws_cognito]
+enabled = false
+
+# -----------------------------------------------------------------------------
+# Email Testing — 無効 (Clerkがメール送信を担当)
+# -----------------------------------------------------------------------------
+[inbucket]
+enabled = false
+
+# -----------------------------------------------------------------------------
+# Edge Functions — 無効 (使用していない)
+# -----------------------------------------------------------------------------
+[edge_runtime]
+enabled = false
+policy = "per_worker"
+inspector_port = 8083
+deno_version = 2
+
+# -----------------------------------------------------------------------------
+# Analytics — 無効 (ローカル開発では不要)
+# -----------------------------------------------------------------------------
+[analytics]
+enabled = false
+port = 54327
+backend = "postgres"
+
+# -----------------------------------------------------------------------------
+# Experimental — 無効
+# -----------------------------------------------------------------------------
+[experimental]
+orioledb_version = ""
+s3_host = "env(S3_HOST)"
+s3_region = "env(S3_REGION)"
+s3_access_key = "env(S3_ACCESS_KEY)"
+s3_secret_key = "env(S3_SECRET_KEY)"
