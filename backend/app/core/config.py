@@ -118,6 +118,13 @@ class Settings(BaseSettings):
         )
     )
 
+    # 管理者アクセス制御
+    # カンマ区切りで追加の管理者メールアドレスを指定 (例: "user@example.com,admin@agency.co.jp")
+    admin_allowed_emails: str = Field(default_factory=lambda: os.getenv("ADMIN_ALLOWED_EMAILS", ""))
+    # カンマ区切りで追加の管理者ドメインを指定 (例: "@partner.co.jp,@agency.com")
+    # @shintairiku.jp はデフォルトで常に許可
+    admin_allowed_domains: str = Field(default_factory=lambda: os.getenv("ADMIN_ALLOWED_DOMAINS", ""))
+
     # Blog AI設定
     blog_generation_model: str = Field(default_factory=lambda: os.getenv("BLOG_GENERATION_MODEL", "gpt-5.2"))
     blog_generation_reasoning_effort: str = Field(default_factory=lambda: os.getenv("BLOG_GENERATION_REASONING_EFFORT", "medium"))

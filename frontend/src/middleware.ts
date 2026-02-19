@@ -40,11 +40,37 @@ const isPublicRoute = createRouteMatcher([
   '/api/webhooks(.*)',
 ]);
 
-const PRIVILEGED_EMAIL_DOMAIN = '@shintairiku.jp';
+const DEFAULT_ADMIN_DOMAIN = '@shintairiku.jp';
 
+/**
+ * 管理者アクセス許可チェック (middleware用)
+ *
+ * 環境変数 ADMIN_ALLOWED_EMAILS / ADMIN_ALLOWED_DOMAINS で
+ * 社外の管理者にもアクセスを許可できる
+ */
 function isPrivilegedEmail(email: string | undefined | null): boolean {
   if (!email) return false;
-  return email.toLowerCase().endsWith(PRIVILEGED_EMAIL_DOMAIN);
+  const emailLower = email.toLowerCase();
+
+  // 1. 個別メール許可リスト
+  const allowedEmails = (process.env.ADMIN_ALLOWED_EMAILS || '')
+    .split(',')
+    .map((e) => e.trim().toLowerCase())
+    .filter(Boolean);
+  if (allowedEmails.includes(emailLower)) return true;
+
+  // 2. ドメイン許可リスト（デフォルト + 環境変数）
+  const extraDomains = (process.env.ADMIN_ALLOWED_DOMAINS || '')
+    .split(',')
+    .map((d) => {
+      let domain = d.trim().toLowerCase();
+      if (domain && !domain.startsWith('@')) domain = `@${domain}`;
+      return domain;
+    })
+    .filter(Boolean);
+  const allowedDomains = [DEFAULT_ADMIN_DOMAIN, ...extraDomains];
+
+  return allowedDomains.some((domain) => emailLower.endsWith(domain));
 }
 
 /**

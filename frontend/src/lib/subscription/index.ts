@@ -74,10 +74,42 @@ export function hasActiveAccess(subscription: UserSubscription | null): boolean 
   return false;
 }
 
-// @shintairiku.jp ドメインかどうかをチェック
+// デフォルト管理者ドメイン（常に許可）
+const DEFAULT_ADMIN_DOMAIN = '@shintairiku.jp';
+
+/**
+ * 管理者アクセス許可チェック
+ *
+ * 以下の条件のいずれかに合致すれば true:
+ * 1. @shintairiku.jp ドメイン（デフォルト常時許可）
+ * 2. ADMIN_ALLOWED_DOMAINS 環境変数に含まれるドメイン
+ * 3. ADMIN_ALLOWED_EMAILS 環境変数に含まれる個別メールアドレス
+ *
+ * NOTE: 環境変数は NEXT_PUBLIC_ を付けない（サーバーサイドのみで読み取り）
+ */
 export function isPrivilegedEmail(email: string | null | undefined): boolean {
   if (!email) return false;
-  return email.toLowerCase().endsWith('@shintairiku.jp');
+  const emailLower = email.toLowerCase();
+
+  // 1. 個別メール許可リスト
+  const allowedEmails = (process.env.ADMIN_ALLOWED_EMAILS || '')
+    .split(',')
+    .map((e) => e.trim().toLowerCase())
+    .filter(Boolean);
+  if (allowedEmails.includes(emailLower)) return true;
+
+  // 2. ドメイン許可リスト（デフォルト + 環境変数）
+  const extraDomains = (process.env.ADMIN_ALLOWED_DOMAINS || '')
+    .split(',')
+    .map((d) => {
+      let domain = d.trim().toLowerCase();
+      if (domain && !domain.startsWith('@')) domain = `@${domain}`;
+      return domain;
+    })
+    .filter(Boolean);
+  const allowedDomains = [DEFAULT_ADMIN_DOMAIN, ...extraDomains];
+
+  return allowedDomains.some((domain) => emailLower.endsWith(domain));
 }
 
 // 組織サブスクリプション情報

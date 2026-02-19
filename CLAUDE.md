@@ -501,12 +501,14 @@ marketing-automation/
 1. **Clerk** がフロントエンドのユーザー認証を管理 (Social Login, Email/Password, MFA)
 2. **Next.js middleware** がルート保護と特権チェックを実行
 3. バックエンドは **Clerk JWT** (RS256) をJWKSエンドポイント経由で検証
-4. 管理者エンドポイントは **@shintairiku.jp** ドメインのメールを要求
+4. 管理者エンドポイントはメールドメイン/許可リストで制限
 
 ### 特権ユーザーシステム
-- `@shintairiku.jp` ドメインのユーザーは全機能にアクセス可能（サブスクリプション不要）
+- `@shintairiku.jp` ドメインのユーザーはデフォルトで全機能にアクセス可能（サブスクリプション不要）
+- 環境変数 `ADMIN_ALLOWED_EMAILS` / `ADMIN_ALLOWED_DOMAINS` で社外管理者を追加可能
 - 非特権ユーザーは `/blog/*`, `/settings/*`, `/help/*` のみアクセス可能
 - 特権チェックは `middleware.ts` の `isPrivilegedOnlyRoute` で実施
+- **セキュリティ**: 環境変数は `NEXT_PUBLIC_` を付けない（サーバーサイドのみ）。変更にはデプロイが必要（UI経由の権限昇格不可）
 
 ### サブスクリプション
 - **個人プラン**: ¥29,800/月 (Stripe)
@@ -608,6 +610,10 @@ BLOG_GENERATION_MODEL=gpt-5.2
 CREDENTIAL_ENCRYPTION_KEY=
 FRONTEND_URL=http://localhost:3000
 
+# Admin Access Control (カンマ区切り)
+ADMIN_ALLOWED_EMAILS=                  # 個別メール (例: partner@example.com,client@agency.co.jp)
+ADMIN_ALLOWED_DOMAINS=                 # 追加ドメイン (例: @partner.co.jp) ※@shintairiku.jpはデフォルト許可
+
 # Tracing
 OPENAI_AGENTS_ENABLE_TRACING=true
 
@@ -632,6 +638,10 @@ STRIPE_SECRET_KEY=
 STRIPE_WEBHOOK_SECRET=
 STRIPE_PRICE_ID=
 STRIPE_PRICE_ADDON_ARTICLES=          # アドオン記事追加 Price ID
+
+# Admin Access Control (カンマ区切り、NEXT_PUBLIC_ 禁止)
+ADMIN_ALLOWED_EMAILS=                  # 個別メール (例: partner@example.com,client@agency.co.jp)
+ADMIN_ALLOWED_DOMAINS=                 # 追加ドメイン (例: @partner.co.jp) ※@shintairiku.jpはデフォルト許可
 
 # Backend
 NEXT_PUBLIC_API_BASE_URL=http://localhost:8080
@@ -1605,6 +1615,37 @@ class BlogCompletionOutput(BaseModel):
 - `ask_user_questions` 使用時は post_id/URL が全て null、summary に質問意図が入る
 
 **フロントエンド変更なし**: 既存の `state.draft_preview_url` / `state.draft_edit_url` 条件分岐でボタンが表示される
+
+### 28. 管理者アクセス制御の環境変数化 (2026-02-19)
+
+**概要**: 管理者ページ (`/admin/*`) へのアクセスを `@shintairiku.jp` ドメインのみに限定していたハードコードを環境変数ベースの許可リストに拡張。社外の管理者にもアクセスを許可可能に。
+
+**環境変数**:
+| 変数名 | 説明 | 例 |
+|--------|------|-----|
+| `ADMIN_ALLOWED_EMAILS` | 個別メールアドレス（カンマ区切り） | `partner@example.com,client@agency.co.jp` |
+| `ADMIN_ALLOWED_DOMAINS` | 追加ドメイン（カンマ区切り） | `@partner.co.jp,@agency.com` |
+
+- `@shintairiku.jp` はデフォルトで常に許可（環境変数未設定でも動作）
+- `NEXT_PUBLIC_` は付けない（サーバーサイドのみ）
+- バックエンド・フロントエンド両方に同じ値を設定する必要がある
+
+**変更ファイル**:
+| ファイル | 変更内容 |
+|---------|---------|
+| `backend/app/core/config.py` | `admin_allowed_emails`, `admin_allowed_domains` 設定追加 |
+| `backend/app/common/admin_auth.py` | `is_admin_email()` をドメインリスト+メールリスト方式に拡張、ヘルパー `_get_allowed_emails()`, `_get_allowed_domains()` 追加 |
+| `backend/app/domains/admin/service.py` | ハードコード `endsWith("@shintairiku.jp")` → `is_admin_email()` に置換 (2箇所) |
+| `frontend/src/middleware.ts` | `isPrivilegedEmail()` を環境変数対応に拡張 |
+| `frontend/src/lib/subscription/index.ts` | 同上 |
+| `frontend/src/app/api/webhooks/clerk/route.ts` | 同上 |
+| `frontend/src/app/(admin)/admin/layout.tsx` | コメント追記（クライアントサイドは @shintairiku.jp のみ。middleware がサーバーサイドで追加管理者を許可） |
+
+**セキュリティ設計**:
+- 5層防御は維持: middleware → admin layout → backend admin_auth → subscription status → UI
+- 環境変数変更にはデプロイが必要 = UI経由の権限昇格攻撃が不可能
+- バックエンドが最終ゲートキーパー（フロントエンドはUX改善のみ）
+- クライアントサイド（admin/layout.tsx）では `NEXT_PUBLIC_` なしの環境変数は読めないため、デフォルトドメインのみでガード。環境変数で追加された管理者は middleware + backend で許可される
 
 ### 2026-02-10 自己改善
 - **再検証の重要性**: 実装完了後のユーザー再検証要求で、`useArticles.ts` と `admin/plans/page.tsx` に `USE_PROXY` パターンが欠けているバグを発見した。最初の実装時にサーバーサイドAPI Routes (9ファイル) のみに注力し、クライアントサイドhooksの直接fetch呼び出しを見落としていた。**サーバーサイド→バックエンド通信だけでなく、ブラウザ→バックエンド通信パスも全て確認すべき。**

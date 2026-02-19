@@ -48,7 +48,27 @@ async function verifyWebhook(req: NextRequest): Promise<WebhookEvent> {
 
 function isPrivilegedEmail(email: string | null | undefined): boolean {
   if (!email) return false;
-  return email.toLowerCase().endsWith('@shintairiku.jp');
+  const emailLower = email.toLowerCase();
+
+  // 個別メール許可リスト
+  const allowedEmails = (process.env.ADMIN_ALLOWED_EMAILS || '')
+    .split(',')
+    .map((e) => e.trim().toLowerCase())
+    .filter(Boolean);
+  if (allowedEmails.includes(emailLower)) return true;
+
+  // ドメイン許可リスト（デフォルト @shintairiku.jp + 環境変数追加分）
+  const extraDomains = (process.env.ADMIN_ALLOWED_DOMAINS || '')
+    .split(',')
+    .map((d) => {
+      let domain = d.trim().toLowerCase();
+      if (domain && !domain.startsWith('@')) domain = `@${domain}`;
+      return domain;
+    })
+    .filter(Boolean);
+  const allowedDomains = ['@shintairiku.jp', ...extraDomains];
+
+  return allowedDomains.some((domain) => emailLower.endsWith(domain));
 }
 
 export async function POST(req: NextRequest) {

@@ -8,11 +8,17 @@ import { Activity, Home, Layers, Users } from 'lucide-react';
 import { cn } from '@/utils/cn';
 import { useUser } from '@clerk/nextjs';
 
-const ADMIN_EMAIL_DOMAIN = '@shintairiku.jp';
-
+/**
+ * 管理者アクセスチェック (クライアントサイド)
+ *
+ * NOTE: これはUXガード。実際のセキュリティはバックエンドの admin_auth.py が担保。
+ * クライアントサイドでは NEXT_PUBLIC_ 環境変数のみ読めるため、
+ * ドメインチェックは @shintairiku.jp のデフォルトのみ。
+ * 環境変数で追加された管理者はmiddleware（サーバーサイド）で許可される。
+ */
 function isAdminEmail(email: string | undefined | null): boolean {
   if (!email) return false;
-  return email.toLowerCase().endsWith(ADMIN_EMAIL_DOMAIN.toLowerCase());
+  return email.toLowerCase().endsWith('@shintairiku.jp');
 }
 
 export default function AdminLayout({ children }: PropsWithChildren) {

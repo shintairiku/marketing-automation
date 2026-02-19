@@ -18,14 +18,46 @@ logger = logging.getLogger(__name__)
 
 security = HTTPBearer(auto_error=False)
 
-# Admin email domain
-ADMIN_EMAIL_DOMAIN = '@shintairiku.jp'
+# デフォルト管理者ドメイン（常に許可）
+DEFAULT_ADMIN_DOMAIN = '@shintairiku.jp'
+
+
+def _get_allowed_emails() -> set[str]:
+    """環境変数から許可されたメールアドレスのセットを取得"""
+    raw = settings.admin_allowed_emails
+    if not raw:
+        return set()
+    return {e.strip().lower() for e in raw.split(',') if e.strip()}
+
+
+def _get_allowed_domains() -> set[str]:
+    """環境変数から許可されたドメインのセットを取得（デフォルトドメイン含む）"""
+    domains = {DEFAULT_ADMIN_DOMAIN.lower()}
+    raw = settings.admin_allowed_domains
+    if raw:
+        for d in raw.split(','):
+            d = d.strip().lower()
+            if d:
+                # @ が付いていなければ付与
+                if not d.startswith('@'):
+                    d = f'@{d}'
+                domains.add(d)
+    return domains
+
 
 def is_admin_email(email: Optional[str]) -> bool:
-    """Check if email belongs to admin domain"""
+    """Check if email is allowed admin access (domain match or explicit allowlist)"""
     if not email:
         return False
-    return email.lower().endswith(ADMIN_EMAIL_DOMAIN.lower())
+    email_lower = email.lower()
+    # 1. 明示的なメール許可リスト
+    if email_lower in _get_allowed_emails():
+        return True
+    # 2. ドメイン許可リスト（@shintairiku.jp + 環境変数追加分）
+    for domain in _get_allowed_domains():
+        if email_lower.endswith(domain):
+            return True
+    return False
 
 async def get_user_email_from_clerk_api(user_id: str) -> str:
     """
@@ -167,7 +199,7 @@ async def get_admin_user_email_from_token(
             logger.warning(f"🔒 [ADMIN_AUTH] Access denied for email: {email}")
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="Admin access required. Only @shintairiku.jp email addresses are allowed."
+                detail="Admin access required. Your email is not authorized."
             )
         
         logger.info(f"🔒 [ADMIN_AUTH] Admin access granted for: {email}")

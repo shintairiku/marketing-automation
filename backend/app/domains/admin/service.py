@@ -7,6 +7,7 @@ import logging
 from datetime import datetime, timedelta, timezone
 from app.infrastructure.clerk_client import clerk_client
 from app.common.database import supabase
+from app.common.admin_auth import is_admin_email
 from app.domains.admin.schemas import (
     UserRead,
     UpdateUserPrivilegeRequest,
@@ -152,8 +153,8 @@ class AdminService:
                 )
                 cancel_at_period_end = sub_data.get("cancel_at_period_end", False)
 
-                # Check if email domain is @shintairiku.jp (auto-privileged)
-                if email and email.lower().endswith("@shintairiku.jp"):
+                # Check if email is admin-allowed (domain or explicit allowlist)
+                if email and is_admin_email(email):
                     is_privileged = True
 
                 user = UserRead(
@@ -226,8 +227,8 @@ class AdminService:
             current_period_end = self._parse_datetime(sub_data.get("current_period_end"))
             cancel_at_period_end = sub_data.get("cancel_at_period_end", False)
 
-            # Check if email domain is @shintairiku.jp
-            if email and email.lower().endswith("@shintairiku.jp"):
+            # Check if email is admin-allowed (domain or explicit allowlist)
+            if email and is_admin_email(email):
                 is_privileged = True
 
             return UserRead(
