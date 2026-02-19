@@ -19,18 +19,36 @@ jobs:
         with:
           version: latest
 
+      # config.toml の env(CLERK_DOMAIN) 等に必要な .env を生成
+      - name: Create supabase env file
+        run: |
+          cat > supabase/.env << 'ENVEOF'
+          CLERK_DOMAIN=placeholder.clerk.accounts.dev
+          OPENAI_API_KEY=placeholder
+          SUPABASE_AUTH_SMS_TWILIO_AUTH_TOKEN=placeholder
+          S3_HOST=placeholder
+          S3_REGION=placeholder
+          S3_ACCESS_KEY=placeholder
+          S3_SECRET_KEY=placeholder
+          ENVEOF
+          # trim leading whitespace
+          sed -i 's/^[[:space:]]*//' supabase/.env
+
       - name: Link Supabase project
         run: supabase link --project-ref ${{ secrets.SUPABASE_PROJECT_ID }}
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
           SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
-          CLERK_DOMAIN: ${{ vars.CLERK_DOMAIN }}
 
       - name: Push migrations
         run: supabase db push
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
           SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+
+      # NOTE: seed.sql は CI で自動実行しない。
+      # 新規DB セットアップ時に Supabase SQL Editor で手動実行すること。
+      # 料金やプラン変更は管理画面 or SQL Editor で直接 UPDATE する。
 
   migrate-production:
     if: github.ref == 'refs/heads/main'
@@ -43,12 +61,24 @@ jobs:
         with:
           version: latest
 
+      - name: Create supabase env file
+        run: |
+          cat > supabase/.env << 'ENVEOF'
+          CLERK_DOMAIN=placeholder.clerk.accounts.dev
+          OPENAI_API_KEY=placeholder
+          SUPABASE_AUTH_SMS_TWILIO_AUTH_TOKEN=placeholder
+          S3_HOST=placeholder
+          S3_REGION=placeholder
+          S3_ACCESS_KEY=placeholder
+          S3_SECRET_KEY=placeholder
+          ENVEOF
+          sed -i 's/^[[:space:]]*//' supabase/.env
+
       - name: Link Supabase project
         run: supabase link --project-ref ${{ secrets.SUPABASE_PROJECT_ID }}
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
           SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
-          CLERK_DOMAIN: ${{ vars.CLERK_DOMAIN }}
 
       - name: Dry run
         run: supabase db push --dry-run
