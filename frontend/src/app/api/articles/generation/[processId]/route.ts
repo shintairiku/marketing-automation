@@ -3,10 +3,12 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { createClient } from '@supabase/supabase-js';
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
+function getSupabase() {
+  return createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!
+  );
+}
 
 interface RouteParams {
   params: Promise<{
@@ -28,7 +30,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     const { processId } = await params;
 
     // プロセス情報を取得
-    const { data, error } = await supabase
+    const { data, error } = await getSupabase()
       .from('generated_articles_state')
       .select('*')
       .eq('id', processId)
@@ -43,7 +45,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     }
 
     // プロセス復帰情報を取得
-    const { data: recoveryInfo } = await supabase
+    const { data: recoveryInfo } = await getSupabase()
       .rpc('get_process_recovery_info', { process_id: processId });
 
     return NextResponse.json({
@@ -99,7 +101,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
     // last_activity_atは自動更新されるため、明示的に設定
     updateData.updated_at = new Date().toISOString();
 
-    const { data, error } = await supabase
+    const { data, error } = await getSupabase()
       .from('generated_articles_state')
       .update(updateData)
       .eq('id', processId)
@@ -138,7 +140,7 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
 
     const { processId } = await params;
 
-    const { error } = await supabase
+    const { error } = await getSupabase()
       .from('generated_articles_state')
       .delete()
       .eq('id', processId)

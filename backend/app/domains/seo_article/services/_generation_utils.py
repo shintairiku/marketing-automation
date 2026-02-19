@@ -18,7 +18,7 @@ from app.core.config import settings
 from app.domains.seo_article.schemas import (
     # Server event payloads
     SectionChunkPayload, SelectThemePayload, ApprovePayload, SelectPersonaPayload, EditAndProceedPayload, EditThemePayload, EditPlanPayload, EditOutlinePayload,
-    OutlineData, OutlineSectionData,
+    OutlineData,
 )
 from app.common.schemas import (
     ServerEventMessage, ErrorPayload, UserInputRequestPayload, UserInputType

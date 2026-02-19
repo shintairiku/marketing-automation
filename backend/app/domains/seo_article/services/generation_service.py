@@ -15,7 +15,6 @@ import logging
 from typing import Dict, Any, Optional, List
 from datetime import datetime, timezone
 
-from app.core.config import settings
 
 # DEPRECATED: WebSocket functionality replaced by Supabase Realtime
 # from ._websocket_handler_deprecated import WebSocketHandler

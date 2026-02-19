@@ -10,7 +10,6 @@ for future extensions.
 
 from __future__ import annotations
 
-import dataclasses
 import re
 from dataclasses import dataclass, field
 from typing import Iterable, List, Optional, Sequence, Tuple

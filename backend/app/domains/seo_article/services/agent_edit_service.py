@@ -6,13 +6,10 @@ OpenAI Agents SDKを使用した記事編集サービス
 Codex風のapply_patchツールを実装し、インタラクティブな記事編集を実現します。
 """
 
-import asyncio
-import dataclasses
 import json
 import logging
 from dataclasses import dataclass, field
-from pathlib import Path
-from typing import Any, AsyncGenerator, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 from uuid import uuid4
 
 from agents import Agent, ModelSettings, Runner, RunConfig
@@ -22,7 +19,6 @@ from pydantic import BaseModel
 
 from app.core.config import settings
 from app.domains.seo_article.services.codex_patch import (
-    ApplyPatch,
     HunkApplyError,
     PatchError,
     apply_hunk,

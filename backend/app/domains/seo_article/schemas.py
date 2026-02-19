@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-from pydantic import BaseModel, Field, ConfigDict, field_validator
+from pydantic import BaseModel, Field, field_validator
 from typing import List, Optional, Dict, Any, Union, Literal
 from enum import Enum
 from app.common.schemas import BasePayload

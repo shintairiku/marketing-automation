@@ -7,7 +7,6 @@ providing functionality similar to Google Docs version history.
 """
 
 from typing import List, Optional, Dict, Any
-from uuid import UUID
 import logging
 from datetime import datetime
 from app.domains.seo_article.services.flow_service import get_supabase_client

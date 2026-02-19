@@ -53,8 +53,6 @@ from app.core.config import settings
 
 from app.domains.seo_article.services.codex_patch import (
     ApplyPatch,
-    FileSection,
-    Hunk,
     HunkApplyError,
     PatchError,
     apply_hunk,
