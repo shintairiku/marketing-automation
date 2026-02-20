@@ -248,7 +248,7 @@ export default function BillingSettingsPage() {
         setSubStatus(data);
         // アドオン数量を使用量情報から算出
         if (data.usage && data.usage.addon_articles_limit > 0) {
-          setAddonQuantity(Math.round(data.usage.addon_articles_limit / 20));
+          setAddonQuantity(Math.floor(data.usage.addon_articles_limit / 20));
         }
       })
       .catch((err) => console.error('Failed to fetch subscription status:', err))
@@ -771,7 +771,7 @@ export default function BillingSettingsPage() {
                       <span>+ 追加付与: {subStatus.usage.admin_granted_articles}記事</span>
                     )}
                   </div>
-                  {subStatus.usage.remaining === 0 && isFreePlan && (
+                  {subStatus.usage.remaining <= 0 && isFreePlan && (
                     <div className="p-3 rounded-lg bg-amber-50 border border-amber-200">
                       <p className="text-sm text-amber-800">
                         月間上限に達しました。追加の記事生成が必要な場合は、お問い合わせからリクエストしてください。
@@ -785,7 +785,7 @@ export default function BillingSettingsPage() {
                       </Link>
                     </div>
                   )}
-                  {subStatus.usage.remaining === 0 && !isFreePlan && (
+                  {subStatus.usage.remaining <= 0 && !isFreePlan && (
                     <p className="text-sm text-red-600">
                       月間上限に達しました。アドオンを追加して上限を増やせます。
                     </p>

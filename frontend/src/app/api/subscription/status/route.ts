@@ -52,7 +52,7 @@ export async function GET() {
           user_id: userId,
           email: userEmail || null,
           is_privileged: isPrivileged,
-          status: isPrivileged ? 'active' : 'active',
+          status: 'active',
           plan_tier_id: isPrivileged ? null : 'free',
         })
         .select()
