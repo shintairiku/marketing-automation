@@ -1,8 +1,6 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-
-import { useAuth } from '@clerk/nextjs';
 import {
   CheckCircle2,
   ChevronDown,
@@ -15,6 +13,7 @@ import {
   RefreshCw,
 } from 'lucide-react';
 
+import { useAuth } from '@clerk/nextjs';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
