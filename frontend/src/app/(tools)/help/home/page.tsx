@@ -69,7 +69,7 @@ export default function HelpHomePage() {
             </CardHeader>
             <CardContent>
               <Button asChild className="w-full">
-                <Link href="/help/contact">問い合わせる</Link>
+                <Link href="/settings/contact">問い合わせる</Link>
               </Button>
             </CardContent>
           </Card>

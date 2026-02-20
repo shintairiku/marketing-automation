@@ -344,6 +344,15 @@ marketing-automation/
 | GET | `/usage/admin/stats` | 管理者用使用量統計 |
 | GET | `/usage/admin/users` | 管理者用ユーザー別使用量 |
 
+### Contact (`/contact`)
+| Method | Path | 概要 |
+|--------|------|------|
+| POST | `/contact/` | お問い合わせ送信 |
+| GET | `/contact/my` | 自分のお問い合わせ履歴 |
+| GET | `/contact/admin` | 全お問い合わせ一覧（管理者用） |
+| GET | `/contact/admin/{id}` | お問い合わせ詳細（管理者用） |
+| PATCH | `/contact/admin/{id}/status` | ステータス更新（管理者用） |
+
 ### Health
 | Method | Path | 概要 |
 |--------|------|------|
@@ -484,6 +493,11 @@ marketing-automation/
 | `plan_tiers` | プラン定義マスタ (id, name, stripe_price_id, monthly_article_limit, addon_unit_amount, price_amount) |
 | `usage_tracking` | 利用量追跡 (user_id, organization_id, billing_period, articles_generated, articles_limit, addon_articles_limit) |
 | `usage_logs` | 使用量監査ログ (usage_tracking_id, user_id, generation_process_id) |
+
+### Contact Tables
+| Table | 概要 |
+|-------|------|
+| `contact_inquiries` | お問い合わせ (user_id, category, subject, message, status, admin_notes) |
 
 ### System Tables
 | Table | 概要 |
@@ -1852,6 +1866,57 @@ class BlogCompletionOutput(BaseModel):
 - **記憶の即時更新**: コード変更を完了した直後に CLAUDE.md を更新せず、ユーザーに「また記憶してないでしょ」と指摘された。**変更を加えたら、次のユーザー応答の前に必ず CLAUDE.md を更新する。これは最優先の義務。**
 - **Framer Motion `transition` の `exit` キー**: `transition={{ exit: { duration: 0.35 } }}` は型エラー。正しくは `exit={{ ..., transition: { duration: 0.35 } }}` — exit prop 内に transition を入れる。ビルドで初めて気付くのではなく、書く時点で型を意識すべき。
 - **`bun run build` を使う**: ユーザーに指摘されたとおり、`npx next build` ではなく `bun run build` を使用すること。
+
+### 28. お問い合わせ機能 (2026-02-19)
+
+**概要**: ユーザーがサイドバーからお問い合わせを送信でき、管理者がアドミンページから確認・対応できる機能。設定したメールアドレスにも通知が送信される。
+
+**DBマイグレーション**: `shared/supabase/migrations/20260219000001_add_contact_inquiries.sql`
+- `contact_inquiries` テーブル: id, user_id, user_email, user_name, category, subject, message, status, admin_notes, created_at, updated_at
+- カテゴリ: general, bug_report, feature_request, billing, other
+- ステータス: new, in_progress, resolved, closed
+- RLSポリシー: ユーザーは自身の問い合わせのみ参照可、サービスロールはフルアクセス
+
+**バックエンド新規ドメイン**: `backend/app/domains/contact/`
+- `schemas.py` — InquiryCategory, InquiryStatus, ContactInquiryCreate, ContactInquiryResponse, ContactInquiryList, ContactInquiryStatusUpdate
+- `service.py` — ContactService (create_inquiry, get_inquiries, get_inquiry_by_id, update_inquiry_status, get_user_inquiries, _send_notification_email)
+- `endpoints.py` — 以下のエンドポイント:
+  | Method | Path | 概要 |
+  |--------|------|------|
+  | POST | `/contact/` | お問い合わせ送信（認証ユーザー） |
+  | GET | `/contact/my` | 自分の問い合わせ履歴 |
+  | GET | `/contact/admin` | 全問い合わせ一覧（管理者用、ステータスフィルタ対応） |
+  | GET | `/contact/admin/{id}` | 問い合わせ詳細（管理者用） |
+  | PATCH | `/contact/admin/{id}/status` | ステータス更新（管理者用） |
+- `backend/app/api/router.py` に contactルーター追加 (`prefix="/contact"`)
+
+**メール通知**: Resend API (httpx経由、追加パッケージ不要)
+- `backend/app/core/config.py` に3つの設定追加:
+  - `RESEND_API_KEY` — Resend APIキー
+  - `RESEND_FROM_DOMAIN` — 送信元ドメイン（デフォルト: resend.dev）
+  - `CONTACT_NOTIFICATION_EMAIL` — 通知先メールアドレス
+- 未設定時はDB保存のみ（メール送信スキップ）。メール送信失敗時もお問い合わせ自体は成功扱い
+
+**フロントエンド**:
+- `frontend/src/app/(settings)/settings/contact/page.tsx` (新規) — お問い合わせフォーム
+  - カテゴリ選択、件名、本文の入力フォーム
+  - 送信成功メッセージ表示
+  - お問い合わせ履歴（折りたたみ表示、ステータスバッジ、管理者メモ表示）
+  - `(settings)` レイアウト配下のためサブスク不要でアクセス可能
+- `frontend/src/app/(admin)/admin/inquiries/page.tsx` (新規) — 管理者用お問い合わせ管理
+  - ステータス別KPIカード（new/in_progress/resolved/closed の件数）
+  - ステータスフィルタ
+  - 問い合わせ一覧（展開/折りたたみ）
+  - ユーザー情報・メッセージ表示
+  - ステータス変更 + 管理者メモ入力
+- `frontend/src/components/constant/route.ts` — Settingsグループに「サポート」セクション追加（お問い合わせリンク）
+- `frontend/src/app/(admin)/admin/layout.tsx` — 管理者ナビに「お問い合わせ」追加 (MessageSquareアイコン)
+- `frontend/src/app/(tools)/help/home/page.tsx` — お問い合わせリンクを `/help/contact` → `/settings/contact` に変更
+- `frontend/src/components/constant/route.ts` — Helpグループのお問い合わせリンクも `/settings/contact` に変更
+
+**ルーティング設計**:
+- ユーザー向け: `/settings/contact` — `(settings)` レイアウト（SubscriptionGuard なし）
+- 管理者向け: `/admin/inquiries` — `(admin)` レイアウト（@shintairiku.jp限定）
 
 > ## **【最重要・再掲】記憶の更新は絶対に忘れるな**
 > **このファイルの冒頭にも書いたが、改めて念押しする。**
