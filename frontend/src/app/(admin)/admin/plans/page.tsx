@@ -288,14 +288,14 @@ export default function PlansPage() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
-          <h2 className="text-2xl font-bold tracking-tight">プラン設定</h2>
-          <p className="text-muted-foreground mt-1">
+          <h2 className="text-xl sm:text-2xl font-bold tracking-tight">プラン設定</h2>
+          <p className="text-muted-foreground text-sm mt-1">
             プランティアの月間記事上限、アドオン単位、Stripe Price ID を管理します
           </p>
         </div>
-        <Button onClick={() => { setFormData(defaultFormData); setFormError(null); setCreateOpen(true); }}>
+        <Button className="self-start sm:self-auto shrink-0" onClick={() => { setFormData(defaultFormData); setFormError(null); setCreateOpen(true); }}>
           <Plus className="h-4 w-4 mr-2" />
           新規作成
         </Button>
@@ -325,19 +325,19 @@ export default function PlansPage() {
       )}
 
       {/* Table */}
-      <div className="rounded-lg border bg-white">
+      <div className="rounded-lg border bg-white overflow-x-auto">
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead className="w-[100px]">ID</TableHead>
-              <TableHead>名前</TableHead>
-              <TableHead>Stripe Price ID</TableHead>
-              <TableHead className="text-right">月間上限</TableHead>
-              <TableHead className="text-right">アドオン単位</TableHead>
-              <TableHead className="text-right">月額 (表示用)</TableHead>
-              <TableHead className="text-center">表示順</TableHead>
+              <TableHead className="min-w-[80px]">ID</TableHead>
+              <TableHead className="min-w-[100px]">名前</TableHead>
+              <TableHead className="min-w-[140px]">Stripe Price ID</TableHead>
+              <TableHead className="text-right whitespace-nowrap">月間上限</TableHead>
+              <TableHead className="text-right whitespace-nowrap">アドオン単位</TableHead>
+              <TableHead className="text-right whitespace-nowrap">月額 (表示用)</TableHead>
+              <TableHead className="text-center whitespace-nowrap">表示順</TableHead>
               <TableHead className="text-center">ステータス</TableHead>
-              <TableHead className="text-right">操作</TableHead>
+              <TableHead className="text-right min-w-[160px]">操作</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -533,76 +533,74 @@ function TierForm({
   return (
     <div className="grid gap-4 py-4">
       {isNew && (
-        <div className="grid grid-cols-4 items-center gap-4">
-          <Label htmlFor="tier-id" className="text-right">ID</Label>
+        <div className="space-y-1.5">
+          <Label htmlFor="tier-id">ID</Label>
           <Input
             id="tier-id"
             value={formData.id}
             onChange={(e) => onChange({ ...formData, id: e.target.value })}
             placeholder="例: default, pro, enterprise"
-            className="col-span-3"
           />
         </div>
       )}
-      <div className="grid grid-cols-4 items-center gap-4">
-        <Label htmlFor="tier-name" className="text-right">名前</Label>
+      <div className="space-y-1.5">
+        <Label htmlFor="tier-name">名前</Label>
         <Input
           id="tier-name"
           value={formData.name}
           onChange={(e) => onChange({ ...formData, name: e.target.value })}
           placeholder="例: スタンダードプラン"
-          className="col-span-3"
         />
       </div>
-      <div className="grid grid-cols-4 items-center gap-4">
-        <Label htmlFor="tier-price-id" className="text-right">Stripe Price ID</Label>
+      <div className="space-y-1.5">
+        <Label htmlFor="tier-price-id">Stripe Price ID</Label>
         <Input
           id="tier-price-id"
           value={formData.stripe_price_id}
           onChange={(e) => onChange({ ...formData, stripe_price_id: e.target.value })}
           placeholder="例: price_1Abc..."
-          className="col-span-3 font-mono text-sm"
+          className="font-mono text-sm"
         />
       </div>
-      <div className="grid grid-cols-4 items-center gap-4">
-        <Label htmlFor="tier-limit" className="text-right">月間上限</Label>
-        <Input
-          id="tier-limit"
-          type="number"
-          value={formData.monthly_article_limit}
-          onChange={(e) => onChange({ ...formData, monthly_article_limit: parseInt(e.target.value) || 0 })}
-          className="col-span-3"
-        />
+      <div className="grid grid-cols-2 gap-4">
+        <div className="space-y-1.5">
+          <Label htmlFor="tier-limit">月間上限</Label>
+          <Input
+            id="tier-limit"
+            type="number"
+            value={formData.monthly_article_limit}
+            onChange={(e) => onChange({ ...formData, monthly_article_limit: parseInt(e.target.value) || 0 })}
+          />
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="tier-addon">アドオン単位</Label>
+          <Input
+            id="tier-addon"
+            type="number"
+            value={formData.addon_unit_amount}
+            onChange={(e) => onChange({ ...formData, addon_unit_amount: parseInt(e.target.value) || 0 })}
+          />
+        </div>
       </div>
-      <div className="grid grid-cols-4 items-center gap-4">
-        <Label htmlFor="tier-addon" className="text-right">アドオン単位</Label>
-        <Input
-          id="tier-addon"
-          type="number"
-          value={formData.addon_unit_amount}
-          onChange={(e) => onChange({ ...formData, addon_unit_amount: parseInt(e.target.value) || 0 })}
-          className="col-span-3"
-        />
-      </div>
-      <div className="grid grid-cols-4 items-center gap-4">
-        <Label htmlFor="tier-price" className="text-right">月額 (円)</Label>
-        <Input
-          id="tier-price"
-          type="number"
-          value={formData.price_amount}
-          onChange={(e) => onChange({ ...formData, price_amount: parseInt(e.target.value) || 0 })}
-          className="col-span-3"
-        />
-      </div>
-      <div className="grid grid-cols-4 items-center gap-4">
-        <Label htmlFor="tier-order" className="text-right">表示順</Label>
-        <Input
-          id="tier-order"
-          type="number"
-          value={formData.display_order}
-          onChange={(e) => onChange({ ...formData, display_order: parseInt(e.target.value) || 0 })}
-          className="col-span-3"
-        />
+      <div className="grid grid-cols-2 gap-4">
+        <div className="space-y-1.5">
+          <Label htmlFor="tier-price">月額 (円)</Label>
+          <Input
+            id="tier-price"
+            type="number"
+            value={formData.price_amount}
+            onChange={(e) => onChange({ ...formData, price_amount: parseInt(e.target.value) || 0 })}
+          />
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="tier-order">表示順</Label>
+          <Input
+            id="tier-order"
+            type="number"
+            value={formData.display_order}
+            onChange={(e) => onChange({ ...formData, display_order: parseInt(e.target.value) || 0 })}
+          />
+        </div>
       </div>
     </div>
   );
