@@ -219,7 +219,7 @@ export async function GET() {
       } else if (hasActiveAccess(userSub) || hasActiveOrgAccess(orgSubscription)) {
         // usage_tracking レコードがないがサブスクリプションはアクティブな場合
         // plan_tier_id からフォールバック表示を提供
-        const planTierId = (userSub as Record<string, unknown>).plan_tier_id as string || 'free';
+        const planTierId = (userSub as unknown as Record<string, unknown>).plan_tier_id as string || 'free';
         try {
           const { data: tierData } = await supabase
             .from('plan_tiers')

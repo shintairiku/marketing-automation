@@ -30,6 +30,38 @@
 
 ---
 
+## Cloud Sandbox Claude Code 必須手順
+
+> **クラウドサンドボックス環境（claude.ai の Claude Code）で作業する場合の必須手順。**
+> ローカルCLI版では不要だが、サンドボックスでは `node_modules` が存在しないため最初に依存インストールが必要。
+
+### 作業開始時（必須）
+```bash
+# 1. Frontend 依存インストール（node_modules がないため必須）
+cd frontend && bun install && cd ..
+
+# 2. Backend 依存インストール（必要に応じて）
+cd backend && uv sync && cd ..
+```
+
+### プッシュ前（必須）
+**コードを変更したら、コミット・プッシュ前に必ず以下を実行すること。**
+```bash
+# 1. Lint チェック（Error がないことを確認。Warning は許容）
+cd frontend && bun run lint
+
+# 2. ビルドチェック（exit code 0 を確認）
+cd frontend && bun run build
+```
+**lint または build が失敗する状態でプッシュしてはならない。必ず修正してからプッシュすること。**
+
+### ビルド用プレースホルダー .env.local
+サンドボックスでは本番の環境変数がないため、ビルドの page data collection フェーズで `ReferenceError: Reference to undefined env var` が発生する。
+`frontend/.env.local` にプレースホルダー値を設定すること（`.gitignore` 済み）。
+`.env.example` をコピーしてプレースホルダー値を入れればOK。
+
+---
+
 ## プロジェクト概要
 
 **BlogAI / Marketing Automation Platform** — AIを活用したSEO記事・ブログ記事の自動生成SaaSプラットフォーム。
@@ -1965,10 +1997,40 @@ CONTACT_NOTIFICATION_EMAIL=admin@yourdomain.com
 - **フリープラン判定**: `hasIndividualPlan && !stripe_subscription_id` — Stripeサブスクなしのアクティブユーザー
 - **有料プラン非表示**: `isFreePlan` フラグでプラン選択、アドオン管理、Stripe Portal、FAQ を条件非表示
 
+### 33. Google Fonts → セルフホスト移行 (2026-02-20)
+
+**問題**: `next/font/google` がビルド時に Google Fonts (`fonts.googleapis.com`) からフォントをダウンロードしようとするが、クラウドサンドボックス環境ではネットワーク制限でアクセスできずビルドが失敗していた。
+
+**解決**: `@fontsource-variable/noto-sans-jp` パッケージでフォントをセルフホスト。
+
+**変更ファイル**:
+| ファイル | 変更内容 |
+|---------|---------|
+| `frontend/src/app/layout.tsx` | `next/font/google` の `Noto_Sans_JP` import 削除、CSS variable 設定削除、body から `notoSansJP.variable` 削除 |
+| `frontend/src/styles/globals.css` | `@import '@fontsource-variable/noto-sans-jp';` 追加 |
+| `frontend/tailwind.config.ts` | `var(--font-noto-sans-jp)` → `Noto Sans JP Variable` に変更 |
+| `frontend/package.json` | `@fontsource-variable/noto-sans-jp` v5.2.10 追加 |
+
+**仕組み**:
+- fontsource パッケージが 120+ の woff2 サブセットファイルを `node_modules` に同梱
+- CSS `@font-face` + `unicode-range` でブラウザが必要なサブセットのみダウンロード
+- フォントは `Noto Sans JP Variable` (可変フォント、weight 100-900)
+- **ビルド時の外部ネットワークアクセス不要**
+- フォントの見た目・品質は Google Fonts から配信されるものと同一
+
+**その他の修正**:
+- `frontend/src/app/(admin)/admin/inquiries/page.tsx` — ESLint import ソートエラー修正
+- `frontend/src/app/api/subscription/status/route.ts` — TypeScript型キャストエラー修正 (`as Record` → `as unknown as Record`)
+
 ### 2026-02-10 自己改善
 - **再検証の重要性**: 実装完了後のユーザー再検証要求で、`useArticles.ts` と `admin/plans/page.tsx` に `USE_PROXY` パターンが欠けているバグを発見した。最初の実装時にサーバーサイドAPI Routes (9ファイル) のみに注力し、クライアントサイドhooksの直接fetch呼び出しを見落としていた。**サーバーサイド→バックエンド通信だけでなく、ブラウザ→バックエンド通信パスも全て確認すべき。**
 - **FastAPI末尾スラッシュ + Cloud Run scheme 変換の複合問題**: `frontend/src/app/api/proxy/[...path]/route.ts` の `ensureTrailingSlash()` が `/blog/sites` を `/blog/sites/` に変換し、FastAPI (`redirect_slashes=True`) が 307 で `/blog/sites` へ戻す。さらに Cloud Run の `Location` が `http://...run.app/...` になり、プロキシがそれを手動追従すると Cloud Run 側で 302/307 が連鎖する。**手動リダイレクト追従を使う場合は、(1) 末尾スラッシュ強制をしない、(2) `Location` が `http://` でも `https://` に正規化する、の両方を実施すべき。**
 - **リダイレクト処理の不完全実装**: これまでの実装は「1回だけ追従」だったため、Cloud Run の多段リダイレクト（FastAPI 307 + Cloud Run 302）で取りこぼしが起きた。**手動追従ロジックは最初から最大ホップ数を持つループ実装にするべき。**
+
+### 2026-02-20 自己改善
+- **クラウドサンドボックスでの `bun install` 忘れ**: サンドボックス環境では `node_modules` が存在しない。ユーザーに「毎回ビルドエラー起きてる」と指摘された。**サンドボックスでは作業開始時に必ず `bun install` を実行すること。**
+- **プッシュ前のlint/build検証忘れ**: ローカルCLIでは実行していたが、サンドボックスでは省略していた。**環境に関係なく、プッシュ前に `bun run lint` + `bun run build` を必ず実行すること。**
+- **`next/font/google` のビルド時ネットワーク依存**: Google Fonts に依存する `next/font/google` はネットワーク制限環境（CI、サンドボックス等）でビルドが失敗する。**`@fontsource-variable` でセルフホストすればビルド時の外部依存を排除できる。**
 
 ### 2026-02-02 自己改善
 - **記憶の即時更新**: コード変更を完了した直後に CLAUDE.md を更新せず、ユーザーに「また記憶してないでしょ」と指摘された。**変更を加えたら、次のユーザー応答の前に必ず CLAUDE.md を更新する。これは最優先の義務。**
