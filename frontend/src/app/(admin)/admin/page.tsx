@@ -468,12 +468,12 @@ export default function AdminDashboardPage() {
   return (
     <div className="space-y-6 p-1">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">
+          <h1 className="text-xl sm:text-2xl font-bold tracking-tight">
             管理者ダッシュボード
           </h1>
-          <p className="text-muted-foreground text-sm mt-1">
+          <p className="text-muted-foreground text-xs sm:text-sm mt-1">
             システム全体の状況を確認できます
           </p>
         </div>
@@ -485,7 +485,7 @@ export default function AdminDashboardPage() {
             activity.refetch();
             usage.refetch();
           }}
-          className="inline-flex items-center gap-2 rounded-md border px-3 py-2 text-sm font-medium hover:bg-accent transition-colors"
+          className="inline-flex items-center gap-2 rounded-md border px-3 py-2 text-sm font-medium hover:bg-accent transition-colors self-start sm:self-auto shrink-0"
         >
           <RefreshCw className="h-4 w-4" />
           更新
@@ -621,7 +621,7 @@ export default function AdminDashboardPage() {
                 <CardDescription>過去30日間の日別生成数</CardDescription>
               </CardHeader>
               <CardContent>
-                <div className="h-[300px] w-full">
+                <div className="h-[220px] sm:h-[300px] w-full">
                   <ResponsiveContainer width="100%" height="100%">
                     <AreaChart
                       data={chartData}
@@ -832,15 +832,15 @@ export default function AdminDashboardPage() {
                 <div className="space-y-4">
                   {highUsageUsers.slice(0, 8).map((user) => (
                     <div key={user.user_id} className="space-y-1.5">
-                      <div className="flex items-center justify-between">
+                      <div className="flex items-center justify-between gap-2">
                         <Link
                           href={`/admin/users/${user.user_id}`}
-                          className="text-sm truncate max-w-[180px] hover:text-custom-orange transition-colors"
+                          className="text-sm truncate min-w-0 hover:text-custom-orange transition-colors"
                         >
                           {truncateEmail(user.email)}
                         </Link>
-                        <div className="flex items-center gap-2">
-                          <span className="text-xs text-muted-foreground">
+                        <div className="flex items-center gap-2 shrink-0">
+                          <span className="text-xs text-muted-foreground whitespace-nowrap">
                             {user.articles_generated}/{user.total_limit}
                           </span>
                           <Badge

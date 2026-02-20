@@ -596,7 +596,7 @@ export default function AdminBlogUsagePage() {
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium">ユーザー別コスト (Top 10)</CardTitle>
           </CardHeader>
-          <CardContent>
+          <CardContent className="overflow-x-auto">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -650,7 +650,7 @@ export default function AdminBlogUsagePage() {
             </button>
           </CollapsibleTrigger>
           <CollapsibleContent>
-            <div className="px-6 pb-4">
+            <div className="px-6 pb-4 overflow-x-auto">
               <Table>
                 <TableHeader>
                   <TableRow>

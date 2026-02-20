@@ -201,9 +201,9 @@ function InfoRow({
   children: React.ReactNode;
 }) {
   return (
-    <div className="flex items-start justify-between gap-4 py-2">
+    <div className="flex items-start justify-between gap-2 py-2">
       <span className="text-sm text-muted-foreground shrink-0">{label}</span>
-      <div className="text-sm text-right">{children}</div>
+      <div className="text-sm text-right min-w-0 break-all">{children}</div>
     </div>
   );
 }
@@ -384,7 +384,7 @@ export default function AdminUserDetailPage() {
           </div>
         )}
         <div className="space-y-1 min-w-0">
-          <h1 className="text-2xl font-bold truncate">
+          <h1 className="text-xl sm:text-2xl font-bold truncate">
             {user.full_name || '名前未設定'}
           </h1>
           <p className="text-sm text-muted-foreground">{user.email || 'メール未設定'}</p>

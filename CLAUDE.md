@@ -2040,6 +2040,39 @@ CONTACT_NOTIFICATION_EMAIL=admin@yourdomain.com
 - **Framer Motion `transition` の `exit` キー**: `transition={{ exit: { duration: 0.35 } }}` は型エラー。正しくは `exit={{ ..., transition: { duration: 0.35 } }}` — exit prop 内に transition を入れる。ビルドで初めて気付くのではなく、書く時点で型を意識すべき。
 - **`bun run build` を使う**: ユーザーに指摘されたとおり、`npx next build` ではなく `bun run build` を使用すること。
 
+### 34. 管理者ページ レスポンシブ対応 (2026-02-20)
+
+**概要**: 管理者ページ全体をスマホ対応のレスポンシブデザインに改修。7ファイルを修正。
+
+**変更ファイル一覧**:
+
+| ファイル | 変更種別 | 概要 |
+|---------|---------|------|
+| `frontend/src/app/(admin)/admin/layout.tsx` | 全面リライト | モバイル対応ハンバーガーメニュー付きサイドバー |
+| `frontend/src/app/(admin)/admin/page.tsx` | 改修 | ヘッダーモバイルスタック、チャート高さ調整、上限ユーザーリストのtruncate修正 |
+| `frontend/src/app/(admin)/admin/users/page.tsx` | 改修 | ヘッダーサイズ調整、テーブルカラム幅の最適化 |
+| `frontend/src/app/(admin)/admin/users/[userId]/page.tsx` | 改修 | InfoRow の break-all、h1サイズ調整 |
+| `frontend/src/app/(admin)/admin/plans/page.tsx` | 改修 | **overflow-x-auto追加(CRITICAL)**、ヘッダーモバイルスタック、フォーム縦並びレイアウト |
+| `frontend/src/app/(admin)/admin/blog-usage/page.tsx` | 改修 | ユーザーテーブル・モデル料金テーブルにoverflow-x-auto追加 |
+| `frontend/src/app/(admin)/admin/inquiries/page.tsx` | 改修 | ヘッダーモバイルスタック、ステータスカードサイズ調整、詳細パネル1カラム化、サマリー行レスポンシブ化 |
+
+**レイアウト変更の設計**:
+- **デスクトップ (md+)**: 従来通り左サイドバー `w-64` + メインコンテンツ
+- **モバイル (<md)**: ハンバーガーメニュー → オーバーレイ + スライドインサイドバー
+  - ヘッダーにハンバーガーアイコン (`Menu`/`X`) を追加
+  - `fixed` + `translate-x` でスライドイン/アウトアニメーション
+  - 背景オーバーレイ (`bg-black/30`) でコンテンツ領域をクリックで閉じる
+  - ルート遷移時にサイドバーを自動クローズ (`useEffect` on `pathname`)
+- **ヘッダー**: `sticky top-0 z-30` でスクロール時に固定
+- **ナビラベル**: 短縮（「ダッシュボード」→「Dashboard」等）でモバイル幅に最適化
+
+**修正した主要なレスポンシブ問題**:
+1. **plans/page.tsx テーブルにoverflow-x-auto欠落**: 9カラムテーブルがモバイルではみ出し。`overflow-x-auto` 追加で水平スクロール対応
+2. **inquiries/page.tsx grid-cols-3ステータスカード**: アイコン・テキストサイズをsm:ブレークポイントで段階的に
+3. **inquiries/page.tsx 詳細パネルgrid-cols-2**: `grid-cols-1 sm:grid-cols-2` に変更
+4. **全ページのヘッダー**: `flex-col sm:flex-row` でモバイル縦並び対応
+5. **plans TierForm**: `grid-cols-4` (ラベル右寄せ) → 縦並び `space-y-1.5` + 数値フィールドは `grid-cols-2` で2列に
+
 > ## **【最重要・再掲】記憶の更新は絶対に忘れるな**
 > **このファイルの冒頭にも書いたが、改めて念押しする。**
 > 作業が完了したら、コミットする前に、必ずこのファイルに変更内容を記録せよ。
