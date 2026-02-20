@@ -7,6 +7,7 @@ import {
   ChevronUp,
   Clock,
   Eye,
+  Gift,
   Loader2,
   Mail,
   MessageSquare,
@@ -16,6 +17,7 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
 import {
   Select,
   SelectContent,
@@ -51,6 +53,7 @@ const CATEGORY_LABELS: Record<string, string> = {
   feature_request: '機能リクエスト',
   billing: '請求',
   account: 'アカウント',
+  article_limit_increase: '記事追加リクエスト',
   other: 'その他',
 };
 
@@ -80,6 +83,9 @@ export default function AdminInquiriesPage() {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
   const [adminNotes, setAdminNotes] = useState<Record<string, string>>({});
+  const [grantAmounts, setGrantAmounts] = useState<Record<string, number>>({});
+  const [grantingId, setGrantingId] = useState<string | null>(null);
+  const [grantResults, setGrantResults] = useState<Record<string, string>>({});
 
   const fetchInquiries = useCallback(async () => {
     try {
@@ -137,6 +143,34 @@ export default function AdminInquiriesPage() {
       console.error('Failed to update inquiry:', err);
     } finally {
       setUpdatingId(null);
+    }
+  }
+
+  async function grantArticles(userId: string, inquiryId: string) {
+    const amount = grantAmounts[inquiryId] || 5;
+    if (amount <= 0) return;
+    setGrantingId(inquiryId);
+    try {
+      const token = await getToken();
+      const res = await fetch(`${API_BASE}/admin/users/${userId}/grant-articles`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ amount }),
+      });
+      if (!res.ok) throw new Error('Failed to grant articles');
+      const data = await res.json();
+      setGrantResults((prev) => ({
+        ...prev,
+        [inquiryId]: `${amount}件付与完了（残り${data.remaining}件）`,
+      }));
+    } catch (err) {
+      console.error('Failed to grant articles:', err);
+      setGrantResults((prev) => ({ ...prev, [inquiryId]: '付与に失敗しました' }));
+    } finally {
+      setGrantingId(null);
     }
   }
 
@@ -281,6 +315,48 @@ export default function AdminInquiriesPage() {
                         {inq.message}
                       </div>
                     </div>
+
+                    {/* Quick grant for article_limit_increase */}
+                    {inq.category === 'article_limit_increase' && (
+                      <div className="p-3 rounded-lg bg-amber-50 border border-amber-200 space-y-2">
+                        <p className="text-sm font-medium text-amber-800 flex items-center gap-1">
+                          <Gift className="h-4 w-4" />
+                          記事追加付与
+                        </p>
+                        <div className="flex items-center gap-2">
+                          <Input
+                            type="number"
+                            min={1}
+                            max={100}
+                            value={grantAmounts[inq.id] ?? 5}
+                            onChange={(e) =>
+                              setGrantAmounts((prev) => ({
+                                ...prev,
+                                [inq.id]: parseInt(e.target.value) || 0,
+                              }))
+                            }
+                            className="h-8 w-20 text-sm"
+                          />
+                          <span className="text-xs text-muted-foreground">件</span>
+                          <Button
+                            size="sm"
+                            disabled={grantingId === inq.id}
+                            onClick={() => grantArticles(inq.user_id, inq.id)}
+                            className="gap-1"
+                          >
+                            {grantingId === inq.id ? (
+                              <Loader2 className="h-3 w-3 animate-spin" />
+                            ) : (
+                              <Gift className="h-3 w-3" />
+                            )}
+                            付与する
+                          </Button>
+                        </div>
+                        {grantResults[inq.id] && (
+                          <p className="text-xs text-emerald-700">{grantResults[inq.id]}</p>
+                        )}
+                      </div>
+                    )}
 
                     {/* Admin note */}
                     <div>

@@ -1,8 +1,10 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { CheckCircle, Loader2, MessageSquare, Send } from 'lucide-react';
 
+import { useSubscription } from '@/components/subscription/subscription-guard';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -27,12 +29,18 @@ const CATEGORIES = [
   { value: 'feature_request', label: '機能リクエスト' },
   { value: 'billing', label: '請求・お支払い' },
   { value: 'account', label: 'アカウント関連' },
+  { value: 'article_limit_increase', label: '記事生成数の追加リクエスト' },
   { value: 'other', label: 'その他' },
 ];
 
 export default function ContactPage() {
   const { getToken } = useAuth();
   const { user } = useUser();
+  const searchParams = useSearchParams();
+  const { usage } = useSubscription();
+
+  const initialCategory = searchParams.get('category') || 'general';
+  const isArticleLimitRequest = initialCategory === 'article_limit_increase';
 
   const [name, setName] = useState(
     () => [user?.firstName, user?.lastName].filter(Boolean).join(' ') || ''
@@ -40,9 +48,23 @@ export default function ContactPage() {
   const [email, setEmail] = useState(
     () => user?.primaryEmailAddress?.emailAddress || ''
   );
-  const [category, setCategory] = useState('general');
-  const [subject, setSubject] = useState('');
-  const [message, setMessage] = useState('');
+  const [category, setCategory] = useState(initialCategory);
+  const [subject, setSubject] = useState(
+    () => isArticleLimitRequest ? '記事生成数の追加リクエスト' : ''
+  );
+  const [message, setMessage] = useState(() => {
+    if (isArticleLimitRequest && usage) {
+      return `現在の使用状況:\n- 生成済み: ${usage.articles_generated}件\n- 上限: ${usage.total_limit}件\n\n追加で記事生成枠をリクエストします。`;
+    }
+    return '';
+  });
+  // usage データが後から届いたときに自動入力
+  useEffect(() => {
+    if (isArticleLimitRequest && usage && !message) {
+      setMessage(`現在の使用状況:\n- 生成済み: ${usage.articles_generated}件\n- 上限: ${usage.total_limit}件\n\n追加で記事生成枠をリクエストします。`);
+    }
+  }, [usage, isArticleLimitRequest, message]);
+
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [error, setError] = useState('');

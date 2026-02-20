@@ -12,6 +12,7 @@ class UsageInfo(BaseModel):
     articles_generated: int = 0
     articles_limit: int = 0
     addon_articles_limit: int = 0
+    admin_granted_articles: int = 0
     total_limit: int = 0
     remaining: int = 0
     billing_period_start: Optional[datetime] = None
@@ -43,6 +44,7 @@ class AdminUserUsage(BaseModel):
     articles_generated: int = 0
     articles_limit: int = 0
     addon_articles_limit: int = 0
+    admin_granted_articles: int = 0
     total_limit: int = 0
     usage_percentage: float = 0.0
     plan_tier: Optional[str] = None

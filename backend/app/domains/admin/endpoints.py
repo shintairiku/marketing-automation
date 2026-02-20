@@ -25,7 +25,10 @@ from app.domains.admin.schemas import (
     CreatePlanTierRequest,
     UpdatePlanTierRequest,
     ApplyLimitsResult,
+    GrantArticlesRequest,
+    GrantArticlesResponse,
 )
+from app.domains.usage.service import usage_service
 
 logger = logging.getLogger(__name__)
 
@@ -241,6 +244,45 @@ async def update_user_subscription(
     except Exception as e:
         logger.error(f"Error updating subscription for user {user_id}: {e}")
         raise HTTPException(status_code=500, detail="Failed to update subscription")
+
+
+@router.post("/users/{user_id}/grant-articles", response_model=GrantArticlesResponse)
+async def grant_articles(
+    user_id: str,
+    request: GrantArticlesRequest,
+    admin_email: str = Depends(get_admin_user_email_from_token),
+):
+    """
+    Grant additional articles to a user (admin only)
+    """
+    logger.info(
+        f"Admin user {admin_email} granting {request.amount} articles to user {user_id}"
+    )
+
+    if request.amount <= 0:
+        raise HTTPException(status_code=400, detail="Amount must be positive")
+
+    try:
+        result = usage_service.grant_articles(user_id=user_id, amount=request.amount)
+        if not result:
+            raise HTTPException(
+                status_code=404,
+                detail="User not found or no usage tracking record"
+            )
+        return GrantArticlesResponse(
+            success=True,
+            user_id=user_id,
+            admin_granted_articles=result["admin_granted_articles"],
+            total_limit=result["total_limit"],
+            articles_generated=result["articles_generated"],
+            remaining=result["remaining"],
+            message=f"{request.amount}件の記事を付与しました",
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error granting articles to user {user_id}: {e}")
+        raise HTTPException(status_code=500, detail="Failed to grant articles")
 
 
 # ============================================

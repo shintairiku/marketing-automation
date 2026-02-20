@@ -476,14 +476,14 @@ class AdminService:
         """Get per-user usage list"""
         try:
             now = datetime.now(timezone.utc)
-            response = supabase.from_("usage_tracking").select("user_id, articles_generated, articles_limit, addon_articles_limit").gte("billing_period_end", now.isoformat()).lte("billing_period_start", now.isoformat()).execute()
+            response = supabase.from_("usage_tracking").select("user_id, articles_generated, articles_limit, addon_articles_limit, admin_granted_articles").gte("billing_period_end", now.isoformat()).lte("billing_period_start", now.isoformat()).execute()
 
             sub_map = self._get_subscription_map()
             items = []
             for record in (response.data or []):
                 user_id = record.get("user_id", "")
                 articles_generated = record.get("articles_generated", 0)
-                total_limit = record.get("articles_limit", 0) + record.get("addon_articles_limit", 0)
+                total_limit = record.get("articles_limit", 0) + record.get("addon_articles_limit", 0) + record.get("admin_granted_articles", 0)
                 usage_pct = (articles_generated / total_limit * 100) if total_limit > 0 else 0
 
                 items.append(UserUsageItem(
@@ -778,12 +778,14 @@ class AdminService:
             if usage_data:
                 articles_limit = usage_data.get("articles_limit", 0)
                 addon_limit = usage_data.get("addon_articles_limit", 0)
-                total_limit = articles_limit + addon_limit
+                admin_granted = usage_data.get("admin_granted_articles", 0)
+                total_limit = articles_limit + addon_limit + admin_granted
                 generated = usage_data.get("articles_generated", 0)
                 usage = UserUsageDetail(
                     articles_generated=generated,
                     articles_limit=articles_limit,
                     addon_articles_limit=addon_limit,
+                    admin_granted_articles=admin_granted,
                     total_limit=total_limit,
                     remaining=max(0, total_limit - generated),
                     billing_period_start=usage_data.get("billing_period_start"),

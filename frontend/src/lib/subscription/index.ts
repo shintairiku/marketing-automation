@@ -118,6 +118,7 @@ export interface UsageInfo {
   articles_generated: number;
   articles_limit: number;
   addon_articles_limit: number;
+  admin_granted_articles: number;
   total_limit: number;
   remaining: number;
   billing_period_start: string | null;

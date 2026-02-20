@@ -72,7 +72,7 @@ async def get_admin_usage_stats(
         near_limit = 0
         if this_month.data:
             for r in this_month.data:
-                total_limit = r.get("articles_limit", 0) + r.get("addon_articles_limit", 0)
+                total_limit = r.get("articles_limit", 0) + r.get("addon_articles_limit", 0) + r.get("admin_granted_articles", 0)
                 if total_limit > 0 and r["articles_generated"] / total_limit >= 0.8:
                     near_limit += 1
 
@@ -120,7 +120,8 @@ async def get_admin_user_usage(
         for r in result.data:
             uid = r.get("user_id") or ""
             user_info = user_map.get(uid, {})
-            total_limit = r["articles_limit"] + r["addon_articles_limit"]
+            admin_granted = r.get("admin_granted_articles", 0)
+            total_limit = r["articles_limit"] + r["addon_articles_limit"] + admin_granted
             pct = (r["articles_generated"] / total_limit * 100) if total_limit > 0 else 0
 
             items.append(AdminUserUsage(
@@ -129,6 +130,7 @@ async def get_admin_user_usage(
                 articles_generated=r["articles_generated"],
                 articles_limit=r["articles_limit"],
                 addon_articles_limit=r["addon_articles_limit"],
+                admin_granted_articles=admin_granted,
                 total_limit=total_limit,
                 usage_percentage=round(pct, 1),
                 plan_tier=r.get("plan_tier_id"),

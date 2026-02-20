@@ -9,6 +9,7 @@ import {
   ArrowUpRight,
   CreditCard,
   FileText,
+  Gift,
   Loader2,
   RefreshCw,
   TrendingUp,
@@ -28,6 +29,7 @@ import {
 } from 'recharts';
 
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import {
   Card,
   CardContent,
@@ -35,6 +37,7 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
 import { Progress } from '@/components/ui/progress';
 import { Skeleton } from '@/components/ui/skeleton';
 import { cn } from '@/utils/cn';
@@ -350,6 +353,8 @@ function PieChartTooltip({
 
 export default function AdminDashboardPage() {
   const { getToken } = useAuth();
+  const [grantAmounts, setGrantAmounts] = useState<Record<string, number>>({});
+  const [grantingUserId, setGrantingUserId] = useState<string | null>(null);
 
   const getTokenStable = useCallback(async () => {
     return getToken();
@@ -375,6 +380,30 @@ export default function AdminDashboardPage() {
     '/admin/usage/users',
     getTokenStable
   );
+
+  const handleGrantArticles = useCallback(async (userId: string) => {
+    const amount = grantAmounts[userId] || 5;
+    if (amount <= 0) return;
+    setGrantingUserId(userId);
+    try {
+      const token = await getToken();
+      const res = await fetch(`${baseURL}/admin/users/${userId}/grant-articles`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ amount }),
+      });
+      if (!res.ok) throw new Error('Failed to grant articles');
+      usage.refetch();
+      setGrantAmounts((prev) => ({ ...prev, [userId]: 5 }));
+    } catch (err) {
+      console.error('Failed to grant articles:', err);
+    } finally {
+      setGrantingUserId(null);
+    }
+  }, [getToken, grantAmounts, usage]);
 
   const articleGrowth = useMemo(() => {
     if (!overview.data) return 0;
@@ -804,9 +833,12 @@ export default function AdminDashboardPage() {
                   {highUsageUsers.slice(0, 8).map((user) => (
                     <div key={user.user_id} className="space-y-1.5">
                       <div className="flex items-center justify-between">
-                        <span className="text-sm truncate max-w-[200px]">
+                        <Link
+                          href={`/admin/users/${user.user_id}`}
+                          className="text-sm truncate max-w-[180px] hover:text-custom-orange transition-colors"
+                        >
                           {truncateEmail(user.email)}
-                        </span>
+                        </Link>
                         <div className="flex items-center gap-2">
                           <span className="text-xs text-muted-foreground">
                             {user.articles_generated}/{user.total_limit}
@@ -828,10 +860,41 @@ export default function AdminDashboardPage() {
                           </Badge>
                         </div>
                       </div>
-                      <Progress
-                        value={user.usage_percentage}
-                        className="h-2"
-                      />
+                      <div className="flex items-center gap-2">
+                        <Progress
+                          value={user.usage_percentage}
+                          className="h-2 flex-1"
+                        />
+                        <div className="flex items-center gap-1 shrink-0">
+                          <Input
+                            type="number"
+                            min={1}
+                            max={100}
+                            value={grantAmounts[user.user_id] ?? 5}
+                            onChange={(e) =>
+                              setGrantAmounts((prev) => ({
+                                ...prev,
+                                [user.user_id]: parseInt(e.target.value) || 0,
+                              }))
+                            }
+                            className="h-6 w-12 text-xs px-1 text-center"
+                          />
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="h-6 px-1.5 text-xs gap-0.5"
+                            disabled={grantingUserId === user.user_id}
+                            onClick={() => handleGrantArticles(user.user_id)}
+                          >
+                            {grantingUserId === user.user_id ? (
+                              <Loader2 className="h-3 w-3 animate-spin" />
+                            ) : (
+                              <Gift className="h-3 w-3" />
+                            )}
+                            付与
+                          </Button>
+                        </div>
+                      </div>
                     </div>
                   ))}
                 </div>

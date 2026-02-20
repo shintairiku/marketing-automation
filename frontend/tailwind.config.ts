@@ -65,8 +65,8 @@ const config: Config = {
         sm: 'calc(var(--radius) - 4px)',
       },
       fontFamily: {
-        sans: ['var(--font-noto-sans-jp)', ...fontFamily.sans],
-        alt: ['var(--font-noto-sans-jp)'],
+        sans: ['Noto Sans JP Variable', ...fontFamily.sans],
+        alt: ['Noto Sans JP Variable'],
       },
       keyframes: {
         'accordion-down': {

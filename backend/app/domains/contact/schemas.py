@@ -11,6 +11,7 @@ class InquiryCategory(str, Enum):
     feature_request = "feature_request"
     billing = "billing"
     account = "account"
+    article_limit_increase = "article_limit_increase"
     other = "other"
 
 
