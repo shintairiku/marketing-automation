@@ -47,13 +47,16 @@ cd backend && uv sync && cd ..
 ### プッシュ前（必須）
 **コードを変更したら、コミット・プッシュ前に必ず以下を実行すること。**
 ```bash
-# 1. Lint チェック（Error がないことを確認。Warning は許容）
+# 1. Backend Lint チェック（ruff、Error がないことを確認）
+cd backend && uv run python -m ruff check app
+
+# 2. Frontend Lint チェック（Error がないことを確認。Warning は許容）
 cd frontend && bun run lint
 
-# 2. ビルドチェック（exit code 0 を確認）
+# 3. Frontend ビルドチェック（exit code 0 を確認）
 cd frontend && bun run build
 ```
-**lint または build が失敗する状態でプッシュしてはならない。必ず修正してからプッシュすること。**
+**lint, ruff check, または build が失敗する状態でプッシュしてはならない。必ず修正してからプッシュすること。**
 
 ### ビルド用プレースホルダー .env.local
 サンドボックスでは本番の環境変数がないため、ビルドの page data collection フェーズで `ReferenceError: Reference to undefined env var` が発生する。

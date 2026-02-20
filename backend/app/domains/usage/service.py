@@ -350,7 +350,6 @@ class UsageLimitService:
     ) -> Optional[dict]:
         """フリープランユーザー用のトラッキングレコードを自動作成（月初〜月末）"""
         try:
-            from datetime import timedelta
             now = datetime.utcnow()
             # 月初
             start_dt = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
