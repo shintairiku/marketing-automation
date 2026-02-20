@@ -30,6 +30,7 @@ dependencies = [
     "ruff",
     "numpy",
     "httpx",
+    "resend>=2.22.0",
 ]
 
 [tool.ruff]

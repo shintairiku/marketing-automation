@@ -3,7 +3,7 @@
 import { PropsWithChildren, useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { Activity, Home, Layers, Users } from 'lucide-react';
+import { Activity, Home, Layers, MessageSquare, Users } from 'lucide-react';
 
 import { cn } from '@/utils/cn';
 import { useUser } from '@clerk/nextjs';
@@ -56,6 +56,11 @@ export default function AdminLayout({ children }: PropsWithChildren) {
       href: '/admin/blog-usage',
       label: '記事別Usage',
       icon: Activity,
+    },
+    {
+      href: '/admin/inquiries',
+      label: 'お問い合わせ',
+      icon: MessageSquare,
     },
     {
       href: '/admin/plans',

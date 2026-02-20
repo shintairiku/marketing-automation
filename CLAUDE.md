@@ -1843,6 +1843,65 @@ class BlogCompletionOutput(BaseModel):
 
 **フロントエンド変更なし**: 既存の `state.draft_preview_url` / `state.draft_edit_url` 条件分岐でボタンが表示される
 
+### 31. お問い合わせ機能 (2026-02-19)
+
+**概要**: ユーザーがサイドバーからお問い合わせを送信でき、管理者ページから確認・対応でき、設定したメールアドレスにも通知が飛ぶ機能。
+
+**DB マイグレーション**: `supabase/migrations/20260219100000_add_contact_inquiries.sql`
+- `contact_inquiries` テーブル: id(UUID PK), user_id, name, email, category, subject, message, status(new/read/replied), admin_note, created_at, updated_at
+- RLS: ユーザーは自身の問い合わせのみ読み取り可、service_roleはフルアクセス
+- インデックス: user_id, status, created_at DESC
+
+**バックエンド新規ドメイン**: `backend/app/domains/contact/`
+- `schemas.py` — InquiryCategory(general/bug_report/feature_request/billing/account/other), InquiryStatus(new/read/replied), ContactInquiryCreate, ContactInquiryResponse, ContactInquiryListResponse, UpdateInquiryStatusRequest
+- `service.py` — ContactService (create_inquiry, get_user_inquiries, get_all_inquiries, get_inquiry_by_id, update_inquiry_status) + `_send_notification_email()` (smtplib + asyncio.to_thread)
+- `endpoints.py` — ユーザー用(POST /, GET /mine) + 管理者用(GET /admin/list, GET /admin/{id}, PATCH /admin/{id}/status)
+- `backend/app/api/router.py` — contact_router 追加 (prefix="/contact")
+
+**メール通知**: Resend（優先）+ SMTPフォールバックの2段構成
+- **Resend**: `resend` v2.22.0 (`uv add resend`)。`RESEND_API_KEY` + `RESEND_FROM_EMAIL` で設定
+- **SMTP**: `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM_EMAIL` で設定（Resend未設定時のフォールバック）
+- `CONTACT_NOTIFICATION_EMAIL` — 通知先メールアドレス（必須）
+- 未設定時はメール送信をスキップ（ログのみ）
+- メール送信失敗はお問い合わせ送信自体には影響しない（asyncio.create_task でバックグラウンド送信）
+- HTML + プレーンテキストの両フォーマットで送信
+- `reply_to` にユーザーのメールアドレスを設定（管理者が直接返信可能）
+
+**フロントエンド**:
+- `frontend/src/app/(settings)/settings/contact/page.tsx` — お問い合わせフォーム
+  - `(settings)` レイアウト配下（サブスクリプション不要でアクセス可）
+  - カテゴリ選択(Select), 名前/メール/件名/内容フォーム
+  - Clerkからの名前・メール自動入力
+  - 送信成功時にサクセス画面表示
+  - USE_PROXYパターン対応
+- `frontend/src/app/(admin)/admin/inquiries/page.tsx` — 管理者お問い合わせ管理
+  - ステータス別サマリーカード(新規/確認済み/対応済み)
+  - ステータスフィルタ
+  - 展開式詳細パネル（送信者情報、メッセージ、管理者メモ）
+  - ステータス変更ボタン + 管理者メモ保存
+
+**サイドバー更新**: `frontend/src/components/constant/route.ts`
+- Settings グループに「サポート」セクション追加 → `/settings/contact` (お問い合わせ)
+- Help グループの既存リンク `/help/contact` → `/settings/contact` に変更
+
+**管理者ナビ更新**: `frontend/src/app/(admin)/admin/layout.tsx`
+- 「お問い合わせ」(MessageSquare アイコン) → `/admin/inquiries` を追加
+
+**環境変数** (backend/.env に追加が必要):
+```env
+# Resend (推奨)
+RESEND_API_KEY=re_xxxxx
+RESEND_FROM_EMAIL=BlogAI <noreply@yourdomain.com>
+CONTACT_NOTIFICATION_EMAIL=admin@yourdomain.com
+
+# SMTP (Resend未使用時のフォールバック)
+# SMTP_HOST=smtp.gmail.com
+# SMTP_PORT=587
+# SMTP_USER=your-email@gmail.com
+# SMTP_PASSWORD=your-app-password
+# SMTP_FROM_EMAIL=noreply@yourdomain.com
+```
+
 ### 2026-02-10 自己改善
 - **再検証の重要性**: 実装完了後のユーザー再検証要求で、`useArticles.ts` と `admin/plans/page.tsx` に `USE_PROXY` パターンが欠けているバグを発見した。最初の実装時にサーバーサイドAPI Routes (9ファイル) のみに注力し、クライアントサイドhooksの直接fetch呼び出しを見落としていた。**サーバーサイド→バックエンド通信だけでなく、ブラウザ→バックエンド通信パスも全て確認すべき。**
 - **FastAPI末尾スラッシュ + Cloud Run scheme 変換の複合問題**: `frontend/src/app/api/proxy/[...path]/route.ts` の `ensureTrailingSlash()` が `/blog/sites` を `/blog/sites/` に変換し、FastAPI (`redirect_slashes=True`) が 307 で `/blog/sites` へ戻す。さらに Cloud Run の `Location` が `http://...run.app/...` になり、プロキシがそれを手動追従すると Cloud Run 側で 302/307 が連鎖する。**手動リダイレクト追従を使う場合は、(1) 末尾スラッシュ強制をしない、(2) `Location` が `http://` でも `https://` に正規化する、の両方を実施すべき。**
