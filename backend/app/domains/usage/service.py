@@ -46,7 +46,7 @@ class UsageLimitService:
                 # サブスクがない場合は拒否
                 return UsageLimitResult(allowed=False, current=0, limit=0, remaining=0)
 
-        total_limit = tracking["articles_limit"] + tracking["addon_articles_limit"]
+        total_limit = tracking["articles_limit"] + tracking["addon_articles_limit"] + tracking.get("admin_granted_articles", 0)
         current = tracking["articles_generated"]
         remaining = max(0, total_limit - current)
 
@@ -140,11 +140,13 @@ class UsageLimitService:
         if not tracking:
             return UsageInfo()
 
-        total_limit = tracking["articles_limit"] + tracking["addon_articles_limit"]
+        admin_granted = tracking.get("admin_granted_articles", 0)
+        total_limit = tracking["articles_limit"] + tracking["addon_articles_limit"] + admin_granted
         return UsageInfo(
             articles_generated=tracking["articles_generated"],
             articles_limit=tracking["articles_limit"],
             addon_articles_limit=tracking["addon_articles_limit"],
+            admin_granted_articles=admin_granted,
             total_limit=total_limit,
             remaining=max(0, total_limit - tracking["articles_generated"]),
             billing_period_start=tracking.get("billing_period_start"),
@@ -307,7 +309,16 @@ class UsageLimitService:
                     "plan_tier_id, current_period_end, status, stripe_subscription_id, addon_quantity"
                 ).eq("user_id", user_id).maybe_single().execute()
 
-                if not sub.data or sub.data.get("status") not in ("active", "past_due", "canceled"):
+                if not sub.data:
+                    return None
+
+                plan_tier_id = sub.data.get("plan_tier_id") or "free"
+
+                # フリープランユーザー（Stripeサブスクなし）
+                if plan_tier_id == "free" or (sub.data.get("status") in ("none", None) and not sub.data.get("stripe_subscription_id")):
+                    return self._create_tracking_for_free_plan(user_id, plan_tier_id)
+
+                if sub.data.get("status") not in ("active", "past_due", "canceled"):
                     return None
 
                 # current_period_end から期間を推定（1ヶ月前をstartとする）
@@ -330,6 +341,78 @@ class UsageLimitService:
                 )
         except Exception as e:
             logger.error(f"Failed to create tracking from subscription: {e}")
+            return None
+
+    def _create_tracking_for_free_plan(
+        self,
+        user_id: str,
+        plan_tier_id: str = "free",
+    ) -> Optional[dict]:
+        """フリープランユーザー用のトラッキングレコードを自動作成（月初〜月末）"""
+        try:
+            from datetime import timedelta
+            now = datetime.utcnow()
+            # 月初
+            start_dt = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+            # 翌月初
+            if now.month == 12:
+                end_dt = start_dt.replace(year=now.year + 1, month=1)
+            else:
+                end_dt = start_dt.replace(month=now.month + 1)
+
+            return self.create_tracking_for_period(
+                user_id=user_id,
+                organization_id=None,
+                billing_period_start=start_dt.isoformat(),
+                billing_period_end=end_dt.isoformat(),
+                plan_tier_id=plan_tier_id,
+                quantity=1,
+                addon_quantity=0,
+            )
+        except Exception as e:
+            logger.error(f"Failed to create free plan tracking: {e}")
+            return None
+
+    def grant_articles(
+        self,
+        user_id: str,
+        amount: int,
+        organization_id: Optional[str] = None,
+    ) -> Optional[dict]:
+        """
+        管理者がユーザーに追加記事を付与する。
+        admin_granted_articles カラムをインクリメント。
+        トラッキングレコードがない場合は自動作成する。
+        """
+        tracking = self._get_current_tracking(user_id, organization_id)
+        if not tracking:
+            tracking = self._create_tracking_from_subscription(user_id, organization_id)
+            if not tracking:
+                logger.warning(f"Cannot grant articles: no tracking for user={user_id}")
+                return None
+
+        current_granted = tracking.get("admin_granted_articles", 0)
+        new_granted = current_granted + amount
+
+        try:
+            result = self.db.table("usage_tracking").update({
+                "admin_granted_articles": new_granted,
+                "updated_at": datetime.utcnow().isoformat(),
+            }).eq("id", tracking["id"]).execute()
+
+            if result.data:
+                updated = result.data[0]
+                total_limit = updated["articles_limit"] + updated["addon_articles_limit"] + updated.get("admin_granted_articles", 0)
+                return {
+                    "user_id": user_id,
+                    "admin_granted_articles": new_granted,
+                    "total_limit": total_limit,
+                    "articles_generated": updated["articles_generated"],
+                    "remaining": max(0, total_limit - updated["articles_generated"]),
+                }
+            return None
+        except Exception as e:
+            logger.error(f"Failed to grant articles: {e}")
             return None
 
     def _get_plan_tier(self, plan_tier_id: str) -> Optional[dict]:

@@ -45,13 +45,15 @@ export async function GET() {
     if (error?.code === 'PGRST116' || !subscription) {
       const isPrivileged = isPrivilegedEmail(userEmail);
 
+      // 新規ユーザーはフリープラン（status: 'active', plan_tier_id: 'free'）
       const { data: newSubscription, error: insertError } = await supabase
         .from('user_subscriptions')
         .insert({
           user_id: userId,
           email: userEmail || null,
           is_privileged: isPrivileged,
-          status: 'none',
+          status: isPrivileged ? 'active' : 'active',
+          plan_tier_id: isPrivileged ? null : 'free',
         })
         .select()
         .single();
@@ -62,7 +64,7 @@ export async function GET() {
           user_id: userId,
           stripe_customer_id: null,
           stripe_subscription_id: null,
-          status: 'none',
+          status: 'active',
           current_period_end: null,
           cancel_at_period_end: false,
           is_privileged: isPrivileged,
@@ -200,12 +202,14 @@ export async function GET() {
         const ut = usageTracking as Record<string, unknown>;
         const articlesLimit = (ut.articles_limit as number) || 0;
         const addonLimit = (ut.addon_articles_limit as number) || 0;
+        const adminGranted = (ut.admin_granted_articles as number) || 0;
         const articlesGenerated = (ut.articles_generated as number) || 0;
-        const totalLimit = articlesLimit + addonLimit;
+        const totalLimit = articlesLimit + addonLimit + adminGranted;
         usage = {
           articles_generated: articlesGenerated,
           articles_limit: articlesLimit,
           addon_articles_limit: addonLimit,
+          admin_granted_articles: adminGranted,
           total_limit: totalLimit,
           remaining: Math.max(0, totalLimit - articlesGenerated),
           billing_period_start: ut.billing_period_start as string | null,
@@ -214,36 +218,39 @@ export async function GET() {
         };
       } else if (hasActiveAccess(userSub) || hasActiveOrgAccess(orgSubscription)) {
         // usage_tracking レコードがないがサブスクリプションはアクティブな場合
-        // plan_tiers のデフォルト値でフォールバック表示を提供
+        // plan_tier_id からフォールバック表示を提供
+        const planTierId = (userSub as Record<string, unknown>).plan_tier_id as string || 'free';
         try {
-          const { data: defaultTier } = await supabase
+          const { data: tierData } = await supabase
             .from('plan_tiers')
             .select('monthly_article_limit, addon_unit_amount')
-            .eq('id', 'default')
+            .eq('id', planTierId)
             .maybeSingle();
 
-          const defaultLimit = defaultTier?.monthly_article_limit || 30;
+          const fallbackLimit = tierData?.monthly_article_limit || 10;
           usage = {
             articles_generated: 0,
-            articles_limit: defaultLimit,
+            articles_limit: fallbackLimit,
             addon_articles_limit: 0,
-            total_limit: defaultLimit,
-            remaining: defaultLimit,
+            admin_granted_articles: 0,
+            total_limit: fallbackLimit,
+            remaining: fallbackLimit,
             billing_period_start: null,
             billing_period_end: null,
-            plan_tier: 'default',
+            plan_tier: planTierId,
           };
         } catch {
           // plan_tiers テーブルが存在しない場合もフォールバック
           usage = {
             articles_generated: 0,
-            articles_limit: 30,
+            articles_limit: 10,
             addon_articles_limit: 0,
-            total_limit: 30,
-            remaining: 30,
+            admin_granted_articles: 0,
+            total_limit: 10,
+            remaining: 10,
             billing_period_start: null,
             billing_period_end: null,
-            plan_tier: 'default',
+            plan_tier: 'free',
           };
         }
       }

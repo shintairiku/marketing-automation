@@ -3,7 +3,12 @@
 -- Required for the application to function correctly.
 -- =============================================================
 
--- 1. Default Plan Tier
+-- 1a. Free Plan Tier (default for new users)
+INSERT INTO plan_tiers (id, name, stripe_price_id, monthly_article_limit, addon_unit_amount, price_amount, display_order, is_active)
+VALUES ('free', 'フリープラン', NULL, 10, 0, 0, 0, true)
+ON CONFLICT (id) DO NOTHING;
+
+-- 1b. Default Paid Plan Tier
 -- NOTE: stripe_price_id must be updated to the real Stripe Price ID after deployment.
 --   UPDATE plan_tiers SET stripe_price_id = 'price_XXXXXX' WHERE id = 'default';
 INSERT INTO plan_tiers (id, name, stripe_price_id, monthly_article_limit, addon_unit_amount, price_amount, display_order, is_active)

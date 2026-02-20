@@ -509,11 +509,15 @@ marketing-automation/
 - 特権チェックは `middleware.ts` の `isPrivilegedOnlyRoute` で実施
 
 ### サブスクリプション
-- **個人プラン**: ¥29,800/月 (Stripe)
-- **チームプラン**: ¥29,800/席/月 (組織単位、2-50席)
+- **フリープラン**: 月10記事まで無料（クレカ不要、登録時に自動付与）
+- **個人プラン**: ¥29,800/月 (Stripe) — 現在はユーザーに非表示（価格未決定のため）
+- **チームプラン**: ¥29,800/席/月 (組織単位、2-50席) — 同上
 - `SubscriptionGuard` コンポーネントがUI側でアクセス制御（`(tools)` レイアウト内のみ。`(settings)` は未課金でもアクセス可）
+- フリープランユーザーは `status: 'active'` + `plan_tier_id: 'free'`（SubscriptionGuard変更不要）
 - `past_due` は3日間の猶予期間
 - `canceled` は期間終了まで有効
+- **管理者記事付与**: `admin_granted_articles` カラムで個別ユーザーに記事追加可能
+- **total_limit 公式**: `articles_limit + addon_articles_limit + admin_granted_articles`
 - **個人→チーム移行**: `stripe.subscriptions.update()` で同一サブスク内の quantity 変更（日割り自動適用）
 - 同一 Stripe Customer を個人・チームで共有（組織用に別Customer は作成しない）
 
@@ -1901,6 +1905,65 @@ CONTACT_NOTIFICATION_EMAIL=admin@yourdomain.com
 # SMTP_PASSWORD=your-app-password
 # SMTP_FROM_EMAIL=noreply@yourdomain.com
 ```
+
+### 32. フリープラン + 記事追加付与システム (2026-02-20)
+
+**概要**: クレカ不要で登録→即フリープラン(月10記事)。有料プランインフラは維持しつつユーザーには非表示。管理者が記事を手動付与可能。
+
+#### DB マイグレーション
+- **新規**: `shared/supabase/migrations/20260220100000_free_plan_and_admin_granted_articles.sql`
+  - `plan_tiers.stripe_price_id` を NULL 許容に変更（フリープランはStripe不要）
+  - `plan_tiers` に 'free' ティア追加（月10記事、コスト0）
+  - `usage_tracking` に `admin_granted_articles` カラム追加（デフォルト0）
+  - `increment_usage_if_allowed()` 関数を更新（total_limit に admin_granted_articles を含む）
+- **更新**: `shared/supabase/seed.sql` にフリープランを追加
+
+#### バックエンド変更
+- **`backend/app/domains/usage/service.py`**:
+  - total_limit 計算式を全箇所で `articles_limit + addon_articles_limit + admin_granted_articles` に統一
+  - `_create_tracking_for_free_plan()` 新メソッド: Stripe不要の月ベース期間トラッキング
+  - `_create_tracking_from_subscription()`: フリープランユーザー検出・ルーティング追加
+  - `grant_articles()` 新メソッド: admin_granted_articles をインクリメント
+- **`backend/app/domains/usage/schemas.py`** — `admin_granted_articles: int = 0` フィールド追加
+- **`backend/app/domains/usage/endpoints.py`** — total_limit 計算に admin_granted_articles を含める
+- **`backend/app/domains/admin/schemas.py`** — `GrantArticlesRequest`, `GrantArticlesResponse`, `UserUsageDetail.admin_granted_articles` 追加
+- **`backend/app/domains/admin/endpoints.py`** — `POST /admin/users/{user_id}/grant-articles` エンドポイント追加
+- **`backend/app/domains/admin/service.py`** — get_user_detail(), get_users_usage() に admin_granted_articles を含める
+- **`backend/app/domains/contact/schemas.py`** — `InquiryCategory` に `article_limit_increase` 追加
+
+#### フロントエンド変更
+- **`frontend/src/app/api/subscription/status/route.ts`**:
+  - 新規ユーザーを `status: 'active'`, `plan_tier_id: 'free'` で作成（hasActiveAccess が自動的にアクセス許可）
+  - usage 計算に admin_granted_articles を含める
+  - フォールバックでユーザーの plan_tier_id（デフォルト 'free'）を使用
+- **`frontend/src/lib/subscription/index.ts`** — UsageInfo に `admin_granted_articles: number` 追加
+- **`frontend/src/app/(settings)/settings/billing/page.tsx`**:
+  - ページタイトルを「プラン & 使用量」に変更
+  - フリープランユーザー: 使用量表示あり、有料プラン選択・アドオン管理・Stripe Portal・FAQ は非表示
+  - 上限到達時はお問い合わせへの導線（記事追加リクエスト）を表示
+  - admin_granted_articles の表示を追加
+- **`frontend/src/app/(tools)/blog/new/page.tsx`** — 上限到達メッセージをお問い合わせへのリンクに変更
+- **`frontend/src/app/(settings)/settings/contact/page.tsx`**:
+  - `article_limit_increase` カテゴリ追加
+  - URLパラメータで自動カテゴリ選択
+  - 使用量情報を件名・本文に自動入力
+
+#### 管理者UI変更
+- **`frontend/src/app/(admin)/admin/page.tsx`**:
+  - 上限に近いユーザーリストに記事付与UI追加（数量入力 + 付与ボタン）
+  - ユーザー名をユーザー詳細へのリンクに変更
+- **`frontend/src/app/(admin)/admin/inquiries/page.tsx`**:
+  - `article_limit_increase` カテゴリラベル追加
+  - 記事追加リクエストのお問い合わせに専用の付与UI追加（ワンクリック付与）
+- **`frontend/src/app/(admin)/admin/users/[userId]/page.tsx`**:
+  - 使用量カードに `管理者付与分` 行追加
+  - 記事付与UI追加（数量入力 + 付与ボタン + 結果メッセージ）
+
+#### 設計ポイント
+- **SubscriptionGuard 変更なし**: フリープランユーザーは `status: 'active'` なので既存の `hasActiveAccess()` がそのまま機能
+- **total_limit 公式**: `articles_limit + addon_articles_limit + admin_granted_articles` — DB関数、バックエンドサービス、フロントエンドAPI全て統一
+- **フリープラン判定**: `hasIndividualPlan && !stripe_subscription_id` — Stripeサブスクなしのアクティブユーザー
+- **有料プラン非表示**: `isFreePlan` フラグでプラン選択、アドオン管理、Stripe Portal、FAQ を条件非表示
 
 ### 2026-02-10 自己改善
 - **再検証の重要性**: 実装完了後のユーザー再検証要求で、`useArticles.ts` と `admin/plans/page.tsx` に `USE_PROXY` パターンが欠けているバグを発見した。最初の実装時にサーバーサイドAPI Routes (9ファイル) のみに注力し、クライアントサイドhooksの直接fetch呼び出しを見落としていた。**サーバーサイド→バックエンド通信だけでなく、ブラウザ→バックエンド通信パスも全て確認すべき。**

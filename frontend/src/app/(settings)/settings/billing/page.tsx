@@ -11,6 +11,7 @@
  */
 
 import { useCallback, useEffect, useState } from 'react';
+import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import {
   AlertCircle,
@@ -90,6 +91,7 @@ interface UsageInfo {
   articles_generated: number;
   articles_limit: number;
   addon_articles_limit: number;
+  admin_granted_articles: number;
   total_limit: number;
   remaining: number;
   billing_period_start: string | null;
@@ -260,6 +262,8 @@ export default function BillingSettingsPage() {
   const hasIndividualPlan = subStatus?.subscription?.status === 'active';
   const hasTeamPlan = subStatus?.orgSubscription?.status === 'active';
   const hasAnyPlan = hasIndividualPlan || hasTeamPlan;
+  const isFreePlan = hasIndividualPlan && !subStatus?.subscription?.stripe_subscription_id;
+  const hasPaidPlan = hasAnyPlan && !isFreePlan;
 
   // ステータス表示用
   const currentStatus: SubscriptionStatus = hasTeamPlan
@@ -525,9 +529,11 @@ export default function BillingSettingsPage() {
     <div className="container mx-auto p-6 space-y-6 max-w-4xl">
       {/* ヘッダー */}
       <div className="space-y-2">
-        <h1 className="text-3xl font-bold">請求&プラン管理</h1>
+        <h1 className="text-3xl font-bold">プラン & 使用量</h1>
         <p className="text-muted-foreground">
-          プランの購入・変更、支払い方法、請求履歴を管理できます。
+          {isFreePlan
+            ? '現在のプランと使用量を確認できます。'
+            : 'プランの購入・変更、支払い方法、請求履歴を管理できます。'}
         </p>
       </div>
 
@@ -590,7 +596,13 @@ export default function BillingSettingsPage() {
                           チームプラン ({subStatus.orgSubscription.quantity}シート)
                         </Badge>
                       )}
-                      {hasIndividualPlan && !hasTeamPlan && (
+                      {isFreePlan && (
+                        <Badge variant="secondary" className="gap-1">
+                          <Sparkles className="h-3 w-3" />
+                          フリープラン
+                        </Badge>
+                      )}
+                      {hasIndividualPlan && !hasTeamPlan && !isFreePlan && (
                         <Badge variant="secondary" className="gap-1">
                           <Zap className="h-3 w-3" />
                           個人プラン
@@ -604,7 +616,9 @@ export default function BillingSettingsPage() {
                       )}
                     </div>
                     <p className="text-sm text-muted-foreground">
-                      {hasAnyPlan
+                      {isFreePlan
+                        ? '月10記事まで無料でご利用いただけます'
+                        : hasAnyPlan
                         ? hasTeamPlan
                           ? `¥${(PRICE_PER_SEAT * (subStatus?.orgSubscription?.quantity || 1)).toLocaleString()}/月`
                           : `¥${PRICE_PER_SEAT.toLocaleString()}/月`
@@ -612,7 +626,7 @@ export default function BillingSettingsPage() {
                     </p>
                   </div>
 
-                  {hasAnyPlan && subStatus?.subscription?.stripe_customer_id && (
+                  {hasPaidPlan && subStatus?.subscription?.stripe_customer_id && (
                     <Button
                       variant="outline"
                       onClick={openCustomerPortal}
@@ -753,15 +767,33 @@ export default function BillingSettingsPage() {
                     {subStatus.usage.addon_articles_limit > 0 && (
                       <span>+ アドオン: {subStatus.usage.addon_articles_limit}記事</span>
                     )}
+                    {subStatus.usage.admin_granted_articles > 0 && (
+                      <span>+ 追加付与: {subStatus.usage.admin_granted_articles}記事</span>
+                    )}
                   </div>
-                  {subStatus.usage.remaining === 0 && (
+                  {subStatus.usage.remaining === 0 && isFreePlan && (
+                    <div className="p-3 rounded-lg bg-amber-50 border border-amber-200">
+                      <p className="text-sm text-amber-800">
+                        月間上限に達しました。追加の記事生成が必要な場合は、お問い合わせからリクエストしてください。
+                      </p>
+                      <Link
+                        href="/settings/contact?category=article_limit_increase"
+                        className="inline-flex items-center gap-1 mt-2 text-sm font-medium text-custom-orange hover:text-custom-orange/80 transition-colors"
+                      >
+                        記事追加をリクエスト
+                        <ArrowRight className="h-3 w-3" />
+                      </Link>
+                    </div>
+                  )}
+                  {subStatus.usage.remaining === 0 && !isFreePlan && (
                     <p className="text-sm text-red-600">
                       月間上限に達しました。アドオンを追加して上限を増やせます。
                     </p>
                   )}
                 </div>
 
-                {/* アドオン管理 */}
+                {/* アドオン管理 (有料プランのみ) */}
+                {!isFreePlan && (
                 <div className="pt-4 border-t space-y-3">
                   <div className="flex items-center justify-between">
                     <div>
@@ -805,12 +837,13 @@ export default function BillingSettingsPage() {
                     </p>
                   )}
                 </div>
+                )}
               </CardContent>
             </Card>
           )}
 
-          {/* プラン選択セクション (未契約 or 個人→チームアップグレード) */}
-          {!isPrivileged && (!hasAnyPlan || (hasIndividualPlan && !hasTeamPlan)) && (
+          {/* プラン選択セクション (有料プラン契約可能時のみ表示、フリープランユーザーには非表示) */}
+          {!isPrivileged && !isFreePlan && (!hasAnyPlan || (hasIndividualPlan && !hasTeamPlan)) && (
             <>
               <div className="space-y-2">
                 <h2 className="text-xl font-semibold">
@@ -1005,8 +1038,8 @@ export default function BillingSettingsPage() {
             </>
           )}
 
-          {/* プラン管理（Stripe Portal） */}
-          {!isPrivileged && hasAnyPlan && (
+          {/* プラン管理（Stripe Portal）- 有料プランのみ */}
+          {!isPrivileged && hasPaidPlan && (
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
@@ -1033,8 +1066,8 @@ export default function BillingSettingsPage() {
             </Card>
           )}
 
-          {/* FAQ */}
-          {!isPrivileged && (
+          {/* FAQ - 有料プランのみ */}
+          {!isPrivileged && hasPaidPlan && (
             <div className="pt-4">
               <h2 className="text-lg font-semibold mb-4">よくある質問</h2>
               <div className="grid md:grid-cols-2 gap-4">
@@ -1074,7 +1107,8 @@ export default function BillingSettingsPage() {
             </div>
           )}
 
-          {/* セキュリティ */}
+          {/* セキュリティ - 有料プランのみ */}
+          {hasPaidPlan && (
           <div className="text-center pt-2 pb-4">
             <p className="text-sm text-muted-foreground">
               安全な決済は{' '}
@@ -1084,6 +1118,7 @@ export default function BillingSettingsPage() {
               {' '}によって処理されます
             </p>
           </div>
+          )}
         </>
       )}
 

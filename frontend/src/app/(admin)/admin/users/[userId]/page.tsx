@@ -15,6 +15,7 @@ import {
   CreditCard,
   Crown,
   FileText,
+  Gift,
   Loader2,
   RefreshCw,
   User,
@@ -24,6 +25,7 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
 import { Progress } from '@/components/ui/progress';
 import { Separator } from '@/components/ui/separator';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -62,6 +64,7 @@ interface UsageInfo {
   articles_generated: number;
   articles_limit: number;
   addon_articles_limit: number;
+  admin_granted_articles: number;
   total_limit: number;
   remaining: number;
   billing_period_start: string | null;
@@ -238,6 +241,9 @@ export default function AdminUserDetailPage() {
   const [data, setData] = useState<UserDetailResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [grantAmount, setGrantAmount] = useState(5);
+  const [granting, setGranting] = useState(false);
+  const [grantMessage, setGrantMessage] = useState<string | null>(null);
 
   const fetchUserDetail = useCallback(async () => {
     try {
@@ -273,6 +279,33 @@ export default function AdminUserDetailPage() {
   useEffect(() => {
     fetchUserDetail();
   }, [fetchUserDetail]);
+
+  const handleGrantArticles = useCallback(async () => {
+    if (grantAmount <= 0) return;
+    setGranting(true);
+    setGrantMessage(null);
+    try {
+      const token = await getToken();
+      const baseURL = getApiBaseUrl();
+      const res = await fetch(`${baseURL}/admin/users/${userId}/grant-articles`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token && { Authorization: `Bearer ${token}` }),
+        },
+        body: JSON.stringify({ amount: grantAmount }),
+      });
+      if (!res.ok) throw new Error('Failed to grant articles');
+      const result = await res.json();
+      setGrantMessage(`${grantAmount}件付与しました（残り${result.remaining}件）`);
+      fetchUserDetail();
+    } catch (err) {
+      setGrantMessage('付与に失敗しました');
+      console.error('Failed to grant articles:', err);
+    } finally {
+      setGranting(false);
+    }
+  }, [getToken, userId, grantAmount, fetchUserDetail]);
 
   // -- Loading state --------------------------------------------------------
   if (loading) {
@@ -491,6 +524,10 @@ export default function AdminUserDetailPage() {
                   {usage.addon_articles_limit} 件
                 </InfoRow>
                 <Separator />
+                <InfoRow label="管理者付与分">
+                  {usage.admin_granted_articles} 件
+                </InfoRow>
+                <Separator />
                 <InfoRow label="請求期間">
                   {usage.billing_period_start && usage.billing_period_end ? (
                     <span>
@@ -500,6 +537,48 @@ export default function AdminUserDetailPage() {
                     <span className="text-muted-foreground">-</span>
                   )}
                 </InfoRow>
+
+                <Separator />
+
+                {/* Grant articles UI */}
+                <div className="pt-3 space-y-2">
+                  <p className="text-sm font-medium flex items-center gap-1">
+                    <Gift className="h-4 w-4" />
+                    記事を追加付与
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <Input
+                      type="number"
+                      min={1}
+                      max={100}
+                      value={grantAmount}
+                      onChange={(e) => setGrantAmount(parseInt(e.target.value) || 0)}
+                      className="h-8 w-20 text-sm"
+                    />
+                    <span className="text-xs text-muted-foreground">件</span>
+                    <Button
+                      size="sm"
+                      disabled={granting || grantAmount <= 0}
+                      onClick={handleGrantArticles}
+                      className="gap-1"
+                    >
+                      {granting ? (
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                      ) : (
+                        <Gift className="h-3 w-3" />
+                      )}
+                      付与する
+                    </Button>
+                  </div>
+                  {grantMessage && (
+                    <p className={cn(
+                      'text-xs',
+                      grantMessage.includes('失敗') ? 'text-red-600' : 'text-emerald-700'
+                    )}>
+                      {grantMessage}
+                    </p>
+                  )}
+                </div>
               </div>
             ) : (
               <div className="flex flex-col items-center justify-center py-8 text-muted-foreground">
