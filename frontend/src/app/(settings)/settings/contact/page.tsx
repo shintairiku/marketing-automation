@@ -1,8 +1,9 @@
 'use client';
 
 import { useState } from 'react';
-import { CheckCircle, Loader2, MessageSquare, Send } from 'lucide-react';
+
 import { useAuth, useUser } from '@clerk/nextjs';
+import { CheckCircle, Loader2, MessageSquare, Send } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
