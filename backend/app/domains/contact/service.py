@@ -4,13 +4,11 @@ Contact inquiry service
 """
 import asyncio
 import logging
-import smtplib
 import uuid
 from datetime import datetime
-from email.mime.multipart import MIMEMultipart
-from email.mime.text import MIMEText
 from typing import Optional
 
+import resend
 from fastapi import HTTPException, status
 
 from app.common.database import supabase
@@ -218,43 +216,10 @@ class ContactService:
             )
 
 
-async def _send_notification_email(inquiry: ContactInquiryResponse) -> None:
-    """Send notification email to configured address"""
-    notification_email = getattr(settings, "contact_notification_email", "")
-    smtp_host = getattr(settings, "smtp_host", "")
-
-    if not notification_email or not smtp_host:
-        logger.info(
-            "Email notification skipped: SMTP not configured"
-        )
-        return
-
-    try:
-        smtp_port = getattr(settings, "smtp_port", 587)
-        smtp_user = getattr(settings, "smtp_user", "")
-        smtp_password = getattr(settings, "smtp_password", "")
-        smtp_from = getattr(settings, "smtp_from_email", "") or smtp_user
-
-        category_label = CATEGORY_LABELS.get(inquiry.category, inquiry.category)
-
-        msg = MIMEMultipart("alternative")
-        msg["Subject"] = f"[BlogAI] お問い合わせ: {inquiry.subject}"
-        msg["From"] = smtp_from
-        msg["To"] = notification_email
-
-        text_body = f"""新しいお問い合わせが届きました。
-
-送信者: {inquiry.name} ({inquiry.email})
-カテゴリ: {category_label}
-件名: {inquiry.subject}
-ユーザーID: {inquiry.user_id}
-送信日時: {inquiry.created_at}
-
---- お問い合わせ内容 ---
-{inquiry.message}
-"""
-
-        html_body = f"""
+def _build_email_html(inquiry: ContactInquiryResponse) -> str:
+    """Build HTML email body"""
+    category_label = CATEGORY_LABELS.get(inquiry.category, inquiry.category)
+    return f"""
 <div style="font-family: 'Noto Sans JP', sans-serif; max-width: 600px; margin: 0 auto;">
   <div style="background: #E5581C; color: white; padding: 16px 24px; border-radius: 8px 8px 0 0;">
     <h2 style="margin: 0; font-size: 18px;">BlogAI - 新しいお問い合わせ</h2>
@@ -283,21 +248,86 @@ async def _send_notification_email(inquiry: ContactInquiryResponse) -> None:
 </div>
 """
 
-        msg.attach(MIMEText(text_body, "plain", "utf-8"))
-        msg.attach(MIMEText(html_body, "html", "utf-8"))
 
-        def _send():
-            with smtplib.SMTP(smtp_host, smtp_port) as server:
-                server.starttls()
-                if smtp_user and smtp_password:
-                    server.login(smtp_user, smtp_password)
-                server.sendmail(smtp_from, [notification_email], msg.as_string())
+def _build_email_text(inquiry: ContactInquiryResponse) -> str:
+    """Build plain text email body"""
+    category_label = CATEGORY_LABELS.get(inquiry.category, inquiry.category)
+    return f"""新しいお問い合わせが届きました。
 
-        await asyncio.to_thread(_send)
-        logger.info(
-            f"Notification email sent for inquiry {inquiry.id}"
-        )
+送信者: {inquiry.name} ({inquiry.email})
+カテゴリ: {category_label}
+件名: {inquiry.subject}
+ユーザーID: {inquiry.user_id}
+送信日時: {inquiry.created_at}
 
-    except Exception as e:
-        logger.error(f"Failed to send notification email: {e}")
-        # Don't raise - email failure should not affect the inquiry submission
+--- お問い合わせ内容 ---
+{inquiry.message}
+"""
+
+
+async def _send_notification_email(inquiry: ContactInquiryResponse) -> None:
+    """Send notification email using Resend (preferred) or SMTP fallback"""
+    notification_email = settings.contact_notification_email
+    if not notification_email:
+        logger.info("Email notification skipped: CONTACT_NOTIFICATION_EMAIL not set")
+        return
+
+    html_body = _build_email_html(inquiry)
+    text_body = _build_email_text(inquiry)
+    subject = f"[BlogAI] お問い合わせ: {inquiry.subject}"
+
+    # Try Resend first
+    if settings.resend_api_key:
+        try:
+            resend.api_key = settings.resend_api_key
+            params: resend.Emails.SendParams = {
+                "from": settings.resend_from_email,
+                "to": [notification_email],
+                "subject": subject,
+                "html": html_body,
+                "text": text_body,
+                "reply_to": inquiry.email,
+            }
+            result = await asyncio.to_thread(resend.Emails.send, params)
+            logger.info(
+                f"Notification email sent via Resend for inquiry {inquiry.id}: {result}"
+            )
+            return
+        except Exception as e:
+            logger.error(f"Failed to send email via Resend: {e}")
+            # Fall through to SMTP if configured
+            if not settings.smtp_host:
+                return
+
+    # SMTP fallback
+    if settings.smtp_host:
+        try:
+            import smtplib
+            from email.mime.multipart import MIMEMultipart
+            from email.mime.text import MIMEText
+
+            smtp_from = settings.smtp_from_email or settings.smtp_user
+
+            msg = MIMEMultipart("alternative")
+            msg["Subject"] = subject
+            msg["From"] = smtp_from
+            msg["To"] = notification_email
+            msg["Reply-To"] = inquiry.email
+            msg.attach(MIMEText(text_body, "plain", "utf-8"))
+            msg.attach(MIMEText(html_body, "html", "utf-8"))
+
+            def _send():
+                with smtplib.SMTP(settings.smtp_host, settings.smtp_port) as server:
+                    server.starttls()
+                    if settings.smtp_user and settings.smtp_password:
+                        server.login(settings.smtp_user, settings.smtp_password)
+                    server.sendmail(smtp_from, [notification_email], msg.as_string())
+
+            await asyncio.to_thread(_send)
+            logger.info(f"Notification email sent via SMTP for inquiry {inquiry.id}")
+            return
+        except Exception as e:
+            logger.error(f"Failed to send email via SMTP: {e}")
+            return
+
+    logger.info("Email notification skipped: neither Resend nor SMTP configured")

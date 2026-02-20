@@ -1858,11 +1858,14 @@ class BlogCompletionOutput(BaseModel):
 - `endpoints.py` — ユーザー用(POST /, GET /mine) + 管理者用(GET /admin/list, GET /admin/{id}, PATCH /admin/{id}/status)
 - `backend/app/api/router.py` — contact_router 追加 (prefix="/contact")
 
-**SMTP/メール通知設定**: `backend/app/core/config.py` に追加
-- `SMTP_HOST`, `SMTP_PORT` (default 587), `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM_EMAIL`, `CONTACT_NOTIFICATION_EMAIL`
-- SMTP未設定時はメール送信をスキップ（ログのみ）
+**メール通知**: Resend（優先）+ SMTPフォールバックの2段構成
+- **Resend**: `resend` v2.22.0 (`uv add resend`)。`RESEND_API_KEY` + `RESEND_FROM_EMAIL` で設定
+- **SMTP**: `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM_EMAIL` で設定（Resend未設定時のフォールバック）
+- `CONTACT_NOTIFICATION_EMAIL` — 通知先メールアドレス（必須）
+- 未設定時はメール送信をスキップ（ログのみ）
 - メール送信失敗はお問い合わせ送信自体には影響しない（asyncio.create_task でバックグラウンド送信）
 - HTML + プレーンテキストの両フォーマットで送信
+- `reply_to` にユーザーのメールアドレスを設定（管理者が直接返信可能）
 
 **フロントエンド**:
 - `frontend/src/app/(settings)/settings/contact/page.tsx` — お問い合わせフォーム
@@ -1886,12 +1889,17 @@ class BlogCompletionOutput(BaseModel):
 
 **環境変数** (backend/.env に追加が必要):
 ```env
-SMTP_HOST=smtp.gmail.com
-SMTP_PORT=587
-SMTP_USER=your-email@gmail.com
-SMTP_PASSWORD=your-app-password
-SMTP_FROM_EMAIL=noreply@yourdomain.com
+# Resend (推奨)
+RESEND_API_KEY=re_xxxxx
+RESEND_FROM_EMAIL=BlogAI <noreply@yourdomain.com>
 CONTACT_NOTIFICATION_EMAIL=admin@yourdomain.com
+
+# SMTP (Resend未使用時のフォールバック)
+# SMTP_HOST=smtp.gmail.com
+# SMTP_PORT=587
+# SMTP_USER=your-email@gmail.com
+# SMTP_PASSWORD=your-app-password
+# SMTP_FROM_EMAIL=noreply@yourdomain.com
 ```
 
 ### 2026-02-10 自己改善

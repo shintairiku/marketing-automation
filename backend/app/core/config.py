@@ -135,6 +135,10 @@ class Settings(BaseSettings):
     smtp_from_email: str = Field(default_factory=lambda: os.getenv("SMTP_FROM_EMAIL", ""))
     contact_notification_email: str = Field(default_factory=lambda: os.getenv("CONTACT_NOTIFICATION_EMAIL", ""))
 
+    # Resend (preferred over SMTP)
+    resend_api_key: str = Field(default_factory=lambda: os.getenv("RESEND_API_KEY", ""))
+    resend_from_email: str = Field(default_factory=lambda: os.getenv("RESEND_FROM_EMAIL", "BlogAI <noreply@yourdomain.com>"))
+
     model_config = SettingsConfigDict(
         env_file=[
             '.env',
