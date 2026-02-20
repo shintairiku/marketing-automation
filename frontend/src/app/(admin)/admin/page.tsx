@@ -119,7 +119,6 @@ const PIE_COLORS: Record<string, string> = {
   privileged: CHART_COLORS.indigo,
   past_due: CHART_COLORS.amber,
   canceled: '#EF4444',
-  trialing: CHART_COLORS.violet,
 };
 
 // ---------------------------------------------------------------------------

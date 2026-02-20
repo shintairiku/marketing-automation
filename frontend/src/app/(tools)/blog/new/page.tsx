@@ -156,7 +156,7 @@ export default function BlogNewPage() {
         const data = await response.json();
         router.push(`/blog/${data.id}`);
       } else if (response.status === 429) {
-        setError("月間記事生成の上限に達しました。アドオンの追加をご検討ください。");
+        setError("月間記事生成の上限に達しました。追加の記事生成をご希望の場合はお問い合わせください。");
       } else {
         const errData = await response.json();
         // FastAPIの422バリデーションエラーはdetailが配列
@@ -286,9 +286,9 @@ export default function BlogNewPage() {
             </div>
             {isAtLimit && (
               <p className="text-xs text-red-600 mt-1.5">
-                上限に達しました。
-                <a href="/settings/billing" className="underline ml-1">アドオンを追加</a>
-                して上限を増やせます。
+                上限に達しました。追加の記事生成をご希望の場合は
+                <a href="/settings/contact" className="underline ml-1">お問い合わせ</a>
+                ください。
               </p>
             )}
           </motion.div>

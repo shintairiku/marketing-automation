@@ -45,13 +45,15 @@ export async function GET() {
     if (error?.code === 'PGRST116' || !subscription) {
       const isPrivileged = isPrivilegedEmail(userEmail);
 
+      // 新規ユーザーにはフリープラン (active + plan_tier_id='free') を自動付与
       const { data: newSubscription, error: insertError } = await supabase
         .from('user_subscriptions')
         .insert({
           user_id: userId,
           email: userEmail || null,
           is_privileged: isPrivileged,
-          status: 'none',
+          status: 'active',
+          plan_tier_id: 'free',
         })
         .select()
         .single();
@@ -62,7 +64,7 @@ export async function GET() {
           user_id: userId,
           stripe_customer_id: null,
           stripe_subscription_id: null,
-          status: 'none',
+          status: 'active',
           current_period_end: null,
           cancel_at_period_end: false,
           is_privileged: isPrivileged,
@@ -70,6 +72,40 @@ export async function GET() {
         };
       } else {
         userSub = newSubscription as UserSubscription;
+      }
+
+      // フリープラン用の usage_tracking を作成（トリガーでも作成されるが念のため）
+      if (!insertError) {
+        try {
+          const periodStart = new Date();
+          periodStart.setDate(1);
+          periodStart.setHours(0, 0, 0, 0);
+          const periodEnd = new Date(periodStart);
+          periodEnd.setMonth(periodEnd.getMonth() + 1);
+
+          const { data: freeTier } = await supabase
+            .from('plan_tiers')
+            .select('monthly_article_limit')
+            .eq('id', 'free')
+            .maybeSingle();
+
+          const limit = freeTier?.monthly_article_limit || 10;
+
+          await supabase.from('usage_tracking').upsert(
+            {
+              user_id: userId,
+              billing_period_start: periodStart.toISOString(),
+              billing_period_end: periodEnd.toISOString(),
+              articles_generated: 0,
+              articles_limit: limit,
+              addon_articles_limit: 0,
+              plan_tier_id: 'free',
+            },
+            { onConflict: 'user_id,billing_period_start' }
+          );
+        } catch (usageErr) {
+          console.error('Error creating free plan usage tracking:', usageErr);
+        }
       }
     } else if (error) {
       console.error('Error fetching subscription:', error);
@@ -111,8 +147,6 @@ export async function GET() {
           let orgStatus: SubscriptionStatus = 'none';
           switch (activeSub.status) {
             case 'trialing':
-              orgStatus = 'trialing';
-              break;
             case 'active':
               orgStatus = 'active';
               break;
@@ -218,34 +252,34 @@ export async function GET() {
         // usage_tracking レコードがないがサブスクリプションはアクティブな場合
         // plan_tiers のデフォルト値でフォールバック表示を提供
         try {
-          const { data: defaultTier } = await supabase
+          const { data: freeTier } = await supabase
             .from('plan_tiers')
             .select('monthly_article_limit, addon_unit_amount')
-            .eq('id', 'default')
+            .eq('id', 'free')
             .maybeSingle();
 
-          const defaultLimit = defaultTier?.monthly_article_limit || 30;
+          const freeLimit = freeTier?.monthly_article_limit || 10;
           usage = {
             articles_generated: 0,
-            articles_limit: defaultLimit,
+            articles_limit: freeLimit,
             addon_articles_limit: 0,
-            total_limit: defaultLimit,
-            remaining: defaultLimit,
+            total_limit: freeLimit,
+            remaining: freeLimit,
             billing_period_start: null,
             billing_period_end: null,
-            plan_tier: 'default',
+            plan_tier: 'free',
           };
         } catch {
           // plan_tiers テーブルが存在しない場合もフォールバック
           usage = {
             articles_generated: 0,
-            articles_limit: 30,
+            articles_limit: 10,
             addon_articles_limit: 0,
-            total_limit: 30,
-            remaining: 30,
+            total_limit: 10,
+            remaining: 10,
             billing_period_start: null,
             billing_period_end: null,
-            plan_tier: 'default',
+            plan_tier: 'free',
           };
         }
       }

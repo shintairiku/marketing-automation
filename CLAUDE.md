@@ -1843,61 +1843,57 @@ class BlogCompletionOutput(BaseModel):
 
 **フロントエンド変更なし**: 既存の `state.draft_preview_url` / `state.draft_edit_url` 条件分岐でボタンが表示される
 
-### 31. 無料トライアルシステム (Stripe trial_end 方式) (2026-02-19)
+### 31. フリープラン導入 + トライアル機能廃止 (2026-02-20)
 
-**概要**: 管理者が任意のユーザーに無料トライアルを付与できるシステム。Stripeの`trial_end`パラメータを使用し、クレジットカード不要でサブスクリプションのトライアル期間を設定。
+**概要**: 有料プラン未決定のため、全ユーザーをフリープラン（月10記事）に移行。トライアルシステム（Stripe trial_end 方式）を完全廃止。上限到達時はお問い合わせページへ誘導し、管理者がDB直接で追加記事を付与するフローに変更。
 
-**設計方針**: Stripeクーポンではなく `trial_end` を採用。理由:
-- 任意の日数を自由に設定可能
-- クレジットカード入力不要 (`payment_settings.missing_payment_method: 'cancel'`)
-- サブスクリプションライフサイクルがクリーン（`trialing` → 期限切れで自動キャンセル）
-- クーポンよりシンプル（割引率の管理が不要）
+**設計方針**: Freemiumモデル
+- 全ユーザーに自動でフリープラン（10記事/月）を付与
+- Stripeは不使用（将来の有料プラン導入時に再活用）
+- 上限到達時 → `/settings/contact` にリンク
+- 管理者が管理画面から追加記事を付与（`addon_articles_limit` をDB直接更新）
+- PostgreSQL enum の `trialing` は残存（PGでのenum値削除は複雑でリスクが高い）が、アプリコードからは完全削除
 
-**情報ソース**:
-- https://docs.stripe.com/billing/subscriptions/trials
-- https://docs.stripe.com/api/subscriptions/create#create_subscription-trial_end
-
-**DB マイグレーション**: `supabase/migrations/20260220000001_add_free_trial_support.sql`
-- `user_subscription_status` enum に `trialing` を追加 (`ALTER TYPE ... ADD VALUE IF NOT EXISTS`)
-- `user_subscriptions` に `trial_end` (timestamptz), `trial_granted_by` (text), `trial_granted_at` (timestamptz) カラム追加
-- `idx_user_subscriptions_trial_end` インデックス追加（アクティブトライアル検索用）
-- `update_subscription_from_stripe()` 関数を更新: `trialing` → `trialing` に直接マッピング（従来は `active` にマッピング）
+**DB マイグレーション**: `supabase/migrations/20260220000002_freemium_and_remove_trial.sql`
+- `user_subscriptions` から `trial_end`, `trial_granted_by`, `trial_granted_at` カラム削除
+- トライアル用インデックス削除
+- `plan_tiers` に `free` ティア追加（月10記事、価格0円）
+- `update_subscription_from_stripe()` 関数更新: `trialing` → `active` にマッピング
+- 既存 `status='none'` / `status='trialing'` ユーザーをフリープランに移行
+- `ensure_free_plan_usage_tracking()` トリガー関数: フリープランユーザーの `usage_tracking` を自動作成
+- 既存フリープランユーザーの `usage_tracking` を一括作成
 
 **変更ファイル一覧**:
 
 | ファイル | 変更種別 | 概要 |
 |---------|---------|------|
-| `supabase/migrations/20260220000001_add_free_trial_support.sql` | **新規** | enum追加、カラム追加、インデックス、関数更新 |
-| `frontend/src/lib/subscription/index.ts` | 改修 | `trialing` をSubscriptionStatus型に追加、UserSubscriptionにtrial_end/trial_granted_by/trial_granted_at追加、hasActiveAccess()にtrialing判定追加 |
-| `frontend/src/app/api/subscription/webhook/route.ts` | 改修 | `mapStripeStatus()`で`trialing`→`trialing`（従来は`active`）、`handleSubscriptionChange()`で`trial_end`をDB保存 |
-| `frontend/src/app/api/subscription/status/route.ts` | 改修 | org subscription mapping で`trialing`→`trialing`（従来は`active`） |
-| `frontend/src/app/api/admin/free-trial/route.ts` | **新規** | POST: トライアル付与/延長、DELETE: トライアル取消。Stripe Customer作成→Subscription(trial_end)作成→DB更新→usage_tracking作成 |
-| `frontend/src/app/(admin)/admin/users/page.tsx` | 全面改修 | trialing統計カード、プリセット日数選択(7/14/30/60/90日)＋カスタム入力、付与/延長/取消ダイアログ、残日数表示 |
-| `backend/app/domains/admin/schemas.py` | 改修 | `trialing`をSubscriptionStatusType Literalに追加、UserReadに`trial_end`フィールド追加 |
-| `backend/app/domains/admin/service.py` | 改修 | `get_all_users()`/`get_user_by_id()`に`trial_end`追加、`get_subscription_distribution()`に`trialing`ラベル追加 |
-| `frontend/src/app/(settings)/settings/billing/page.tsx` | 改修 | `trialing`をSubscriptionStatus型/statusConfigに追加、トライアル期間表示(残日数付き)、プラン選択をtrialingユーザーにも表示 |
-| `frontend/src/components/subscription/subscription-guard.tsx` | 改修 | SubscriptionBannerにトライアル中バナー追加（残日数表示、プランへのリンク） |
+| `supabase/migrations/20260220000002_freemium_and_remove_trial.sql` | **新規** | トライアルカラム削除、free tier追加、自動プロビジョニング |
+| `frontend/src/app/api/admin/free-trial/route.ts` | **削除** | トライアル付与/取消APIを完全削除 |
+| `frontend/src/app/api/admin/grant-articles/route.ts` | **新規** | 管理者が追加記事を付与するAPI（Stripe不要、DB直接更新） |
+| `frontend/src/lib/subscription/index.ts` | 改修 | `trialing` を型から削除、trial_end 等フィールド削除 |
+| `frontend/src/components/subscription/subscription-guard.tsx` | 改修 | トライアルバナー削除 |
+| `frontend/src/app/api/subscription/webhook/route.ts` | 改修 | `trialing` → `active` にマッピング変更、trial_end 処理削除 |
+| `frontend/src/app/api/subscription/status/route.ts` | 改修 | 新規ユーザーを `status='active'`, `plan_tier_id='free'` で自動プロビジョニング |
+| `frontend/src/app/(admin)/admin/page.tsx` | 改修 | PIE_COLORSから `trialing` 削除 |
+| `frontend/src/app/(admin)/admin/users/page.tsx` | 全面リライト | トライアルUI廃止→追加記事付与UI（プリセット5/10/20/50記事、プラン・追加記事カラム） |
+| `frontend/src/app/(settings)/settings/billing/page.tsx` | 全面リライト | 有料プランUI・Stripe checkout・addon管理を全削除。フリープラン状態+使用量+お問い合わせ誘導 (1325行→464行) |
+| `frontend/src/app/(tools)/blog/new/page.tsx` | 改修 | 上限到達メッセージを `/settings/contact` リンクに変更 |
+| `backend/app/domains/admin/schemas.py` | 改修 | `trialing` を型から削除、`trial_end` → `plan_tier_id`, `addon_articles_limit` に変更 |
+| `backend/app/domains/admin/service.py` | 改修 | trial_end 参照を plan_tier_id/addon_articles_limit に変更、trialing ステータスラベル削除 |
 
-**トライアル付与フロー** (管理者API):
-1. 管理者認証（`@shintairiku.jp`メール確認）
-2. 対象ユーザーのメール取得（Clerk API）
-3. Stripe Customer 作成/取得（支払い方法なし）
-4. Stripe Subscription 作成: `trial_end` 指定、`payment_settings.missing_payment_method: 'cancel'`
-5. Supabase `user_subscriptions` 更新: status=trialing, trial_end, trial_granted_by, trial_granted_at
-6. `usage_tracking` レコード作成（トライアル期間 = billing period）
+**管理者の追加記事付与フロー**:
+1. `/admin/users` でユーザー一覧を表示
+2. ユーザーの「追加記事」ボタンをクリック
+3. プリセット（5/10/20/50記事）またはカスタム数を選択
+4. `POST /api/admin/grant-articles` で `usage_tracking.addon_articles_limit` を直接更新
+5. Stripe は一切不使用
 
-**管理者UI機能**:
-- プリセット日数: 7, 14, 30, 60, 90日
-- カスタム日数入力（任意の日数を指定可能）
-- トライアル終了日のプレビュー表示
-- ステータス別フィルタ（「トライアル」フィルタ追加）
-- ユーザーテーブルに残日数表示
-- コンテキスト依存アクションボタン（付与/延長/取消）
+**ユーザー側UX**:
+- 請求ページ: フリープラン状態 + 使用量プログレスバー + 上限到達時にお問い合わせ誘導
+- Blog/new: 上限到達時の赤テキストがお問い合わせページ（`/settings/contact`）にリンク
+- SubscriptionGuard: フリープランは `status='active'` なので通過（アクセス制限なし）
 
-**ユーザー側表示**:
-- SubscriptionBanner: 紫色のトライアル中バナー（残日数 + プランリンク）
-- 請求ページ: トライアル情報カード（終了日、残日数、説明文）
-- 請求ページ: プラン選択セクションをトライアルユーザーにも表示（購入促進）
+**NOTE**: `supabase/migrations/20260220000001_add_free_trial_support.sql` は migration 履歴の整合性のため残存。`20260220000002` がその変更を巻き戻す
 
 ### 2026-02-10 自己改善
 - **再検証の重要性**: 実装完了後のユーザー再検証要求で、`useArticles.ts` と `admin/plans/page.tsx` に `USE_PROXY` パターンが欠けているバグを発見した。最初の実装時にサーバーサイドAPI Routes (9ファイル) のみに注力し、クライアントサイドhooksの直接fetch呼び出しを見落としていた。**サーバーサイド→バックエンド通信だけでなく、ブラウザ→バックエンド通信パスも全て確認すべき。**

@@ -154,31 +154,6 @@ export function SubscriptionBanner() {
     return null;
   }
 
-  // トライアル中の場合
-  if (subscription?.status === 'trialing') {
-    const trialEnd = subscription.trial_end || subscription.current_period_end;
-    if (trialEnd) {
-      const remaining = Math.ceil(
-        (new Date(trialEnd).getTime() - Date.now()) / (1000 * 60 * 60 * 24)
-      );
-      const endDate = new Date(trialEnd).toLocaleDateString('ja-JP');
-      return (
-        <div className="bg-violet-50 border-l-4 border-violet-400 p-4 mb-4">
-          <div className="flex">
-            <div className="ml-3">
-              <p className="text-sm text-violet-700">
-                無料トライアル中です（{endDate}まで、残り{remaining > 0 ? remaining : 0}日）。
-                <a href="/settings/billing" className="font-medium underline ml-2">
-                  プランを見る
-                </a>
-              </p>
-            </div>
-          </div>
-        </div>
-      );
-    }
-  }
-
   // 個人サブスクのキャンセル予定
   if (subscription?.cancel_at_period_end && subscription.current_period_end) {
     const endDate = new Date(subscription.current_period_end).toLocaleDateString('ja-JP');

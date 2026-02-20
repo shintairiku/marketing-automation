@@ -34,7 +34,7 @@ export const SUBSCRIPTION_PRICE_ID = process.env.STRIPE_PRICE_ID || '';
 export const ADDON_PRICE_ID = process.env.STRIPE_PRICE_ADDON_ARTICLES || '';
 
 // サブスクリプションの状態
-export type SubscriptionStatus = 'trialing' | 'active' | 'past_due' | 'canceled' | 'expired' | 'none';
+export type SubscriptionStatus = 'active' | 'past_due' | 'canceled' | 'expired' | 'none';
 
 // ユーザーサブスクリプション情報
 export interface UserSubscription {
@@ -46,9 +46,6 @@ export interface UserSubscription {
   cancel_at_period_end: boolean;
   is_privileged: boolean;
   email: string | null;
-  trial_end: string | null;
-  trial_granted_by: string | null;
-  trial_granted_at: string | null;
 }
 
 // アクセス権の判定
@@ -58,14 +55,8 @@ export function hasActiveAccess(subscription: UserSubscription | null): boolean 
   // @shintairiku.jp 特権ユーザー
   if (subscription.is_privileged) return true;
 
-  // アクティブなサブスクリプション
+  // アクティブなサブスクリプション（フリープラン含む）
   if (subscription.status === 'active') return true;
-
-  // トライアル中（trial_end が未来なら有効）
-  if (subscription.status === 'trialing') {
-    const trialEnd = subscription.trial_end || subscription.current_period_end;
-    if (trialEnd && new Date(trialEnd) > new Date()) return true;
-  }
 
   // キャンセル済みでも期間内
   if (subscription.status === 'canceled' && subscription.current_period_end) {

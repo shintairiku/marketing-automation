@@ -4,18 +4,15 @@ import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import {
   AlertCircle,
-  CalendarPlus,
   CheckCircle,
   Clock,
   Crown,
   ExternalLink,
-  Gift,
   Loader2,
+  Plus,
   RefreshCw,
   Search,
   Shield,
-  Sparkles,
-  Trash2,
   User,
   XCircle,
 } from 'lucide-react';
@@ -51,7 +48,7 @@ import {
 } from '@/components/ui/table';
 import { useAuth } from '@clerk/nextjs';
 
-type SubscriptionStatus = 'trialing' | 'active' | 'past_due' | 'canceled' | 'expired' | 'none';
+type SubscriptionStatus = 'active' | 'past_due' | 'canceled' | 'expired' | 'none';
 
 interface UserData {
   id: string;
@@ -65,7 +62,8 @@ interface UserData {
   stripe_subscription_id: string | null;
   current_period_end: string | null;
   cancel_at_period_end: boolean;
-  trial_end: string | null;
+  plan_tier_id: string | null;
+  addon_articles_limit: number;
 }
 
 // ステータスバッジのスタイル
@@ -73,22 +71,12 @@ const statusConfig: Record<
   SubscriptionStatus,
   { label: string; variant: 'default' | 'secondary' | 'destructive' | 'outline'; icon: typeof CheckCircle }
 > = {
-  trialing: { label: 'トライアル', variant: 'default', icon: Gift },
   active: { label: 'アクティブ', variant: 'default', icon: CheckCircle },
   past_due: { label: '支払い遅延', variant: 'destructive', icon: AlertCircle },
   canceled: { label: 'キャンセル済み', variant: 'secondary', icon: XCircle },
   expired: { label: '期限切れ', variant: 'destructive', icon: XCircle },
   none: { label: 'なし', variant: 'outline', icon: Clock },
 };
-
-// トライアル期間プリセット
-const TRIAL_PRESETS = [
-  { label: '7日間', days: 7 },
-  { label: '14日間', days: 14 },
-  { label: '30日間', days: 30 },
-  { label: '60日間', days: 60 },
-  { label: '90日間', days: 90 },
-];
 
 export default function AdminUsersPage() {
   const { getToken } = useAuth();
@@ -108,18 +96,12 @@ export default function AdminUsersPage() {
     subscription_status: 'none' as SubscriptionStatus,
   });
 
-  // トライアル付与ダイアログ
-  const [trialDialogOpen, setTrialDialogOpen] = useState(false);
-  const [trialUser, setTrialUser] = useState<UserData | null>(null);
-  const [trialDays, setTrialDays] = useState(30);
-  const [customDays, setCustomDays] = useState('');
-  const [trialLoading, setTrialLoading] = useState(false);
-  const [trialMessage, setTrialMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
-
-  // トライアル取り消し確認
-  const [revokeDialogOpen, setRevokeDialogOpen] = useState(false);
-  const [revokeUser, setRevokeUser] = useState<UserData | null>(null);
-  const [revokeLoading, setRevokeLoading] = useState(false);
+  // 追加記事付与ダイアログ
+  const [grantDialogOpen, setGrantDialogOpen] = useState(false);
+  const [grantUser, setGrantUser] = useState<UserData | null>(null);
+  const [grantArticles, setGrantArticles] = useState('');
+  const [grantLoading, setGrantLoading] = useState(false);
+  const [grantMessage, setGrantMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   const fetchUsers = useCallback(async () => {
     try {
@@ -244,81 +226,53 @@ export default function AdminUsersPage() {
     }
   };
 
-  // トライアル付与ダイアログを開く
-  const openTrialDialog = (user: UserData) => {
-    setTrialUser(user);
-    setTrialDays(30);
-    setCustomDays('');
-    setTrialMessage(null);
-    setTrialDialogOpen(true);
+  // 追加記事付与ダイアログを開く
+  const openGrantDialog = (user: UserData) => {
+    setGrantUser(user);
+    setGrantArticles(String(user.addon_articles_limit || 0));
+    setGrantMessage(null);
+    setGrantDialogOpen(true);
   };
 
-  // トライアルを付与
-  const grantTrial = async () => {
-    if (!trialUser) return;
+  // 追加記事を付与
+  const grantAdditionalArticles = async () => {
+    if (!grantUser) return;
 
-    const days = customDays ? parseInt(customDays, 10) : trialDays;
-    if (!days || days < 1 || days > 730) {
-      setTrialMessage({ type: 'error', text: '日数は1〜730の間で指定してください' });
+    const articles = parseInt(grantArticles, 10);
+    if (isNaN(articles) || articles < 0) {
+      setGrantMessage({ type: 'error', text: '0以上の数値を入力してください' });
       return;
     }
 
-    setTrialLoading(true);
-    setTrialMessage(null);
+    setGrantLoading(true);
+    setGrantMessage(null);
 
     try {
-      const response = await fetch('/api/admin/free-trial', {
+      const response = await fetch('/api/admin/grant-articles', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ user_id: trialUser.id, days }),
+        body: JSON.stringify({ user_id: grantUser.id, additional_articles: articles }),
       });
 
       const data = await response.json();
 
       if (!response.ok) {
-        setTrialMessage({ type: 'error', text: data.error || 'エラーが発生しました' });
+        setGrantMessage({ type: 'error', text: data.error || 'エラーが発生しました' });
         return;
       }
 
-      setTrialMessage({ type: 'success', text: data.message });
+      setGrantMessage({ type: 'success', text: data.message });
       await fetchUsers();
 
-      // 2秒後にダイアログを閉じる
       setTimeout(() => {
-        setTrialDialogOpen(false);
-        setTrialUser(null);
-        setTrialMessage(null);
-      }, 2000);
+        setGrantDialogOpen(false);
+        setGrantUser(null);
+        setGrantMessage(null);
+      }, 1500);
     } catch {
-      setTrialMessage({ type: 'error', text: 'ネットワークエラーが発生しました' });
+      setGrantMessage({ type: 'error', text: 'ネットワークエラーが発生しました' });
     } finally {
-      setTrialLoading(false);
-    }
-  };
-
-  // トライアル取り消し
-  const revokeTrial = async () => {
-    if (!revokeUser) return;
-
-    setRevokeLoading(true);
-    try {
-      const response = await fetch(`/api/admin/free-trial?user_id=${revokeUser.id}`, {
-        method: 'DELETE',
-      });
-
-      if (!response.ok) {
-        const data = await response.json();
-        setError(data.error || 'トライアルの取り消しに失敗しました');
-        return;
-      }
-
-      await fetchUsers();
-      setRevokeDialogOpen(false);
-      setRevokeUser(null);
-    } catch {
-      setError('ネットワークエラーが発生しました');
-    } finally {
-      setRevokeLoading(false);
+      setGrantLoading(false);
     }
   };
 
@@ -326,18 +280,8 @@ export default function AdminUsersPage() {
   const stats = {
     total: users.length,
     active: users.filter((u) => u.subscription_status === 'active').length,
-    trialing: users.filter((u) => u.subscription_status === 'trialing').length,
     privileged: users.filter((u) => u.is_privileged).length,
     none: users.filter((u) => u.subscription_status === 'none').length,
-  };
-
-  // 残り日数を計算
-  const getRemainingDays = (trialEnd: string | null) => {
-    if (!trialEnd) return null;
-    const end = new Date(trialEnd);
-    const now = new Date();
-    const diff = Math.ceil((end.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
-    return diff > 0 ? diff : 0;
   };
 
   if (loading) {
@@ -386,7 +330,7 @@ export default function AdminUsersPage() {
       </div>
 
       {/* 統計カード */}
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <Card>
           <CardContent className="pt-6">
             <div className="flex items-center gap-2">
@@ -404,18 +348,7 @@ export default function AdminUsersPage() {
               <CheckCircle className="h-5 w-5 text-green-600" />
               <div>
                 <p className="text-2xl font-bold">{stats.active}</p>
-                <p className="text-sm text-muted-foreground">有料会員</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-6">
-            <div className="flex items-center gap-2">
-              <Gift className="h-5 w-5 text-violet-500" />
-              <div>
-                <p className="text-2xl font-bold">{stats.trialing}</p>
-                <p className="text-sm text-muted-foreground">トライアル中</p>
+                <p className="text-sm text-muted-foreground">アクティブ</p>
               </div>
             </div>
           </CardContent>
@@ -466,7 +399,6 @@ export default function AdminUsersPage() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">すべてのステータス</SelectItem>
-                <SelectItem value="trialing">トライアル</SelectItem>
                 <SelectItem value="active">アクティブ</SelectItem>
                 <SelectItem value="past_due">支払い遅延</SelectItem>
                 <SelectItem value="canceled">キャンセル済み</SelectItem>
@@ -494,8 +426,9 @@ export default function AdminUsersPage() {
                   <TableHead className="w-[200px]">ユーザー</TableHead>
                   <TableHead>メールアドレス</TableHead>
                   <TableHead>ステータス</TableHead>
+                  <TableHead>プラン</TableHead>
                   <TableHead>特権</TableHead>
-                  <TableHead>期間終了</TableHead>
+                  <TableHead>追加記事</TableHead>
                   <TableHead>登録日</TableHead>
                   <TableHead className="text-right">操作</TableHead>
                 </TableRow>
@@ -503,7 +436,7 @@ export default function AdminUsersPage() {
               <TableBody>
                 {filteredUsers.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={7} className="text-center text-muted-foreground py-8">
+                    <TableCell colSpan={8} className="text-center text-muted-foreground py-8">
                       ユーザーが見つかりません
                     </TableCell>
                   </TableRow>
@@ -511,9 +444,6 @@ export default function AdminUsersPage() {
                   filteredUsers.map((user) => {
                     const statusInfo = statusConfig[user.subscription_status] || statusConfig.none;
                     const StatusIcon = statusInfo.icon;
-                    const remainingDays = user.subscription_status === 'trialing'
-                      ? getRemainingDays(user.trial_end || user.current_period_end)
-                      : null;
 
                     return (
                       <TableRow key={user.id}>
@@ -542,20 +472,15 @@ export default function AdminUsersPage() {
                           <span className="text-sm">{user.email || '-'}</span>
                         </TableCell>
                         <TableCell>
-                          <div className="flex items-center gap-2">
-                            <Badge
-                              variant={statusInfo.variant}
-                              className={`gap-1 ${user.subscription_status === 'trialing' ? 'bg-violet-500 hover:bg-violet-600' : ''}`}
-                            >
-                              <StatusIcon className="h-3 w-3" />
-                              {statusInfo.label}
-                            </Badge>
-                            {remainingDays !== null && (
-                              <span className="text-xs text-muted-foreground">
-                                残り{remainingDays}日
-                              </span>
-                            )}
-                          </div>
+                          <Badge variant={statusInfo.variant} className="gap-1">
+                            <StatusIcon className="h-3 w-3" />
+                            {statusInfo.label}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>
+                          <span className="text-sm text-muted-foreground">
+                            {user.plan_tier_id === 'free' ? 'フリー' : user.plan_tier_id || '-'}
+                          </span>
                         </TableCell>
                         <TableCell>
                           {user.is_privileged ? (
@@ -568,10 +493,10 @@ export default function AdminUsersPage() {
                           )}
                         </TableCell>
                         <TableCell>
-                          {user.current_period_end ? (
-                            <span className="text-sm">
-                              {new Date(user.current_period_end).toLocaleDateString('ja-JP')}
-                            </span>
+                          {user.addon_articles_limit > 0 ? (
+                            <Badge variant="secondary" className="gap-1">
+                              +{user.addon_articles_limit}記事
+                            </Badge>
                           ) : (
                             <span className="text-sm text-muted-foreground">-</span>
                           )}
@@ -587,39 +512,15 @@ export default function AdminUsersPage() {
                         </TableCell>
                         <TableCell className="text-right">
                           <div className="flex items-center justify-end gap-1">
-                            {/* トライアル付与/取り消しボタン */}
-                            {user.subscription_status === 'trialing' ? (
-                              <>
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  className="text-violet-600 hover:text-violet-700"
-                                  onClick={() => openTrialDialog(user)}
-                                >
-                                  <CalendarPlus className="h-4 w-4 mr-1" />
-                                  延長
-                                </Button>
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  className="text-red-500 hover:text-red-600"
-                                  onClick={() => { setRevokeUser(user); setRevokeDialogOpen(true); }}
-                                >
-                                  <Trash2 className="h-4 w-4 mr-1" />
-                                  取消
-                                </Button>
-                              </>
-                            ) : user.subscription_status === 'none' || user.subscription_status === 'expired' || user.subscription_status === 'canceled' ? (
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                className="text-violet-600 hover:text-violet-700"
-                                onClick={() => openTrialDialog(user)}
-                              >
-                                <Sparkles className="h-4 w-4 mr-1" />
-                                トライアル
-                              </Button>
-                            ) : null}
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="text-emerald-600 hover:text-emerald-700"
+                              onClick={() => openGrantDialog(user)}
+                            >
+                              <Plus className="h-4 w-4 mr-1" />
+                              追加記事
+                            </Button>
                             <Link href={`/admin/users/${user.id}`}>
                               <Button variant="ghost" size="sm">
                                 <ExternalLink className="h-4 w-4 mr-1" />
@@ -693,7 +594,6 @@ export default function AdminUsersPage() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="trialing">トライアル</SelectItem>
                   <SelectItem value="active">アクティブ</SelectItem>
                   <SelectItem value="past_due">支払い遅延</SelectItem>
                   <SelectItem value="canceled">キャンセル済み</SelectItem>
@@ -742,129 +642,105 @@ export default function AdminUsersPage() {
         </DialogContent>
       </Dialog>
 
-      {/* トライアル付与ダイアログ */}
-      <Dialog open={trialDialogOpen} onOpenChange={setTrialDialogOpen}>
+      {/* 追加記事付与ダイアログ */}
+      <Dialog open={grantDialogOpen} onOpenChange={setGrantDialogOpen}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <Gift className="h-5 w-5 text-violet-500" />
-              {trialUser?.subscription_status === 'trialing' ? 'トライアル延長' : '無料トライアル付与'}
+              <Plus className="h-5 w-5 text-emerald-500" />
+              追加記事の付与
             </DialogTitle>
             <DialogDescription>
-              {trialUser?.email || trialUser?.full_name}
-              {trialUser?.subscription_status === 'trialing' && (
-                <span className="block mt-1 text-violet-600">
-                  現在トライアル中 — 残り{getRemainingDays(trialUser?.trial_end || trialUser?.current_period_end || null)}日
+              {grantUser?.email || grantUser?.full_name}
+              {grantUser && grantUser.addon_articles_limit > 0 && (
+                <span className="block mt-1 text-emerald-600">
+                  現在の追加記事: {grantUser.addon_articles_limit}記事
                 </span>
               )}
             </DialogDescription>
           </DialogHeader>
 
           <div className="space-y-4 py-4">
-            {/* プリセット期間 */}
             <div className="space-y-2">
-              <Label>期間を選択</Label>
-              <div className="grid grid-cols-5 gap-2">
-                {TRIAL_PRESETS.map((preset) => (
-                  <Button
-                    key={preset.days}
-                    variant={trialDays === preset.days && !customDays ? 'default' : 'outline'}
-                    size="sm"
-                    onClick={() => { setTrialDays(preset.days); setCustomDays(''); }}
-                    className={trialDays === preset.days && !customDays ? 'bg-violet-600 hover:bg-violet-700' : ''}
-                  >
-                    {preset.label}
-                  </Button>
-                ))}
-              </div>
-            </div>
-
-            {/* カスタム日数 */}
-            <div className="space-y-2">
-              <Label htmlFor="custom-days">カスタム日数</Label>
+              <Label htmlFor="grant-articles">追加記事数</Label>
               <div className="flex items-center gap-2">
                 <Input
-                  id="custom-days"
+                  id="grant-articles"
                   type="number"
-                  min={1}
-                  max={730}
-                  placeholder="例: 45"
-                  value={customDays}
-                  onChange={(e) => setCustomDays(e.target.value)}
+                  min={0}
+                  max={1000}
+                  placeholder="例: 10"
+                  value={grantArticles}
+                  onChange={(e) => setGrantArticles(e.target.value)}
                   className="w-32"
                 />
-                <span className="text-sm text-muted-foreground">日間</span>
+                <span className="text-sm text-muted-foreground">記事</span>
               </div>
+              <p className="text-xs text-muted-foreground">
+                0を指定すると追加記事を解除します。この値は今月の追加上限として設定されます。
+              </p>
             </div>
 
-            {/* 付与内容サマリー */}
-            <div className="rounded-lg bg-violet-50 p-3 space-y-1">
-              <p className="text-sm font-medium text-violet-900">付与内容</p>
-              <p className="text-sm text-violet-700">
-                期間: {customDays ? parseInt(customDays, 10) || '—' : trialDays}日間
+            {/* プリセットボタン */}
+            <div className="flex flex-wrap gap-2">
+              {[5, 10, 20, 50].map((n) => (
+                <Button
+                  key={n}
+                  variant={grantArticles === String(n) ? 'default' : 'outline'}
+                  size="sm"
+                  onClick={() => setGrantArticles(String(n))}
+                  className={grantArticles === String(n) ? 'bg-emerald-600 hover:bg-emerald-700' : ''}
+                >
+                  {n}記事
+                </Button>
+              ))}
+              <Button
+                variant={grantArticles === '0' ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => setGrantArticles('0')}
+                className={grantArticles === '0' ? 'bg-stone-600 hover:bg-stone-700' : ''}
+              >
+                解除
+              </Button>
+            </div>
+
+            {/* サマリー */}
+            <div className="rounded-lg bg-emerald-50 p-3 space-y-1">
+              <p className="text-sm font-medium text-emerald-900">付与内容</p>
+              <p className="text-sm text-emerald-700">
+                プラン上限: 10記事/月 + 追加: {grantArticles || 0}記事
               </p>
-              <p className="text-sm text-violet-700">
-                終了日: {(() => {
-                  const d = customDays ? parseInt(customDays, 10) : trialDays;
-                  if (!d) return '—';
-                  const end = new Date(Date.now() + d * 86400000);
-                  return end.toLocaleDateString('ja-JP', { year: 'numeric', month: 'long', day: 'numeric' });
-                })()}
+              <p className="text-sm text-emerald-700 font-medium">
+                合計: {10 + (parseInt(grantArticles, 10) || 0)}記事/月
               </p>
-              <p className="text-xs text-violet-600 mt-2">
-                クレジットカード不要。期間終了後は自動的にキャンセルされます。
+              <p className="text-xs text-emerald-600 mt-2">
+                Stripeでの課金は発生しません。管理者による手動付与です。
               </p>
             </div>
 
             {/* メッセージ */}
-            {trialMessage && (
+            {grantMessage && (
               <div className={`rounded-lg p-3 text-sm ${
-                trialMessage.type === 'success'
+                grantMessage.type === 'success'
                   ? 'bg-green-50 text-green-800'
                   : 'bg-red-50 text-red-800'
               }`}>
-                {trialMessage.text}
+                {grantMessage.text}
               </div>
             )}
           </div>
 
           <DialogFooter>
-            <Button variant="outline" onClick={() => setTrialDialogOpen(false)}>
+            <Button variant="outline" onClick={() => setGrantDialogOpen(false)}>
               キャンセル
             </Button>
             <Button
-              onClick={grantTrial}
-              disabled={trialLoading}
-              className="bg-violet-600 hover:bg-violet-700"
+              onClick={grantAdditionalArticles}
+              disabled={grantLoading}
+              className="bg-emerald-600 hover:bg-emerald-700"
             >
-              {trialLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              {trialUser?.subscription_status === 'trialing' ? 'トライアルを延長' : 'トライアルを付与'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* トライアル取り消し確認ダイアログ */}
-      <Dialog open={revokeDialogOpen} onOpenChange={setRevokeDialogOpen}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle className="text-red-600">トライアルの取り消し</DialogTitle>
-            <DialogDescription>
-              {revokeUser?.email || revokeUser?.full_name} のトライアルを取り消しますか？
-              この操作は元に戻せません。ユーザーは即座にアクセスを失います。
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setRevokeDialogOpen(false)}>
-              キャンセル
-            </Button>
-            <Button
-              variant="destructive"
-              onClick={revokeTrial}
-              disabled={revokeLoading}
-            >
-              {revokeLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              取り消す
+              {grantLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              追加記事を付与
             </Button>
           </DialogFooter>
         </DialogContent>
