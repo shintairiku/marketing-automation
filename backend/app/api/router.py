@@ -10,6 +10,7 @@ from app.domains.image_generation.endpoints import router as image_generation_ro
 from app.domains.admin.endpoints import router as admin_router
 from app.domains.blog.endpoints import router as blog_router
 from app.domains.usage.endpoints import router as usage_router
+from app.domains.contact.endpoints import router as contact_router
 
 api_router = APIRouter()
 
@@ -22,6 +23,7 @@ api_router.include_router(style_template_router, prefix="/style-templates", tags
 api_router.include_router(image_generation_router, prefix="/images", tags=["Image Generation"])
 api_router.include_router(blog_router, prefix="/blog", tags=["Blog AI"])
 api_router.include_router(usage_router, prefix="/usage", tags=["Usage"])
+api_router.include_router(contact_router, prefix="/contact", tags=["Contact"])
 # Admin router (requires @shintairiku.jp email domain)
 api_router.include_router(admin_router)
 

@@ -266,9 +266,9 @@ export default function AdminUsersPage() {
   return (
     <div className="space-y-6">
       {/* ヘッダー */}
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold">ユーザー管理</h1>
-        <Button onClick={fetchUsers} variant="outline" size="sm">
+      <div className="flex items-center justify-between gap-3">
+        <h1 className="text-xl sm:text-2xl font-bold">ユーザー管理</h1>
+        <Button onClick={fetchUsers} variant="outline" size="sm" className="shrink-0">
           <RefreshCw className="mr-2 h-4 w-4" />
           更新
         </Button>
@@ -368,12 +368,12 @@ export default function AdminUsersPage() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead className="w-[200px]">ユーザー</TableHead>
-                  <TableHead>メールアドレス</TableHead>
+                  <TableHead className="min-w-[160px]">ユーザー</TableHead>
+                  <TableHead className="min-w-[140px]">メールアドレス</TableHead>
                   <TableHead>ステータス</TableHead>
                   <TableHead>特権</TableHead>
-                  <TableHead>期間終了</TableHead>
-                  <TableHead>登録日</TableHead>
+                  <TableHead className="whitespace-nowrap">期間終了</TableHead>
+                  <TableHead className="whitespace-nowrap">登録日</TableHead>
                   <TableHead className="text-right">操作</TableHead>
                 </TableRow>
               </TableHeader>

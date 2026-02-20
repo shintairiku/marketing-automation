@@ -155,11 +155,26 @@ class ApplyLimitsResult(BaseModel):
     message: str
 
 
+class GrantArticlesRequest(BaseModel):
+    """Request to grant additional articles to a user"""
+    amount: int  # 付与する記事数
+
+class GrantArticlesResponse(BaseModel):
+    """Response after granting articles"""
+    success: bool
+    user_id: str
+    admin_granted_articles: int = 0
+    total_limit: int = 0
+    articles_generated: int = 0
+    remaining: int = 0
+    message: str = ""
+
 class UserUsageDetail(BaseModel):
     """Detailed usage info for a specific user"""
     articles_generated: int = 0
     articles_limit: int = 0
     addon_articles_limit: int = 0
+    admin_granted_articles: int = 0
     total_limit: int = 0
     remaining: int = 0
     billing_period_start: Optional[str] = None

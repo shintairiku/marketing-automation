@@ -30,6 +30,41 @@
 
 ---
 
+## Cloud Sandbox Claude Code 必須手順
+
+> **クラウドサンドボックス環境（claude.ai の Claude Code）で作業する場合の必須手順。**
+> ローカルCLI版では不要だが、サンドボックスでは `node_modules` が存在しないため最初に依存インストールが必要。
+
+### 作業開始時（必須）
+```bash
+# 1. Frontend 依存インストール（node_modules がないため必須）
+cd frontend && bun install && cd ..
+
+# 2. Backend 依存インストール（必要に応じて）
+cd backend && uv sync && cd ..
+```
+
+### プッシュ前（必須）
+**コードを変更したら、コミット・プッシュ前に必ず以下を実行すること。**
+```bash
+# 1. Backend Lint チェック（ruff、Error がないことを確認）
+cd backend && uv run python -m ruff check app
+
+# 2. Frontend Lint チェック（Error がないことを確認。Warning は許容）
+cd frontend && bun run lint
+
+# 3. Frontend ビルドチェック（exit code 0 を確認）
+cd frontend && bun run build
+```
+**lint, ruff check, または build が失敗する状態でプッシュしてはならない。必ず修正してからプッシュすること。**
+
+### ビルド用プレースホルダー .env.local
+サンドボックスでは本番の環境変数がないため、ビルドの page data collection フェーズで `ReferenceError: Reference to undefined env var` が発生する。
+`frontend/.env.local` にプレースホルダー値を設定すること（`.gitignore` 済み）。
+`.env.example` をコピーしてプレースホルダー値を入れればOK。
+
+---
+
 ## プロジェクト概要
 
 **BlogAI / Marketing Automation Platform** — AIを活用したSEO記事・ブログ記事の自動生成SaaSプラットフォーム。
@@ -509,11 +544,15 @@ marketing-automation/
 - 特権チェックは `middleware.ts` の `isPrivilegedOnlyRoute` で実施
 
 ### サブスクリプション
-- **個人プラン**: ¥29,800/月 (Stripe)
-- **チームプラン**: ¥29,800/席/月 (組織単位、2-50席)
+- **フリープラン**: 月10記事まで無料（クレカ不要、登録時に自動付与）
+- **個人プラン**: ¥29,800/月 (Stripe) — 現在はユーザーに非表示（価格未決定のため）
+- **チームプラン**: ¥29,800/席/月 (組織単位、2-50席) — 同上
 - `SubscriptionGuard` コンポーネントがUI側でアクセス制御（`(tools)` レイアウト内のみ。`(settings)` は未課金でもアクセス可）
+- フリープランユーザーは `status: 'active'` + `plan_tier_id: 'free'`（SubscriptionGuard変更不要）
 - `past_due` は3日間の猶予期間
 - `canceled` は期間終了まで有効
+- **管理者記事付与**: `admin_granted_articles` カラムで個別ユーザーに記事追加可能
+- **total_limit 公式**: `articles_limit + addon_articles_limit + admin_granted_articles`
 - **個人→チーム移行**: `stripe.subscriptions.update()` で同一サブスク内の quantity 変更（日割り自動適用）
 - 同一 Stripe Customer を個人・チームで共有（組織用に別Customer は作成しない）
 
@@ -1843,15 +1882,196 @@ class BlogCompletionOutput(BaseModel):
 
 **フロントエンド変更なし**: 既存の `state.draft_preview_url` / `state.draft_edit_url` 条件分岐でボタンが表示される
 
+### 31. お問い合わせ機能 (2026-02-19)
+
+**概要**: ユーザーがサイドバーからお問い合わせを送信でき、管理者ページから確認・対応でき、設定したメールアドレスにも通知が飛ぶ機能。
+
+**DB マイグレーション**: `supabase/migrations/20260219100000_add_contact_inquiries.sql`
+- `contact_inquiries` テーブル: id(UUID PK), user_id, name, email, category, subject, message, status(new/read/replied), admin_note, created_at, updated_at
+- RLS: ユーザーは自身の問い合わせのみ読み取り可、service_roleはフルアクセス
+- インデックス: user_id, status, created_at DESC
+
+**バックエンド新規ドメイン**: `backend/app/domains/contact/`
+- `schemas.py` — InquiryCategory(general/bug_report/feature_request/billing/account/other), InquiryStatus(new/read/replied), ContactInquiryCreate, ContactInquiryResponse, ContactInquiryListResponse, UpdateInquiryStatusRequest
+- `service.py` — ContactService (create_inquiry, get_user_inquiries, get_all_inquiries, get_inquiry_by_id, update_inquiry_status) + `_send_notification_email()` (smtplib + asyncio.to_thread)
+- `endpoints.py` — ユーザー用(POST /, GET /mine) + 管理者用(GET /admin/list, GET /admin/{id}, PATCH /admin/{id}/status)
+- `backend/app/api/router.py` — contact_router 追加 (prefix="/contact")
+
+**メール通知**: Resend（優先）+ SMTPフォールバックの2段構成
+- **Resend**: `resend` v2.22.0 (`uv add resend`)。`RESEND_API_KEY` + `RESEND_FROM_EMAIL` で設定
+- **SMTP**: `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM_EMAIL` で設定（Resend未設定時のフォールバック）
+- `CONTACT_NOTIFICATION_EMAIL` — 通知先メールアドレス（必須）
+- 未設定時はメール送信をスキップ（ログのみ）
+- メール送信失敗はお問い合わせ送信自体には影響しない（asyncio.create_task でバックグラウンド送信）
+- HTML + プレーンテキストの両フォーマットで送信
+- `reply_to` にユーザーのメールアドレスを設定（管理者が直接返信可能）
+
+**フロントエンド**:
+- `frontend/src/app/(settings)/settings/contact/page.tsx` — お問い合わせフォーム
+  - `(settings)` レイアウト配下（サブスクリプション不要でアクセス可）
+  - カテゴリ選択(Select), 名前/メール/件名/内容フォーム
+  - Clerkからの名前・メール自動入力
+  - 送信成功時にサクセス画面表示
+  - USE_PROXYパターン対応
+- `frontend/src/app/(admin)/admin/inquiries/page.tsx` — 管理者お問い合わせ管理
+  - ステータス別サマリーカード(新規/確認済み/対応済み)
+  - ステータスフィルタ
+  - 展開式詳細パネル（送信者情報、メッセージ、管理者メモ）
+  - ステータス変更ボタン + 管理者メモ保存
+
+**サイドバー更新**: `frontend/src/components/constant/route.ts`
+- Settings グループに「サポート」セクション追加 → `/settings/contact` (お問い合わせ)
+- Help グループの既存リンク `/help/contact` → `/settings/contact` に変更
+
+**管理者ナビ更新**: `frontend/src/app/(admin)/admin/layout.tsx`
+- 「お問い合わせ」(MessageSquare アイコン) → `/admin/inquiries` を追加
+
+**環境変数** (backend/.env に追加が必要):
+```env
+# Resend (推奨)
+RESEND_API_KEY=re_xxxxx
+RESEND_FROM_EMAIL=BlogAI <noreply@yourdomain.com>
+CONTACT_NOTIFICATION_EMAIL=admin@yourdomain.com
+
+# SMTP (Resend未使用時のフォールバック)
+# SMTP_HOST=smtp.gmail.com
+# SMTP_PORT=587
+# SMTP_USER=your-email@gmail.com
+# SMTP_PASSWORD=your-app-password
+# SMTP_FROM_EMAIL=noreply@yourdomain.com
+```
+
+### 32. フリープラン + 記事追加付与システム (2026-02-20)
+
+**概要**: クレカ不要で登録→即フリープラン(月10記事)。有料プランインフラは維持しつつユーザーには非表示。管理者が記事を手動付与可能。
+
+#### DB マイグレーション
+- **新規**: `shared/supabase/migrations/20260220100000_free_plan_and_admin_granted_articles.sql`
+  - `plan_tiers.stripe_price_id` を NULL 許容に変更（フリープランはStripe不要）
+  - `plan_tiers` に 'free' ティア追加（月10記事、コスト0）
+  - `usage_tracking` に `admin_granted_articles` カラム追加（デフォルト0）
+  - `increment_usage_if_allowed()` 関数を更新（total_limit に admin_granted_articles を含む）
+- **更新**: `shared/supabase/seed.sql` にフリープランを追加
+
+#### バックエンド変更
+- **`backend/app/domains/usage/service.py`**:
+  - total_limit 計算式を全箇所で `articles_limit + addon_articles_limit + admin_granted_articles` に統一
+  - `_create_tracking_for_free_plan()` 新メソッド: Stripe不要の月ベース期間トラッキング
+  - `_create_tracking_from_subscription()`: フリープランユーザー検出・ルーティング追加
+  - `grant_articles()` 新メソッド: admin_granted_articles をインクリメント
+- **`backend/app/domains/usage/schemas.py`** — `admin_granted_articles: int = 0` フィールド追加
+- **`backend/app/domains/usage/endpoints.py`** — total_limit 計算に admin_granted_articles を含める
+- **`backend/app/domains/admin/schemas.py`** — `GrantArticlesRequest`, `GrantArticlesResponse`, `UserUsageDetail.admin_granted_articles` 追加
+- **`backend/app/domains/admin/endpoints.py`** — `POST /admin/users/{user_id}/grant-articles` エンドポイント追加
+- **`backend/app/domains/admin/service.py`** — get_user_detail(), get_users_usage() に admin_granted_articles を含める
+- **`backend/app/domains/contact/schemas.py`** — `InquiryCategory` に `article_limit_increase` 追加
+
+#### フロントエンド変更
+- **`frontend/src/app/api/subscription/status/route.ts`**:
+  - 新規ユーザーを `status: 'active'`, `plan_tier_id: 'free'` で作成（hasActiveAccess が自動的にアクセス許可）
+  - usage 計算に admin_granted_articles を含める
+  - フォールバックでユーザーの plan_tier_id（デフォルト 'free'）を使用
+- **`frontend/src/lib/subscription/index.ts`** — UsageInfo に `admin_granted_articles: number` 追加
+- **`frontend/src/app/(settings)/settings/billing/page.tsx`**:
+  - ページタイトルを「プラン & 使用量」に変更
+  - フリープランユーザー: 使用量表示あり、有料プラン選択・アドオン管理・Stripe Portal・FAQ は非表示
+  - 上限到達時はお問い合わせへの導線（記事追加リクエスト）を表示
+  - admin_granted_articles の表示を追加
+- **`frontend/src/app/(tools)/blog/new/page.tsx`** — 上限到達メッセージをお問い合わせへのリンクに変更
+- **`frontend/src/app/(settings)/settings/contact/page.tsx`**:
+  - `article_limit_increase` カテゴリ追加
+  - URLパラメータで自動カテゴリ選択
+  - 使用量情報を件名・本文に自動入力
+
+#### 管理者UI変更
+- **`frontend/src/app/(admin)/admin/page.tsx`**:
+  - 上限に近いユーザーリストに記事付与UI追加（数量入力 + 付与ボタン）
+  - ユーザー名をユーザー詳細へのリンクに変更
+- **`frontend/src/app/(admin)/admin/inquiries/page.tsx`**:
+  - `article_limit_increase` カテゴリラベル追加
+  - 記事追加リクエストのお問い合わせに専用の付与UI追加（ワンクリック付与）
+- **`frontend/src/app/(admin)/admin/users/[userId]/page.tsx`**:
+  - 使用量カードに `管理者付与分` 行追加
+  - 記事付与UI追加（数量入力 + 付与ボタン + 結果メッセージ）
+
+#### 設計ポイント
+- **SubscriptionGuard 変更なし**: フリープランユーザーは `status: 'active'` なので既存の `hasActiveAccess()` がそのまま機能
+- **total_limit 公式**: `articles_limit + addon_articles_limit + admin_granted_articles` — DB関数、バックエンドサービス、フロントエンドAPI全て統一
+- **フリープラン判定**: `hasIndividualPlan && !stripe_subscription_id` — Stripeサブスクなしのアクティブユーザー
+- **有料プラン非表示**: `isFreePlan` フラグでプラン選択、アドオン管理、Stripe Portal、FAQ を条件非表示
+
+### 33. Google Fonts → セルフホスト移行 (2026-02-20)
+
+**問題**: `next/font/google` がビルド時に Google Fonts (`fonts.googleapis.com`) からフォントをダウンロードしようとするが、クラウドサンドボックス環境ではネットワーク制限でアクセスできずビルドが失敗していた。
+
+**解決**: `@fontsource-variable/noto-sans-jp` パッケージでフォントをセルフホスト。
+
+**変更ファイル**:
+| ファイル | 変更内容 |
+|---------|---------|
+| `frontend/src/app/layout.tsx` | `next/font/google` の `Noto_Sans_JP` import 削除、CSS variable 設定削除、body から `notoSansJP.variable` 削除 |
+| `frontend/src/styles/globals.css` | `@import '@fontsource-variable/noto-sans-jp';` 追加 |
+| `frontend/tailwind.config.ts` | `var(--font-noto-sans-jp)` → `Noto Sans JP Variable` に変更 |
+| `frontend/package.json` | `@fontsource-variable/noto-sans-jp` v5.2.10 追加 |
+
+**仕組み**:
+- fontsource パッケージが 120+ の woff2 サブセットファイルを `node_modules` に同梱
+- CSS `@font-face` + `unicode-range` でブラウザが必要なサブセットのみダウンロード
+- フォントは `Noto Sans JP Variable` (可変フォント、weight 100-900)
+- **ビルド時の外部ネットワークアクセス不要**
+- フォントの見た目・品質は Google Fonts から配信されるものと同一
+
+**その他の修正**:
+- `frontend/src/app/(admin)/admin/inquiries/page.tsx` — ESLint import ソートエラー修正
+- `frontend/src/app/api/subscription/status/route.ts` — TypeScript型キャストエラー修正 (`as Record` → `as unknown as Record`)
+
 ### 2026-02-10 自己改善
 - **再検証の重要性**: 実装完了後のユーザー再検証要求で、`useArticles.ts` と `admin/plans/page.tsx` に `USE_PROXY` パターンが欠けているバグを発見した。最初の実装時にサーバーサイドAPI Routes (9ファイル) のみに注力し、クライアントサイドhooksの直接fetch呼び出しを見落としていた。**サーバーサイド→バックエンド通信だけでなく、ブラウザ→バックエンド通信パスも全て確認すべき。**
 - **FastAPI末尾スラッシュ + Cloud Run scheme 変換の複合問題**: `frontend/src/app/api/proxy/[...path]/route.ts` の `ensureTrailingSlash()` が `/blog/sites` を `/blog/sites/` に変換し、FastAPI (`redirect_slashes=True`) が 307 で `/blog/sites` へ戻す。さらに Cloud Run の `Location` が `http://...run.app/...` になり、プロキシがそれを手動追従すると Cloud Run 側で 302/307 が連鎖する。**手動リダイレクト追従を使う場合は、(1) 末尾スラッシュ強制をしない、(2) `Location` が `http://` でも `https://` に正規化する、の両方を実施すべき。**
 - **リダイレクト処理の不完全実装**: これまでの実装は「1回だけ追従」だったため、Cloud Run の多段リダイレクト（FastAPI 307 + Cloud Run 302）で取りこぼしが起きた。**手動追従ロジックは最初から最大ホップ数を持つループ実装にするべき。**
 
+### 2026-02-20 自己改善
+- **クラウドサンドボックスでの `bun install` 忘れ**: サンドボックス環境では `node_modules` が存在しない。ユーザーに「毎回ビルドエラー起きてる」と指摘された。**サンドボックスでは作業開始時に必ず `bun install` を実行すること。**
+- **プッシュ前のlint/build検証忘れ**: ローカルCLIでは実行していたが、サンドボックスでは省略していた。**環境に関係なく、プッシュ前に `bun run lint` + `bun run build` を必ず実行すること。**
+- **`next/font/google` のビルド時ネットワーク依存**: Google Fonts に依存する `next/font/google` はネットワーク制限環境（CI、サンドボックス等）でビルドが失敗する。**`@fontsource-variable` でセルフホストすればビルド時の外部依存を排除できる。**
+
 ### 2026-02-02 自己改善
 - **記憶の即時更新**: コード変更を完了した直後に CLAUDE.md を更新せず、ユーザーに「また記憶してないでしょ」と指摘された。**変更を加えたら、次のユーザー応答の前に必ず CLAUDE.md を更新する。これは最優先の義務。**
 - **Framer Motion `transition` の `exit` キー**: `transition={{ exit: { duration: 0.35 } }}` は型エラー。正しくは `exit={{ ..., transition: { duration: 0.35 } }}` — exit prop 内に transition を入れる。ビルドで初めて気付くのではなく、書く時点で型を意識すべき。
 - **`bun run build` を使う**: ユーザーに指摘されたとおり、`npx next build` ではなく `bun run build` を使用すること。
+
+### 34. 管理者ページ レスポンシブ対応 (2026-02-20)
+
+**概要**: 管理者ページ全体をスマホ対応のレスポンシブデザインに改修。7ファイルを修正。
+
+**変更ファイル一覧**:
+
+| ファイル | 変更種別 | 概要 |
+|---------|---------|------|
+| `frontend/src/app/(admin)/admin/layout.tsx` | 全面リライト | モバイル対応ハンバーガーメニュー付きサイドバー |
+| `frontend/src/app/(admin)/admin/page.tsx` | 改修 | ヘッダーモバイルスタック、チャート高さ調整、上限ユーザーリストのtruncate修正 |
+| `frontend/src/app/(admin)/admin/users/page.tsx` | 改修 | ヘッダーサイズ調整、テーブルカラム幅の最適化 |
+| `frontend/src/app/(admin)/admin/users/[userId]/page.tsx` | 改修 | InfoRow の break-all、h1サイズ調整 |
+| `frontend/src/app/(admin)/admin/plans/page.tsx` | 改修 | **overflow-x-auto追加(CRITICAL)**、ヘッダーモバイルスタック、フォーム縦並びレイアウト |
+| `frontend/src/app/(admin)/admin/blog-usage/page.tsx` | 改修 | ユーザーテーブル・モデル料金テーブルにoverflow-x-auto追加 |
+| `frontend/src/app/(admin)/admin/inquiries/page.tsx` | 改修 | ヘッダーモバイルスタック、ステータスカードサイズ調整、詳細パネル1カラム化、サマリー行レスポンシブ化 |
+
+**レイアウト変更の設計**:
+- **デスクトップ (md+)**: 従来通り左サイドバー `w-64` + メインコンテンツ
+- **モバイル (<md)**: ハンバーガーメニュー → オーバーレイ + スライドインサイドバー
+  - ヘッダーにハンバーガーアイコン (`Menu`/`X`) を追加
+  - `fixed` + `translate-x` でスライドイン/アウトアニメーション
+  - 背景オーバーレイ (`bg-black/30`) でコンテンツ領域をクリックで閉じる
+  - ルート遷移時にサイドバーを自動クローズ (`useEffect` on `pathname`)
+- **ヘッダー**: `sticky top-0 z-30` でスクロール時に固定
+- **ナビラベル**: 短縮（「ダッシュボード」→「Dashboard」等）でモバイル幅に最適化
+
+**修正した主要なレスポンシブ問題**:
+1. **plans/page.tsx テーブルにoverflow-x-auto欠落**: 9カラムテーブルがモバイルではみ出し。`overflow-x-auto` 追加で水平スクロール対応
+2. **inquiries/page.tsx grid-cols-3ステータスカード**: アイコン・テキストサイズをsm:ブレークポイントで段階的に
+3. **inquiries/page.tsx 詳細パネルgrid-cols-2**: `grid-cols-1 sm:grid-cols-2` に変更
+4. **全ページのヘッダー**: `flex-col sm:flex-row` でモバイル縦並び対応
+5. **plans TierForm**: `grid-cols-4` (ラベル右寄せ) → 縦並び `space-y-1.5` + 数値フィールドは `grid-cols-2` で2列に
 
 > ## **【最重要・再掲】記憶の更新は絶対に忘れるな**
 > **このファイルの冒頭にも書いたが、改めて念押しする。**

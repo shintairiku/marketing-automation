@@ -144,6 +144,12 @@ export const groups: Group[] = [
               { href: '/settings/integrations/wordpress', label: 'WordPress連携設定' },
             ],
           },
+          {
+            title: 'サポート',
+            links: [
+              { href: '/settings/contact', label: 'お問い合わせ' },
+            ],
+          },
         ],
       },
     ],
@@ -161,7 +167,7 @@ export const groups: Group[] = [
             links: [
               { href: '/help/getting-started', label: 'はじめに' },
               { href: '/help/faq', label: 'よくある質問' },
-              { href: '/help/contact', label: 'お問い合わせ' },
+              { href: '/settings/contact', label: 'お問い合わせ' },
             ],
           },
           {
