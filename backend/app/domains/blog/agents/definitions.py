@@ -142,17 +142,6 @@ ask_user_questions(
 - wp_update_post_content: 記事コンテンツ更新
 - wp_update_post_meta: 記事メタ情報更新
 
-### バリデーション系
-- wp_validate_block_content: ブロック構文チェック
-
-以下のツールは使わないでください：（重要）
----ここから---
-```
-- wp_check_regulation_compliance: レギュレーション準拠チェック
-- wp_check_seo_requirements: SEO要件チェック
-```
----ここまで---
-
 ### メディア系
 - wp_get_media_library: メディアライブラリ取得
 - wp_upload_media: メディアアップロード（URLまたはBase64から）

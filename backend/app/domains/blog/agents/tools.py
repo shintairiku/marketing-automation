@@ -303,56 +303,6 @@ async def wp_update_post_meta(
     })
 
 
-# ========== バリデーション系ツール ==========
-
-@function_tool
-async def wp_validate_block_content(content: str) -> str:
-    """ブロックコンテンツの構文・形式チェックを行います。
-
-    Args:
-        content: 検証するブロックHTMLコンテンツ
-    """
-    return await call_wordpress_mcp_tool("wp-mcp-validate-block-content", {"content": content})
-
-
-@function_tool
-async def wp_check_regulation_compliance(
-    content: str,
-    category_id: int,
-) -> str:
-    """カテゴリ別レギュレーションへの準拠を検証します。
-
-    Args:
-        content: 検証するコンテンツ
-        category_id: カテゴリID
-    """
-    return await call_wordpress_mcp_tool("wp-mcp-check-regulation-compliance", {
-        "content": content,
-        "category_id": category_id,
-    })
-
-
-@function_tool
-async def wp_check_seo_requirements(
-    content: str,
-    target_keywords: Optional[List[str]] = None,
-    title: Optional[str] = None,
-) -> str:
-    """SEO要件チェックを行います。
-
-    Args:
-        content: 検証するコンテンツ
-        target_keywords: ターゲットキーワード
-        title: 記事タイトル
-    """
-    args = {"content": content}
-    if target_keywords is not None:
-        args["target_keywords"] = target_keywords
-    if title is not None:
-        args["title"] = title
-    return await call_wordpress_mcp_tool("wp-mcp-check-seo-requirements", args)
-
-
 # ========== メディア系ツール ==========
 
 @function_tool
@@ -686,10 +636,6 @@ ALL_WORDPRESS_TOOLS = [
     wp_create_draft_post,
     wp_update_post_content,
     wp_update_post_meta,
-    # バリデーション系
-    wp_validate_block_content,
-    wp_check_regulation_compliance,
-    wp_check_seo_requirements,
     # メディア系
     wp_get_media_library,
     wp_upload_media,
