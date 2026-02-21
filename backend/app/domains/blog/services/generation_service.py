@@ -15,6 +15,7 @@ from typing import Any, Dict, List, Optional
 from agents import Runner, RunConfig
 from agents.stream_events import (
     AgentUpdatedStreamEvent,
+    RawResponsesStreamEvent,
     RunItemStreamEvent,
 )
 from agents.items import (
@@ -37,15 +38,19 @@ from app.domains.blog.services.wordpress_mcp_service import (
     clear_mcp_client_cache,
     set_mcp_context,
 )
+
 try:
     from app.infrastructure.logging.service import LoggingService
+
     LOGGING_SERVICE_AVAILABLE = True
 except Exception:
     LoggingService = None  # type: ignore
     LOGGING_SERVICE_AVAILABLE = False
 
 try:
-    from app.infrastructure.analysis.cost_calculation_service import CostCalculationService
+    from app.infrastructure.analysis.cost_calculation_service import (
+        CostCalculationService,
+    )
 except Exception:
     CostCalculationService = None  # type: ignore
 
@@ -62,12 +67,21 @@ logger = logging.getLogger(__name__)
 # ツール名 → (ステップフェーズ, フレンドリーメッセージ)
 TOOL_STEP_MAPPING: Dict[str, tuple[str, str]] = {
     # 記事取得系 → 参考記事分析フェーズ
-    "wp_get_posts_by_category": ("参考記事分析中", "カテゴリの記事一覧を取得しています"),
-    "wp_get_post_block_structure": ("参考記事分析中", "記事のブロック構造を分析しています"),
+    "wp_get_posts_by_category": (
+        "参考記事分析中",
+        "カテゴリの記事一覧を取得しています",
+    ),
+    "wp_get_post_block_structure": (
+        "参考記事分析中",
+        "記事のブロック構造を分析しています",
+    ),
     "wp_get_post_raw_content": ("参考記事分析中", "記事のコンテンツを読み込んでいます"),
     "wp_get_recent_posts": ("参考記事分析中", "最近の記事一覧を取得しています"),
     "wp_get_post_by_url": ("参考記事分析中", "URLから記事を取得しています"),
-    "wp_analyze_category_format_patterns": ("参考記事分析中", "カテゴリの記事パターンを分析しています"),
+    "wp_analyze_category_format_patterns": (
+        "参考記事分析中",
+        "カテゴリの記事パターンを分析しています",
+    ),
     # ブロック・テーマ系 → 情報収集フェーズ
     "wp_extract_used_blocks": ("情報収集中", "使用されているブロックを分析しています"),
     "wp_get_theme_styles": ("情報収集中", "テーマスタイルを取得しています"),
@@ -87,7 +101,10 @@ TOOL_STEP_MAPPING: Dict[str, tuple[str, str]] = {
     "wp_create_term": ("記事生成中", "カテゴリ/タグを作成しています"),
     "wp_get_site_info": ("初期化中", "サイト情報を取得しています"),
     "wp_get_post_types": ("初期化中", "投稿タイプ一覧を取得しています"),
-    "wp_get_article_regulations": ("情報収集中", "レギュレーション設定を取得しています"),
+    "wp_get_article_regulations": (
+        "情報収集中",
+        "レギュレーション設定を取得しています",
+    ),
     # ユーザー質問
     "ask_user_questions": ("情報収集中", "ユーザーに追加情報を確認しています"),
     # Web検索
@@ -104,6 +121,9 @@ _BUILTIN_TOOL_TYPE_MAP: Dict[str, str] = {
     "computer_call": "computer_use",
     "mcp_call": "mcp_call",
 }
+
+_TRACE_TEXT_LIMIT = 12000
+_TRACE_IO_LIMIT = 20000
 
 
 def _resolve_tool_name(raw_item: Any) -> str:
@@ -167,7 +187,8 @@ class BlogGenerationService:
                 progress_percentage=5,
             )
             await self._publish_event(
-                process_id, user_id,
+                process_id,
+                user_id,
                 "generation_started",
                 {"step": "initializing", "message": "記事生成を開始しました"},
             )
@@ -181,17 +202,23 @@ class BlogGenerationService:
             )
 
             # アップロード済み画像を取得
-            db_images = supabase.table("blog_generation_state").select(
-                "uploaded_images"
-            ).eq("id", process_id).single().execute()
+            db_images = (
+                supabase.table("blog_generation_state")
+                .select("uploaded_images")
+                .eq("id", process_id)
+                .single()
+                .execute()
+            )
             uploaded_images = (
-                db_images.data.get("uploaded_images", [])
-                if db_images.data else []
+                db_images.data.get("uploaded_images", []) if db_images.data else []
             )
 
             # 入力メッセージを構築（画像対応）
             input_message = self._build_input_message(
-                user_prompt, reference_url, wordpress_site, uploaded_images,
+                user_prompt,
+                reference_url,
+                wordpress_site,
+                uploaded_images,
             )
 
             # RunConfig設定（group_id で同一プロセスのトレースを紐付け）
@@ -202,7 +229,7 @@ class BlogGenerationService:
                     "process_id": process_id,
                     "user_id": user_id,
                     "site_id": wordpress_site["id"],
-                }
+                },
             )
 
             # ログセッションを確保（ブログAI用）
@@ -236,7 +263,8 @@ class BlogGenerationService:
                 error_message=str(e),
             )
             await self._publish_event(
-                process_id, user_id,
+                process_id,
+                user_id,
                 "generation_error",
                 {"error": str(e), "message": f"エラーが発生しました: {str(e)}"},
             )
@@ -259,9 +287,13 @@ class BlogGenerationService:
         """
         try:
             # 現在の状態を取得
-            db_result = supabase.table("blog_generation_state").select(
-                "blog_context"
-            ).eq("id", process_id).single().execute()
+            db_result = (
+                supabase.table("blog_generation_state")
+                .select("blog_context")
+                .eq("id", process_id)
+                .single()
+                .execute()
+            )
 
             if not db_result.data:
                 raise Exception("プロセスが見つかりません")
@@ -284,7 +316,8 @@ class BlogGenerationService:
                 is_waiting_for_input=False,
             )
             await self._publish_event(
-                process_id, user_id,
+                process_id,
+                user_id,
                 "generation_resumed",
                 {"message": "追加情報を受け取りました。生成を再開します..."},
             )
@@ -313,7 +346,7 @@ class BlogGenerationService:
                     "user_id": user_id,
                     "site_id": wordpress_site["id"],
                     "is_continuation": "true",
-                }
+                },
             )
 
             # ログセッションを確保（ブログAI用）
@@ -355,10 +388,12 @@ class BlogGenerationService:
                     # マルチモーダル: [{role: user, content: [...]}] を展開して追加
                     continued_input.extend(answer_content)
                 else:
-                    continued_input.append({
-                        "role": "user",
-                        "content": answer_content,
-                    })
+                    continued_input.append(
+                        {
+                            "role": "user",
+                            "content": answer_content,
+                        }
+                    )
                 agent_input = continued_input
 
             # エージェント実行（同一エージェント・会話コンテキスト維持）
@@ -380,23 +415,32 @@ class BlogGenerationService:
                 error_message=str(e),
             )
             await self._publish_event(
-                process_id, user_id,
+                process_id,
+                user_id,
                 "generation_error",
                 {"error": str(e), "message": f"エラーが発生しました: {str(e)}"},
             )
 
     async def get_process_state(self, process_id: str) -> Optional[Dict[str, Any]]:
         """プロセス状態を取得"""
-        result = supabase.table("blog_generation_state").select(
-            "*"
-        ).eq("id", process_id).single().execute()
+        result = (
+            supabase.table("blog_generation_state")
+            .select("*")
+            .eq("id", process_id)
+            .single()
+            .execute()
+        )
         return result.data
 
     async def cancel_generation(self, process_id: str) -> bool:
         """生成をキャンセル"""
-        result = supabase.table("blog_generation_state").select(
-            "user_id"
-        ).eq("id", process_id).single().execute()
+        result = (
+            supabase.table("blog_generation_state")
+            .select("user_id")
+            .eq("id", process_id)
+            .single()
+            .execute()
+        )
 
         if not result.data:
             return False
@@ -404,7 +448,8 @@ class BlogGenerationService:
         user_id = result.data.get("user_id")
         await self._update_state(process_id, status="cancelled")
         await self._publish_event(
-            process_id, user_id,
+            process_id,
+            user_id,
             "generation_cancelled",
             {"message": "記事生成がキャンセルされました"},
         )
@@ -446,6 +491,9 @@ class BlogGenerationService:
         execution_id: Optional[str] = None
         tool_call_log_ids: Dict[str, str] = {}
         tool_call_start_times: Dict[str, float] = {}
+        trace_events: List[Dict[str, Any]] = []
+        trace_sequence = 1
+        response_usage_entries: List[Dict[str, Any]] = []
 
         if log_session_id and logging_service:
             try:
@@ -458,7 +506,9 @@ class BlogGenerationService:
                     input_data={
                         "process_id": process_id,
                         "previous_response_id": previous_response_id,
-                        "input_type": "list" if isinstance(agent_input, list) else "str",
+                        "input_type": "list"
+                        if isinstance(agent_input, list)
+                        else "str",
                     },
                     llm_model=settings.blog_generation_model,
                     execution_metadata={
@@ -467,6 +517,26 @@ class BlogGenerationService:
                         "user_id": user_id,
                     },
                 )
+                trace_events.append(
+                    self._make_trace_event(
+                        process_id=process_id,
+                        user_id=user_id,
+                        session_id=log_session_id,
+                        execution_id=execution_id,
+                        event_sequence=trace_sequence,
+                        source="system",
+                        event_type="execution.started",
+                        event_name="execution_started",
+                        agent_name=self._agent.name,
+                        input_payload={
+                            "previous_response_id": previous_response_id,
+                            "input_type": "list"
+                            if isinstance(agent_input, list)
+                            else "str",
+                        },
+                    )
+                )
+                trace_sequence += 1
             except Exception as log_err:
                 logger.warning(f"Failed to create execution log: {log_err}")
                 execution_id = None
@@ -486,8 +556,31 @@ class BlogGenerationService:
             pending_user_questions: Optional[Dict[str, Any]] = None
 
             async for event in result.stream_events():
+                if (
+                    execution_id
+                    and log_session_id
+                    and isinstance(event, RawResponsesStreamEvent)
+                ):
+                    trace_row, usage_entry = self._build_raw_trace_event(
+                        raw_event=event.data,
+                        process_id=process_id,
+                        user_id=user_id,
+                        session_id=log_session_id,
+                        execution_id=execution_id,
+                        event_sequence=trace_sequence,
+                    )
+                    if trace_row:
+                        trace_events.append(trace_row)
+                        trace_sequence += 1
+                    if usage_entry:
+                        response_usage_entries.append(usage_entry)
+
                 # ツール呼び出しログ
-                if execution_id and logging_service and isinstance(event, RunItemStreamEvent):
+                if (
+                    execution_id
+                    and logging_service
+                    and isinstance(event, RunItemStreamEvent)
+                ):
                     if isinstance(event.item, ToolCallItem):
                         tool_name = _resolve_tool_name(event.item.raw_item)
                         call_id = (
@@ -511,7 +604,9 @@ class BlogGenerationService:
                                 tool_name=tool_name,
                                 tool_function=tool_name,
                                 call_sequence=tool_call_count + 1,
-                                input_parameters=parsed_args if isinstance(parsed_args, dict) else {"raw": parsed_args},
+                                input_parameters=parsed_args
+                                if isinstance(parsed_args, dict)
+                                else {"raw": parsed_args},
                                 status="started",
                                 tool_metadata={
                                     "call_id": call_id,
@@ -520,25 +615,150 @@ class BlogGenerationService:
                             tool_call_log_ids[call_id] = tool_call_log_id
                         except Exception as log_err:
                             logger.debug(f"Failed to log tool call start: {log_err}")
+
+                        if log_session_id:
+                            trace_events.append(
+                                self._make_trace_event(
+                                    process_id=process_id,
+                                    user_id=user_id,
+                                    session_id=log_session_id,
+                                    execution_id=execution_id,
+                                    event_sequence=trace_sequence,
+                                    source="run_item",
+                                    event_type="tool_called",
+                                    event_name=event.name,
+                                    agent_name=getattr(event.item, "agent", None).name
+                                    if getattr(event.item, "agent", None)
+                                    else None,
+                                    tool_name=tool_name,
+                                    tool_call_id=call_id,
+                                    input_payload=parsed_args
+                                    if isinstance(parsed_args, dict)
+                                    else {"raw": parsed_args},
+                                    event_metadata={
+                                        "call_sequence": tool_call_count + 1
+                                    },
+                                )
+                            )
+                            trace_sequence += 1
                     elif isinstance(event.item, ToolCallOutputItem):
                         call_id = getattr(event.item.raw_item, "call_id", None)
+                        output_text = self._truncate_text(
+                            str(event.item.output), _TRACE_IO_LIMIT
+                        )
                         if call_id and call_id in tool_call_log_ids:
                             duration_ms = None
                             if call_id in tool_call_start_times:
-                                duration_ms = int((time.time() - tool_call_start_times[call_id]) * 1000)
+                                duration_ms = int(
+                                    (time.time() - tool_call_start_times[call_id])
+                                    * 1000
+                                )
                             try:
                                 logging_service.update_tool_call_log(
                                     call_id=tool_call_log_ids[call_id],
                                     status="completed",
-                                    output_data={"output": str(event.item.output)[:1000]},
+                                    output_data={"output": output_text},
                                     execution_time_ms=duration_ms,
                                 )
                             except Exception as log_err:
-                                logger.debug(f"Failed to update tool call log: {log_err}")
+                                logger.debug(
+                                    f"Failed to update tool call log: {log_err}"
+                                )
+
+                        if log_session_id:
+                            trace_events.append(
+                                self._make_trace_event(
+                                    process_id=process_id,
+                                    user_id=user_id,
+                                    session_id=log_session_id,
+                                    execution_id=execution_id,
+                                    event_sequence=trace_sequence,
+                                    source="run_item",
+                                    event_type="tool_output",
+                                    event_name=event.name,
+                                    agent_name=getattr(event.item, "agent", None).name
+                                    if getattr(event.item, "agent", None)
+                                    else None,
+                                    tool_call_id=call_id,
+                                    output_payload={"output": output_text},
+                                )
+                            )
+                            trace_sequence += 1
+                    elif log_session_id and isinstance(event.item, MessageOutputItem):
+                        msg = self._extract_message_output_text(event.item)
+                        trace_events.append(
+                            self._make_trace_event(
+                                process_id=process_id,
+                                user_id=user_id,
+                                session_id=log_session_id,
+                                execution_id=execution_id,
+                                event_sequence=trace_sequence,
+                                source="run_item",
+                                event_type="message_output_created",
+                                event_name=event.name,
+                                agent_name=getattr(event.item, "agent", None).name
+                                if getattr(event.item, "agent", None)
+                                else None,
+                                role="assistant",
+                                message_text=self._truncate_text(
+                                    msg, _TRACE_TEXT_LIMIT
+                                ),
+                            )
+                        )
+                        trace_sequence += 1
+                    elif log_session_id and isinstance(event.item, ReasoningItem):
+                        reasoning_summary = self._extract_reasoning_summary(
+                            event.item.raw_item
+                        )
+                        trace_events.append(
+                            self._make_trace_event(
+                                process_id=process_id,
+                                user_id=user_id,
+                                session_id=log_session_id,
+                                execution_id=execution_id,
+                                event_sequence=trace_sequence,
+                                source="run_item",
+                                event_type="reasoning_item_created",
+                                event_name=event.name,
+                                agent_name=getattr(event.item, "agent", None).name
+                                if getattr(event.item, "agent", None)
+                                else None,
+                                message_text=self._truncate_text(
+                                    reasoning_summary, _TRACE_TEXT_LIMIT
+                                )
+                                if reasoning_summary
+                                else None,
+                            )
+                        )
+                        trace_sequence += 1
+                elif (
+                    execution_id
+                    and log_session_id
+                    and isinstance(event, AgentUpdatedStreamEvent)
+                ):
+                    trace_events.append(
+                        self._make_trace_event(
+                            process_id=process_id,
+                            user_id=user_id,
+                            session_id=log_session_id,
+                            execution_id=execution_id,
+                            event_sequence=trace_sequence,
+                            source="agent_event",
+                            event_type="agent_updated",
+                            event_name="agent_updated",
+                            agent_name=event.agent.name
+                            if hasattr(event, "agent")
+                            else None,
+                        )
+                    )
+                    trace_sequence += 1
 
                 await self._handle_stream_event(
-                    event, process_id, user_id,
-                    tool_call_count, total_estimated_tools,
+                    event,
+                    process_id,
+                    user_id,
+                    tool_call_count,
+                    total_estimated_tools,
                     base_progress,
                 )
                 if isinstance(event, RunItemStreamEvent):
@@ -587,7 +807,10 @@ class BlogGenerationService:
                 execution_id=execution_id,
                 logging_service=logging_service,
                 started_at=execution_start,
+                usage_entries_from_stream=response_usage_entries,
             )
+
+            self._flush_trace_events(trace_events)
 
             # ========================================
             # ユーザー質問検出 → 入力待ち遷移
@@ -617,15 +840,17 @@ class BlogGenerationService:
                     is_waiting_for_input=True,
                     input_type="questions",
                     blog_context=blog_ctx,
+                    response_id=last_response_id,
                 )
                 await self._publish_event(
-                    process_id, user_id,
+                    process_id,
+                    user_id,
                     "user_input_required",
                     {
                         "questions": pending_user_questions["questions"],
                         "context": pending_user_questions.get("context"),
                         "message": pending_user_questions.get("context")
-                            or "記事作成に必要な情報を入力してください",
+                        or "記事作成に必要な情報を入力してください",
                     },
                 )
                 return
@@ -639,12 +864,39 @@ class BlogGenerationService:
                 progress_percentage=90,
             )
             await self._publish_event(
-                process_id, user_id,
+                process_id,
+                user_id,
                 "processing_result",
                 {"message": "結果を処理しています..."},
             )
-            await self._process_result(process_id, user_id, final_result)
+            await self._process_result(
+                process_id=process_id,
+                user_id=user_id,
+                output=final_result,
+                conversation_history=conversation_history,
+                last_response_id=last_response_id,
+            )
         except Exception as e:
+            if execution_id and log_session_id:
+                trace_events.append(
+                    self._make_trace_event(
+                        process_id=process_id,
+                        user_id=user_id,
+                        session_id=log_session_id,
+                        execution_id=execution_id,
+                        event_sequence=trace_sequence,
+                        source="system",
+                        event_type="execution.failed",
+                        event_name="execution_failed",
+                        agent_name=self._agent.name,
+                        message_text=self._truncate_text(str(e), _TRACE_TEXT_LIMIT),
+                        event_metadata={
+                            "duration_ms": int((time.time() - execution_start) * 1000)
+                        },
+                    )
+                )
+                trace_sequence += 1
+                self._flush_trace_events(trace_events)
             if execution_id and logging_service:
                 try:
                     logging_service.update_execution_log(
@@ -686,11 +938,12 @@ class BlogGenerationService:
                     # 進捗を計算（base_progress〜85%の範囲で分配）
                     progress_range = 85 - base_progress
                     progress = min(
-                        base_progress + int(
+                        base_progress
+                        + int(
                             (tool_call_count / max(total_estimated_tools, 1))
                             * progress_range
                         ),
-                        85
+                        85,
                     )
 
                     step_display = f"{step_phase} - {friendly_message}"
@@ -701,7 +954,8 @@ class BlogGenerationService:
                         progress_percentage=progress,
                     )
                     await self._publish_event(
-                        process_id, user_id,
+                        process_id,
+                        user_id,
                         "tool_call_started",
                         {
                             "tool_name": tool_name,
@@ -716,7 +970,8 @@ class BlogGenerationService:
                 elif isinstance(item, ToolCallOutputItem):
                     call_id = getattr(item.raw_item, "call_id", None)
                     await self._publish_event(
-                        process_id, user_id,
+                        process_id,
+                        user_id,
                         "tool_call_completed",
                         {
                             "tool_call_id": call_id,
@@ -728,8 +983,12 @@ class BlogGenerationService:
                 elif isinstance(item, ReasoningItem):
                     # reasoning summary テキストを抽出
                     summary_text = None
-                    if hasattr(item.raw_item, 'summary') and item.raw_item.summary:
-                        texts = [s.text for s in item.raw_item.summary if hasattr(s, 'text') and s.text]
+                    if hasattr(item.raw_item, "summary") and item.raw_item.summary:
+                        texts = [
+                            s.text
+                            for s in item.raw_item.summary
+                            if hasattr(s, "text") and s.text
+                        ]
                         if texts:
                             summary_text = " ".join(texts)
 
@@ -738,7 +997,8 @@ class BlogGenerationService:
                         summary_text = await self._translate_to_japanese(summary_text)
 
                     await self._publish_event(
-                        process_id, user_id,
+                        process_id,
+                        user_id,
                         "reasoning",
                         {
                             "message": summary_text or "AIが考えています...",
@@ -749,21 +1009,23 @@ class BlogGenerationService:
                 # メッセージ出力
                 elif isinstance(item, MessageOutputItem):
                     content = ""
-                    if hasattr(item, 'content') and item.content:
+                    if hasattr(item, "content") and item.content:
                         for part in item.content:
-                            if hasattr(part, 'text'):
+                            if hasattr(part, "text"):
                                 content += part.text
                     if content:
                         await self._publish_event(
-                            process_id, user_id,
+                            process_id,
+                            user_id,
                             "message_output",
                             {"content": content[:500]},
                         )
 
             elif isinstance(event, AgentUpdatedStreamEvent):
-                agent_name = event.agent.name if hasattr(event, 'agent') else "Unknown"
+                agent_name = event.agent.name if hasattr(event, "agent") else "Unknown"
                 await self._publish_event(
-                    process_id, user_id,
+                    process_id,
+                    user_id,
                     "agent_updated",
                     {"agent_name": agent_name},
                 )
@@ -795,11 +1057,13 @@ class BlogGenerationService:
 
             structured = []
             for i, q in enumerate(questions_raw):
-                structured.append({
-                    "question_id": f"q{i+1}",
-                    "question": q,
-                    "input_type": input_types_raw[i],
-                })
+                structured.append(
+                    {
+                        "question_id": f"q{i + 1}",
+                        "question": q,
+                        "input_type": input_types_raw[i],
+                    }
+                )
 
             logger.info(
                 f"ask_user_questions検出: {len(structured)}件の質問, "
@@ -850,6 +1114,7 @@ class BlogGenerationService:
         valid_images = []
         if uploaded_images:
             import os
+
             for img in uploaded_images:
                 local_path = img.get("local_path")
                 if local_path and os.path.exists(local_path):
@@ -860,11 +1125,13 @@ class BlogGenerationService:
                 f"\n## ユーザーアップロード画像\n\n"
                 f"ユーザーが {len(valid_images)} 枚の画像をアップロードしています。\n"
                 f"以下の画像が添付されています。記事内で活用したい場合は、"
-                f"`upload_user_image_to_wordpress(image_index=N, alt=\"説明\")` "
+                f'`upload_user_image_to_wordpress(image_index=N, alt="説明")` '
                 f"ツールで WordPress にアップロードしてから記事に挿入してください。\n"
             )
             for i, img in enumerate(valid_images):
-                original = img.get("original_filename", img.get("filename", f"image_{i}"))
+                original = img.get(
+                    "original_filename", img.get("filename", f"image_{i}")
+                )
                 parts.append(f"- 画像{i}: {original}")
 
         parts.append(
@@ -889,10 +1156,12 @@ class BlogGenerationService:
         for img in valid_images:
             try:
                 b64 = read_as_base64(img["local_path"])
-                content_parts.append({
-                    "type": "input_image",
-                    "image_url": f"data:image/webp;base64,{b64}",
-                })
+                content_parts.append(
+                    {
+                        "type": "input_image",
+                        "image_url": f"data:image/webp;base64,{b64}",
+                    }
+                )
             except Exception as e:
                 logger.warning(f"画像読み込みエラー: {img.get('local_path')} - {e}")
 
@@ -918,12 +1187,11 @@ class BlogGenerationService:
         from app.domains.blog.services.image_utils import read_as_base64
 
         # 質問IDと質問情報のマッピングを構築
-        question_map = {
-            q["question_id"]: q
-            for q in ai_questions
-        }
+        question_map = {q["question_id"]: q for q in ai_questions}
 
-        text_parts = ["以下がユーザーからの回答です。この情報を活用して記事を作成してください。\n"]
+        text_parts = [
+            "以下がユーザーからの回答です。この情報を活用して記事を作成してください。\n"
+        ]
         image_parts: List[Dict[str, Any]] = []
 
         has_any_answer = False
@@ -945,8 +1213,10 @@ class BlogGenerationService:
                 if process_id:
                     import os
                     from app.core.config import settings
+
                     upload_dir = os.path.join(
-                        getattr(settings, "temp_upload_dir", None) or "/tmp/blog_uploads",
+                        getattr(settings, "temp_upload_dir", None)
+                        or "/tmp/blog_uploads",
                         process_id,
                     )
                     for fname in filenames:
@@ -955,12 +1225,16 @@ class BlogGenerationService:
                         if os.path.exists(local_path):
                             try:
                                 b64 = read_as_base64(local_path)
-                                image_parts.append({
-                                    "type": "input_image",
-                                    "image_url": f"data:image/webp;base64,{b64}",
-                                })
+                                image_parts.append(
+                                    {
+                                        "type": "input_image",
+                                        "image_url": f"data:image/webp;base64,{b64}",
+                                    }
+                                )
                             except Exception as e:
-                                logger.warning(f"画像読み込みエラー: {local_path} - {e}")
+                                logger.warning(
+                                    f"画像読み込みエラー: {local_path} - {e}"
+                                )
             else:
                 text_parts.append(f"**Q: {question_text}**")
                 text_parts.append(f"A: {answer}\n")
@@ -991,6 +1265,298 @@ class BlogGenerationService:
     # Logging helpers
     # ===========================================================
 
+    @staticmethod
+    def _truncate_text(value: Any, limit: int) -> Optional[str]:
+        if value is None:
+            return None
+        text = str(value)
+        if len(text) <= limit:
+            return text
+        return f"{text[:limit]}…(truncated)"
+
+    @classmethod
+    def _to_jsonable(cls, value: Any) -> Any:
+        if value is None:
+            return None
+        if isinstance(value, (str, int, float, bool)):
+            return value
+        if isinstance(value, dict):
+            return {str(k): cls._to_jsonable(v) for k, v in value.items()}
+        if isinstance(value, (list, tuple, set)):
+            return [cls._to_jsonable(v) for v in value]
+        if hasattr(value, "model_dump"):
+            return cls._to_jsonable(value.model_dump(exclude_none=True))
+        if hasattr(value, "dict"):
+            return cls._to_jsonable(value.dict())
+        return str(value)
+
+    @staticmethod
+    def _parse_json_maybe(value: Any) -> Any:
+        if not isinstance(value, str):
+            return value
+        try:
+            return json.loads(value)
+        except json.JSONDecodeError:
+            return value
+
+    def _extract_message_output_text(self, item: MessageOutputItem) -> str:
+        content = ""
+        if hasattr(item, "content") and item.content:
+            for part in item.content:
+                part_text = getattr(part, "text", None)
+                if part_text:
+                    content += part_text
+        return content
+
+    @staticmethod
+    def _extract_reasoning_summary(raw_item: Any) -> Optional[str]:
+        if hasattr(raw_item, "summary") and raw_item.summary:
+            texts = [s.text for s in raw_item.summary if hasattr(s, "text") and s.text]
+            if texts:
+                return " ".join(texts)
+        return None
+
+    def _extract_output_item_text(self, item: Any) -> Optional[str]:
+        content = self._safe_get(item, "content", [])
+        texts: List[str] = []
+        for part in content or []:
+            text = self._safe_get(part, "text")
+            if text:
+                texts.append(text)
+        if texts:
+            return " ".join(texts)
+        return None
+
+    def _make_trace_event(
+        self,
+        process_id: str,
+        user_id: str,
+        session_id: str,
+        execution_id: Optional[str],
+        event_sequence: int,
+        source: str,
+        event_type: str,
+        event_name: Optional[str] = None,
+        agent_name: Optional[str] = None,
+        role: Optional[str] = None,
+        message_text: Optional[str] = None,
+        tool_name: Optional[str] = None,
+        tool_call_id: Optional[str] = None,
+        response_id: Optional[str] = None,
+        model_name: Optional[str] = None,
+        prompt_tokens: int = 0,
+        completion_tokens: int = 0,
+        cached_tokens: int = 0,
+        reasoning_tokens: int = 0,
+        total_tokens: int = 0,
+        input_payload: Optional[Dict[str, Any]] = None,
+        output_payload: Optional[Dict[str, Any]] = None,
+        event_metadata: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        return {
+            "process_id": process_id,
+            "user_id": user_id,
+            "session_id": session_id,
+            "execution_id": execution_id,
+            "event_sequence": event_sequence,
+            "source": source,
+            "event_type": event_type,
+            "event_name": event_name,
+            "agent_name": agent_name,
+            "role": role,
+            "message_text": self._truncate_text(message_text, _TRACE_TEXT_LIMIT),
+            "tool_name": tool_name,
+            "tool_call_id": tool_call_id,
+            "response_id": response_id,
+            "model_name": model_name,
+            "prompt_tokens": max(0, int(prompt_tokens or 0)),
+            "completion_tokens": max(0, int(completion_tokens or 0)),
+            "cached_tokens": max(0, int(cached_tokens or 0)),
+            "reasoning_tokens": max(0, int(reasoning_tokens or 0)),
+            "total_tokens": max(0, int(total_tokens or 0)),
+            "input_payload": self._to_jsonable(input_payload or {}),
+            "output_payload": self._to_jsonable(output_payload or {}),
+            "event_metadata": self._to_jsonable(event_metadata or {}),
+        }
+
+    def _build_raw_trace_event(
+        self,
+        raw_event: Any,
+        process_id: str,
+        user_id: str,
+        session_id: str,
+        execution_id: str,
+        event_sequence: int,
+    ) -> tuple[Optional[Dict[str, Any]], Optional[Dict[str, Any]]]:
+        event_type = self._safe_get(raw_event, "type", "unknown")
+        sequence_number = self._safe_get(raw_event, "sequence_number")
+        item_id = self._safe_get(raw_event, "item_id")
+        output_index = self._safe_get(raw_event, "output_index")
+
+        metadata = {
+            "sequence_number": sequence_number,
+            "item_id": item_id,
+            "output_index": output_index,
+            "content_index": self._safe_get(raw_event, "content_index"),
+            "summary_index": self._safe_get(raw_event, "summary_index"),
+        }
+        metadata = {k: v for k, v in metadata.items() if v is not None}
+
+        trace_kwargs: Dict[str, Any] = {
+            "process_id": process_id,
+            "user_id": user_id,
+            "session_id": session_id,
+            "execution_id": execution_id,
+            "event_sequence": event_sequence,
+            "source": "raw_response",
+            "event_type": event_type,
+            "event_name": event_type,
+            "event_metadata": metadata,
+        }
+        usage_entry: Optional[Dict[str, Any]] = None
+
+        if event_type == "response.output_text.delta":
+            trace_kwargs["role"] = "assistant"
+            trace_kwargs["message_text"] = self._truncate_text(
+                self._safe_get(raw_event, "delta"), _TRACE_TEXT_LIMIT
+            )
+        elif event_type == "response.output_text.done":
+            trace_kwargs["role"] = "assistant"
+            trace_kwargs["message_text"] = self._truncate_text(
+                self._safe_get(raw_event, "text"), _TRACE_TEXT_LIMIT
+            )
+        elif event_type in (
+            "response.reasoning_summary_text.delta",
+            "response.reasoning_summary_text.done",
+        ):
+            trace_kwargs["message_text"] = self._truncate_text(
+                self._safe_get(raw_event, "delta") or self._safe_get(raw_event, "text"),
+                _TRACE_TEXT_LIMIT,
+            )
+        elif event_type in (
+            "response.function_call_arguments.delta",
+            "response.function_call_arguments.done",
+        ):
+            trace_kwargs["tool_call_id"] = self._safe_get(raw_event, "item_id")
+            trace_kwargs["tool_name"] = self._safe_get(raw_event, "name")
+            if event_type.endswith(".delta"):
+                trace_kwargs["input_payload"] = {
+                    "arguments_delta": self._truncate_text(
+                        self._safe_get(raw_event, "delta"), _TRACE_IO_LIMIT
+                    )
+                }
+            else:
+                trace_kwargs["input_payload"] = {
+                    "arguments": self._to_jsonable(
+                        self._parse_json_maybe(self._safe_get(raw_event, "arguments"))
+                    )
+                }
+        elif event_type in ("response.output_item.added", "response.output_item.done"):
+            item = self._safe_get(raw_event, "item")
+            item_type = self._safe_get(item, "type")
+            trace_kwargs["event_metadata"] = {
+                **metadata,
+                "item_type": item_type,
+            }
+            trace_kwargs["role"] = self._safe_get(item, "role")
+            trace_kwargs["tool_name"] = self._safe_get(item, "name")
+            trace_kwargs["tool_call_id"] = self._safe_get(
+                item, "call_id"
+            ) or self._safe_get(item, "id")
+            if item_type in ("message", "output_text"):
+                trace_kwargs["message_text"] = self._truncate_text(
+                    self._extract_output_item_text(item), _TRACE_TEXT_LIMIT
+                )
+            arguments = self._safe_get(item, "arguments")
+            if arguments:
+                trace_kwargs["input_payload"] = {
+                    "arguments": self._to_jsonable(self._parse_json_maybe(arguments))
+                }
+            output = self._safe_get(item, "output")
+            if output:
+                trace_kwargs["output_payload"] = {
+                    "output": self._truncate_text(output, _TRACE_IO_LIMIT)
+                }
+        elif event_type == "response.completed":
+            response = self._safe_get(raw_event, "response")
+            usage = self._safe_get(response, "usage")
+            input_details = self._safe_get(usage, "input_tokens_details")
+            output_details = self._safe_get(usage, "output_tokens_details")
+
+            prompt_tokens = int(self._safe_get(usage, "input_tokens", 0) or 0)
+            completion_tokens = int(self._safe_get(usage, "output_tokens", 0) or 0)
+            total_tokens = int(self._safe_get(usage, "total_tokens", 0) or 0)
+            cached_tokens = int(self._safe_get(input_details, "cached_tokens", 0) or 0)
+            reasoning_tokens = int(
+                self._safe_get(output_details, "reasoning_tokens", 0) or 0
+            )
+
+            response_id = self._safe_get(response, "id")
+            model_name = self._safe_get(response, "model")
+
+            trace_kwargs.update(
+                {
+                    "response_id": response_id,
+                    "model_name": model_name,
+                    "prompt_tokens": prompt_tokens,
+                    "completion_tokens": completion_tokens,
+                    "cached_tokens": cached_tokens,
+                    "reasoning_tokens": reasoning_tokens,
+                    "total_tokens": total_tokens,
+                }
+            )
+
+            output_items = self._safe_get(response, "output", []) or []
+            output_summary: List[Dict[str, Any]] = []
+            for item in output_items:
+                output_summary.append(
+                    {
+                        "type": self._safe_get(item, "type"),
+                        "id": self._safe_get(item, "id"),
+                        "role": self._safe_get(item, "role"),
+                        "name": self._safe_get(item, "name"),
+                        "call_id": self._safe_get(item, "call_id"),
+                        "text": self._truncate_text(
+                            self._extract_output_item_text(item), 800
+                        ),
+                    }
+                )
+            trace_kwargs["output_payload"] = {
+                "output_count": len(output_items),
+                "output_items": output_summary,
+            }
+
+            usage_entry = {
+                "model": model_name,
+                "input_tokens": prompt_tokens,
+                "output_tokens": completion_tokens,
+                "total_tokens": total_tokens,
+                "cached_tokens": cached_tokens,
+                "reasoning_tokens": reasoning_tokens,
+                "response_id": response_id,
+            }
+        else:
+            # Keep non-critical raw events compact to avoid large rows.
+            trace_kwargs["event_metadata"] = {
+                **metadata,
+                "raw_type": event_type,
+            }
+
+        return self._make_trace_event(**trace_kwargs), usage_entry
+
+    @staticmethod
+    def _flush_trace_events(trace_events: List[Dict[str, Any]]) -> None:
+        if not trace_events:
+            return
+        try:
+            for i in range(0, len(trace_events), 200):
+                chunk = trace_events[i : i + 200]
+                supabase.table("blog_agent_trace_events").insert(chunk).execute()
+        except Exception as e:
+            logger.debug(f"Failed to flush blog trace events: {e}")
+        finally:
+            trace_events.clear()
+
     def _get_or_create_log_session(
         self,
         process_id: str,
@@ -1004,9 +1570,13 @@ class BlogGenerationService:
             return None
 
         try:
-            existing = supabase.table("agent_log_sessions").select("id").eq(
-                "article_uuid", process_id
-            ).limit(1).execute()
+            existing = (
+                supabase.table("agent_log_sessions")
+                .select("id")
+                .eq("article_uuid", process_id)
+                .limit(1)
+                .execute()
+            )
             if existing.data:
                 return existing.data[0]["id"]
         except Exception as e:
@@ -1033,9 +1603,12 @@ class BlogGenerationService:
     def _get_next_execution_step(session_id: str) -> int:
         """次の実行ステップ番号を取得"""
         try:
-            result = supabase.table("agent_execution_logs").select(
-                "id", count="exact"
-            ).eq("session_id", session_id).execute()
+            result = (
+                supabase.table("agent_execution_logs")
+                .select("id", count="exact")
+                .eq("session_id", session_id)
+                .execute()
+            )
             if result.count is not None:
                 return int(result.count) + 1
             return len(result.data or []) + 1
@@ -1045,13 +1618,23 @@ class BlogGenerationService:
     @staticmethod
     def _get_raw_responses(result: Any) -> Optional[List[Any]]:
         candidate_attrs = [
-            "_raw_responses", "raw_responses", "_responses", "responses",
-            "_RunResult__raw_responses", "__raw_responses", "new_items", "_new_items"
+            "_raw_responses",
+            "raw_responses",
+            "_responses",
+            "responses",
+            "_RunResult__raw_responses",
+            "__raw_responses",
+            "new_items",
+            "_new_items",
         ]
         for attr_name in candidate_attrs:
             if hasattr(result, attr_name):
                 attr_value = getattr(result, attr_name)
-                if attr_value and hasattr(attr_value, "__len__") and len(attr_value) > 0:
+                if (
+                    attr_value
+                    and hasattr(attr_value, "__len__")
+                    and len(attr_value) > 0
+                ):
                     return list(attr_value)
         return None
 
@@ -1083,13 +1666,15 @@ class BlogGenerationService:
             reasoning_tokens = self._safe_get(output_details, "reasoning_tokens", 0)
 
         return {
-            "model": self._safe_get(entry, "model", None) or self._safe_get(entry, "model_name", None),
+            "model": self._safe_get(entry, "model", None)
+            or self._safe_get(entry, "model_name", None),
             "input_tokens": int(input_tokens or 0),
             "output_tokens": int(output_tokens or 0),
             "total_tokens": int(self._safe_get(entry, "total_tokens", 0) or 0),
             "cached_tokens": int(cached_tokens or 0),
             "reasoning_tokens": int(reasoning_tokens or 0),
-            "response_id": self._safe_get(entry, "response_id", None) or self._safe_get(entry, "id", None),
+            "response_id": self._safe_get(entry, "response_id", None)
+            or self._safe_get(entry, "id", None),
         }
 
     def _extract_usage_entries(self, result: Any) -> List[Dict[str, Any]]:
@@ -1122,7 +1707,9 @@ class BlogGenerationService:
                 if entries:
                     break
 
-        normalized = [self._normalize_usage_entry(entry) for entry in entries if entry is not None]
+        normalized = [
+            self._normalize_usage_entry(entry) for entry in entries if entry is not None
+        ]
         # If entries lack model/response_id, try to enrich from raw responses
         raw_responses = self._get_raw_responses(result)
         if raw_responses:
@@ -1149,7 +1736,9 @@ class BlogGenerationService:
 
         return normalized
 
-    def _extract_usage_from_context_wrapper(self, result: Any) -> Optional[Dict[str, Any]]:
+    def _extract_usage_from_context_wrapper(
+        self, result: Any
+    ) -> Optional[Dict[str, Any]]:
         ctx = getattr(result, "context_wrapper", None)
         usage = getattr(ctx, "usage", None) if ctx else None
         if not usage:
@@ -1190,7 +1779,9 @@ class BlogGenerationService:
             "response_id": response_id,
         }
 
-    def _extract_usage_from_raw_responses(self, result: Any) -> Optional[Dict[str, Any]]:
+    def _extract_usage_from_raw_responses(
+        self, result: Any
+    ) -> Optional[Dict[str, Any]]:
         raw_responses = self._get_raw_responses(result)
         if not raw_responses:
             return None
@@ -1215,8 +1806,16 @@ class BlogGenerationService:
             input_details = self._safe_get(usage, "input_tokens_details")
             output_details = self._safe_get(usage, "output_tokens_details")
 
-            cached_tokens = self._safe_get(input_details, "cached_tokens", 0) if input_details else 0
-            reasoning_tokens = self._safe_get(output_details, "reasoning_tokens", 0) if output_details else 0
+            cached_tokens = (
+                self._safe_get(input_details, "cached_tokens", 0)
+                if input_details
+                else 0
+            )
+            reasoning_tokens = (
+                self._safe_get(output_details, "reasoning_tokens", 0)
+                if output_details
+                else 0
+            )
 
             totals["input_tokens"] += int(input_tokens or 0)
             totals["output_tokens"] += int(output_tokens or 0)
@@ -1279,19 +1878,25 @@ class BlogGenerationService:
         execution_id: Optional[str],
         logging_service: Optional[Any],
         started_at: float,
+        usage_entries_from_stream: Optional[List[Dict[str, Any]]] = None,
     ) -> None:
         if not execution_id or not logging_service:
             return
 
-        usage_entries = self._extract_usage_entries(result)
-        usage_source = "context_wrapper"
-        usage_summary = self._extract_usage_from_context_wrapper(result)
-        if usage_summary is None:
-            usage_source = "request_usage_entries"
-            usage_summary = self._aggregate_usage(usage_entries)
-        if usage_summary is None:
-            usage_source = "raw_responses"
-            usage_summary = self._extract_usage_from_raw_responses(result)
+        usage_source = "stream_response_completed"
+        usage_entries = usage_entries_from_stream or []
+        usage_summary = self._aggregate_usage(usage_entries)
+
+        if not usage_entries:
+            usage_entries = self._extract_usage_entries(result)
+            usage_source = "context_wrapper"
+            usage_summary = self._extract_usage_from_context_wrapper(result)
+            if usage_summary is None:
+                usage_source = "request_usage_entries"
+                usage_summary = self._aggregate_usage(usage_entries)
+            if usage_summary is None:
+                usage_source = "raw_responses"
+                usage_summary = self._extract_usage_from_raw_responses(result)
 
         duration_ms = int((time.time() - started_at) * 1000)
 
@@ -1340,7 +1945,7 @@ class BlogGenerationService:
                         estimated_cost_usd=cost,
                         api_response_id=entry.get("response_id"),
                         response_data={
-                            "usage_source": "request_usage_entries",
+                            "usage_source": usage_source,
                             "response_id": entry.get("response_id"),
                         },
                     )
@@ -1350,7 +1955,8 @@ class BlogGenerationService:
                     execution_id=execution_id,
                     call_sequence=1,
                     api_type="responses_api",
-                    model_name=usage_summary.get("model") or settings.blog_generation_model,
+                    model_name=usage_summary.get("model")
+                    or settings.blog_generation_model,
                     provider="openai",
                     prompt_tokens=int(usage_summary.get("input_tokens", 0)),
                     completion_tokens=int(usage_summary.get("output_tokens", 0)),
@@ -1372,6 +1978,8 @@ class BlogGenerationService:
         process_id: str,
         user_id: str,
         output: Optional[BlogCompletionOutput],
+        conversation_history: Optional[List[Dict[str, Any]]] = None,
+        last_response_id: Optional[str] = None,
     ) -> None:
         """
         Agent実行結果を処理（構造化出力から直接プレビューURL等を取得）
@@ -1379,8 +1987,14 @@ class BlogGenerationService:
         blog_ctx: Dict[str, Any] = {}
         if output and output.summary:
             blog_ctx["agent_message"] = output.summary
+        if conversation_history is not None:
+            blog_ctx["conversation_history"] = conversation_history
+        if last_response_id:
+            blog_ctx["last_response_id"] = last_response_id
 
-        has_draft_info = output and (output.post_id or output.preview_url or output.edit_url)
+        has_draft_info = output and (
+            output.post_id or output.preview_url or output.edit_url
+        )
 
         if has_draft_info:
             await self._update_state(
@@ -1392,9 +2006,11 @@ class BlogGenerationService:
                 draft_preview_url=output.preview_url,
                 draft_edit_url=output.edit_url,
                 blog_context=blog_ctx if blog_ctx else None,
+                response_id=last_response_id,
             )
             await self._publish_event(
-                process_id, user_id,
+                process_id,
+                user_id,
                 "generation_completed",
                 {
                     "draft_post_id": output.post_id,
@@ -1404,21 +2020,27 @@ class BlogGenerationService:
                 },
             )
         else:
-            summary_preview = output.summary[:500] if output and output.summary else "(出力なし)"
-            logger.warning(f"下書き情報が構造化出力に含まれていません: {summary_preview}")
+            summary_preview = (
+                output.summary[:500] if output and output.summary else "(出力なし)"
+            )
+            logger.warning(
+                f"下書き情報が構造化出力に含まれていません: {summary_preview}"
+            )
             await self._update_state(
                 process_id,
                 status="completed",
                 current_step_name="完了（下書きURL未取得）",
                 progress_percentage=100,
                 blog_context=blog_ctx if blog_ctx else None,
+                response_id=last_response_id,
             )
             await self._publish_event(
-                process_id, user_id,
+                process_id,
+                user_id,
                 "generation_completed",
                 {
                     "message": "記事生成は完了しましたが、下書きURLの取得に失敗しました。"
-                        "WordPressの下書き一覧を確認してください。",
+                    "WordPressの下書き一覧を確認してください。",
                     "summary": output.summary if output else None,
                 },
             )
@@ -1440,21 +2062,33 @@ class BlogGenerationService:
         """ユーザーの使用量追跡対象の組織IDを取得"""
         try:
             # 1. upgraded_to_org_id を確認
-            sub = supabase.table("user_subscriptions").select(
-                "upgraded_to_org_id"
-            ).eq("user_id", user_id).maybe_single().execute()
+            sub = (
+                supabase.table("user_subscriptions")
+                .select("upgraded_to_org_id")
+                .eq("user_id", user_id)
+                .maybe_single()
+                .execute()
+            )
             if sub.data and sub.data.get("upgraded_to_org_id"):
                 return sub.data["upgraded_to_org_id"]
 
             # 2. organization_members でアクティブな組織サブスクを探す
-            memberships = supabase.table("organization_members").select(
-                "organization_id"
-            ).eq("user_id", user_id).execute()
+            memberships = (
+                supabase.table("organization_members")
+                .select("organization_id")
+                .eq("user_id", user_id)
+                .execute()
+            )
             if memberships.data:
                 org_ids = [m["organization_id"] for m in memberships.data]
-                org_subs = supabase.table("organization_subscriptions").select(
-                    "organization_id"
-                ).in_("organization_id", org_ids).eq("status", "active").limit(1).execute()
+                org_subs = (
+                    supabase.table("organization_subscriptions")
+                    .select("organization_id")
+                    .in_("organization_id", org_ids)
+                    .eq("status", "active")
+                    .limit(1)
+                    .execute()
+                )
                 if org_subs.data:
                     return org_subs.data[0]["organization_id"]
 
@@ -1477,6 +2111,7 @@ class BlogGenerationService:
         draft_post_id: Optional[int] = None,
         draft_preview_url: Optional[str] = None,
         draft_edit_url: Optional[str] = None,
+        response_id: Optional[str] = None,
         error_message: Optional[str] = None,
         blog_context: Optional[Dict[str, Any]] = None,
     ) -> None:
@@ -1501,14 +2136,16 @@ class BlogGenerationService:
             update_data["draft_preview_url"] = draft_preview_url
         if draft_edit_url is not None:
             update_data["draft_edit_url"] = draft_edit_url
+        if response_id is not None:
+            update_data["response_id"] = response_id
         if error_message is not None:
             update_data["error_message"] = error_message
         if blog_context is not None:
             update_data["blog_context"] = blog_context
 
-        supabase.table("blog_generation_state").update(
-            update_data
-        ).eq("id", process_id).execute()
+        supabase.table("blog_generation_state").update(update_data).eq(
+            "id", process_id
+        ).execute()
 
     async def _translate_to_japanese(self, text: str) -> str:
         """英語の reasoning summary を gpt-5-nano で日本語に翻訳"""
@@ -1536,23 +2173,28 @@ class BlogGenerationService:
     ) -> None:
         """Realtimeイベントを発行"""
         try:
-            result = supabase.table("blog_process_events").select(
-                "event_sequence"
-            ).eq("process_id", process_id).order(
-                "event_sequence", desc=True
-            ).limit(1).execute()
+            result = (
+                supabase.table("blog_process_events")
+                .select("event_sequence")
+                .eq("process_id", process_id)
+                .order("event_sequence", desc=True)
+                .limit(1)
+                .execute()
+            )
 
             next_sequence = 1
             if result.data:
                 next_sequence = result.data[0]["event_sequence"] + 1
 
-            supabase.table("blog_process_events").insert({
-                "process_id": process_id,
-                "user_id": user_id,
-                "event_type": event_type,
-                "event_data": event_data,
-                "event_sequence": next_sequence,
-            }).execute()
+            supabase.table("blog_process_events").insert(
+                {
+                    "process_id": process_id,
+                    "user_id": user_id,
+                    "event_type": event_type,
+                    "event_data": event_data,
+                    "event_sequence": next_sequence,
+                }
+            ).execute()
         except Exception as e:
             logger.warning(f"イベント発行失敗: {e}")
 

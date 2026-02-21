@@ -2,6 +2,7 @@
 """
 Admin domain service
 """
+
 from typing import List, Optional, Dict, Any
 import logging
 from datetime import datetime, timedelta, timezone
@@ -25,6 +26,11 @@ from app.domains.admin.schemas import (
     UserGenerationHistory,
     BlogAiUsageStats,
     BlogUsageItem,
+    BlogTraceLlmCall,
+    BlogTraceToolCall,
+    BlogTraceEvent,
+    BlogUsageTraceExecution,
+    BlogUsageTraceResponse,
     PlanTierRead,
     CreatePlanTierRequest,
     UpdatePlanTierRequest,
@@ -32,6 +38,7 @@ from app.domains.admin.schemas import (
 )
 
 logger = logging.getLogger(__name__)
+
 
 class AdminService:
     """Admin service for user management"""
@@ -143,7 +150,9 @@ class AdminService:
 
                 # Get subscription data
                 sub_data = subscription_map.get(user_id, {})
-                subscription_status: SubscriptionStatusType = sub_data.get("status", "none")
+                subscription_status: SubscriptionStatusType = sub_data.get(
+                    "status", "none"
+                )
                 is_privileged = sub_data.get("is_privileged", False)
                 stripe_customer_id = sub_data.get("stripe_customer_id")
                 stripe_subscription_id = sub_data.get("stripe_subscription_id")
@@ -223,7 +232,9 @@ class AdminService:
             is_privileged = sub_data.get("is_privileged", False)
             stripe_customer_id = sub_data.get("stripe_customer_id")
             stripe_subscription_id = sub_data.get("stripe_subscription_id")
-            current_period_end = self._parse_datetime(sub_data.get("current_period_end"))
+            current_period_end = self._parse_datetime(
+                sub_data.get("current_period_end")
+            )
             cancel_at_period_end = sub_data.get("cancel_at_period_end", False)
 
             # Check if email domain is @shintairiku.jp
@@ -308,19 +319,31 @@ class AdminService:
             now = datetime.now(timezone.utc)
             month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
             new_users_this_month = sum(
-                1 for u in clerk_users
-                if u.get("created_at") and datetime.fromtimestamp(u["created_at"] / 1000, tz=timezone.utc) >= month_start
+                1
+                for u in clerk_users
+                if u.get("created_at")
+                and datetime.fromtimestamp(u["created_at"] / 1000, tz=timezone.utc)
+                >= month_start
             )
 
             # サブスクリプション統計
             sub_map = self._get_subscription_map()
-            active_subscribers = sum(1 for s in sub_map.values() if s.get("status") == "active")
-            privileged_users = sum(1 for s in sub_map.values() if s.get("is_privileged"))
+            active_subscribers = sum(
+                1 for s in sub_map.values() if s.get("status") == "active"
+            )
+            privileged_users = sum(
+                1 for s in sub_map.values() if s.get("is_privileged")
+            )
             none_users = total_users - active_subscribers - privileged_users
 
             # 組織サブスクも考慮
             try:
-                org_response = supabase.from_("organization_subscriptions").select("quantity, status").eq("status", "active").execute()
+                org_response = (
+                    supabase.from_("organization_subscriptions")
+                    .select("quantity, status")
+                    .eq("status", "active")
+                    .execute()
+                )
                 org_subs = org_response.data or []
                 org_seat_count = sum(s.get("quantity", 0) for s in org_subs)
             except Exception:
@@ -334,19 +357,43 @@ class AdminService:
             articles_prev_month = 0
             try:
                 # usage_tracking から今月の合計
-                usage_response = supabase.from_("usage_tracking").select("articles_generated, billing_period_start").gte("billing_period_end", now.isoformat()).lte("billing_period_start", now.isoformat()).execute()
+                usage_response = (
+                    supabase.from_("usage_tracking")
+                    .select("articles_generated, billing_period_start")
+                    .gte("billing_period_end", now.isoformat())
+                    .lte("billing_period_start", now.isoformat())
+                    .execute()
+                )
                 usage_data = usage_response.data or []
-                total_articles_this_month = sum(u.get("articles_generated", 0) for u in usage_data)
+                total_articles_this_month = sum(
+                    u.get("articles_generated", 0) for u in usage_data
+                )
 
                 # 前月の記事数
                 prev_month_start = (month_start - timedelta(days=1)).replace(day=1)
-                prev_usage = supabase.from_("usage_tracking").select("articles_generated").gte("billing_period_end", prev_month_start.isoformat()).lt("billing_period_start", month_start.isoformat()).execute()
-                articles_prev_month = sum(u.get("articles_generated", 0) for u in (prev_usage.data or []))
+                prev_usage = (
+                    supabase.from_("usage_tracking")
+                    .select("articles_generated")
+                    .gte("billing_period_end", prev_month_start.isoformat())
+                    .lt("billing_period_start", month_start.isoformat())
+                    .execute()
+                )
+                articles_prev_month = sum(
+                    u.get("articles_generated", 0) for u in (prev_usage.data or [])
+                )
             except Exception as e:
-                logger.debug(f"Usage tracking query failed (table may not exist yet): {e}")
+                logger.debug(
+                    f"Usage tracking query failed (table may not exist yet): {e}"
+                )
                 # フォールバック: blog_generation_stateから集計
                 try:
-                    blog_response = supabase.from_("blog_generation_state").select("id, created_at").gte("created_at", month_start.isoformat()).eq("status", "completed").execute()
+                    blog_response = (
+                        supabase.from_("blog_generation_state")
+                        .select("id, created_at")
+                        .gte("created_at", month_start.isoformat())
+                        .eq("status", "completed")
+                        .execute()
+                    )
                     total_articles_this_month = len(blog_response.data or [])
                 except Exception:
                     pass
@@ -372,7 +419,13 @@ class AdminService:
             start_date = now - timedelta(days=days)
 
             # blog_generation_state の completed を日別に集計
-            response = supabase.from_("blog_generation_state").select("created_at").eq("status", "completed").gte("created_at", start_date.isoformat()).execute()
+            response = (
+                supabase.from_("blog_generation_state")
+                .select("created_at")
+                .eq("status", "completed")
+                .gte("created_at", start_date.isoformat())
+                .execute()
+            )
             records = response.data or []
 
             # 日別にカウント
@@ -388,7 +441,10 @@ class AdminService:
                     if date_str in daily_counts:
                         daily_counts[date_str] += 1
 
-            daily = [DailyGenerationCount(date=d, count=c) for d, c in sorted(daily_counts.items())]
+            daily = [
+                DailyGenerationCount(date=d, count=c)
+                for d, c in sorted(daily_counts.items())
+            ]
             total = sum(c.count for c in daily)
 
             return GenerationTrendResponse(daily=daily, total=total)
@@ -418,18 +474,28 @@ class AdminService:
                     counts["none"] += 1
 
             # 特権ユーザーも集計
-            privileged_count = sum(1 for s in sub_map.values() if s.get("is_privileged"))
+            privileged_count = sum(
+                1 for s in sub_map.values() if s.get("is_privileged")
+            )
 
             distribution = []
             for status, count in counts.items():
                 if count > 0:
-                    distribution.append(SubscriptionDistribution(
-                        status=status, count=count, label=status_labels.get(status, status)
-                    ))
+                    distribution.append(
+                        SubscriptionDistribution(
+                            status=status,
+                            count=count,
+                            label=status_labels.get(status, status),
+                        )
+                    )
             if privileged_count > 0:
-                distribution.append(SubscriptionDistribution(
-                    status="privileged", count=privileged_count, label="特権ユーザー"
-                ))
+                distribution.append(
+                    SubscriptionDistribution(
+                        status="privileged",
+                        count=privileged_count,
+                        label="特権ユーザー",
+                    )
+                )
 
             return SubscriptionDistributionResponse(distribution=distribution)
         except Exception as e:
@@ -442,11 +508,17 @@ class AdminService:
             activities: list[RecentActivity] = []
 
             # 直近のブログ生成
-            blog_response = supabase.from_("blog_generation_state").select("user_id, status, created_at, updated_at").order("updated_at", desc=True).limit(limit).execute()
+            blog_response = (
+                supabase.from_("blog_generation_state")
+                .select("user_id, status, created_at, updated_at")
+                .order("updated_at", desc=True)
+                .limit(limit)
+                .execute()
+            )
 
             sub_map = self._get_subscription_map()
 
-            for record in (blog_response.data or []):
+            for record in blog_response.data or []:
                 user_id = record.get("user_id", "")
                 email = sub_map.get(user_id, {}).get("email")
                 status = record.get("status", "")
@@ -459,13 +531,15 @@ class AdminService:
                     "cancelled": "ブログ記事の生成をキャンセル",
                 }.get(status, f"ブログ生成ステータス: {status}")
 
-                activities.append(RecentActivity(
-                    type="generation",
-                    user_id=user_id,
-                    user_email=email,
-                    description=status_text,
-                    timestamp=self._parse_datetime(timestamp_str),
-                ))
+                activities.append(
+                    RecentActivity(
+                        type="generation",
+                        user_id=user_id,
+                        user_email=email,
+                        description=status_text,
+                        timestamp=self._parse_datetime(timestamp_str),
+                    )
+                )
 
             return RecentActivityResponse(activities=activities[:limit])
         except Exception as e:
@@ -476,23 +550,39 @@ class AdminService:
         """Get per-user usage list"""
         try:
             now = datetime.now(timezone.utc)
-            response = supabase.from_("usage_tracking").select("user_id, articles_generated, articles_limit, addon_articles_limit, admin_granted_articles").gte("billing_period_end", now.isoformat()).lte("billing_period_start", now.isoformat()).execute()
+            response = (
+                supabase.from_("usage_tracking")
+                .select(
+                    "user_id, articles_generated, articles_limit, addon_articles_limit, admin_granted_articles"
+                )
+                .gte("billing_period_end", now.isoformat())
+                .lte("billing_period_start", now.isoformat())
+                .execute()
+            )
 
             sub_map = self._get_subscription_map()
             items = []
-            for record in (response.data or []):
+            for record in response.data or []:
                 user_id = record.get("user_id", "")
                 articles_generated = record.get("articles_generated", 0)
-                total_limit = record.get("articles_limit", 0) + record.get("addon_articles_limit", 0) + record.get("admin_granted_articles", 0)
-                usage_pct = (articles_generated / total_limit * 100) if total_limit > 0 else 0
+                total_limit = (
+                    record.get("articles_limit", 0)
+                    + record.get("addon_articles_limit", 0)
+                    + record.get("admin_granted_articles", 0)
+                )
+                usage_pct = (
+                    (articles_generated / total_limit * 100) if total_limit > 0 else 0
+                )
 
-                items.append(UserUsageItem(
-                    user_id=user_id,
-                    email=sub_map.get(user_id, {}).get("email"),
-                    articles_generated=articles_generated,
-                    total_limit=total_limit,
-                    usage_percentage=round(usage_pct, 1),
-                ))
+                items.append(
+                    UserUsageItem(
+                        user_id=user_id,
+                        email=sub_map.get(user_id, {}).get("email"),
+                        articles_generated=articles_generated,
+                        total_limit=total_limit,
+                        usage_percentage=round(usage_pct, 1),
+                    )
+                )
 
             # 使用率の降順でソート
             items.sort(key=lambda x: x.usage_percentage, reverse=True)
@@ -501,23 +591,32 @@ class AdminService:
             logger.error(f"Error getting users usage: {e}")
             return []
 
-    def get_blog_usage(self, limit: int = 50, offset: int = 0, days: int = 30) -> list[BlogUsageItem]:
+    def get_blog_usage(
+        self, limit: int = 50, offset: int = 0, days: int = 30
+    ) -> list[BlogUsageItem]:
         """Blog AIのプロセス別使用量一覧"""
         try:
             from datetime import datetime, timedelta, timezone
-            cutoff_date = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
 
-            sessions_resp = supabase.from_("agent_log_sessions").select(
-                "id, article_uuid, user_id, created_at, session_metadata"
-            ).eq(
-                "session_metadata->>workflow_type",
-                "blog_generation",
-            ).gte(
-                "created_at", cutoff_date
-            ).order("created_at", desc=True).range(
-                offset,
-                offset + max(limit - 1, 0),
-            ).execute()
+            cutoff_date = (
+                datetime.now(timezone.utc) - timedelta(days=days)
+            ).isoformat()
+
+            sessions_resp = (
+                supabase.from_("agent_log_sessions")
+                .select("id, article_uuid, user_id, created_at, session_metadata")
+                .eq(
+                    "session_metadata->>workflow_type",
+                    "blog_generation",
+                )
+                .gte("created_at", cutoff_date)
+                .order("created_at", desc=True)
+                .range(
+                    offset,
+                    offset + max(limit - 1, 0),
+                )
+                .execute()
+            )
 
             sessions = sessions_resp.data or []
             if not sessions:
@@ -527,38 +626,61 @@ class AdminService:
             process_ids = [s["article_uuid"] for s in sessions]
 
             # Process status info
-            state_resp = supabase.from_("blog_generation_state").select(
-                "id, user_id, status, created_at, updated_at"
-            ).in_("id", process_ids).execute()
+            state_resp = (
+                supabase.from_("blog_generation_state")
+                .select("id, user_id, status, created_at, updated_at")
+                .in_("id", process_ids)
+                .execute()
+            )
             state_map = {s["id"]: s for s in (state_resp.data or [])}
 
             # User email map
             user_ids = list({s.get("user_id") for s in sessions if s.get("user_id")})
             email_map: Dict[str, str] = {}
             if user_ids:
-                user_resp = supabase.from_("user_subscriptions").select(
-                    "user_id, email"
-                ).in_("user_id", user_ids).execute()
-                email_map = {u["user_id"]: u.get("email") for u in (user_resp.data or []) if u.get("user_id")}
+                user_resp = (
+                    supabase.from_("user_subscriptions")
+                    .select("user_id, email")
+                    .in_("user_id", user_ids)
+                    .execute()
+                )
+                email_map = {
+                    u["user_id"]: u.get("email")
+                    for u in (user_resp.data or [])
+                    if u.get("user_id")
+                }
 
-            exec_resp = supabase.from_("agent_execution_logs").select(
-                "id, session_id, input_tokens, output_tokens, cache_tokens, reasoning_tokens"
-            ).in_("session_id", session_ids).execute()
+            exec_resp = (
+                supabase.from_("agent_execution_logs")
+                .select(
+                    "id, session_id, input_tokens, output_tokens, cache_tokens, reasoning_tokens"
+                )
+                .in_("session_id", session_ids)
+                .execute()
+            )
             executions = exec_resp.data or []
             execution_ids = [e["id"] for e in executions]
 
             llm_calls = []
             if execution_ids:
-                llm_resp = supabase.from_("llm_call_logs").select(
-                    "execution_id, prompt_tokens, completion_tokens, total_tokens, cached_tokens, reasoning_tokens, estimated_cost_usd, model_name"
-                ).in_("execution_id", execution_ids).execute()
+                llm_resp = (
+                    supabase.from_("llm_call_logs")
+                    .select(
+                        "execution_id, prompt_tokens, completion_tokens, total_tokens, cached_tokens, reasoning_tokens, estimated_cost_usd, model_name"
+                    )
+                    .in_("execution_id", execution_ids)
+                    .execute()
+                )
                 llm_calls = llm_resp.data or []
 
             tool_calls = []
             if execution_ids:
-                tool_resp = supabase.from_("tool_call_logs").select(
-                    "execution_id"
-                ).in_("execution_id", execution_ids).execute()
+                tool_resp = (
+                    supabase.from_("tool_call_logs")
+                    .select("execution_id")
+                    .in_("execution_id", execution_ids)
+                    .execute()
+                )
                 tool_calls = tool_resp.data or []
 
             # Index executions by session
@@ -582,7 +704,9 @@ class AdminService:
                 for call in tool_calls:
                     session_id = exec_session_map.get(call["execution_id"])
                     if session_id:
-                        tool_by_session[session_id] = tool_by_session.get(session_id, 0) + 1
+                        tool_by_session[session_id] = (
+                            tool_by_session.get(session_id, 0) + 1
+                        )
 
             items: list[BlogUsageItem] = []
             for session in sessions:
@@ -618,36 +742,321 @@ class AdminService:
                         reasoning_tokens += int(ex.get("reasoning_tokens", 0) or 0)
                     total_tokens = input_tokens + output_tokens
 
-                items.append(BlogUsageItem(
-                    process_id=process_id,
-                    user_id=state.get("user_id") or session.get("user_id") or "",
-                    user_email=email_map.get(state.get("user_id") or session.get("user_id")),
-                    status=state.get("status"),
-                    created_at=self._parse_datetime(state.get("created_at") or session.get("created_at")),
-                    updated_at=self._parse_datetime(state.get("updated_at")),
-                    total_tokens=total_tokens,
-                    input_tokens=input_tokens,
-                    output_tokens=output_tokens,
-                    cached_tokens=cached_tokens,
-                    reasoning_tokens=reasoning_tokens,
-                    estimated_cost_usd=round(estimated_cost, 6),
-                    tool_calls=tool_by_session.get(session_id, 0),
-                    models=sorted(models),
-                ))
+                items.append(
+                    BlogUsageItem(
+                        process_id=process_id,
+                        user_id=state.get("user_id") or session.get("user_id") or "",
+                        user_email=email_map.get(
+                            state.get("user_id") or session.get("user_id")
+                        ),
+                        status=state.get("status"),
+                        created_at=self._parse_datetime(
+                            state.get("created_at") or session.get("created_at")
+                        ),
+                        updated_at=self._parse_datetime(state.get("updated_at")),
+                        total_tokens=total_tokens,
+                        input_tokens=input_tokens,
+                        output_tokens=output_tokens,
+                        cached_tokens=cached_tokens,
+                        reasoning_tokens=reasoning_tokens,
+                        estimated_cost_usd=round(estimated_cost, 6),
+                        tool_calls=tool_by_session.get(session_id, 0),
+                        models=sorted(models),
+                    )
+                )
 
             return items
         except Exception as e:
             logger.error(f"Error getting blog usage list: {e}")
             return []
 
+    def get_blog_usage_trace(self, process_id: str) -> Optional[BlogUsageTraceResponse]:
+        """Blog AIの1プロセス分の詳細トレースを取得"""
+        try:
+            state_resp = (
+                supabase.from_("blog_generation_state")
+                .select("id, user_id, status, created_at, updated_at, blog_context")
+                .eq("id", process_id)
+                .maybe_single()
+                .execute()
+            )
+            state = state_resp.data
+            if not state:
+                return None
+
+            user_id = state.get("user_id")
+            user_email = None
+            if user_id:
+                try:
+                    user_sub = (
+                        supabase.from_("user_subscriptions")
+                        .select("email")
+                        .eq("user_id", user_id)
+                        .maybe_single()
+                        .execute()
+                    )
+                    user_email = (user_sub.data or {}).get("email")
+                except Exception:
+                    user_email = None
+
+            sessions_resp = (
+                supabase.from_("agent_log_sessions")
+                .select(
+                    "id, status, created_at, completed_at, initial_input, session_metadata"
+                )
+                .eq("article_uuid", process_id)
+                .eq("session_metadata->>workflow_type", "blog_generation")
+                .order("created_at", desc=True)
+                .limit(1)
+                .execute()
+            )
+            session = sessions_resp.data[0] if sessions_resp.data else None
+
+            session_id = session["id"] if session else None
+            executions: list[Dict[str, Any]] = []
+            llm_calls: list[Dict[str, Any]] = []
+            tool_calls: list[Dict[str, Any]] = []
+            trace_events_rows: list[Dict[str, Any]] = []
+
+            if session_id:
+                exec_resp = (
+                    supabase.from_("agent_execution_logs")
+                    .select(
+                        "id, step_number, sub_step_number, status, llm_model, "
+                        "started_at, completed_at, duration_ms, input_tokens, output_tokens, cache_tokens, reasoning_tokens"
+                    )
+                    .eq("session_id", session_id)
+                    .order("step_number")
+                    .order("sub_step_number")
+                    .execute()
+                )
+                executions = exec_resp.data or []
+                execution_ids = [ex["id"] for ex in executions]
+
+                if execution_ids:
+                    llm_resp = (
+                        supabase.from_("llm_call_logs")
+                        .select(
+                            "id, execution_id, call_sequence, api_type, model_name, provider, "
+                            "prompt_tokens, completion_tokens, total_tokens, cached_tokens, reasoning_tokens, "
+                            "estimated_cost_usd, api_response_id, called_at, response_data"
+                        )
+                        .in_("execution_id", execution_ids)
+                        .order("called_at")
+                        .order("call_sequence")
+                        .execute()
+                    )
+                    llm_calls = llm_resp.data or []
+
+                    tool_resp = (
+                        supabase.from_("tool_call_logs")
+                        .select(
+                            "id, execution_id, call_sequence, tool_name, tool_function, status, "
+                            "input_parameters, output_data, execution_time_ms, error_type, error_message, "
+                            "called_at, completed_at, tool_metadata"
+                        )
+                        .in_("execution_id", execution_ids)
+                        .order("called_at")
+                        .order("call_sequence")
+                        .execute()
+                    )
+                    tool_calls = tool_resp.data or []
+
+                try:
+                    trace_resp = (
+                        supabase.from_("blog_agent_trace_events")
+                        .select(
+                            "id, execution_id, event_sequence, source, event_type, event_name, "
+                            "agent_name, role, message_text, tool_name, tool_call_id, response_id, model_name, "
+                            "prompt_tokens, completion_tokens, cached_tokens, reasoning_tokens, total_tokens, "
+                            "input_payload, output_payload, event_metadata, created_at"
+                        )
+                        .eq("session_id", session_id)
+                        .order("event_sequence")
+                        .execute()
+                    )
+                    trace_events_rows = trace_resp.data or []
+                except Exception as trace_err:
+                    logger.debug(
+                        f"Trace events query failed for {process_id}: {trace_err}"
+                    )
+                    trace_events_rows = []
+
+            llm_by_exec: Dict[str, list[BlogTraceLlmCall]] = {}
+            for call in llm_calls:
+                execution_id = call.get("execution_id")
+                if not execution_id:
+                    continue
+                llm_by_exec.setdefault(execution_id, []).append(
+                    BlogTraceLlmCall(
+                        id=call.get("id"),
+                        execution_id=execution_id,
+                        call_sequence=int(call.get("call_sequence", 1) or 1),
+                        api_type=call.get("api_type") or "responses_api",
+                        model_name=call.get("model_name") or "unknown",
+                        provider=call.get("provider") or "openai",
+                        prompt_tokens=int(call.get("prompt_tokens", 0) or 0),
+                        completion_tokens=int(call.get("completion_tokens", 0) or 0),
+                        total_tokens=int(call.get("total_tokens", 0) or 0),
+                        cached_tokens=int(call.get("cached_tokens", 0) or 0),
+                        reasoning_tokens=int(call.get("reasoning_tokens", 0) or 0),
+                        estimated_cost_usd=float(
+                            call.get("estimated_cost_usd", 0) or 0
+                        ),
+                        api_response_id=call.get("api_response_id"),
+                        called_at=self._parse_datetime(call.get("called_at")),
+                        response_data=call.get("response_data") or {},
+                    )
+                )
+
+            tool_by_exec: Dict[str, list[BlogTraceToolCall]] = {}
+            for tool in tool_calls:
+                execution_id = tool.get("execution_id")
+                if not execution_id:
+                    continue
+                tool_by_exec.setdefault(execution_id, []).append(
+                    BlogTraceToolCall(
+                        id=tool.get("id"),
+                        execution_id=execution_id,
+                        call_sequence=int(tool.get("call_sequence", 1) or 1),
+                        tool_name=tool.get("tool_name") or "unknown",
+                        tool_function=tool.get("tool_function") or "unknown",
+                        status=tool.get("status") or "started",
+                        input_parameters=tool.get("input_parameters") or {},
+                        output_data=tool.get("output_data") or {},
+                        execution_time_ms=tool.get("execution_time_ms"),
+                        error_type=tool.get("error_type"),
+                        error_message=tool.get("error_message"),
+                        called_at=self._parse_datetime(tool.get("called_at")),
+                        completed_at=self._parse_datetime(tool.get("completed_at")),
+                        tool_metadata=tool.get("tool_metadata") or {},
+                    )
+                )
+
+            trace_events = [
+                BlogTraceEvent(
+                    id=ev.get("id"),
+                    execution_id=ev.get("execution_id"),
+                    event_sequence=int(ev.get("event_sequence", 0) or 0),
+                    source=ev.get("source") or "agents_sdk",
+                    event_type=ev.get("event_type") or "unknown",
+                    event_name=ev.get("event_name"),
+                    agent_name=ev.get("agent_name"),
+                    role=ev.get("role"),
+                    message_text=ev.get("message_text"),
+                    tool_name=ev.get("tool_name"),
+                    tool_call_id=ev.get("tool_call_id"),
+                    response_id=ev.get("response_id"),
+                    model_name=ev.get("model_name"),
+                    prompt_tokens=int(ev.get("prompt_tokens", 0) or 0),
+                    completion_tokens=int(ev.get("completion_tokens", 0) or 0),
+                    cached_tokens=int(ev.get("cached_tokens", 0) or 0),
+                    reasoning_tokens=int(ev.get("reasoning_tokens", 0) or 0),
+                    total_tokens=int(ev.get("total_tokens", 0) or 0),
+                    input_payload=ev.get("input_payload") or {},
+                    output_payload=ev.get("output_payload") or {},
+                    event_metadata=ev.get("event_metadata") or {},
+                    created_at=self._parse_datetime(ev.get("created_at")),
+                )
+                for ev in trace_events_rows
+            ]
+
+            execution_items: list[BlogUsageTraceExecution] = []
+            for ex in executions:
+                ex_id = ex.get("id")
+                if not ex_id:
+                    continue
+                execution_items.append(
+                    BlogUsageTraceExecution(
+                        id=ex_id,
+                        step_number=int(ex.get("step_number", 0) or 0),
+                        sub_step_number=int(ex.get("sub_step_number", 1) or 1),
+                        status=ex.get("status") or "started",
+                        llm_model=ex.get("llm_model"),
+                        started_at=self._parse_datetime(ex.get("started_at")),
+                        completed_at=self._parse_datetime(ex.get("completed_at")),
+                        duration_ms=ex.get("duration_ms"),
+                        input_tokens=int(ex.get("input_tokens", 0) or 0),
+                        output_tokens=int(ex.get("output_tokens", 0) or 0),
+                        cache_tokens=int(ex.get("cache_tokens", 0) or 0),
+                        reasoning_tokens=int(ex.get("reasoning_tokens", 0) or 0),
+                        llm_calls=llm_by_exec.get(ex_id, []),
+                        tool_calls=tool_by_exec.get(ex_id, []),
+                    )
+                )
+
+            input_tokens = 0
+            output_tokens = 0
+            cached_tokens = 0
+            reasoning_tokens = 0
+            total_tokens = 0
+            estimated_cost_usd = 0.0
+
+            if llm_calls:
+                for call in llm_calls:
+                    input_tokens += int(call.get("prompt_tokens", 0) or 0)
+                    output_tokens += int(call.get("completion_tokens", 0) or 0)
+                    cached_tokens += int(call.get("cached_tokens", 0) or 0)
+                    reasoning_tokens += int(call.get("reasoning_tokens", 0) or 0)
+                    total_tokens += int(call.get("total_tokens", 0) or 0)
+                    estimated_cost_usd += float(call.get("estimated_cost_usd", 0) or 0)
+            else:
+                for ex in executions:
+                    input_tokens += int(ex.get("input_tokens", 0) or 0)
+                    output_tokens += int(ex.get("output_tokens", 0) or 0)
+                    cached_tokens += int(ex.get("cache_tokens", 0) or 0)
+                    reasoning_tokens += int(ex.get("reasoning_tokens", 0) or 0)
+                total_tokens = input_tokens + output_tokens
+
+            blog_context = state.get("blog_context") or {}
+            conversation_history = blog_context.get("conversation_history", [])
+            if not isinstance(conversation_history, list):
+                conversation_history = []
+
+            return BlogUsageTraceResponse(
+                process_id=process_id,
+                user_id=user_id,
+                user_email=user_email,
+                status=state.get("status"),
+                created_at=self._parse_datetime(state.get("created_at")),
+                updated_at=self._parse_datetime(state.get("updated_at")),
+                session_id=session_id,
+                session_status=(session or {}).get("status"),
+                session_created_at=self._parse_datetime(
+                    (session or {}).get("created_at")
+                ),
+                session_completed_at=self._parse_datetime(
+                    (session or {}).get("completed_at")
+                ),
+                initial_input=(session or {}).get("initial_input") or {},
+                session_metadata=(session or {}).get("session_metadata") or {},
+                conversation_history=conversation_history,
+                last_response_id=blog_context.get("last_response_id"),
+                total_tokens=total_tokens,
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                cached_tokens=cached_tokens,
+                reasoning_tokens=reasoning_tokens,
+                estimated_cost_usd=round(estimated_cost_usd, 6),
+                executions=execution_items,
+                trace_events=trace_events,
+            )
+        except Exception as e:
+            logger.error(
+                f"Error getting blog usage trace for process {process_id}: {e}"
+            )
+            return None
+
     def _get_blog_ai_usage(self, user_id: str) -> Optional[BlogAiUsageStats]:
         """Blog AIのLLM使用量を集計"""
         try:
-            sessions_resp = supabase.from_("agent_log_sessions").select(
-                "id, created_at, session_metadata"
-            ).eq("user_id", user_id).eq(
-                "session_metadata->>workflow_type", "blog_generation"
-            ).execute()
+            sessions_resp = (
+                supabase.from_("agent_log_sessions")
+                .select("id, created_at, session_metadata")
+                .eq("user_id", user_id)
+                .eq("session_metadata->>workflow_type", "blog_generation")
+                .execute()
+            )
             sessions = sessions_resp.data or []
             if not sessions:
                 return None
@@ -659,24 +1068,37 @@ class AdminService:
                 if created_at and (last_run_at is None or created_at > last_run_at):
                     last_run_at = created_at
 
-            exec_resp = supabase.from_("agent_execution_logs").select(
-                "id, input_tokens, output_tokens, cache_tokens, reasoning_tokens"
-            ).in_("session_id", session_ids).execute()
+            exec_resp = (
+                supabase.from_("agent_execution_logs")
+                .select(
+                    "id, input_tokens, output_tokens, cache_tokens, reasoning_tokens"
+                )
+                .in_("session_id", session_ids)
+                .execute()
+            )
             executions = exec_resp.data or []
             execution_ids = [e["id"] for e in executions]
 
             llm_calls = []
             if execution_ids:
-                llm_resp = supabase.from_("llm_call_logs").select(
-                    "prompt_tokens, completion_tokens, cached_tokens, reasoning_tokens, total_tokens, model_name, estimated_cost_usd, called_at"
-                ).in_("execution_id", execution_ids).execute()
+                llm_resp = (
+                    supabase.from_("llm_call_logs")
+                    .select(
+                        "prompt_tokens, completion_tokens, cached_tokens, reasoning_tokens, total_tokens, model_name, estimated_cost_usd, called_at"
+                    )
+                    .in_("execution_id", execution_ids)
+                    .execute()
+                )
                 llm_calls = llm_resp.data or []
 
             tool_calls = []
             if execution_ids:
-                tool_resp = supabase.from_("tool_call_logs").select(
-                    "tool_name, tool_function, status"
-                ).in_("execution_id", execution_ids).execute()
+                tool_resp = (
+                    supabase.from_("tool_call_logs")
+                    .select("tool_name, tool_function, status")
+                    .in_("execution_id", execution_ids)
+                    .execute()
+                )
                 tool_calls = tool_resp.data or []
 
             input_tokens = 0
@@ -712,7 +1134,9 @@ class AdminService:
 
             tools_sorted = [
                 {"tool_name": name, "count": count}
-                for name, count in sorted(tool_breakdown.items(), key=lambda item: item[1], reverse=True)
+                for name, count in sorted(
+                    tool_breakdown.items(), key=lambda item: item[1], reverse=True
+                )
             ]
 
             return BlogAiUsageStats(
@@ -749,7 +1173,13 @@ class AdminService:
             org_id = upgraded_to_org_id
         else:
             try:
-                mem_resp = supabase.from_("organization_members").select("organization_id").eq("user_id", user_id).limit(1).execute()
+                mem_resp = (
+                    supabase.from_("organization_members")
+                    .select("organization_id")
+                    .eq("user_id", user_id)
+                    .limit(1)
+                    .execute()
+                )
                 if mem_resp.data and len(mem_resp.data) > 0:
                     org_id = mem_resp.data[0].get("organization_id")
             except Exception:
@@ -757,7 +1187,13 @@ class AdminService:
 
         if org_id:
             try:
-                org_resp = supabase.from_("organizations").select("name").eq("id", org_id).maybe_single().execute()
+                org_resp = (
+                    supabase.from_("organizations")
+                    .select("name")
+                    .eq("id", org_id)
+                    .maybe_single()
+                    .execute()
+                )
                 if org_resp.data:
                     org_name = org_resp.data.get("name")
             except Exception:
@@ -767,12 +1203,28 @@ class AdminService:
         usage = None
         try:
             # Personal usage
-            usage_resp = supabase.from_("usage_tracking").select("*").eq("user_id", user_id).gte("billing_period_end", now.isoformat()).lte("billing_period_start", now.isoformat()).maybe_single().execute()
+            usage_resp = (
+                supabase.from_("usage_tracking")
+                .select("*")
+                .eq("user_id", user_id)
+                .gte("billing_period_end", now.isoformat())
+                .lte("billing_period_start", now.isoformat())
+                .maybe_single()
+                .execute()
+            )
             usage_data = usage_resp.data
 
             # Fallback: org usage
             if not usage_data and org_id:
-                usage_resp = supabase.from_("usage_tracking").select("*").eq("organization_id", org_id).gte("billing_period_end", now.isoformat()).lte("billing_period_start", now.isoformat()).maybe_single().execute()
+                usage_resp = (
+                    supabase.from_("usage_tracking")
+                    .select("*")
+                    .eq("organization_id", org_id)
+                    .gte("billing_period_end", now.isoformat())
+                    .lte("billing_period_start", now.isoformat())
+                    .maybe_single()
+                    .execute()
+                )
                 usage_data = usage_resp.data
 
             if usage_data:
@@ -798,23 +1250,40 @@ class AdminService:
         # Generation history
         history = []
         try:
-            hist_resp = supabase.from_("blog_generation_state").select("id, status, created_at, updated_at").eq("user_id", user_id).order("created_at", desc=True).limit(20).execute()
-            for record in (hist_resp.data or []):
-                history.append(UserGenerationHistory(
-                    process_id=record.get("id", ""),
-                    status=record.get("status", ""),
-                    created_at=self._parse_datetime(record.get("created_at")),
-                    updated_at=self._parse_datetime(record.get("updated_at")),
-                ))
+            hist_resp = (
+                supabase.from_("blog_generation_state")
+                .select("id, status, created_at, updated_at")
+                .eq("user_id", user_id)
+                .order("created_at", desc=True)
+                .limit(20)
+                .execute()
+            )
+            for record in hist_resp.data or []:
+                history.append(
+                    UserGenerationHistory(
+                        process_id=record.get("id", ""),
+                        status=record.get("status", ""),
+                        created_at=self._parse_datetime(record.get("created_at")),
+                        updated_at=self._parse_datetime(record.get("updated_at")),
+                    )
+                )
         except Exception as e:
             logger.debug(f"Generation history query failed for user {user_id}: {e}")
 
         # Plan tier name
         plan_tier_name = None
-        plan_tier_id = sub_data.get("plan_tier_id") or (usage.plan_tier_id if usage else None)
+        plan_tier_id = sub_data.get("plan_tier_id") or (
+            usage.plan_tier_id if usage else None
+        )
         if plan_tier_id:
             try:
-                tier_resp = supabase.from_("plan_tiers").select("name").eq("id", plan_tier_id).maybe_single().execute()
+                tier_resp = (
+                    supabase.from_("plan_tiers")
+                    .select("name")
+                    .eq("id", plan_tier_id)
+                    .maybe_single()
+                    .execute()
+                )
                 if tier_resp.data:
                     plan_tier_name = tier_resp.data.get("name")
             except Exception:
@@ -920,10 +1389,14 @@ class AdminService:
             logger.error(f"Error creating plan tier: {e}")
             raise
 
-    def update_plan_tier(self, tier_id: str, request: UpdatePlanTierRequest) -> Optional[PlanTierRead]:
+    def update_plan_tier(
+        self, tier_id: str, request: UpdatePlanTierRequest
+    ) -> Optional[PlanTierRead]:
         """Update an existing plan tier (only changed fields)"""
         try:
-            update_data: Dict[str, Any] = {"updated_at": datetime.now(timezone.utc).isoformat()}
+            update_data: Dict[str, Any] = {
+                "updated_at": datetime.now(timezone.utc).isoformat()
+            }
             if request.name is not None:
                 update_data["name"] = request.name
             if request.stripe_price_id is not None:
@@ -981,12 +1454,7 @@ class AdminService:
                     f"Cannot delete tier '{tier_id}': referenced by {sub_ref.count} user_subscriptions"
                 )
 
-            response = (
-                supabase.from_("plan_tiers")
-                .delete()
-                .eq("id", tier_id)
-                .execute()
-            )
+            response = supabase.from_("plan_tiers").delete().eq("id", tier_id).execute()
             return bool(response.data)
         except ValueError:
             raise
@@ -1071,10 +1539,12 @@ class AdminService:
                 new_addon_limit = addon_unit * addon_quantity
 
                 try:
-                    supabase.from_("usage_tracking").update({
-                        "articles_limit": new_articles_limit,
-                        "addon_articles_limit": new_addon_limit,
-                    }).eq("id", record["id"]).execute()
+                    supabase.from_("usage_tracking").update(
+                        {
+                            "articles_limit": new_articles_limit,
+                            "addon_articles_limit": new_addon_limit,
+                        }
+                    ).eq("id", record["id"]).execute()
                     updated_count += 1
                 except Exception as e:
                     logger.error(f"Failed to update usage_tracking {record['id']}: {e}")

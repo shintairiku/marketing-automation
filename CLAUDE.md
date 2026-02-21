@@ -2292,6 +2292,52 @@ CONTACT_NOTIFICATION_EMAIL=admin@yourdomain.com
 3. **MCP サーバー情報をトグルに隠蔽**: 同様に `<details>` で折りたたみ
 4. **「利用可能な機能」セクション削除**: HTML + CSS を完全削除
 
+### 39. Blog AI 管理者向け詳細トレース実装 (2026-02-21)
+
+**概要**: `/admin/blog-usage` に「プロセス単位の詳細トレース閲覧」を追加。OpenAI Agents SDK のストリームイベント（`RawResponsesStreamEvent` / `RunItemStreamEvent`）を正規化してDBへ保存し、管理者が以下を記事ごとに確認可能にした。
+- 会話履歴（`to_input_list()` ベース）
+- レスポンス単位のトークン内訳（input/output/cached/reasoning/total）
+- ツール呼び出しの入力引数・出力
+- 実行中の時系列イベント（raw response event を含む）
+
+**DB変更**:
+- `supabase/migrations/20260221113000_add_blog_agent_trace_events.sql` を追加
+  - 新規テーブル `blog_agent_trace_events`
+  - `process_id/session_id/execution_id` 紐付け
+  - トークン内訳カラム、tool/response識別子、input/output payload、event metadata
+  - RLS + policy（service_role full access、ユーザー自身のSELECT）
+  - インデックス（process/session/execution/response/tool call）
+
+**バックエンド変更**:
+- `backend/app/domains/blog/services/generation_service.py`
+  - `RawResponsesStreamEvent` を取り込み、raw event を正規化して `blog_agent_trace_events` にバルク保存
+  - `response.completed` から **モデル名 + response_id + レスポンス単位usage** を抽出
+  - 既存 `llm_call_logs` も stream由来usageを優先して記録（request_usage_entriesのみ依存しない）
+  - `tool_call_logs` の出力保存サイズを拡張（1000→実質2万文字上限）
+  - 完了時にも `conversation_history` と `last_response_id` を `blog_context` に保存
+  - `blog_generation_state.response_id` 更新対応を追加
+- `backend/app/domains/admin/schemas.py`
+  - `BlogUsageTraceResponse` と関連スキーマ（LLM call / tool call / trace event / execution）を追加
+- `backend/app/domains/admin/service.py`
+  - `get_blog_usage_trace(process_id)` を追加
+  - `blog_generation_state + agent_log_sessions + agent_execution_logs + llm_call_logs + tool_call_logs + blog_agent_trace_events` を統合して詳細レスポンス生成
+- `backend/app/domains/admin/endpoints.py`
+  - 新規エンドポイント `GET /admin/usage/blog/{process_id}/trace`
+
+**フロントエンド変更**:
+- `frontend/src/app/(admin)/admin/blog-usage/page.tsx`
+  - 記事別Usageテーブルに「詳細」アクション追加
+  - 詳細ダイアログ実装（プロセス単位トレース）
+    - 会話履歴
+    - レスポンス別トークン（LLM call table）
+    - ツール呼び出し入出力
+    - 時系列イベントログ
+
+**検証**:
+- `cd backend && uv run ruff check ...` ✅
+- `cd frontend && bun run lint` ✅（既存の `<img>` 警告のみ）
+- `cd frontend && bun run build` は型チェック・ページ生成までは通過。最終フェーズで sandbox 環境由来の `EXDEV rename` で失敗（実装起因ではない）
+
 > ## **【最重要・再掲】記憶の更新は絶対に忘れるな**
 > **このファイルの冒頭にも書いたが、改めて念押しする。**
 > 作業が完了したら、コミットする前に、必ずこのファイルに変更内容を記録せよ。
