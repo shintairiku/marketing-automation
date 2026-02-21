@@ -154,6 +154,12 @@ function formatDate(value?: string | null): string {
   });
 }
 
+function formatResponseId(id?: string | null): string {
+  if (!id) return '-';
+  if (id.length <= 30) return id;
+  return `${id.slice(0, 20)}…${id.slice(-10)}`;
+}
+
 function shortenModel(name: string): string {
   return name
     .replace('litellm/gemini/', '')
@@ -405,7 +411,9 @@ export default function AdminBlogUsageDetailPage() {
                         <TableCell className="text-xs text-right tabular-nums">{formatNumber(call.reasoning_tokens)}</TableCell>
                         <TableCell className="text-xs text-right tabular-nums font-medium">{formatNumber(call.total_tokens)}</TableCell>
                         <TableCell className="text-xs text-right tabular-nums">{formatUsd(call.estimated_cost_usd)}</TableCell>
-                        <TableCell className="text-[11px] font-mono">{(call.api_response_id || '-').slice(0, 18)}</TableCell>
+                        <TableCell className="text-[11px] font-mono" title={call.api_response_id || '-'}>
+                          {formatResponseId(call.api_response_id)}
+                        </TableCell>
                         <TableCell className="text-right">
                           <Button
                             size="sm"

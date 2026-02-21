@@ -2510,6 +2510,33 @@ CONTACT_NOTIFICATION_EMAIL=admin@yourdomain.com
 - `cd frontend && bunx eslint "src/app/(admin)/admin/blog-usage/[processId]/page.tsx" "src/app/(admin)/admin/blog-usage/page.tsx"`
 - `cd frontend && bun run lint`（既存の `<img>` 警告のみ）
 
+### 44. Response ID表示誤認の解消とトークン積み上がり実測確認 (2026-02-21)
+
+**背景**:
+- 管理UIの「レスポンス別トークン」表で `response_id` を先頭のみ表示していたため、別IDが同一に見える事象が発生。
+- その結果、「同一レスポンスが繰り返し課金されている」ように見えていた。
+
+**実DB確認（process_id=2d63c9d7-8d7d-4761-8cc7-c4cbcb62e675）**:
+- `llm_call_logs` は 8行、`api_response_id` は **8件すべてユニーク**
+- `blog_agent_trace_events` の `response.completed` も **8件** で、`llm_call_logs.api_response_id` と 1:1 で一致
+- `execution_token_sums.input=367,519` / `llm_token_sums.input=367,519`（一致）
+- `event_type` に `*.delta` / `keepalive` は 0（トークン粒度保存は未実施）
+
+**UI修正**:
+- `frontend/src/app/(admin)/admin/blog-usage/page.tsx`
+  - `formatResponseId()` を追加（`先頭20 + … + 末尾10`）
+  - LLM callテーブルの `Response ID` を新フォーマットに変更し、`title` で全文を保持
+- `frontend/src/app/(admin)/admin/blog-usage/[processId]/page.tsx`
+  - 同様に `formatResponseId()` を追加し、詳細画面の `Response ID` 表示を修正
+
+**狙い**:
+- プレフィックス衝突による誤認を防止
+- テーブル可読性を維持しつつ、IDの識別性を担保
+
+**実行コマンド**:
+- `cd backend && PYTHONPATH=. uv run python testing/verify_blog_trace_logs.py 2d63c9d7-8d7d-4761-8cc7-c4cbcb62e675`
+- `cd frontend && bunx eslint "src/app/(admin)/admin/blog-usage/page.tsx" "src/app/(admin)/admin/blog-usage/[processId]/page.tsx"`
+
 > ## **【最重要・再掲】記憶の更新は絶対に忘れるな**
 > **このファイルの冒頭にも書いたが、改めて念押しする。**
 > 作業が完了したら、コミットする前に、必ずこのファイルに変更内容を記録せよ。
