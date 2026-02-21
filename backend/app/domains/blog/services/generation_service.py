@@ -77,10 +77,6 @@ TOOL_STEP_MAPPING: Dict[str, tuple[str, str]] = {
     "wp_create_draft_post": ("下書き作成中", "下書き記事を作成しています"),
     "wp_update_post_content": ("下書き作成中", "記事コンテンツを更新しています"),
     "wp_update_post_meta": ("下書き作成中", "記事メタ情報を更新しています"),
-    # バリデーション系 → 記事生成フェーズ
-    "wp_validate_block_content": ("記事生成中", "ブロック構文をチェックしています"),
-    "wp_check_regulation_compliance": ("記事生成中", "レギュレーション準拠をチェックしています"),
-    "wp_check_seo_requirements": ("記事生成中", "SEO要件をチェックしています"),
     # メディア系 → 記事生成フェーズ
     "wp_get_media_library": ("記事生成中", "メディアライブラリを取得しています"),
     "wp_upload_media": ("記事生成中", "メディアをアップロードしています"),

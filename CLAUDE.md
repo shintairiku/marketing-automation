@@ -2252,6 +2252,46 @@ CONTACT_NOTIFICATION_EMAIL=admin@yourdomain.com
 - **ファビコン/PWA**: `favicon.png`, `icon-*.png`, `icon-maskable-*.png`
 - **会社名「株式会社新大陸」**: 法的表記のため変更なし（フッター等に残存）
 
+### 38. バリデーションツール削除 + WordPress プラグイン管理画面簡素化 (2026-02-21)
+
+**概要**: 浅いバリデーションツール3個を WordPress プラグイン・BlogAI 両方から削除。プラグイン管理画面のUXを簡素化。
+
+#### バリデーションツール削除 (25→22ツール)
+
+**削除したツール**:
+- `validate-block-content` — `has_blocks()` + ブロック数カウントのみで構文検証なし
+- `check-regulation-compliance` — `required_sections` の見出し完全一致のみ。他ルール未実装
+- `check-seo-requirements` — 5項目の基本チェックのみ
+
+**プラグイン側変更** (wordpress-ability-plugin v1.1.2 → v1.2.0):
+| ファイル | 変更 |
+|---------|------|
+| `readonly-ability-plugin.php` | バージョン 1.2.0 |
+| `readme.txt` | バージョン + Changelog + ツール数更新 |
+| `includes/abilities/tools.php` | 3ツール定義削除 (約220行削減) |
+| `includes/abilities/categories.php` | `validation` カテゴリ削除 |
+| `includes/mcp-server.php` | 3ツール登録削除 |
+| `docs/APP_INTEGRATION.md` | バリデーションセクション削除、ツール数更新 |
+| `CLAUDE.md` | バージョン・ツール数・更新履歴更新 |
+
+**BlogAI側変更**:
+| ファイル | 変更 |
+|---------|------|
+| `backend/app/domains/blog/agents/tools.py` | 3ツール関数定義 + ALL_WORDPRESS_TOOLS リストから削除 |
+| `backend/app/domains/blog/agents/definitions.py` | バリデーション系プロンプト参照削除 |
+| `backend/app/domains/blog/services/generation_service.py` | TOOL_STEP_MAPPING から3エントリ削除 |
+
+**効果**: エージェントのツール定義トークンが削減され、応答速度が改善される。
+
+#### WordPress プラグイン管理画面簡素化
+
+**変更ファイル**: `includes/saas-auth/class-admin-settings.php`
+
+1. **連携ネーム入力廃止**: テキスト入力フォームを削除。ボタンクリックのみで接続URL生成。名前は `日時 (アプリ名)` で自動生成
+2. **技術情報をトグルに隠蔽**: 接続URL画面の URL テーブル (サイトURL/MCPエンドポイント/登録エンドポイント) を `<details><summary>詳細情報を表示</summary>` に変更
+3. **MCP サーバー情報をトグルに隠蔽**: 同様に `<details>` で折りたたみ
+4. **「利用可能な機能」セクション削除**: HTML + CSS を完全削除
+
 > ## **【最重要・再掲】記憶の更新は絶対に忘れるな**
 > **このファイルの冒頭にも書いたが、改めて念押しする。**
 > 作業が完了したら、コミットする前に、必ずこのファイルに変更内容を記録せよ。
