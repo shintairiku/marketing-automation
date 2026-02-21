@@ -8,7 +8,7 @@ OpenAI Agents SDK の function_tool を使って WordPress MCP ツールをラ�
 """
 import json
 import logging
-from typing import List, Literal, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 from agents import function_tool, WebSearchTool
 
@@ -20,6 +20,46 @@ from app.domains.blog.services.wordpress_mcp_service import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _dump_compact_json(payload: Any) -> str:
+    """トークン効率を優先したJSON文字列を生成する。"""
+    return json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+
+
+def _parse_json_if_possible(raw: str) -> Optional[Dict[str, Any]]:
+    """MCPレスポンスがJSONならdictとして返す。"""
+    try:
+        parsed = json.loads(raw)
+    except (TypeError, json.JSONDecodeError):
+        return None
+    return parsed if isinstance(parsed, dict) else None
+
+
+def _compact_block_node(node: Dict[str, Any]) -> Dict[str, Any]:
+    """ブロック構造を短キーに正規化してトークンを削減する。"""
+    compact: Dict[str, Any] = {}
+    block_name = node.get("blockName")
+    if block_name is not None:
+        compact["b"] = block_name
+
+    attrs = node.get("attrs")
+    if isinstance(attrs, dict) and attrs:
+        compact["a"] = attrs
+
+    inner_blocks = node.get("innerBlocks")
+    if isinstance(inner_blocks, list) and inner_blocks:
+        compact["i"] = [
+            _compact_block_node(child)
+            for child in inner_blocks
+            if isinstance(child, dict)
+        ]
+
+    inner_html = node.get("innerHTML")
+    if isinstance(inner_html, str) and inner_html:
+        compact["h"] = inner_html
+
+    return compact
 
 
 # ========== ユーザー質問ツール ==========
@@ -87,23 +127,76 @@ async def wp_get_posts_by_category(
 
 
 @function_tool
-async def wp_get_post_block_structure(post_id: int) -> str:
-    """記事のGutenbergブロック構造をJSON形式で取得します。
+async def wp_get_post_block_structure(
+    post_id: int,
+    compact: Optional[bool] = True,
+) -> str:
+    """記事のGutenbergブロック構造を取得します。
 
     Args:
         post_id: 記事ID
+        compact: Trueなら短キー形式で返却してトークンを削減
     """
-    return await call_wordpress_mcp_tool("wp-mcp-get-post-block-structure", {"post_id": post_id})
+    raw_result = await call_wordpress_mcp_tool(
+        "wp-mcp-get-post-block-structure", {"post_id": post_id}
+    )
+    if not compact:
+        return raw_result
+
+    parsed = _parse_json_if_possible(raw_result)
+    items = parsed.get("items") if parsed else None
+    if not isinstance(items, list):
+        return raw_result
+
+    compact_items = [
+        _compact_block_node(item) for item in items if isinstance(item, dict)
+    ]
+    return _dump_compact_json(
+        {
+            "schema": "wp_block_structure_compact_v1",
+            "keys": {
+                "b": "blockName",
+                "a": "attrs",
+                "i": "innerBlocks",
+                "h": "innerHTML",
+            },
+            "items": compact_items,
+        }
+    )
 
 
 @function_tool
-async def wp_get_post_raw_content(post_id: int) -> str:
+async def wp_get_post_raw_content(
+    post_id: int,
+    include_rendered: Optional[bool] = False,
+    compact: Optional[bool] = True,
+) -> str:
     """記事の生コンテンツ（ブロックHTML）を取得します。
 
     Args:
         post_id: 記事ID
+        include_rendered: Trueなら rendered_content も含める
+        compact: Trueなら短キー形式で返却してトークンを削減
     """
-    return await call_wordpress_mcp_tool("wp-mcp-get-post-raw-content", {"post_id": post_id})
+    raw_result = await call_wordpress_mcp_tool(
+        "wp-mcp-get-post-raw-content", {"post_id": post_id}
+    )
+    if not compact:
+        return raw_result
+
+    parsed = _parse_json_if_possible(raw_result)
+    if not parsed:
+        return raw_result
+
+    compact_payload: Dict[str, Any] = {
+        "schema": "wp_post_content_compact_v1",
+        "post_id": parsed.get("post_id", post_id),
+        "raw": parsed.get("raw_content", ""),
+    }
+    if include_rendered:
+        compact_payload["rendered"] = parsed.get("rendered_content", "")
+
+    return _dump_compact_json(compact_payload)
 
 
 @function_tool

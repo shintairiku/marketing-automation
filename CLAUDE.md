@@ -2537,6 +2537,54 @@ CONTACT_NOTIFICATION_EMAIL=admin@yourdomain.com
 - `cd backend && PYTHONPATH=. uv run python testing/verify_blog_trace_logs.py 2d63c9d7-8d7d-4761-8cc7-c4cbcb62e675`
 - `cd frontend && bunx eslint "src/app/(admin)/admin/blog-usage/page.tsx" "src/app/(admin)/admin/blog-usage/[processId]/page.tsx"`
 
+### 45. WordPress参照ツールの実測ベース圧縮最適化（精度維持）(2026-02-21)
+
+**背景**:
+- `wp_get_post_raw_content` と `wp_get_post_block_structure` が会話履歴の大半を占有し、入力トークン増大の主因。
+- 「精度を落とさず、LLMが読める形で圧縮したい」という要件に対応。
+
+**実際にツールを呼び出して検証**:
+- 実行対象サイト: `wordpress_site_id=b3a33836-b5e9-41f4-8697-7776849d4c41`
+- 実記事ID: `19448`, `19316`
+- トークン計測: `tiktoken (gpt-4o)`
+
+**施策と実装**:
+1. `backend/app/domains/blog/services/wordpress_mcp_service.py`
+   - `structuredContent` の返却を `indent=2` からミニファイJSONへ変更（情報欠損なし）
+2. `backend/app/domains/blog/agents/tools.py`
+   - `wp_get_post_raw_content(post_id, include_rendered=False, compact=True)`
+     - デフォルトで `{schema, post_id, raw}` を返す（`rendered` は必要時のみ）
+   - `wp_get_post_block_structure(post_id, compact=True)`
+     - 短キー形式で返却: `b=blockName, a=attrs, i=innerBlocks, h=innerHTML`
+     - `keys` マップを同梱し、LLMが展開可能な形を維持
+3. `backend/app/domains/blog/agents/definitions.py`
+   - ツール利用方針に「トークン効率ルール」を追加
+   - `include_rendered` は必要時のみ有効化する運用を明文化
+
+**実測結果（変更後）**:
+- `post_id=19448`
+  - `wp_get_post_raw_content`:
+    - フル（`include_rendered=true, compact=false`）: `3484 tokens`
+    - デフォルト（`include_rendered=false, compact=true`）: `1925 tokens`（**-44.7%**）
+  - `wp_get_post_block_structure`:
+    - フル（`compact=false`）: `2618 tokens`
+    - デフォルト（`compact=true`）: `1968 tokens`（**-24.8%**）
+- `post_id=19316`
+  - `wp_get_post_raw_content`:
+    - フル: `8984 tokens`
+    - デフォルト: `4585 tokens`（**-49.0%**）
+  - `wp_get_post_block_structure`:
+    - フル: `5874 tokens`
+    - デフォルト: `4646 tokens`（**-20.9%**）
+
+**結論**:
+- 最適解は「情報を削らずに表現を最適化し、重複（rendered）を必要時のみ取得」。
+- 精度重視ケースでも `include_rendered=true` を明示すれば従来相当の情報量に戻せるため、品質とコストを両立できる。
+
+**実行コマンド**:
+- `cd backend && PYTHONPATH=. uv run python - <<'PY' ... 実ツール呼び出し比較スクリプト ... PY`
+- `cd backend && uv run ruff check app/domains/blog/agents/tools.py app/domains/blog/agents/definitions.py app/domains/blog/services/wordpress_mcp_service.py`
+
 > ## **【最重要・再掲】記憶の更新は絶対に忘れるな**
 > **このファイルの冒頭にも書いたが、改めて念押しする。**
 > 作業が完了したら、コミットする前に、必ずこのファイルに変更内容を記録せよ。
