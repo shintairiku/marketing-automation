@@ -2,6 +2,7 @@ import type { MetadataRoute } from 'next';
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
+    id: '/',
     name: 'BlogAI - AIブログ記事自動生成',
     short_name: 'BlogAI',
     description:
@@ -48,5 +49,21 @@ export default function manifest(): MetadataRoute.Manifest {
         purpose: 'maskable',
       },
     ],
+    screenshots: [
+      {
+        src: '/screenshot-mobile.png',
+        sizes: '390x844',
+        type: 'image/png',
+        form_factor: 'narrow',
+        label: 'BlogAI - AIブログ記事自動生成',
+      },
+      {
+        src: '/screenshot-wide.png',
+        sizes: '1280x720',
+        type: 'image/png',
+        form_factor: 'wide',
+        label: 'BlogAI - デスクトップビュー',
+      },
+    ] as MetadataRoute.Manifest['screenshots'],
   };
 }
