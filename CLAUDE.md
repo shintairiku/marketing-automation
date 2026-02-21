@@ -2085,6 +2085,36 @@ CONTACT_NOTIFICATION_EMAIL=admin@yourdomain.com
 4. **全ページのヘッダー**: `flex-col sm:flex-row` でモバイル縦並び対応
 5. **plans TierForm**: `grid-cols-4` (ラベル右寄せ) → 縦並び `space-y-1.5` + 数値フィールドは `grid-cols-2` で2列に
 
+### 35. WordPress連携オンボーディングUI (2026-02-21)
+
+**概要**: Blog AIにアクセスしてWordPress連携がまだの場合、ステップバイステップのオンボーディング体験を表示。初回ユーザーでも迷わずWordPress連携を完了できるUXに改善。
+
+**変更ファイル**:
+| ファイル | 変更種別 | 概要 |
+|---------|---------|------|
+| `frontend/src/components/blog/wordpress-onboarding.tsx` | **新規** | WordPressオンボーディングコンポーネント |
+| `frontend/src/app/(tools)/blog/new/page.tsx` | 改修 | 空状態をオンボーディングに置換 |
+
+**設計**:
+- `blog/new` ページでWordPressサイト未連携の場合、フォーム全体の代わりにオンボーディングUIを表示（早期return）
+- 3ステップのアコーディオン形式:
+  1. **プラグインをインストール**: ZIPダウンロードリンク + WP管理画面での手順
+  2. **接続URLを取得**: WP管理画面「設定→MCP連携」での操作手順
+  3. **ここに貼り付けて連携**: インライン接続URL入力フォーム（ページ遷移不要）
+- 連携成功時: チェックマークアニメーション → 1.5秒後にサイト一覧をリフェッチ → 通常のフォーム表示に自動切り替え
+- プラグインZIP URL: `PLUGIN_DOWNLOAD_URL` 定数（`wordpress-onboarding.tsx` 冒頭）
+- 現在のバージョン: v1.1.2
+
+**UIの特徴**:
+- アコーディオン式ステップ（クリックで展開/折りたたみ、Framer Motionアニメーション）
+- 各ステップに色分け（amber/blue/emerald）とアイコン
+- プラグインダウンロードリンク + URLコピーボタン
+- 番号付き手順ガイド（InstructionRowヘルパー）
+- 接続URL入力はEnterキー対応
+- エラー表示（AnimatePresence）
+- 成功アニメーション（spring bounce チェックマーク）
+- お問い合わせへの導線（フッター）
+
 > ## **【最重要・再掲】記憶の更新は絶対に忘れるな**
 > **このファイルの冒頭にも書いたが、改めて念押しする。**
 > 作業が完了したら、コミットする前に、必ずこのファイルに変更内容を記録せよ。
