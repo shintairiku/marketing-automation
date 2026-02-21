@@ -2168,6 +2168,56 @@ CONTACT_NOTIFICATION_EMAIL=admin@yourdomain.com
 - https://nextjs.org/docs/app/guides/progressive-web-apps (Next.js公式PWAガイド)
 - https://nextjs.org/docs/app/api-reference/file-conventions/metadata/manifest (manifest.ts API)
 
+### 37. ロゴ・ファビコン全面刷新 (2026-02-21)
+
+**概要**: 新しいブランドロゴに全面移行。旧ロゴ（白単色ロゴ on slate-900背景）を廃止し、新しい「ブログAI」ロゴ（A+ペンシル+ブラケットのアイコン + 「ブログAI」横長ロゴ）に統一。
+
+**ソース画像** (ユーザー提供、1024x1024 / 4000x1133):
+- `ファビコン.png` → 正方形アイコン（A+ティールペンシル+ブラケット、黒要素、白/透明背景）
+- `ファビコン白.png` → ペンシルのみ（ティール、白/透明背景）
+- `ロゴ.png` → 「ブログAI」横長ロゴ（黒文字+ティールペンシル、白/透明背景）→ ライト背景用
+- `ロゴ白.png` → 「ブログAI」横長ロゴ（白文字+ティールペンシル、透明背景）→ ダーク背景用
+
+**生成されたファイル** (`frontend/public/`):
+| ファイル | サイズ | 用途 |
+|---------|------|------|
+| `favicon.png` | 32x32 | ブラウザタブ ファビコン |
+| `apple-touch-icon.png` | 180x180 | Apple Touch Icon (白背景) |
+| `icon-192.png` | 192x192 | PWA アイコン |
+| `icon-256.png` | 256x256 | PWA アイコン |
+| `icon-384.png` | 384x384 | PWA アイコン |
+| `icon-512.png` | 512x512 | PWA アイコン |
+| `icon-maskable-192.png` | 192x192 | PWA マスカブルアイコン (72%サイズ、白背景パディング) |
+| `icon-maskable-512.png` | 512x512 | PWA マスカブルアイコン |
+| `icon.png` | 1024x1024 | 正方形アプリアイコン（フルサイズ） |
+| `logo.png` | 4000x1133 | 横長ロゴ（黒文字、ライト背景用）→ サイドバー |
+| `logo-white.png` | 4000x1133 | 横長ロゴ（白文字、ダーク背景用）→ ヘッダー、認証画面 |
+
+**コード変更**:
+| ファイル | 変更内容 |
+|---------|---------|
+| `components/display/sidebar.tsx` | アイコン画像を `logo.png` (113x32) に変更、「BlogAI」テキスト削除（ロゴに含まれるため）。閉じた状態は `icon.png` (28x28) |
+| `components/display/header.tsx` | `logo-white.png` (99x28) に変更。「BlogAI」テキスト削除 |
+| `components/logo.tsx` | `variant` prop追加 (`dark`/`white`)。テキスト「新大陸」→ Image ロゴに置換 |
+| `components/ui/sidebar.tsx` | 「S」アイコン+「新大陸」テキスト → `icon.png` + 「ブログAI」に変更 |
+| `app/auth/page.tsx` | 「ブログAI」テキスト → `logo-white.png` (240x68) 画像に変更 |
+| `features/landing/components/header.tsx` | 「新大陸」+「SEO TIGER」テキスト → 「ブログAI」テキストに変更 |
+| `app/sign-in/page.tsx` | メタデータ「新大陸」→「ブログAI」 |
+| `app/sign-up/page.tsx` | メタデータ「新大陸」→「ブログAI」 |
+| `app/user-profile/page.tsx` | メタデータ「新大陸」→「ブログAI」 |
+
+**削除ファイル**:
+- `frontend/public/ファビコン.png` (日本語名ソース → `icon.png` に変換済み)
+- `frontend/public/ファビコン白.png` (同上)
+- `frontend/public/ロゴ.png` (同上 → `logo.png` に変換済み)
+- `frontend/public/ロゴ白.png` (同上 → `logo-white.png` に変換済み)
+
+**ロゴ使用ルール**:
+- **ライト背景** (サイドバー `bg-white` 等): `logo.png` (横長) or `icon.png` (正方形)
+- **ダーク背景** (ヘッダー `bg-primary`、認証画面 `slate-900` 等): `logo-white.png`
+- **ファビコン/PWA**: `favicon.png`, `icon-*.png`, `icon-maskable-*.png`
+- **会社名「株式会社新大陸」**: 法的表記のため変更なし（フッター等に残存）
+
 > ## **【最重要・再掲】記憶の更新は絶対に忘れるな**
 > **このファイルの冒頭にも書いたが、改めて念押しする。**
 > 作業が完了したら、コミットする前に、必ずこのファイルに変更内容を記録せよ。
