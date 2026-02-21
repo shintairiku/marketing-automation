@@ -6,6 +6,7 @@ import {
   Building2,
   CheckCircle2,
   Clock,
+  Download,
   ExternalLink,
   Globe,
   Link2,
@@ -56,6 +57,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
+import { PLUGIN_DOWNLOAD_URL } from "@/lib/wordpress";
 import { useAuth, useUser } from "@clerk/nextjs";
 
 interface WordPressSite {
@@ -461,6 +463,29 @@ export default function WordPressIntegrationPage() {
                 <span>{connectUrlError}</span>
               </div>
             )}
+          </div>
+
+          {/* プラグインダウンロード */}
+          <div className="bg-muted/50 p-4 rounded-lg space-y-3">
+            <h3 className="font-semibold text-sm">プラグインのインストール</h3>
+            <p className="text-sm text-muted-foreground">
+              まだプラグインをインストールしていない場合は、こちらからダウンロードしてください。
+            </p>
+            <a
+              href={PLUGIN_DOWNLOAD_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors"
+            >
+              <Download className="w-4 h-4" />
+              プラグインZIPをダウンロード
+              <ExternalLink className="w-3.5 h-3.5 opacity-70" />
+            </a>
+            <ol className="list-decimal list-inside space-y-1 text-sm text-muted-foreground">
+              <li>ダウンロードしたZIPを保存</li>
+              <li>WordPress管理画面 →「プラグイン」→「新規プラグインを追加」→「プラグインのアップロード」</li>
+              <li>ZIPファイルを選択してインストール → 有効化</li>
+            </ol>
           </div>
 
           {/* 手順ガイド */}
