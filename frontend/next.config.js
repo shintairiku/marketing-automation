@@ -20,6 +20,28 @@ const nextConfig = {
   },
   // rewrites は削除: Cloud Run 非公開化に伴い、全リクエストを route handler 経由に集約。
   // route handler で X-Serverless-Authorization (Google ID Token) を付与する。
+  async headers() {
+    return [
+      {
+        // Service Worker: no-cache + correct Content-Type
+        source: '/sw.js',
+        headers: [
+          {
+            key: 'Content-Type',
+            value: 'application/javascript; charset=utf-8',
+          },
+          {
+            key: 'Cache-Control',
+            value: 'no-cache, no-store, must-revalidate',
+          },
+          {
+            key: 'Service-Worker-Allowed',
+            value: '/',
+          },
+        ],
+      },
+    ];
+  },
 };
 
 module.exports = nextConfig;

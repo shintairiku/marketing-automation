@@ -2115,6 +2115,59 @@ CONTACT_NOTIFICATION_EMAIL=admin@yourdomain.com
 - 成功アニメーション（spring bounce チェックマーク）
 - お問い合わせへの導線（フッター）
 
+### 36. PWA (Progressive Web App) 対応 (2026-02-21)
+
+**概要**: Next.js 15 の組み込みマニフェストサポート + カスタムサービスワーカーで PWA 化。外部パッケージ不使用（Serwist/@ducanh2912/next-pwa は不要）。
+
+**設計方針**: このアプリは認証必須の SaaS（`force-dynamic`）のため、オフラインヘビーなキャッシュ戦略は不要。主なPWAメリットはインストーラビリティ（ホーム画面追加）、スタンドアロン表示、モバイルUX向上。
+
+**新規ファイル**:
+| ファイル | 概要 |
+|---------|------|
+| `frontend/src/app/manifest.ts` | 動的マニフェスト（MetadataRoute.Manifest 型）。アプリ名、アイコン6種、standalone表示、日本語設定 |
+| `frontend/public/sw.js` | サービスワーカー。ナビゲーションのオフラインフォールバック、静的アセットのstale-while-revalidateキャッシュ、プッシュ通知ハンドラ |
+| `frontend/src/app/offline/page.tsx` | オフラインフォールバックページ（WifiOff アイコン + 再読み込みボタン） |
+| `frontend/src/components/pwa/service-worker-register.tsx` | SW登録クライアントコンポーネント（useEffect で `/sw.js` を登録） |
+| `frontend/public/icon-512.png` | 512x512 PWAアイコン（slate-900背景 + 白ロゴ） |
+| `frontend/public/icon-384.png` | 384x384 PWAアイコン |
+| `frontend/public/icon-256.png` | 256x256 PWAアイコン |
+| `frontend/public/icon-maskable-512.png` | 512x512 マスカブルアイコン（より多いパディング） |
+| `frontend/public/icon-maskable-192.png` | 192x192 マスカブルアイコン |
+
+**変更ファイル**:
+| ファイル | 変更内容 |
+|---------|---------|
+| `frontend/src/app/layout.tsx` | PWAメタデータ追加（applicationName, appleWebApp, viewport, openGraph, twitter）、ServiceWorkerRegister コンポーネント追加 |
+| `frontend/next.config.js` | `headers()` 追加: `/sw.js` に Cache-Control: no-cache + Service-Worker-Allowed: / |
+| `frontend/src/middleware.ts` | `/offline` をパブリックルートに追加 |
+
+**マニフェスト構成** (`/manifest.webmanifest` として自動配信):
+- `display: 'standalone'` — ブラウザUIなしのアプリ表示
+- `background_color: '#0f172a'` / `theme_color: '#0f172a'` — slate-900
+- `orientation: 'portrait-primary'`
+- アイコン6種: 192/256/384/512 (any) + 192/512 (maskable)
+
+**サービスワーカー設計**:
+- **ナビゲーション**: network-first → 失敗時は `/offline` フォールバック
+- **静的アセット** (images/fonts/CSS/JS): stale-while-revalidate
+- **API/認証リクエスト**: SWをバイパス（`/api/`, `/sign-in`, `/sign-up`, `clerk` を除外）
+- **プッシュ通知**: `push` + `notificationclick` イベントハンドラ実装済み（将来のプッシュ通知機能の基盤）
+- **キャッシュ管理**: バージョン付きキャッシュ名 (`blogai-v1`)、activate時に旧キャッシュ削除
+
+**Viewport 設定**:
+- `themeColor: '#0f172a'` — スマホのステータスバー色
+- `maximumScale: 1, userScalable: false` — PWAスタンドアロンモードでの意図しないズーム防止
+
+**技術的知見**:
+- Next.js 15 は `app/manifest.ts` を自動的に `/manifest.webmanifest` として配信する
+- middleware.ts のマッチャーパターンに `.webmanifest` の除外が既にあった（変更不要）
+- `force-dynamic` アプリではプリキャッシュ対象が限られるため、Serwist等の重いライブラリは不要
+- PWAのインストールプロンプトは manifest + HTTPS + service worker の3条件を満たせば自動表示される
+
+**情報ソース**:
+- https://nextjs.org/docs/app/guides/progressive-web-apps (Next.js公式PWAガイド)
+- https://nextjs.org/docs/app/api-reference/file-conventions/metadata/manifest (manifest.ts API)
+
 > ## **【最重要・再掲】記憶の更新は絶対に忘れるな**
 > **このファイルの冒頭にも書いたが、改めて念押しする。**
 > 作業が完了したら、コミットする前に、必ずこのファイルに変更内容を記録せよ。
