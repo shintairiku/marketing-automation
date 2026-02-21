@@ -20,10 +20,8 @@ import {
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { PLUGIN_DOWNLOAD_URL } from "@/lib/wordpress";
 import { useAuth } from "@clerk/nextjs";
-
-const PLUGIN_DOWNLOAD_URL =
-  "https://github.com/als141/wordpress-ability-plugin/releases/download/v1.1.2/wordpress-mcp-ability-plugin-1.1.2.zip";
 
 interface WordPressOnboardingProps {
   onConnected: () => void;
