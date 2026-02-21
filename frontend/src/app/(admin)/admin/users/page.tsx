@@ -36,7 +36,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Switch } from '@/components/ui/switch';
 import {
   Table,
   TableBody,
@@ -89,7 +88,7 @@ export default function AdminUsersPage() {
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [updating, setUpdating] = useState(false);
   const [editForm, setEditForm] = useState({
-    is_privileged: false,
+    role: 'none' as 'admin' | 'privileged' | 'none',
     subscription_status: 'none' as SubscriptionStatus,
   });
 
@@ -154,8 +153,10 @@ export default function AdminUsersPage() {
   // ユーザー編集ダイアログを開く
   const openEditDialog = (user: UserData) => {
     setEditingUser(user);
+    // is_privileged から推定（後方互換）
+    const currentRole = user.is_privileged ? 'privileged' : 'none';
     setEditForm({
-      is_privileged: user.is_privileged,
+      role: currentRole as 'admin' | 'privileged' | 'none',
       subscription_status: user.subscription_status,
     });
     setEditDialogOpen(true);
@@ -172,22 +173,26 @@ export default function AdminUsersPage() {
       const USE_PROXY = process.env.NODE_ENV === 'production';
       const baseURL = USE_PROXY ? '/api/proxy' : API_BASE_URL;
 
-      // 特権更新
-      if (editForm.is_privileged !== editingUser.is_privileged) {
-        const privilegeResponse = await fetch(
-          `${baseURL}/admin/users/${editingUser.id}/privilege`,
+      // ロール変更（Clerk publicMetadata + DB is_privileged を同時更新）
+      const currentRole = editingUser.is_privileged ? 'privileged' : 'none';
+      if (editForm.role !== currentRole) {
+        const roleResponse = await fetch(
+          `${baseURL}/admin/users/${editingUser.id}/role`,
           {
             method: 'PATCH',
             headers: {
               'Content-Type': 'application/json',
               ...(token && { Authorization: `Bearer ${token}` }),
             },
-            body: JSON.stringify({ is_privileged: editForm.is_privileged }),
+            body: JSON.stringify({
+              role: editForm.role === 'none' ? null : editForm.role,
+            }),
           }
         );
 
-        if (!privilegeResponse.ok) {
-          throw new Error('特権ステータスの更新に失敗しました');
+        if (!roleResponse.ok) {
+          const errorData = await roleResponse.json().catch(() => ({}));
+          throw new Error(errorData.detail || 'ロールの更新に失敗しました');
         }
       }
 
@@ -488,24 +493,34 @@ export default function AdminUsersPage() {
           </DialogHeader>
 
           <div className="space-y-6 py-4">
-            {/* 特権ユーザー設定 */}
-            <div className="flex items-center justify-between">
-              <div className="space-y-1">
-                <Label htmlFor="is_privileged" className="flex items-center gap-2">
-                  <Crown className="h-4 w-4 text-amber-500" />
-                  特権ユーザー
-                </Label>
-                <p className="text-sm text-muted-foreground">
-                  特権ユーザーはサブスクリプションなしで全機能にアクセスできます
-                </p>
-              </div>
-              <Switch
-                id="is_privileged"
-                checked={editForm.is_privileged}
-                onCheckedChange={(checked) =>
-                  setEditForm((prev) => ({ ...prev, is_privileged: checked }))
+            {/* ロール設定 */}
+            <div className="space-y-2">
+              <Label htmlFor="user_role" className="flex items-center gap-2">
+                <Crown className="h-4 w-4 text-amber-500" />
+                ロール
+              </Label>
+              <Select
+                value={editForm.role}
+                onValueChange={(v) =>
+                  setEditForm((prev) => ({
+                    ...prev,
+                    role: v as 'admin' | 'privileged' | 'none',
+                  }))
                 }
-              />
+              >
+                <SelectTrigger id="user_role">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="admin">管理者 (admin)</SelectItem>
+                  <SelectItem value="privileged">特権 (privileged)</SelectItem>
+                  <SelectItem value="none">一般ユーザー</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-sm text-muted-foreground">
+                管理者: 管理画面にアクセス可能。特権: サブスク不要で全機能利用可。
+                変更はClerk publicMetadataに反映されます。
+              </p>
             </div>
 
             {/* サブスクリプションステータス */}

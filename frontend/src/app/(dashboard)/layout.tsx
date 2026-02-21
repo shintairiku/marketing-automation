@@ -9,7 +9,7 @@ import {
   SubscriptionGuard,
   SubscriptionProvider,
 } from '@/components/subscription/subscription-guard';
-import { isPrivilegedEmail } from '@/lib/subscription';
+import { hasPrivilegedRole } from '@/lib/subscription';
 import { useUser } from '@clerk/nextjs';
 
 export default function DashboardLayout({ children }: PropsWithChildren) {
@@ -19,8 +19,7 @@ export default function DashboardLayout({ children }: PropsWithChildren) {
   // 非特権ユーザーは /blog/new にリダイレクト（クライアントサイドフォールバック）
   useEffect(() => {
     if (isLoaded && user) {
-      const email = user.primaryEmailAddress?.emailAddress;
-      if (!isPrivilegedEmail(email)) {
+      if (!hasPrivilegedRole(user.publicMetadata as Record<string, unknown>)) {
         router.replace('/blog/new');
       }
     }

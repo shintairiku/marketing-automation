@@ -14,6 +14,8 @@ from app.domains.admin.schemas import (
     UpdateUserPrivilegeRequest,
     UpdateUserSubscriptionRequest,
     UserUpdateResponse,
+    UpdateUserRoleRequest,
+    UpdateUserRoleResponse,
     OverviewStats,
     GenerationTrendResponse,
     SubscriptionDistributionResponse,
@@ -29,6 +31,7 @@ from app.domains.admin.schemas import (
     GrantArticlesResponse,
 )
 from app.domains.usage.service import usage_service
+from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -283,6 +286,96 @@ async def grant_articles(
     except Exception as e:
         logger.error(f"Error granting articles to user {user_id}: {e}")
         raise HTTPException(status_code=500, detail="Failed to grant articles")
+
+
+# ============================================
+# User Role Management (Clerk publicMetadata)
+# ============================================
+
+
+@router.patch("/users/{user_id}/role", response_model=UpdateUserRoleResponse)
+async def update_user_role(
+    user_id: str,
+    request: UpdateUserRoleRequest,
+    admin_email: str = Depends(get_admin_user_email_from_token),
+):
+    """
+    Update user role via Clerk publicMetadata (admin only).
+
+    Sets publicMetadata.role on the Clerk user object.
+    This is reflected in the JWT session token after the next token refresh.
+
+    role: "admin" | "privileged" | null (null removes the role)
+    """
+    logger.info(
+        f"Admin user {admin_email} updating role for user {user_id}: {request.role}"
+    )
+
+    try:
+        import httpx
+
+        clerk_secret_key = settings.clerk_secret_key
+        if not clerk_secret_key:
+            raise HTTPException(status_code=500, detail="Clerk secret key not configured")
+
+        # Clerk Backend API: Update user metadata
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            # まず現在のメタデータを取得
+            get_response = await client.get(
+                f"https://api.clerk.com/v1/users/{user_id}",
+                headers={
+                    "Authorization": f"Bearer {clerk_secret_key}",
+                    "Content-Type": "application/json",
+                }
+            )
+
+            if get_response.status_code == 404:
+                raise HTTPException(status_code=404, detail="User not found in Clerk")
+            get_response.raise_for_status()
+
+            current_user = get_response.json()
+            current_metadata = current_user.get("public_metadata", {})
+
+            # role を更新（None の場合はキーを削除）
+            if request.role:
+                current_metadata["role"] = request.role
+            else:
+                current_metadata.pop("role", None)
+
+            # Clerk API で publicMetadata を更新
+            update_response = await client.patch(
+                f"https://api.clerk.com/v1/users/{user_id}",
+                headers={
+                    "Authorization": f"Bearer {clerk_secret_key}",
+                    "Content-Type": "application/json",
+                },
+                json={"public_metadata": current_metadata},
+            )
+
+            if update_response.status_code == 404:
+                raise HTTPException(status_code=404, detail="User not found in Clerk")
+            update_response.raise_for_status()
+
+        # DB の is_privileged も同期（後方互換）
+        is_privileged = request.role in ("admin", "privileged")
+        admin_service.update_user_privilege(
+            user_id,
+            UpdateUserPrivilegeRequest(is_privileged=is_privileged),
+        )
+
+        role_label = request.role or "一般ユーザー"
+        return UpdateUserRoleResponse(
+            success=True,
+            user_id=user_id,
+            role=request.role,
+            message=f"ロールを「{role_label}」に変更しました。次回のセッション更新時に反映されます。",
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating role for user {user_id}: {e}")
+        raise HTTPException(status_code=500, detail="Failed to update user role")
 
 
 # ============================================

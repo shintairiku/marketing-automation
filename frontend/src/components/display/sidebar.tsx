@@ -39,7 +39,7 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 import { useSidebar } from '@/contexts/SidebarContext';
-import { isPrivilegedEmail } from '@/lib/subscription';
+import { hasPrivilegedRole } from '@/lib/subscription';
 import { cn } from '@/utils/cn';
 import { useUser } from '@clerk/nextjs';
 
@@ -134,7 +134,7 @@ export default function Sidebar() {
   const effectiveOpen = isMobile ? true : isSidebarOpen;
 
   // ユーザー権限に基づいてグループをフィルタリング
-  const isPrivileged = isPrivilegedEmail(user?.primaryEmailAddress?.emailAddress);
+  const isPrivileged = hasPrivilegedRole(user?.publicMetadata as Record<string, unknown>);
   const filteredGroups = useMemo(() => getFilteredGroups(isPrivileged), [isPrivileged]);
 
   // パス変更時に対応するメニューを自動展開

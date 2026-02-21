@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 
-import { clerkClient, clerkMiddleware, createRouteMatcher } from '@clerk/nextjs/server';
+import { clerkMiddleware, createRouteMatcher } from '@clerk/nextjs/server';
 
 // Define routes that should be protected (認証必須)
 const isProtectedRoute = createRouteMatcher([
@@ -19,8 +19,12 @@ const isProtectedRoute = createRouteMatcher([
   '/help(.*)',
 ]);
 
-// 特権ユーザー(@shintairiku.jp)のみアクセス可能なルート
-// 非特権ユーザーは /blog/new にリダイレクトされる
+// 管理者ルート (admin ロールのみ)
+const isAdminRoute = createRouteMatcher([
+  '/admin(.*)',
+]);
+
+// 特権ユーザー (admin or privileged) のみアクセス可能なルート
 const isPrivilegedOnlyRoute = createRouteMatcher([
   '/admin(.*)',
   '/dashboard(.*)',
@@ -40,26 +44,28 @@ const isPublicRoute = createRouteMatcher([
   '/api/webhooks/clerk(.*)',
 ]);
 
-const PRIVILEGED_EMAIL_DOMAIN = '@shintairiku.jp';
-
-function isPrivilegedEmail(email: string | undefined | null): boolean {
-  if (!email) return false;
-  return email.toLowerCase().endsWith(PRIVILEGED_EMAIL_DOMAIN);
+/**
+ * JWT sessionClaims からロールを取得。
+ *
+ * Clerk Dashboard の Sessions → Customize session token で設定:
+ * { "metadata": "{{user.public_metadata}}" }
+ *
+ * これにより sessionClaims.metadata.role でロールにアクセス可能。
+ */
+function getUserRole(sessionClaims: CustomJwtSessionClaims | null | undefined): string | null {
+  if (!sessionClaims?.metadata?.role) return null;
+  const role = sessionClaims.metadata.role;
+  if (role === 'admin' || role === 'privileged') return role;
+  return null;
 }
 
-/**
- * Clerk APIからユーザーのメールアドレスを取得する
- * sessionClaimsにはデフォルトでメールが含まれないため、APIで取得する
- */
-async function getUserEmail(userId: string): Promise<string | undefined> {
-  try {
-    const client = await clerkClient();
-    const user = await client.users.getUser(userId);
-    return user.emailAddresses?.[0]?.emailAddress;
-  } catch (e) {
-    console.error('[MIDDLEWARE] Failed to fetch user email:', e);
-    return undefined;
-  }
+function isAdminOrPrivileged(sessionClaims: CustomJwtSessionClaims | null | undefined): boolean {
+  const role = getUserRole(sessionClaims);
+  return role === 'admin' || role === 'privileged';
+}
+
+function isAdmin(sessionClaims: CustomJwtSessionClaims | null | undefined): boolean {
+  return getUserRole(sessionClaims) === 'admin';
 }
 
 // ルートパス `/` のマッチャー
@@ -77,21 +83,27 @@ export default clerkMiddleware(async (authObject, req) => {
     return NextResponse.redirect(new URL('/auth', req.url));
   }
 
-  // Protected route check (認証 + 特権ルート制御)
+  // Protected route check (認証 + ロールベースルート制御)
   if (!isPublicRoute(req) && isProtectedRoute(req)) {
-    const { userId } = await authObject();
+    const { userId, sessionClaims } = await authObject();
     if (!userId) {
       const signInUrl = new URL('/sign-in', req.url);
       signInUrl.searchParams.set('redirect_url', req.url);
       return NextResponse.redirect(signInUrl);
     }
 
-    // 特権ユーザー専用ルートのチェック
-    // 非特権ユーザーがアクセスした場合は /blog/new にリダイレクト
+    // ロールベースのアクセス制御
     if (isPrivilegedOnlyRoute(req)) {
-      const userEmail = await getUserEmail(userId);
-      if (!isPrivilegedEmail(userEmail)) {
-        return NextResponse.redirect(new URL('/blog/new', req.url));
+      // admin ルートは admin ロールのみ
+      if (isAdminRoute(req)) {
+        if (!isAdmin(sessionClaims)) {
+          return NextResponse.redirect(new URL('/blog/new', req.url));
+        }
+      } else {
+        // その他の特権ルートは admin or privileged
+        if (!isAdminOrPrivileged(sessionClaims)) {
+          return NextResponse.redirect(new URL('/blog/new', req.url));
+        }
       }
     }
   }

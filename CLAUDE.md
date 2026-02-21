@@ -534,14 +534,19 @@ marketing-automation/
 
 ### 認証フロー
 1. **Clerk** がフロントエンドのユーザー認証を管理 (Social Login, Email/Password, MFA)
-2. **Next.js middleware** がルート保護と特権チェックを実行
+2. **Next.js middleware** が `sessionClaims.metadata.role` でルート保護・特権チェックを実行（API呼び出し不要）
 3. バックエンドは **Clerk JWT** (RS256) をJWKSエンドポイント経由で検証
-4. 管理者エンドポイントは **@shintairiku.jp** ドメインのメールを要求
+4. 管理者エンドポイントは JWT claims の `metadata.role` を確認（フォールバック: Clerk API でメールドメインチェック）
 
-### 特権ユーザーシステム
-- `@shintairiku.jp` ドメインのユーザーは全機能にアクセス可能（サブスクリプション不要）
-- 非特権ユーザーは `/blog/*`, `/settings/*`, `/help/*` のみアクセス可能
-- 特権チェックは `middleware.ts` の `isPrivilegedOnlyRoute` で実施
+### ロールベースアクセス制御 (RBAC)
+- **Clerk publicMetadata.role** でロールを管理（`admin` / `privileged` / null）
+- Clerk Dashboard のセッショントークンカスタマイズ: `{ "metadata": "{{user.public_metadata}}" }`
+- **admin**: 管理者ダッシュボード + 全特権機能
+- **privileged**: 未公開機能（SEO/Dashboard等）、サブスク不要
+- **null/未設定**: 一般ユーザー（Blog AI + Settings のみ）
+- 防御層: middleware (sessionClaims) → Layout (publicMetadata) → API Route → Backend (JWT claims + fallback)
+- ロール変更: 管理者ページ (`/admin/users`) または Clerk Dashboard から設定可能
+- **移行期間フォールバック**: JWT に role がない場合、Clerk API でメールドメイン (`@shintairiku.jp`) を検証（検証済みメールのみ）
 
 ### サブスクリプション
 - **フリープラン**: 月10記事まで無料（クレカ不要、登録時に自動付与）
@@ -2034,6 +2039,47 @@ CONTACT_NOTIFICATION_EMAIL=admin@yourdomain.com
 - **クラウドサンドボックスでの `bun install` 忘れ**: サンドボックス環境では `node_modules` が存在しない。ユーザーに「毎回ビルドエラー起きてる」と指摘された。**サンドボックスでは作業開始時に必ず `bun install` を実行すること。**
 - **プッシュ前のlint/build検証忘れ**: ローカルCLIでは実行していたが、サンドボックスでは省略していた。**環境に関係なく、プッシュ前に `bun run lint` + `bun run build` を必ず実行すること。**
 - **`next/font/google` のビルド時ネットワーク依存**: Google Fonts に依存する `next/font/google` はネットワーク制限環境（CI、サンドボックス等）でビルドが失敗する。**`@fontsource-variable` でセルフホストすればビルド時の外部依存を排除できる。**
+
+### 34. 管理者/特権認証をロールベース (RBAC) に移行 (2026-02-21)
+
+**概要**: メールドメイン (`@shintairiku.jp`) ベースの管理者/特権認証を、Clerk `publicMetadata.role` + JWT sessionClaims ベースのロールベースアクセス制御 (RBAC) に移行。セキュリティリスク（未検証メールでの認証突破）を解消し、パフォーマンスも改善。
+
+**セキュリティ脆弱性の修正**:
+- 旧 `admin_auth.py` は Clerk API からメール取得時に `verification.status` を検証していなかった → 未検証メールでも管理者アクセス可能だった
+- 旧 `middleware.ts` は `emailAddresses?.[0]?.emailAddress` で最初のメールを使用（プライマリ・検証状態を無視）
+- `publicMetadata` は Clerk Backend API からのみ書き込み可能なため、ユーザーが自分でロールを変更できない
+
+**バックエンド変更**:
+| ファイル | 変更内容 |
+|---------|---------|
+| `backend/app/common/admin_auth.py` | JWT claims `metadata.role` ベースの認証に全面リライト。フォールバックで Clerk API メールドメインチェック（検証済みメールのみ）。`get_admin_user_from_token()`, `get_privileged_user_from_token()` 新設 |
+| `backend/app/domains/admin/schemas.py` | `RoleType = Literal["admin", "privileged"]`, `UpdateUserRoleRequest`, `UpdateUserRoleResponse` 追加 |
+| `backend/app/domains/admin/endpoints.py` | `PATCH /admin/users/{user_id}/role` 追加: Clerk publicMetadata を更新 + DB is_privileged を同期 |
+
+**フロントエンド変更**:
+| ファイル | 変更内容 |
+|---------|---------|
+| `frontend/src/types/globals.d.ts` | **新規**: `CustomJwtSessionClaims` 型拡張 (`metadata.role`) |
+| `frontend/src/middleware.ts` | `sessionClaims.metadata.role` ベースに全面リライト。Clerk API 呼び出し不要に |
+| `frontend/src/lib/subscription/index.ts` | `getUserRole()`, `hasAdminRole()`, `hasPrivilegedRole()` 追加。`isPrivilegedEmail()` は deprecated |
+| `frontend/src/app/(admin)/admin/layout.tsx` | `user.publicMetadata.role === 'admin'` チェックに変更 |
+| `frontend/src/app/(admin)/admin/users/page.tsx` | Switch → Select ドロップダウンでロール管理 (admin/privileged/一般) |
+| `frontend/src/components/subscription/subscription-guard.tsx` | `hasPrivilegedRole(user?.publicMetadata)` に変更 |
+| `frontend/src/components/display/sidebar.tsx` | 同上 |
+| `frontend/src/app/(dashboard)/layout.tsx` | 同上 |
+| `frontend/src/app/(settings)/settings/billing/page.tsx` | 同上 + 表示テキスト変更 |
+| `frontend/src/app/(settings)/settings/members/page.tsx` | 同上 |
+| `frontend/src/app/api/organizations/route.ts` | 同上 |
+| `frontend/src/app/api/subscription/status/route.ts` | `hasPrivilegedRole` + `isPrivilegedEmail` デュアルチェック（移行期間互換） |
+
+**Clerk Dashboard 必須設定**:
+1. Sessions → Customize session token → `{ "metadata": "{{user.public_metadata}}" }` を追加
+2. 既存の管理者/特権ユーザーの publicMetadata に `{ "role": "admin" }` or `{ "role": "privileged" }` を設定
+
+**後方互換性**:
+- `get_admin_user_email_from_token()` は既存エンドポイント互換のため維持
+- JWT に role がない場合は Clerk API フォールバックが動作（移行期間中に安全）
+- `isPrivilegedEmail()` は deprecated だが `subscription/status` 等で併用中
 
 ### 2026-02-02 自己改善
 - **記憶の即時更新**: コード変更を完了した直後に CLAUDE.md を更新せず、ユーザーに「また記憶してないでしょ」と指摘された。**変更を加えたら、次のユーザー応答の前に必ず CLAUDE.md を更新する。これは最優先の義務。**

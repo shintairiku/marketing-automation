@@ -8,11 +8,16 @@ import { Activity, Home, Layers, MessageSquare, Users } from 'lucide-react';
 import { cn } from '@/utils/cn';
 import { useUser } from '@clerk/nextjs';
 
-const ADMIN_EMAIL_DOMAIN = '@shintairiku.jp';
-
-function isAdminEmail(email: string | undefined | null): boolean {
-  if (!email) return false;
-  return email.toLowerCase().endsWith(ADMIN_EMAIL_DOMAIN.toLowerCase());
+/**
+ * 管理者ロールチェック。
+ * Clerk useUser() の publicMetadata.role を確認する。
+ * sessionClaims がクライアントコンポーネントでは直接取得できないため、
+ * useUser().publicMetadata を使用（同じデータソース）。
+ */
+function hasAdminRole(user: ReturnType<typeof useUser>['user']): boolean {
+  if (!user) return false;
+  const metadata = user.publicMetadata as { role?: string } | undefined;
+  return metadata?.role === 'admin';
 }
 
 export default function AdminLayout({ children }: PropsWithChildren) {
@@ -28,17 +33,11 @@ export default function AdminLayout({ children }: PropsWithChildren) {
       return;
     }
 
-    // Check if user has admin email domain
-    const userEmail = user.primaryEmailAddress?.emailAddress || 
-                     user.emailAddresses?.[0]?.emailAddress;
-    
-    if (!isAdminEmail(userEmail)) {
-      console.log('[ADMIN_LAYOUT] Access denied - email does not match admin domain:', userEmail);
+    if (!hasAdminRole(user)) {
+      console.log('[ADMIN_LAYOUT] Access denied - user does not have admin role');
       router.push('/');
       return;
     }
-
-    console.log('[ADMIN_LAYOUT] Access granted - email matches admin domain:', userEmail);
   }, [isLoaded, user, router]);
 
   const navItems = [

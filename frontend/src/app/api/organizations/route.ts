@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-import { isPrivilegedEmail } from '@/lib/subscription';
+import { hasPrivilegedRole } from '@/lib/subscription';
 import { supabaseAdminClient } from '@/libs/supabase/supabase-admin';
 import { auth, clerkClient } from '@clerk/nextjs/server';
 
@@ -75,7 +75,7 @@ export async function POST(request: NextRequest) {
     const user = await client.users.getUser(userId);
     const userEmail = user.emailAddresses?.[0]?.emailAddress;
     const userFullName = `${user.firstName || ''} ${user.lastName || ''}`.trim();
-    const isPrivileged = isPrivilegedEmail(userEmail);
+    const isPrivileged = hasPrivilegedRole(user.publicMetadata as Record<string, unknown>);
 
     // 非特権ユーザーは直接組織作成不可（チームプラン購入フローで作成される）
     if (!isPrivileged) {

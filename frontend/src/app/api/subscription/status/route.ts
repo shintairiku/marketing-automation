@@ -9,7 +9,7 @@
 
 import { NextResponse } from 'next/server';
 
-import { hasActiveAccess, hasActiveOrgAccess, isPrivilegedEmail, type OrgSubscription, type SubscriptionStatus, type UserSubscription } from '@/lib/subscription';
+import { hasActiveAccess, hasActiveOrgAccess, hasPrivilegedRole, isPrivilegedEmail, type OrgSubscription, type SubscriptionStatus, type UserSubscription } from '@/lib/subscription';
 import { supabaseAdminClient } from '@/libs/supabase/supabase-admin';
 import { auth, clerkClient } from '@clerk/nextjs/server';
 
@@ -43,7 +43,8 @@ export async function GET() {
     let userSub: UserSubscription;
 
     if (error?.code === 'PGRST116' || !subscription) {
-      const isPrivileged = isPrivilegedEmail(userEmail);
+      // publicMetadata.role を第一優先、メールドメインをフォールバック
+      const isPrivileged = hasPrivilegedRole(user.publicMetadata as Record<string, unknown>) || isPrivilegedEmail(userEmail);
 
       // 新規ユーザーはフリープラン（status: 'active', plan_tier_id: 'free'）
       const { data: newSubscription, error: insertError } = await supabase
@@ -259,10 +260,10 @@ export async function GET() {
       // 使用量取得失敗は致命的ではない
     }
 
-    // 7. アクセス権を判定して返す
-    const isPrivileged = isPrivilegedEmail(userEmail);
+    // 7. アクセス権を判定して返す（publicMetadata.role を第一優先）
+    const isPrivilegedAccess = hasPrivilegedRole(user.publicMetadata as Record<string, unknown>) || isPrivilegedEmail(userEmail);
     const hasAccess =
-      isPrivileged ||
+      isPrivilegedAccess ||
       hasActiveAccess(userSub) ||
       hasActiveOrgAccess(orgSubscription);
 
