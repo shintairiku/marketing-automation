@@ -2000,6 +2000,15 @@ CONTACT_NOTIFICATION_EMAIL=admin@yourdomain.com
 - **フリープラン判定**: `hasIndividualPlan && !stripe_subscription_id` — Stripeサブスクなしのアクティブユーザー
 - **有料プラン非表示**: `isFreePlan` フラグでプラン選択、アドオン管理、Stripe Portal、FAQ を条件非表示
 
+#### バグ修正: 初回登録でフリープランにならない問題 (2026-02-21)
+**根本原因**: Clerk Webhook (`user.created`) が `status: 'none'`, `plan_tier_id: 'default'` で `user_subscriptions` を先に作成 → Status API の「レコードが存在しない場合」分岐に入らず、フリープラン作成ロジックがスキップされていた。
+
+**修正**:
+1. **`frontend/src/app/api/webhooks/clerk/route.ts`** — `user.created` イベントで `status: 'active'`, `plan_tier_id: isPrivileged ? null : 'free'` に変更
+2. **`frontend/src/app/api/subscription/status/route.ts`** — 2つの防御層を追加:
+   - `insert` → `upsert` に変更（Webhook が先でも Status API が先でも正しく動作）
+   - `status === 'none'` + `stripe_subscription_id === null` の既存レコードを検出し、フリープランにアップグレードする分岐を追加
+
 ### 33. Google Fonts → セルフホスト移行 (2026-02-20)
 
 **問題**: `next/font/google` がビルド時に Google Fonts (`fonts.googleapis.com`) からフォントをダウンロードしようとするが、クラウドサンドボックス環境ではネットワーク制限でアクセスできずビルドが失敗していた。
@@ -2029,6 +2038,9 @@ CONTACT_NOTIFICATION_EMAIL=admin@yourdomain.com
 - **再検証の重要性**: 実装完了後のユーザー再検証要求で、`useArticles.ts` と `admin/plans/page.tsx` に `USE_PROXY` パターンが欠けているバグを発見した。最初の実装時にサーバーサイドAPI Routes (9ファイル) のみに注力し、クライアントサイドhooksの直接fetch呼び出しを見落としていた。**サーバーサイド→バックエンド通信だけでなく、ブラウザ→バックエンド通信パスも全て確認すべき。**
 - **FastAPI末尾スラッシュ + Cloud Run scheme 変換の複合問題**: `frontend/src/app/api/proxy/[...path]/route.ts` の `ensureTrailingSlash()` が `/blog/sites` を `/blog/sites/` に変換し、FastAPI (`redirect_slashes=True`) が 307 で `/blog/sites` へ戻す。さらに Cloud Run の `Location` が `http://...run.app/...` になり、プロキシがそれを手動追従すると Cloud Run 側で 302/307 が連鎖する。**手動リダイレクト追従を使う場合は、(1) 末尾スラッシュ強制をしない、(2) `Location` が `http://` でも `https://` に正規化する、の両方を実施すべき。**
 - **リダイレクト処理の不完全実装**: これまでの実装は「1回だけ追従」だったため、Cloud Run の多段リダイレクト（FastAPI 307 + Cloud Run 302）で取りこぼしが起きた。**手動追従ロジックは最初から最大ホップ数を持つループ実装にするべき。**
+
+### 2026-02-21 自己改善
+- **Webhook → API の実行順序を考慮すべきだった**: Clerk Webhook が `user.created` で `status: 'none'` のレコードを先に作成するため、Status API の「レコード未存在時のみ」のフリープラン作成ロジックが発火しなかった。**外部サービスの Webhook とアプリ内 API の実行順序・競合を設計時に必ず考慮すべき。特に「レコードが存在しない場合のみ INSERT」のパターンは、別の経路で先に INSERT されるケースを見落としやすい。**
 
 ### 2026-02-20 自己改善
 - **クラウドサンドボックスでの `bun install` 忘れ**: サンドボックス環境では `node_modules` が存在しない。ユーザーに「毎回ビルドエラー起きてる」と指摘された。**サンドボックスでは作業開始時に必ず `bun install` を実行すること。**
