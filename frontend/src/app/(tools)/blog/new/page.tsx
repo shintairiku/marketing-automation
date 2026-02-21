@@ -7,7 +7,6 @@ import {
   AlertCircle,
   Building2,
   CheckCircle2,
-  ChevronRight,
   Globe,
   ImagePlus,
   Link2,
@@ -18,6 +17,7 @@ import {
   X,
 } from "lucide-react";
 
+import { WordPressOnboarding } from "@/components/blog/wordpress-onboarding";
 import { useSubscription } from "@/components/subscription/subscription-guard";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -85,29 +85,31 @@ export default function BlogNewPage() {
     });
   };
 
-  useEffect(() => {
-    const fetchSites = async () => {
-      try {
-        const token = await getToken();
-        const response = await fetch("/api/proxy/blog/sites", {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        if (response.ok) {
-          const data = await response.json();
-          setSites(data.sites.filter((s: WordPressSite) => s.connection_status === "connected"));
-          // Auto-select active site
-          const activeSite = data.sites.find((s: WordPressSite) => s.is_active);
-          if (activeSite) {
-            setSelectedSiteId(activeSite.id);
-          }
+  const fetchSites = async () => {
+    try {
+      const token = await getToken();
+      const response = await fetch("/api/proxy/blog/sites", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (response.ok) {
+        const data = await response.json();
+        setSites(data.sites.filter((s: WordPressSite) => s.connection_status === "connected"));
+        // Auto-select active site
+        const activeSite = data.sites.find((s: WordPressSite) => s.is_active);
+        if (activeSite) {
+          setSelectedSiteId(activeSite.id);
         }
-      } catch (err) {
-        console.error("Failed to fetch sites:", err);
-      } finally {
-        setLoadingSites(false);
       }
-    };
+    } catch (err) {
+      console.error("Failed to fetch sites:", err);
+    } finally {
+      setLoadingSites(false);
+    }
+  };
+
+  useEffect(() => {
     fetchSites();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [getToken]);
 
   const handleSubmit = async () => {
@@ -225,6 +227,21 @@ export default function BlogNewPage() {
     return groups;
   }, [connectedSites]);
 
+  // Show onboarding when no sites connected and loading is done
+  if (!loadingSites && connectedSites.length === 0) {
+    return (
+      <div className="bg-gradient-to-br from-amber-50/50 via-white to-emerald-50/30">
+        <div className="absolute inset-0 overflow-hidden pointer-events-none">
+          <div className="hidden md:block absolute top-20 right-20 w-72 h-72 bg-amber-200/20 rounded-full blur-3xl" />
+          <div className="hidden md:block absolute bottom-40 left-10 w-96 h-96 bg-emerald-200/20 rounded-full blur-3xl" />
+        </div>
+        <div className="relative max-w-3xl mx-auto px-4 py-6 md:px-6 md:py-12">
+          <WordPressOnboarding onConnected={fetchSites} />
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="bg-gradient-to-br from-amber-50/50 via-white to-emerald-50/30">
       {/* Decorative background elements */}
@@ -312,26 +329,6 @@ export default function BlogNewPage() {
               <div className="flex items-center justify-center py-8">
                 <Loader2 className="w-6 h-6 animate-spin text-stone-400" />
               </div>
-            ) : connectedSites.length === 0 ? (
-              <motion.div
-                initial={{ opacity: 0, scale: 0.95 }}
-                animate={{ opacity: 1, scale: 1 }}
-                className="p-6 rounded-2xl border-2 border-dashed border-stone-200 bg-stone-50/50 text-center"
-              >
-                <AlertCircle className="w-10 h-10 text-stone-400 mx-auto mb-3" />
-                <p className="text-stone-600 font-medium mb-2">WordPressサイトが連携されていません</p>
-                <p className="text-sm text-stone-500 mb-4">
-                  ブログ記事を作成するには、まずWordPressサイトを連携してください
-                </p>
-                <Button
-                  variant="outline"
-                  onClick={() => router.push("/settings/integrations/wordpress")}
-                  className="rounded-xl"
-                >
-                  WordPress連携設定へ
-                  <ChevronRight className="w-4 h-4 ml-1" />
-                </Button>
-              </motion.div>
             ) : (
               <div className="space-y-4">
                 {siteGroups.map((group) => (
