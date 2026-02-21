@@ -40,10 +40,7 @@ export function LandingHeader() {
     >
       <div className='mx-auto flex h-16 w-full max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8'>
         <Link href='/' className='flex items-center gap-3 text-white'>
-          <span className='text-lg font-bold sm:text-xl'>新大陸</span>
-          <span className='hidden text-xs tracking-[0.3em] text-white/80 sm:inline'>
-            SEO TIGER
-          </span>
+          <span className='text-lg font-bold sm:text-xl'>ブログAI</span>
         </Link>
 
         <div className='flex items-center gap-3'>

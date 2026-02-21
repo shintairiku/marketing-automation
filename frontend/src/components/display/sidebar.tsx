@@ -162,9 +162,8 @@ export default function Sidebar() {
         )}>
           {effectiveOpen ? (
             <>
-              <div className="flex items-center gap-3">
-                <Image src="/logo.png" alt="BlogAI" width={32} height={32} className="shrink-0" />
-                <span className="text-lg font-bold text-stone-800 tracking-tight">BlogAI</span>
+              <div className="flex items-center gap-2">
+                <Image src="/logo.png" alt="ブログAI" width={113} height={32} className="shrink-0" />
               </div>
               {!isMobile && (
                 <button
@@ -178,9 +177,9 @@ export default function Sidebar() {
           ) : (
             <button
               onClick={toggleSidebar}
-              className="p-1.5 rounded-md text-stone-400 hover:text-stone-600 hover:bg-stone-100 transition-colors"
+              className="p-1 rounded-md hover:bg-stone-100 transition-colors"
             >
-              <LuPanelLeftOpen size={18} />
+              <Image src="/icon.png" alt="ブログAI" width={28} height={28} />
             </button>
           )}
         </div>

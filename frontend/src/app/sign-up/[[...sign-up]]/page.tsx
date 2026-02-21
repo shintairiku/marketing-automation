@@ -3,8 +3,8 @@ import { Metadata } from 'next';
 import { SignUp } from '@clerk/nextjs';
 
 export const metadata: Metadata = {
-  title: 'アカウント作成 - 新大陸',
-  description: '新大陸の無料アカウントを作成して、AI記事生成を始めましょう。',
+  title: 'アカウント作成 - ブログAI',
+  description: 'ブログAIの無料アカウントを作成して、AI記事生成を始めましょう。',
 };
 
 export default function SignUpPage() {
