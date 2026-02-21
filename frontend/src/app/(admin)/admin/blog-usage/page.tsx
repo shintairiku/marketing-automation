@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
 import {
   Activity,
   ArrowUpDown,
@@ -970,15 +971,22 @@ export default function AdminBlogUsagePage() {
                         </div>
                       </TableCell>
                       <TableCell className="text-right">
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="h-7 px-2 text-[11px]"
-                          onClick={() => fetchTrace(item.process_id)}
-                        >
-                          <Eye className="h-3 w-3 mr-1" />
-                          詳細
-                        </Button>
+                        <div className="flex items-center justify-end gap-1">
+                          <Button size="sm" variant="outline" className="h-7 px-2 text-[11px]" asChild>
+                            <Link href={`/admin/blog-usage/${item.process_id}`}>
+                              <Eye className="h-3 w-3 mr-1" />
+                              ページ
+                            </Link>
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-7 px-2 text-[11px]"
+                            onClick={() => fetchTrace(item.process_id)}
+                          >
+                            詳細
+                          </Button>
+                        </div>
                       </TableCell>
                     </TableRow>
                   ))}

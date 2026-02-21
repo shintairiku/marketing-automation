@@ -7,10 +7,13 @@ Blog AI Domain - Generation Service
 会話履歴を保持し、ユーザー質問→回答後に同一コンテキストで生成を継続する。
 """
 
+import asyncio
 import json
 import time
+from collections import deque
 from datetime import datetime
 from typing import Any, Dict, List, Optional
+import httpx
 
 from agents import Runner, RunConfig
 from agents.stream_events import (
@@ -25,7 +28,7 @@ from agents.items import (
     MessageOutputItem,
 )
 
-from openai import AsyncOpenAI
+from openai import APIConnectionError, APITimeoutError, AsyncOpenAI
 
 from app.common.database import supabase
 from app.domains.usage.service import usage_service
@@ -135,9 +138,13 @@ def _resolve_tool_name(raw_item: Any) -> str:
     name = getattr(raw_item, "name", None)
     if name:
         return name
-    item_type = getattr(raw_item, "type", None)
-    if item_type and item_type in _BUILTIN_TOOL_TYPE_MAP:
-        return _BUILTIN_TOOL_TYPE_MAP[item_type]
+    item_type = (
+        raw_item.get("type")
+        if isinstance(raw_item, dict)
+        else getattr(raw_item, "type", None)
+    )
+    if item_type:
+        return _BUILTIN_TOOL_TYPE_MAP.get(item_type, str(item_type))
     return "unknown_tool"
 
 
@@ -245,7 +252,7 @@ class BlogGenerationService:
             )
 
             # エージェント実行（共通メソッド）
-            await self._run_agent_streamed(
+            await self._run_agent_streamed_with_retry(
                 process_id=process_id,
                 user_id=user_id,
                 agent_input=input_message,
@@ -253,6 +260,7 @@ class BlogGenerationService:
                 previous_response_id=None,
                 base_progress=5,
                 log_session_id=log_session_id,
+                existing_conversation_history=None,
             )
 
         except Exception as e:
@@ -397,7 +405,7 @@ class BlogGenerationService:
                 agent_input = continued_input
 
             # エージェント実行（同一エージェント・会話コンテキスト維持）
-            await self._run_agent_streamed(
+            await self._run_agent_streamed_with_retry(
                 process_id=process_id,
                 user_id=user_id,
                 agent_input=agent_input,
@@ -405,6 +413,7 @@ class BlogGenerationService:
                 previous_response_id=previous_response_id,
                 base_progress=45,
                 log_session_id=log_session_id,
+                existing_conversation_history=conversation_history,
             )
 
         except Exception as e:
@@ -459,6 +468,101 @@ class BlogGenerationService:
     # コアエージェント実行（初回・継続共通）
     # ===========================================================
 
+    @staticmethod
+    def _is_retryable_stream_exception(exc: Exception) -> bool:
+        retryable_types = (
+            httpx.RemoteProtocolError,
+            httpx.ReadError,
+            httpx.ReadTimeout,
+            httpx.ConnectError,
+            APIConnectionError,
+            APITimeoutError,
+        )
+        retry_markers = (
+            "incomplete chunked read",
+            "peer closed connection",
+            "server disconnected",
+            "connection reset",
+            "temporarily unavailable",
+        )
+
+        current: Optional[BaseException] = exc
+        depth = 0
+        while current and depth < 6:
+            if isinstance(current, retryable_types):
+                return True
+            message = str(current).lower()
+            if any(marker in message for marker in retry_markers):
+                return True
+            current = getattr(current, "__cause__", None) or getattr(
+                current, "__context__", None
+            )
+            depth += 1
+        return False
+
+    async def _run_agent_streamed_with_retry(
+        self,
+        process_id: str,
+        user_id: str,
+        agent_input: Any,
+        run_config: RunConfig,
+        previous_response_id: Optional[str],
+        base_progress: int = 5,
+        log_session_id: Optional[str] = None,
+        existing_conversation_history: Optional[List[Dict[str, Any]]] = None,
+    ) -> None:
+        max_attempts = max(
+            1, int(getattr(settings, "blog_generation_stream_retry_attempts", 3) or 3)
+        )
+        base_delay = float(
+            getattr(settings, "blog_generation_stream_retry_delay_seconds", 1.5) or 1.5
+        )
+
+        for attempt in range(1, max_attempts + 1):
+            try:
+                await self._run_agent_streamed(
+                    process_id=process_id,
+                    user_id=user_id,
+                    agent_input=agent_input,
+                    run_config=run_config,
+                    previous_response_id=previous_response_id,
+                    base_progress=base_progress,
+                    log_session_id=log_session_id,
+                    existing_conversation_history=existing_conversation_history,
+                )
+                return
+            except Exception as exc:
+                is_retryable = self._is_retryable_stream_exception(exc)
+                is_last_attempt = attempt >= max_attempts
+                if not is_retryable or is_last_attempt:
+                    raise
+
+                wait_seconds = min(base_delay * (2 ** (attempt - 1)), 8.0)
+                logger.warning(
+                    "Stream connection interrupted; retrying "
+                    f"(attempt {attempt + 1}/{max_attempts}, wait={wait_seconds:.1f}s): {exc}"
+                )
+                try:
+                    await self._update_state(
+                        process_id,
+                        status="in_progress",
+                        current_step_name="通信エラーが発生したため再試行しています",
+                        progress_percentage=max(base_progress, 20),
+                    )
+                    await self._publish_event(
+                        process_id,
+                        user_id,
+                        "generation_warning",
+                        {
+                            "message": "通信が不安定なため自動再試行しています",
+                            "attempt": attempt + 1,
+                            "max_attempts": max_attempts,
+                        },
+                    )
+                except Exception as notify_err:
+                    logger.debug(f"Retry notification failed: {notify_err}")
+                await asyncio.sleep(wait_seconds)
+
     async def _run_agent_streamed(
         self,
         process_id: str,
@@ -468,6 +572,7 @@ class BlogGenerationService:
         previous_response_id: Optional[str],
         base_progress: int = 5,
         log_session_id: Optional[str] = None,
+        existing_conversation_history: Optional[List[Dict[str, Any]]] = None,
     ) -> None:
         """
         エージェントをストリーミング実行し、結果を処理する（初回・継続共通）
@@ -479,6 +584,7 @@ class BlogGenerationService:
             run_config: RunConfig
             previous_response_id: 前回のレスポンスID（継続時）
             base_progress: 進捗バーの開始位置
+            existing_conversation_history: 前回までの会話履歴（継続時のマージ用）
         """
         logger.info(
             f"Agent実行開始（ストリーミング）: process_id={process_id}, "
@@ -491,6 +597,8 @@ class BlogGenerationService:
         execution_id: Optional[str] = None
         tool_call_log_ids: Dict[str, str] = {}
         tool_call_start_times: Dict[str, float] = {}
+        tool_call_id_to_name: Dict[str, str] = {}
+        pending_output_call_ids: deque[str] = deque()
         trace_events: List[Dict[str, Any]] = []
         trace_sequence = 1
         response_usage_entries: List[Dict[str, Any]] = []
@@ -561,6 +669,54 @@ class BlogGenerationService:
                     and log_session_id
                     and isinstance(event, RawResponsesStreamEvent)
                 ):
+                    raw_event_type = self._safe_get(event.data, "type")
+                    if raw_event_type == "response.output_item.done":
+                        item = self._safe_get(event.data, "item")
+                        item_type = self._safe_get(item, "type")
+                        if item_type == "function_call":
+                            call_id = self._safe_get(item, "call_id") or self._safe_get(
+                                item, "id"
+                            )
+                            tool_name = self._safe_get(item, "name")
+                            if call_id:
+                                if call_id not in pending_output_call_ids:
+                                    pending_output_call_ids.append(call_id)
+                                if tool_name:
+                                    tool_call_id_to_name[call_id] = tool_name
+                    elif raw_event_type == "response.web_search_call.completed":
+                        call_id = self._safe_get(event.data, "item_id")
+                        if call_id:
+                            tool_call_id_to_name[call_id] = "web_search"
+                        if (
+                            call_id
+                            and call_id in tool_call_log_ids
+                            and logging_service
+                            and execution_id
+                        ):
+                            duration_ms = None
+                            if call_id in tool_call_start_times:
+                                duration_ms = int(
+                                    (time.time() - tool_call_start_times[call_id]) * 1000
+                                )
+                            try:
+                                logging_service.update_tool_call_log(
+                                    call_id=tool_call_log_ids[call_id],
+                                    status="completed",
+                                    output_data={
+                                        "output": {
+                                            "results": self._to_jsonable(
+                                                self._safe_get(event.data, "results") or []
+                                            ),
+                                            "status": "completed",
+                                        }
+                                    },
+                                    execution_time_ms=duration_ms,
+                                )
+                            except Exception as log_err:
+                                logger.debug(
+                                    f"Failed to update web_search tool call log: {log_err}"
+                                )
+
                     trace_row, usage_entry = self._build_raw_trace_event(
                         raw_event=event.data,
                         process_id=process_id,
@@ -584,12 +740,13 @@ class BlogGenerationService:
                     if isinstance(event.item, ToolCallItem):
                         tool_name = _resolve_tool_name(event.item.raw_item)
                         call_id = (
-                            getattr(event.item.raw_item, "call_id", None)
-                            or getattr(event.item.raw_item, "id", None)
+                            self._safe_get(event.item.raw_item, "call_id")
+                            or self._safe_get(event.item.raw_item, "id")
                             or f"{tool_name}:{tool_call_count + 1}"
                         )
+                        tool_call_id_to_name[call_id] = tool_name
                         tool_call_start_times[call_id] = time.time()
-                        raw_args = getattr(event.item.raw_item, "arguments", None)
+                        raw_args = self._safe_get(event.item.raw_item, "arguments")
                         parsed_args: Dict[str, Any] | str | None
                         if isinstance(raw_args, str):
                             try:
@@ -642,9 +799,29 @@ class BlogGenerationService:
                             )
                             trace_sequence += 1
                     elif isinstance(event.item, ToolCallOutputItem):
-                        call_id = getattr(event.item.raw_item, "call_id", None)
-                        output_text = self._truncate_text(
-                            str(event.item.output), _TRACE_IO_LIMIT
+                        call_id = self._safe_get(
+                            event.item.raw_item, "call_id"
+                        ) or self._safe_get(event.item.raw_item, "id")
+                        matched_by_sequence = False
+                        if not call_id and pending_output_call_ids:
+                            call_id = pending_output_call_ids.popleft()
+                            matched_by_sequence = True
+                        elif call_id and call_id in pending_output_call_ids:
+                            pending_output_call_ids.remove(call_id)
+
+                        tool_name = (
+                            tool_call_id_to_name.get(call_id or "")
+                            if call_id
+                            else None
+                        )
+                        if not tool_name:
+                            maybe_name = _resolve_tool_name(event.item.raw_item)
+                            if maybe_name != "unknown_tool":
+                                tool_name = maybe_name
+
+                        output_value = self._to_jsonable(event.item.output)
+                        output_preview = self._truncate_text(
+                            output_value, _TRACE_IO_LIMIT
                         )
                         if call_id and call_id in tool_call_log_ids:
                             duration_ms = None
@@ -657,7 +834,7 @@ class BlogGenerationService:
                                 logging_service.update_tool_call_log(
                                     call_id=tool_call_log_ids[call_id],
                                     status="completed",
-                                    output_data={"output": output_text},
+                                    output_data={"output": output_value},
                                     execution_time_ms=duration_ms,
                                 )
                             except Exception as log_err:
@@ -679,8 +856,13 @@ class BlogGenerationService:
                                     agent_name=getattr(event.item, "agent", None).name
                                     if getattr(event.item, "agent", None)
                                     else None,
+                                    tool_name=tool_name,
                                     tool_call_id=call_id,
-                                    output_payload={"output": output_text},
+                                    output_payload={"output": output_value},
+                                    event_metadata={"matched_by_sequence": matched_by_sequence}
+                                    if matched_by_sequence
+                                    else None,
+                                    message_text=output_preview,
                                 )
                             )
                             trace_sequence += 1
@@ -789,6 +971,10 @@ class BlogGenerationService:
             # ========================================
             try:
                 conversation_history = result.to_input_list()
+                if existing_conversation_history:
+                    conversation_history = self._merge_conversation_histories(
+                        existing_conversation_history, conversation_history
+                    )
                 last_response_id = result.last_response_id
                 logger.info(
                     f"会話履歴保存: {len(conversation_history)}アイテム, "
@@ -853,6 +1039,16 @@ class BlogGenerationService:
                         or "記事作成に必要な情報を入力してください",
                     },
                 )
+                if log_session_id and logging_service:
+                    try:
+                        logging_service.update_session_status(
+                            session_id=log_session_id,
+                            status="in_progress",
+                        )
+                    except Exception as log_err:
+                        logger.debug(
+                            f"Failed to mark log session in_progress: {log_err}"
+                        )
                 return
 
             # ========================================
@@ -876,6 +1072,15 @@ class BlogGenerationService:
                 conversation_history=conversation_history,
                 last_response_id=last_response_id,
             )
+            if log_session_id and logging_service:
+                try:
+                    logging_service.update_session_status(
+                        session_id=log_session_id,
+                        status="completed",
+                        completed_at=datetime.now(),
+                    )
+                except Exception as log_err:
+                    logger.debug(f"Failed to mark log session completed: {log_err}")
         except Exception as e:
             if execution_id and log_session_id:
                 trace_events.append(
@@ -907,6 +1112,15 @@ class BlogGenerationService:
                     )
                 except Exception as log_err:
                     logger.debug(f"Failed to mark execution failed: {log_err}")
+            if log_session_id and logging_service:
+                try:
+                    logging_service.update_session_status(
+                        session_id=log_session_id,
+                        status="failed",
+                        completed_at=datetime.now(),
+                    )
+                except Exception as log_err:
+                    logger.debug(f"Failed to mark log session failed: {log_err}")
             raise
 
     # ===========================================================
@@ -968,13 +1182,17 @@ class BlogGenerationService:
 
                 # ツール呼び出し完了
                 elif isinstance(item, ToolCallOutputItem):
-                    call_id = getattr(item.raw_item, "call_id", None)
+                    call_id = self._safe_get(item.raw_item, "call_id") or self._safe_get(
+                        item.raw_item, "id"
+                    )
+                    tool_name = _resolve_tool_name(item.raw_item)
                     await self._publish_event(
                         process_id,
                         user_id,
                         "tool_call_completed",
                         {
                             "tool_call_id": call_id,
+                            "tool_name": tool_name if tool_name != "unknown_tool" else None,
                             "message": "処理が完了しました",
                         },
                     )
@@ -1299,6 +1517,48 @@ class BlogGenerationService:
         except json.JSONDecodeError:
             return value
 
+    @classmethod
+    def _history_item_signature(cls, item: Any) -> str:
+        try:
+            normalized = cls._to_jsonable(item)
+            return json.dumps(normalized, sort_keys=True, ensure_ascii=False)
+        except Exception:
+            return str(item)
+
+    @classmethod
+    def _merge_conversation_histories(
+        cls, existing: List[Dict[str, Any]], latest: List[Dict[str, Any]]
+    ) -> List[Dict[str, Any]]:
+        """既存履歴と最新履歴を重複なくマージする。
+
+        previous_response_id を使った継続実行では、SDK 側の to_input_list() が
+        直近ターン中心になることがあるため、履歴のオーバーラップを計算して補完する。
+        """
+        existing_items = [cls._to_jsonable(item) for item in (existing or []) if item]
+        latest_items = [cls._to_jsonable(item) for item in (latest or []) if item]
+
+        if not existing_items:
+            return latest_items  # type: ignore[return-value]
+        if not latest_items:
+            return existing_items  # type: ignore[return-value]
+
+        existing_sig = [cls._history_item_signature(item) for item in existing_items]
+        latest_sig = [cls._history_item_signature(item) for item in latest_items]
+
+        if len(latest_sig) >= len(existing_sig) and latest_sig[: len(existing_sig)] == existing_sig:
+            return latest_items  # type: ignore[return-value]
+        if len(existing_sig) >= len(latest_sig) and existing_sig[-len(latest_sig) :] == latest_sig:
+            return existing_items  # type: ignore[return-value]
+
+        max_overlap = 0
+        for overlap in range(min(len(existing_sig), len(latest_sig)), 0, -1):
+            if existing_sig[-overlap:] == latest_sig[:overlap]:
+                max_overlap = overlap
+                break
+
+        merged = existing_items + latest_items[max_overlap:]
+        return merged  # type: ignore[return-value]
+
     def _extract_message_output_text(self, item: MessageOutputItem) -> str:
         content = ""
         if hasattr(item, "content") and item.content:
@@ -1389,6 +1649,9 @@ class BlogGenerationService:
         event_sequence: int,
     ) -> tuple[Optional[Dict[str, Any]], Optional[Dict[str, Any]]]:
         event_type = self._safe_get(raw_event, "type", "unknown")
+        if event_type == "keepalive" or str(event_type).endswith(".delta"):
+            # deltaイベントは粒度が細かく行数を爆発させるため保存しない。
+            return None, None
         sequence_number = self._safe_get(raw_event, "sequence_number")
         item_id = self._safe_get(raw_event, "item_id")
         output_index = self._safe_get(raw_event, "output_index")
@@ -1415,42 +1678,34 @@ class BlogGenerationService:
         }
         usage_entry: Optional[Dict[str, Any]] = None
 
-        if event_type == "response.output_text.delta":
-            trace_kwargs["role"] = "assistant"
-            trace_kwargs["message_text"] = self._truncate_text(
-                self._safe_get(raw_event, "delta"), _TRACE_TEXT_LIMIT
-            )
-        elif event_type == "response.output_text.done":
+        if event_type == "response.output_text.done":
             trace_kwargs["role"] = "assistant"
             trace_kwargs["message_text"] = self._truncate_text(
                 self._safe_get(raw_event, "text"), _TRACE_TEXT_LIMIT
             )
-        elif event_type in (
-            "response.reasoning_summary_text.delta",
-            "response.reasoning_summary_text.done",
-        ):
+        elif event_type == "response.reasoning_summary_text.done":
             trace_kwargs["message_text"] = self._truncate_text(
-                self._safe_get(raw_event, "delta") or self._safe_get(raw_event, "text"),
+                self._safe_get(raw_event, "text"),
                 _TRACE_TEXT_LIMIT,
             )
-        elif event_type in (
-            "response.function_call_arguments.delta",
-            "response.function_call_arguments.done",
-        ):
+        elif event_type == "response.function_call_arguments.done":
             trace_kwargs["tool_call_id"] = self._safe_get(raw_event, "item_id")
             trace_kwargs["tool_name"] = self._safe_get(raw_event, "name")
-            if event_type.endswith(".delta"):
-                trace_kwargs["input_payload"] = {
-                    "arguments_delta": self._truncate_text(
-                        self._safe_get(raw_event, "delta"), _TRACE_IO_LIMIT
-                    )
-                }
-            else:
-                trace_kwargs["input_payload"] = {
-                    "arguments": self._to_jsonable(
-                        self._parse_json_maybe(self._safe_get(raw_event, "arguments"))
-                    )
-                }
+            trace_kwargs["input_payload"] = {
+                "arguments": self._to_jsonable(
+                    self._parse_json_maybe(self._safe_get(raw_event, "arguments"))
+                )
+            }
+        elif event_type.startswith("response.web_search_call."):
+            trace_kwargs["tool_name"] = "web_search"
+            trace_kwargs["tool_call_id"] = self._safe_get(raw_event, "item_id")
+            query = self._safe_get(raw_event, "query")
+            if query:
+                trace_kwargs["input_payload"] = {"query": query}
+            trace_kwargs["event_metadata"] = {
+                **metadata,
+                "web_search_status": event_type.split(".")[-1],
+            }
         elif event_type in ("response.output_item.added", "response.output_item.done"):
             item = self._safe_get(raw_event, "item")
             item_type = self._safe_get(item, "type")

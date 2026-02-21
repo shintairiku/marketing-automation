@@ -4,6 +4,8 @@ Admin domain service
 """
 
 from typing import List, Optional, Dict, Any
+from collections import defaultdict, deque
+import json
 import logging
 from datetime import datetime, timedelta, timezone
 from app.infrastructure.clerk_client import clerk_client
@@ -101,6 +103,219 @@ class AdminService:
             # Timestamp in milliseconds
             return datetime.fromtimestamp(value / 1000)
         return None
+
+    @staticmethod
+    def _safe_get(obj: Any, key: str, default: Any = None) -> Any:
+        if obj is None:
+            return default
+        if isinstance(obj, dict):
+            return obj.get(key, default)
+        return getattr(obj, key, default)
+
+    def _extract_history_text(self, item: Dict[str, Any]) -> str:
+        content = item.get("content")
+        if isinstance(content, str):
+            return content
+        if isinstance(content, list):
+            texts: list[str] = []
+            for part in content:
+                text = self._safe_get(part, "text")
+                if isinstance(text, str) and text.strip():
+                    texts.append(text)
+            if texts:
+                return "\n".join(texts)
+        try:
+            return json.dumps(content, ensure_ascii=False)
+        except Exception:
+            return str(content)
+
+    def _compose_conversation_history(
+        self,
+        blog_context: Dict[str, Any],
+        initial_input: Dict[str, Any],
+        trace_events_rows: list[Dict[str, Any]],
+    ) -> list[Dict[str, Any]]:
+        history = blog_context.get("conversation_history", [])
+        if not isinstance(history, list):
+            history = []
+
+        user_prompt = initial_input.get("user_prompt")
+        reference_url = initial_input.get("reference_url")
+        if user_prompt:
+            has_initial_prompt = any(
+                isinstance(item, dict)
+                and item.get("role") == "user"
+                and user_prompt in self._extract_history_text(item)
+                for item in history
+            )
+            if not has_initial_prompt:
+                content = str(user_prompt)
+                if reference_url:
+                    content = f"{content}\n\n参考記事URL: {reference_url}"
+                history = [{"role": "user", "content": content}, *history]
+
+        if history:
+            return history
+
+        fallback_history: list[Dict[str, Any]] = []
+        for ev in trace_events_rows:
+            if ev.get("event_type") in ("message_output_created", "response.output_text.done"):
+                message_text = ev.get("message_text")
+                if message_text:
+                    fallback_history.append(
+                        {
+                            "role": ev.get("role") or "assistant",
+                            "content": message_text,
+                        }
+                    )
+        return fallback_history
+
+    def _enrich_trace_rows(
+        self, trace_events_rows: list[Dict[str, Any]]
+    ) -> tuple[
+        list[Dict[str, Any]],
+        Dict[str, Dict[str, Any]],
+        Dict[str, Dict[str, Any]],
+        Dict[str, deque[Dict[str, Any]]],
+    ]:
+        """tool_output の call_id/tool_name 欠損を時系列で補完する。"""
+        call_meta: Dict[str, Dict[str, Any]] = {}
+        pending_output_call_ids_by_exec: Dict[str, deque[str]] = defaultdict(deque)
+        output_by_call_id: Dict[str, Dict[str, Any]] = {}
+        fallback_outputs_by_exec: Dict[str, deque[Dict[str, Any]]] = defaultdict(deque)
+
+        for ev in trace_events_rows:
+            execution_id = ev.get("execution_id") or "__no_execution__"
+            event_type = ev.get("event_type")
+            call_id = ev.get("tool_call_id")
+            tool_name = ev.get("tool_name")
+
+            if event_type == "tool_called":
+                if call_id:
+                    call_meta.setdefault(call_id, {})
+                    call_meta[call_id]["execution_id"] = execution_id
+                    call_meta[call_id]["tool_name"] = (
+                        tool_name or call_meta[call_id].get("tool_name")
+                    )
+                    call_meta[call_id]["called_at"] = ev.get("created_at")
+                    call_meta[call_id]["input_payload"] = ev.get("input_payload") or {}
+                continue
+
+            if event_type == "response.function_call_arguments.done" and call_id:
+                call_meta.setdefault(call_id, {})
+                call_meta[call_id]["execution_id"] = execution_id
+                call_meta[call_id]["tool_name"] = (
+                    tool_name or call_meta[call_id].get("tool_name")
+                )
+                call_meta[call_id]["input_payload"] = ev.get("input_payload") or {}
+                continue
+
+            if (
+                event_type == "response.output_item.done"
+                and (ev.get("event_metadata") or {}).get("item_type") == "function_call"
+                and call_id
+            ):
+                call_meta.setdefault(call_id, {})
+                call_meta[call_id]["execution_id"] = execution_id
+                call_meta[call_id]["tool_name"] = (
+                    tool_name or call_meta[call_id].get("tool_name")
+                )
+                if call_id not in pending_output_call_ids_by_exec[execution_id]:
+                    pending_output_call_ids_by_exec[execution_id].append(call_id)
+                continue
+
+            if event_type == "response.web_search_call.completed" and call_id:
+                if not ev.get("tool_name"):
+                    ev["tool_name"] = "web_search"
+                output_by_call_id[call_id] = ev
+                continue
+
+            if event_type == "tool_output":
+                matched_by_sequence = False
+                resolved_call_id = call_id
+                expected_call_id = (
+                    pending_output_call_ids_by_exec[execution_id].popleft()
+                    if pending_output_call_ids_by_exec[execution_id]
+                    else None
+                )
+                if expected_call_id:
+                    resolved_call_id = expected_call_id
+                    matched_by_sequence = True
+
+                if resolved_call_id:
+                    if ev.get("tool_call_id") != resolved_call_id:
+                        ev["tool_call_id"] = resolved_call_id
+                    meta = call_meta.get(resolved_call_id, {})
+                    if not ev.get("tool_name") and meta.get("tool_name"):
+                        ev["tool_name"] = meta.get("tool_name")
+                    if matched_by_sequence:
+                        current_meta = ev.get("event_metadata") or {}
+                        current_meta["matched_by_sequence"] = True
+                        ev["event_metadata"] = current_meta
+                    output_by_call_id[resolved_call_id] = ev
+                else:
+                    fallback_outputs_by_exec[execution_id].append(ev)
+
+        return trace_events_rows, call_meta, output_by_call_id, fallback_outputs_by_exec
+
+    def _enrich_tool_call_rows(
+        self,
+        tool_calls: list[Dict[str, Any]],
+        call_meta: Dict[str, Dict[str, Any]],
+        output_by_call_id: Dict[str, Dict[str, Any]],
+        fallback_outputs_by_exec: Dict[str, deque[Dict[str, Any]]],
+    ) -> list[Dict[str, Any]]:
+        enriched: list[Dict[str, Any]] = []
+        for tool in tool_calls:
+            row = dict(tool)
+            execution_id = row.get("execution_id") or "__no_execution__"
+            metadata = row.get("tool_metadata") or {}
+            row["tool_metadata"] = metadata
+            call_id = metadata.get("call_id")
+
+            if call_id and call_id in call_meta:
+                meta = call_meta[call_id]
+                if row.get("tool_name") in (None, "", "unknown", "unknown_tool"):
+                    if meta.get("tool_name"):
+                        row["tool_name"] = meta.get("tool_name")
+                if not row.get("input_parameters"):
+                    input_payload = meta.get("input_payload") or {}
+                    row["input_parameters"] = input_payload.get("arguments") or input_payload
+
+            output_event = output_by_call_id.get(call_id) if call_id else None
+            if not output_event and fallback_outputs_by_exec[execution_id]:
+                output_event = fallback_outputs_by_exec[execution_id].popleft()
+
+            if output_event:
+                output_payload = output_event.get("output_payload") or {}
+                output_value = output_payload.get("output", output_payload)
+                if not output_value:
+                    output_value = {
+                        "status": "completed",
+                        "event_type": output_event.get("event_type"),
+                    }
+                current_output = row.get("output_data") or {}
+                if not current_output.get("output"):
+                    row["output_data"] = {"output": output_value}
+                if row.get("status") in (None, "", "started", "running", "in_progress"):
+                    row["status"] = "completed"
+                if not row.get("completed_at") and output_event.get("created_at"):
+                    row["completed_at"] = output_event.get("created_at")
+                if (
+                    not row.get("execution_time_ms")
+                    and row.get("called_at")
+                    and output_event.get("created_at")
+                ):
+                    started_at = self._parse_datetime(row.get("called_at"))
+                    finished_at = self._parse_datetime(output_event.get("created_at"))
+                    if started_at and finished_at and finished_at >= started_at:
+                        row["execution_time_ms"] = int(
+                            (finished_at - started_at).total_seconds() * 1000
+                        )
+
+            enriched.append(row)
+
+        return enriched
 
     def get_all_users(self) -> List[UserRead]:
         """
@@ -863,24 +1078,46 @@ class AdminService:
                     tool_calls = tool_resp.data or []
 
                 try:
-                    trace_resp = (
-                        supabase.from_("blog_agent_trace_events")
-                        .select(
-                            "id, execution_id, event_sequence, source, event_type, event_name, "
-                            "agent_name, role, message_text, tool_name, tool_call_id, response_id, model_name, "
-                            "prompt_tokens, completion_tokens, cached_tokens, reasoning_tokens, total_tokens, "
-                            "input_payload, output_payload, event_metadata, created_at"
+                    trace_events_rows = []
+                    offset = 0
+                    page_size = 1000
+                    while True:
+                        trace_resp = (
+                            supabase.from_("blog_agent_trace_events")
+                            .select(
+                                "id, execution_id, event_sequence, source, event_type, event_name, "
+                                "agent_name, role, message_text, tool_name, tool_call_id, response_id, model_name, "
+                                "prompt_tokens, completion_tokens, cached_tokens, reasoning_tokens, total_tokens, "
+                                "input_payload, output_payload, event_metadata, created_at"
+                            )
+                            .eq("session_id", session_id)
+                            .order("event_sequence")
+                            .range(offset, offset + page_size - 1)
+                            .execute()
                         )
-                        .eq("session_id", session_id)
-                        .order("event_sequence")
-                        .execute()
-                    )
-                    trace_events_rows = trace_resp.data or []
+                        rows = trace_resp.data or []
+                        trace_events_rows.extend(rows)
+                        if len(rows) < page_size:
+                            break
+                        offset += page_size
                 except Exception as trace_err:
                     logger.debug(
                         f"Trace events query failed for {process_id}: {trace_err}"
                     )
                     trace_events_rows = []
+
+            (
+                trace_events_rows,
+                call_meta,
+                output_by_call_id,
+                fallback_outputs_by_exec,
+            ) = self._enrich_trace_rows(trace_events_rows)
+            tool_calls = self._enrich_tool_call_rows(
+                tool_calls=tool_calls,
+                call_meta=call_meta,
+                output_by_call_id=output_by_call_id,
+                fallback_outputs_by_exec=fallback_outputs_by_exec,
+            )
 
             llm_by_exec: Dict[str, list[BlogTraceLlmCall]] = {}
             for call in llm_calls:
@@ -919,8 +1156,12 @@ class AdminService:
                         id=tool.get("id"),
                         execution_id=execution_id,
                         call_sequence=int(tool.get("call_sequence", 1) or 1),
-                        tool_name=tool.get("tool_name") or "unknown",
-                        tool_function=tool.get("tool_function") or "unknown",
+                        tool_name=tool.get("tool_name")
+                        or tool.get("tool_function")
+                        or "(unresolved)",
+                        tool_function=tool.get("tool_function")
+                        or tool.get("tool_name")
+                        or "(unresolved)",
                         status=tool.get("status") or "started",
                         input_parameters=tool.get("input_parameters") or {},
                         output_data=tool.get("output_data") or {},
@@ -1009,9 +1250,12 @@ class AdminService:
                 total_tokens = input_tokens + output_tokens
 
             blog_context = state.get("blog_context") or {}
-            conversation_history = blog_context.get("conversation_history", [])
-            if not isinstance(conversation_history, list):
-                conversation_history = []
+            initial_input = (session or {}).get("initial_input") or {}
+            conversation_history = self._compose_conversation_history(
+                blog_context=blog_context,
+                initial_input=initial_input,
+                trace_events_rows=trace_events_rows,
+            )
 
             return BlogUsageTraceResponse(
                 process_id=process_id,
@@ -1028,7 +1272,7 @@ class AdminService:
                 session_completed_at=self._parse_datetime(
                     (session or {}).get("completed_at")
                 ),
-                initial_input=(session or {}).get("initial_input") or {},
+                initial_input=initial_input,
                 session_metadata=(session or {}).get("session_metadata") or {},
                 conversation_history=conversation_history,
                 last_response_id=blog_context.get("last_response_id"),

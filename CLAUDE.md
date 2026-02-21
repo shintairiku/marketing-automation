@@ -2338,6 +2338,178 @@ CONTACT_NOTIFICATION_EMAIL=admin@yourdomain.com
 - `cd frontend && bun run lint` ✅（既存の `<img>` 警告のみ）
 - `cd frontend && bun run build` は型チェック・ページ生成までは通過。最終フェーズで sandbox 環境由来の `EXDEV rename` で失敗（実装起因ではない）
 
+### 40. Supabaseローカルポートを1542x系へ統一 (2026-02-21)
+
+**概要**: Windows 側の excluded port range（`54293-54392`）に既定の Supabase ローカルポート（`54321/54322/54323`）が含まれ、`npx supabase start` で DB コンテナの bind が失敗する問題が発生。チーム共通で衝突しにくい `1542x` 系へ変更。
+
+**変更ファイル**:
+- `supabase/config.toml`
+
+**変更内容**:
+- `[api].port`: `54321` → `15421`
+- `[db].port`: `54322` → `15422`
+- `[db].shadow_port`: `54320` → `15420`
+- `[studio].port`: `54323` → `15423`
+- `[analytics].port`: `54327` → `15427`
+- StudioコメントのURLを `http://localhost:15423` に更新
+
+**運用メモ**:
+- Windows/WSL2 環境では `netsh interface ipv4/ipv6 show excludedportrange protocol=tcp` で予約ポート範囲を確認可能
+- `forbidden by its access permissions` が出る場合、プロセス競合ではなく OS 予約ポートの可能性が高い
+- Supabase起動後のアクセス先は `http://127.0.0.1:15423`（Studio）, `http://127.0.0.1:15421`（API）, `127.0.0.1:15422`（DB）
+
+### 41. Blog AIトレースの精査・動的詳細ページ化・delta保存抑制 (2026-02-21)
+
+**概要**: 管理者向け Blog Usage トレースを「モーダル閲覧」だけでなく **動的ルートページ** でも確認できるように拡張。あわせて実DBを直接検証し、`blog_agent_trace_events` が初期実装では delta 系イベントを大量保存していたことを確認し、今後の新規実行では保存しないよう修正。
+
+**フロントエンド変更**:
+- `frontend/src/app/(admin)/admin/blog-usage/[processId]/page.tsx` を新規追加
+  - `GET /admin/usage/blog/{process_id}/trace` を取得し、以下を一画面表示:
+    - 会話履歴
+    - レスポンス別トークン（LLM call）
+    - ツール呼び出し入出力
+    - 時系列イベント
+- `frontend/src/app/(admin)/admin/blog-usage/page.tsx`
+  - 各行に `ページ` ボタンを追加（`/admin/blog-usage/{process_id}` へ遷移）
+  - 従来の `詳細` モーダル導線も維持
+
+**バックエンド変更**:
+- `backend/app/domains/blog/services/generation_service.py`
+  - `_build_raw_trace_event` で `keepalive` と `*.delta` を保存対象外に変更
+    - 初期実装で行数が爆発していたため、`done/completed` 系中心に圧縮
+  - 同関数内の delta 分岐処理を削除し、`done/completed` のみを明示的に処理する形へ整理
+  - `ToolCallOutputItem` の `call_id` 解決を改善
+    - `call_id` が無い場合は `id` をフォールバック利用
+    - `tool_output` と `tool_call_logs` の紐付け精度を改善
+- `backend/app/domains/admin/service.py`
+  - `blog_agent_trace_events` 読み出しを `.range()` のページングループ化（1000件上限を突破して全件取得）
+
+**検証スクリプト追加**:
+- `backend/testing/verify_blog_trace_logs.py`
+  - 対象 process の `blog_generation_state / agent_log_sessions / agent_execution_logs / llm_call_logs / tool_call_logs / blog_agent_trace_events` を横断検証
+  - 実装チェック:
+    - execution token合計と llm token合計の一致
+    - `llm_call_logs.api_response_id` と `response.completed.response_id` の一致
+    - `tool_called` 件数と `tool_call_logs` 件数の一致
+- `backend/testing/cleanup_blog_trace_delta_events.py`
+  - 既存の noisy trace（`*.delta` / `keepalive`）を対象に dry-run で件数確認
+  - `--apply` 指定時のみ batch delete を実行（デフォルトは削除しない）
+
+**実DB確認結果（既存セッション）**:
+- 対象: `process_id=80f5c267-f740-405f-a66e-123f2840d89e`
+- `trace_event_count=2898`
+- 大量イベントの内訳:
+  - `response.reasoning_summary_text.delta=1436`
+  - `response.function_call_arguments.delta=1088`
+  - `response.output_text.delta=106`
+  - `keepalive=1`
+- cleanup dry-run 結果:
+  - `total_rows=2898`
+  - `noisy_rows=2631`
+- ローカルSupabaseで cleanup apply を2回実行:
+  - 1回目 `deleted_rows=2631`
+  - 2回目 `deleted_rows=1`（実行中に新規追加された残件を除去）
+- cleanup 後の再検証:
+  - `trace_event_count=267`
+  - `trace_event_type_counts` から `*.delta` / `keepalive` は消滅
+- これは **修正前に保存された履歴**。検証スクリプトの整合性チェック自体は `VERDICT: OK`。
+
+**関数レベル確認（修正後挙動）**:
+- `_build_raw_trace_event({'type':'response.output_text.delta', ...}) -> (None, None)`
+- `_build_raw_trace_event({'type':'keepalive'}) -> (None, None)`
+- `response.output_text.done` は通常通り保存
+- つまり、新規実行分では delta/keepalive の行増殖は発生しない。
+
+### 42. Blog AIトレース精度の根本修正（会話履歴欠落・unknown多発・ツールI/O不整合）(2026-02-21)
+
+**背景（ユーザー指摘）**:
+- 会話履歴が「質問回答後」からしか表示されない
+- `unknown` / 空欄が多く、ツール入力・出力が不正確
+- UIで全文を確認できない
+
+**公式仕様の確認（OpenAI）**:
+- Agents SDK streaming: `RunItemStreamEvent` / `RawResponsesStreamEvent` の構造を再確認
+  - https://openai.github.io/openai-agents-python/streaming/
+  - https://openai.github.io/openai-agents-python/ref/stream_events/
+- `RunResult.to_input_list()` は「元入力 + 今回runで生成された新規アイテム」の形で返るため、`previous_response_id`運用時は保存済み履歴の明示マージが必要
+  - https://openai.github.io/openai-agents-python/results/
+- Responses API event（`response.output_item.done`, `response.web_search_call.completed` など）の扱いを確認
+  - https://platform.openai.com/docs/api-reference/responses-streaming
+
+**根本原因**:
+1. `continue_generation` で `previous_response_id` 経由再開時、`to_input_list()` の結果をそのまま上書き保存していたため、初回ターンが欠落
+2. `ToolCallOutputItem.raw_item` が `dict` のケースで `getattr` 参照しており、`call_id` / `tool_name` を取得できず欠損
+3. `tool_output` の補完を `tool_called` 順に行うと、`web_search` のように `ToolCallOutputItem` を返さないケースでズレる
+4. 詳細画面が省略表示のみで、全文確認ができなかった
+
+**バックエンド修正**:
+- `backend/app/domains/blog/services/generation_service.py`
+  - `ToolCallOutputItem` の `call_id` 取得を `self._safe_get(..., "call_id"/"id")` に変更（dict/obj両対応）
+  - `response.output_item.done`（`item_type=function_call`）を基準に `pending_output_call_ids` を構築し、`tool_output` を高精度に紐付け
+  - `response.web_search_call.completed` を検出して `tool_call_logs` を `completed` 更新（web_search系の取りこぼし防止）
+  - 会話履歴マージヘルパー `_merge_conversation_histories()` を追加し、継続実行時に既存履歴と新履歴を重複なく結合
+  - `agent_log_sessions` ステータスを完了/失敗で更新
+  - `response.web_search_call.*` を traceイベントとして `tool_call_id`/`tool_name` 付きで保存
+
+- `backend/app/domains/admin/service.py`
+  - trace取得後に `_enrich_trace_rows()` で `tool_output` 欠損情報を補完
+  - `_enrich_tool_call_rows()` で `tool_call_logs` を trace情報から補正（status/output/execution_time）
+  - `conversation_history` が不足時、`initial_input.user_prompt` を先頭に補完する `_compose_conversation_history()` を追加
+
+**DB補正スクリプト追加**:
+- `backend/testing/backfill_blog_tool_logs_from_trace.py`
+  - legacyデータ向けに `blog_agent_trace_events` / `tool_call_logs` を backfill
+  - `--apply` 指定時のみ実更新
+
+**UI修正（全文閲覧）**:
+- `frontend/src/app/(admin)/admin/blog-usage/[processId]/page.tsx`
+  - 会話履歴、LLM call、ツール入力/出力、時系列イベントの各行に `全文` ボタン追加
+  - ダイアログでフルテキスト/フルJSON表示を実装
+  - `tool_name/model_name/tool_call_id` のフォールバック表示を改善
+
+**ローカルDB再検証（process_id=80f5c267-f740-405f-a66e-123f2840d89e）**:
+- `verify_blog_trace_logs.py` 最終結果: `VERDICT: OK`
+- `tool_output_missing_call_id=0`
+- `tool_output_missing_tool_name=0`
+- `tool_call_logs status`: `completed=28`
+- `session.status`: `completed`
+- `AdminService.get_blog_usage_trace()` 返却:
+  - `conversation_history` 先頭に初回ユーザープロンプトを補完
+  - `unknown` ツール名は 0
+
+### 43. 継続生成時のストリーミング断（incomplete chunked read）自動リトライ対応 (2026-02-21)
+
+**背景**:
+- 継続生成中に `httpx.RemoteProtocolError: peer closed connection without sending complete message body (incomplete chunked read)` が発生し、処理全体が `error` 終了していた。
+
+**対応**:
+- `backend/app/domains/blog/services/generation_service.py`
+  - `_is_retryable_stream_exception()` を追加し、以下を再試行対象に判定:
+    - `httpx.RemoteProtocolError`, `httpx.ReadError`, `httpx.ReadTimeout`, `httpx.ConnectError`
+    - `openai.APIConnectionError`, `openai.APITimeoutError`
+    - `incomplete chunked read` 等のメッセージ一致
+  - `_run_agent_streamed_with_retry()` を追加
+    - 既定 `3` 回まで自動再試行（指数バックオフ）
+    - 再試行中は `generation_warning` イベントを通知し、状態を `in_progress` のまま保持
+  - `run_generation()` / `continue_generation()` の実行経路を `*_with_retry` に切替
+
+**効果**:
+- 一時的な上流ストリーム断では即失敗せず自動回復を試みる。
+- 最終試行まで失敗した場合のみ従来どおり例外を返す。
+
+**実データ確認（ユーザー報告の失敗プロセス）**:
+- `process_id=0209872c-09c3-4a8b-a1d8-b559f89e719d`
+- 失敗自体は発生済み履歴として保持（`state.status=error`, `session.status=failed`）だが、ログ整合性は補正完了:
+  - `trace_tool_output_missing_call_id=0`
+  - `trace_tool_output_missing_tool_name=0`
+  - `tool_call_logs status_counts={'completed': 18}`
+  - `tool_call_logs missing_output=0`
+
+**実行コマンド**:
+- `cd backend && uv run ruff check app/domains/blog/services/generation_service.py app/domains/admin/service.py testing/backfill_blog_tool_logs_from_trace.py`
+- `cd frontend && bunx eslint "src/app/(admin)/admin/blog-usage/[processId]/page.tsx" "src/app/(admin)/admin/blog-usage/page.tsx"`
+- `cd frontend && bun run lint`（既存の `<img>` 警告のみ）
+
 > ## **【最重要・再掲】記憶の更新は絶対に忘れるな**
 > **このファイルの冒頭にも書いたが、改めて念押しする。**
 > 作業が完了したら、コミットする前に、必ずこのファイルに変更内容を記録せよ。
