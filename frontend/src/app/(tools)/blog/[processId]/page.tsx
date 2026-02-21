@@ -176,6 +176,8 @@ export default function BlogProcessPage() {
   // Activity feed from process events
   const [activities, setActivities] = useState<ActivityEntry[]>([]);
   const activityEndRef = useRef<HTMLDivElement>(null);
+  const feedContainerRef = useRef<HTMLDivElement>(null);
+  const isNearBottomRef = useRef(true);
   const [, setTick] = useState(0); // for elapsed time refresh
   const [activityLogOpen, setActivityLogOpen] = useState(false);
   const [justCompleted, setJustCompleted] = useState(false);
@@ -366,9 +368,20 @@ export default function BlogProcessPage() {
     }
   }, [state?.status]);
 
-  // ---- Auto-scroll activity feed ----
+  // ---- Track whether user is near the bottom of the feed ----
+  const handleFeedScroll = useCallback(() => {
+    const el = feedContainerRef.current;
+    if (!el) return;
+    const threshold = 80;
+    isNearBottomRef.current =
+      el.scrollHeight - el.scrollTop - el.clientHeight <= threshold;
+  }, []);
+
+  // ---- Auto-scroll activity feed (only when user is near bottom) ----
   useEffect(() => {
-    activityEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    if (isNearBottomRef.current) {
+      activityEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    }
   }, [activities]);
 
   // ---- Image upload handlers for question phase ----
@@ -1105,6 +1118,8 @@ export default function BlogProcessPage() {
               {/* Activity feed */}
               <div className="rounded-2xl border border-stone-200/60 bg-white/50 backdrop-blur-sm overflow-hidden">
                 <div
+                  ref={feedContainerRef}
+                  onScroll={handleFeedScroll}
                   className="overflow-y-auto overscroll-contain min-h-[250px]"
                   style={{ maxHeight: 'calc(100dvh - 355px)' }}
                 >
