@@ -2115,6 +2115,109 @@ CONTACT_NOTIFICATION_EMAIL=admin@yourdomain.com
 - 成功アニメーション（spring bounce チェックマーク）
 - お問い合わせへの導線（フッター）
 
+### 36. PWA (Progressive Web App) 対応 (2026-02-21)
+
+**概要**: Next.js 15 の組み込みマニフェストサポート + カスタムサービスワーカーで PWA 化。外部パッケージ不使用（Serwist/@ducanh2912/next-pwa は不要）。
+
+**設計方針**: このアプリは認証必須の SaaS（`force-dynamic`）のため、オフラインヘビーなキャッシュ戦略は不要。主なPWAメリットはインストーラビリティ（ホーム画面追加）、スタンドアロン表示、モバイルUX向上。
+
+**新規ファイル**:
+| ファイル | 概要 |
+|---------|------|
+| `frontend/src/app/manifest.ts` | 動的マニフェスト（MetadataRoute.Manifest 型）。アプリ名、アイコン6種、standalone表示、日本語設定 |
+| `frontend/public/sw.js` | サービスワーカー。ナビゲーションのオフラインフォールバック、静的アセットのstale-while-revalidateキャッシュ、プッシュ通知ハンドラ |
+| `frontend/src/app/offline/page.tsx` | オフラインフォールバックページ（WifiOff アイコン + 再読み込みボタン） |
+| `frontend/src/components/pwa/service-worker-register.tsx` | SW登録クライアントコンポーネント（useEffect で `/sw.js` を登録） |
+| `frontend/public/icon-512.png` | 512x512 PWAアイコン（slate-900背景 + 白ロゴ） |
+| `frontend/public/icon-384.png` | 384x384 PWAアイコン |
+| `frontend/public/icon-256.png` | 256x256 PWAアイコン |
+| `frontend/public/icon-maskable-512.png` | 512x512 マスカブルアイコン（より多いパディング） |
+| `frontend/public/icon-maskable-192.png` | 192x192 マスカブルアイコン |
+
+**変更ファイル**:
+| ファイル | 変更内容 |
+|---------|---------|
+| `frontend/src/app/layout.tsx` | PWAメタデータ追加（applicationName, appleWebApp, viewport, openGraph, twitter）、ServiceWorkerRegister コンポーネント追加 |
+| `frontend/next.config.js` | `headers()` 追加: `/sw.js` に Cache-Control: no-cache + Service-Worker-Allowed: / |
+| `frontend/src/middleware.ts` | `/offline` をパブリックルートに追加 |
+
+**マニフェスト構成** (`/manifest.webmanifest` として自動配信):
+- `display: 'standalone'` — ブラウザUIなしのアプリ表示
+- `background_color: '#0f172a'` / `theme_color: '#0f172a'` — slate-900
+- `orientation: 'portrait-primary'`
+- アイコン6種: 192/256/384/512 (any) + 192/512 (maskable)
+
+**サービスワーカー設計**:
+- **ナビゲーション**: network-first → 失敗時は `/offline` フォールバック
+- **静的アセット** (images/fonts/CSS/JS): stale-while-revalidate
+- **API/認証リクエスト**: SWをバイパス（`/api/`, `/sign-in`, `/sign-up`, `clerk` を除外）
+- **プッシュ通知**: `push` + `notificationclick` イベントハンドラ実装済み（将来のプッシュ通知機能の基盤）
+- **キャッシュ管理**: バージョン付きキャッシュ名 (`blogai-v1`)、activate時に旧キャッシュ削除
+
+**Viewport 設定**:
+- `themeColor: '#0f172a'` — スマホのステータスバー色
+- `maximumScale: 1, userScalable: false` — PWAスタンドアロンモードでの意図しないズーム防止
+
+**技術的知見**:
+- Next.js 15 は `app/manifest.ts` を自動的に `/manifest.webmanifest` として配信する
+- middleware.ts のマッチャーパターンに `.webmanifest` の除外が既にあった（変更不要）
+- `force-dynamic` アプリではプリキャッシュ対象が限られるため、Serwist等の重いライブラリは不要
+- PWAのインストールプロンプトは manifest + HTTPS + service worker の3条件を満たせば自動表示される
+
+**情報ソース**:
+- https://nextjs.org/docs/app/guides/progressive-web-apps (Next.js公式PWAガイド)
+- https://nextjs.org/docs/app/api-reference/file-conventions/metadata/manifest (manifest.ts API)
+
+### 37. ロゴ・ファビコン全面刷新 (2026-02-21)
+
+**概要**: 新しいブランドロゴに全面移行。旧ロゴ（白単色ロゴ on slate-900背景）を廃止し、新しい「ブログAI」ロゴ（A+ペンシル+ブラケットのアイコン + 「ブログAI」横長ロゴ）に統一。
+
+**ソース画像** (ユーザー提供、1024x1024 / 4000x1133):
+- `ファビコン.png` → 正方形アイコン（A+ティールペンシル+ブラケット、黒要素、白/透明背景）
+- `ファビコン白.png` → ペンシルのみ（ティール、白/透明背景）
+- `ロゴ.png` → 「ブログAI」横長ロゴ（黒文字+ティールペンシル、白/透明背景）→ ライト背景用
+- `ロゴ白.png` → 「ブログAI」横長ロゴ（白文字+ティールペンシル、透明背景）→ ダーク背景用
+
+**生成されたファイル** (`frontend/public/`):
+| ファイル | サイズ | 用途 |
+|---------|------|------|
+| `favicon.png` | 32x32 | ブラウザタブ ファビコン |
+| `apple-touch-icon.png` | 180x180 | Apple Touch Icon (白背景) |
+| `icon-192.png` | 192x192 | PWA アイコン |
+| `icon-256.png` | 256x256 | PWA アイコン |
+| `icon-384.png` | 384x384 | PWA アイコン |
+| `icon-512.png` | 512x512 | PWA アイコン |
+| `icon-maskable-192.png` | 192x192 | PWA マスカブルアイコン (72%サイズ、白背景パディング) |
+| `icon-maskable-512.png` | 512x512 | PWA マスカブルアイコン |
+| `icon.png` | 1024x1024 | 正方形アプリアイコン（フルサイズ） |
+| `logo.png` | 4000x1133 | 横長ロゴ（黒文字、ライト背景用）→ サイドバー |
+| `logo-white.png` | 4000x1133 | 横長ロゴ（白文字、ダーク背景用）→ ヘッダー、認証画面 |
+
+**コード変更**:
+| ファイル | 変更内容 |
+|---------|---------|
+| `components/display/sidebar.tsx` | アイコン画像を `logo.png` (113x32) に変更、「BlogAI」テキスト削除（ロゴに含まれるため）。閉じた状態は `icon.png` (28x28) |
+| `components/display/header.tsx` | `logo-white.png` (99x28) に変更。「BlogAI」テキスト削除 |
+| `components/logo.tsx` | `variant` prop追加 (`dark`/`white`)。テキスト「新大陸」→ Image ロゴに置換 |
+| `components/ui/sidebar.tsx` | 「S」アイコン+「新大陸」テキスト → `icon.png` + 「ブログAI」に変更 |
+| `app/auth/page.tsx` | 「ブログAI」テキスト → `logo-white.png` (240x68) 画像に変更 |
+| `features/landing/components/header.tsx` | 「新大陸」+「SEO TIGER」テキスト → 「ブログAI」テキストに変更 |
+| `app/sign-in/page.tsx` | メタデータ「新大陸」→「ブログAI」 |
+| `app/sign-up/page.tsx` | メタデータ「新大陸」→「ブログAI」 |
+| `app/user-profile/page.tsx` | メタデータ「新大陸」→「ブログAI」 |
+
+**削除ファイル**:
+- `frontend/public/ファビコン.png` (日本語名ソース → `icon.png` に変換済み)
+- `frontend/public/ファビコン白.png` (同上)
+- `frontend/public/ロゴ.png` (同上 → `logo.png` に変換済み)
+- `frontend/public/ロゴ白.png` (同上 → `logo-white.png` に変換済み)
+
+**ロゴ使用ルール**:
+- **ライト背景** (サイドバー `bg-white` 等): `logo.png` (横長) or `icon.png` (正方形)
+- **ダーク背景** (ヘッダー `bg-primary`、認証画面 `slate-900` 等): `logo-white.png`
+- **ファビコン/PWA**: `favicon.png`, `icon-*.png`, `icon-maskable-*.png`
+- **会社名「株式会社新大陸」**: 法的表記のため変更なし（フッター等に残存）
+
 > ## **【最重要・再掲】記憶の更新は絶対に忘れるな**
 > **このファイルの冒頭にも書いたが、改めて念押しする。**
 > 作業が完了したら、コミットする前に、必ずこのファイルに変更内容を記録せよ。

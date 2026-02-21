@@ -34,6 +34,7 @@ const isPrivilegedOnlyRoute = createRouteMatcher([
 const isPublicRoute = createRouteMatcher([
   '/pricing',
   '/auth',
+  '/offline',
   '/sign-in(.*)',
   '/sign-up(.*)',
   '/invitation(.*)',

@@ -4,7 +4,7 @@ import { Metadata } from 'next';
 import { UserProfile } from '@clerk/nextjs';
 
 export const metadata: Metadata = {
-  title: 'アカウント設定 - 新大陸',
+  title: 'アカウント設定 - ブログAI',
   description: 'アカウント情報、セキュリティ設定、サブスクリプションプランの管理を行います。',
 };
 
