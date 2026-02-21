@@ -43,18 +43,18 @@ export async function GET() {
     let userSub: UserSubscription;
 
     if (error?.code === 'PGRST116' || !subscription) {
+      // レコードが存在しない場合: フリープランで作成
       const isPrivileged = isPrivilegedEmail(userEmail);
 
-      // 新規ユーザーはフリープラン（status: 'active', plan_tier_id: 'free'）
       const { data: newSubscription, error: insertError } = await supabase
         .from('user_subscriptions')
-        .insert({
+        .upsert({
           user_id: userId,
           email: userEmail || null,
           is_privileged: isPrivileged,
           status: 'active',
           plan_tier_id: isPrivileged ? null : 'free',
-        })
+        }, { onConflict: 'user_id' })
         .select()
         .single();
 
@@ -72,6 +72,27 @@ export async function GET() {
         };
       } else {
         userSub = newSubscription as UserSubscription;
+      }
+    } else if (subscription.status === 'none' && !subscription.stripe_subscription_id) {
+      // Webhook が先に status:'none' で作成済みの場合: フリープランにアップグレード
+      const isPrivileged = isPrivilegedEmail(userEmail);
+
+      const { data: updated, error: updateError } = await supabase
+        .from('user_subscriptions')
+        .update({
+          status: 'active',
+          plan_tier_id: isPrivileged ? null : 'free',
+          is_privileged: isPrivileged,
+        })
+        .eq('user_id', userId)
+        .select()
+        .single();
+
+      if (updateError) {
+        console.error('Error upgrading to free plan:', updateError);
+        userSub = subscription as UserSubscription;
+      } else {
+        userSub = updated as UserSubscription;
       }
     } else if (error) {
       console.error('Error fetching subscription:', error);
