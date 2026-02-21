@@ -2163,10 +2163,44 @@ CONTACT_NOTIFICATION_EMAIL=admin@yourdomain.com
 - middleware.ts のマッチャーパターンに `.webmanifest` の除外が既にあった（変更不要）
 - `force-dynamic` アプリではプリキャッシュ対象が限られるため、Serwist等の重いライブラリは不要
 - PWAのインストールプロンプトは manifest + HTTPS + service worker の3条件を満たせば自動表示される
+- **Chrome 108+ (mobile) / 112+ (desktop)**: SWはメニューベースのインストールに不要になった。ただし `beforeinstallprompt` イベントにはまだ fetch handler が必要
+- **`screenshots` + `description` がマニフェストにあると、Chrome Android で「ホーム画面に追加」→「インストール」のリッチUIに変わる**
+- `form_factor: 'narrow'` = モバイル用、`form_factor: 'wide'` = デスクトップ用
+- **iOS Safari は `beforeinstallprompt` 非対応**。「共有→ホーム画面に追加」が唯一のインストール方法。Chrome/Edge on iOS もインストール不可（WebKit制限）
+- `id` フィールドはインストールに必須ではないが、`start_url` 変更時にアプリ同一性を維持するために推奨
+
+**インストールページ** (`/settings/install`):
+- `useInstallPrompt` hook でプラットフォーム・ブラウザ検出 + `beforeinstallprompt` イベント管理
+- iOS Safari: 手動インストール手順（共有→ホーム画面に追加）
+- iOS non-Safari: Safari への誘導メッセージ
+- Android Chrome/Edge: `beforeinstallprompt` があればインストールボタン、なければ手動手順
+- Desktop Chrome/Edge: `beforeinstallprompt` があればインストールボタン、なければアドレスバーのインストールアイコン手順
+- Desktop Firefox: PWA非対応の旨を表示
+- Desktop Safari (macOS): 「ファイル→Dockに追加」手順
+- `display-mode: standalone` で既にインストール済みかを検出、インストール済みカードを表示
+- サイドバー Settings > アプリ > 「アプリをインストール」からアクセス
+
+**新規ファイル**:
+| ファイル | 概要 |
+|---------|------|
+| `frontend/src/hooks/useInstallPrompt.ts` | `beforeinstallprompt` キャプチャ、プラットフォーム/ブラウザ検出、`display-mode: standalone` 監視 |
+| `frontend/src/app/(settings)/settings/install/page.tsx` | デバイス別インストールガイドページ |
+| `frontend/public/screenshot-mobile.png` | 390x844 PWAスクリーンショット (narrow) |
+| `frontend/public/screenshot-wide.png` | 1280x720 PWAスクリーンショット (wide) |
+
+**変更ファイル**:
+| ファイル | 変更内容 |
+|---------|---------|
+| `frontend/src/app/manifest.ts` | `id`, `screenshots` (narrow + wide) を追加 |
+| `frontend/src/components/constant/route.ts` | Settings > アプリ > 「アプリをインストール」リンク追加 |
 
 **情報ソース**:
 - https://nextjs.org/docs/app/guides/progressive-web-apps (Next.js公式PWAガイド)
 - https://nextjs.org/docs/app/api-reference/file-conventions/metadata/manifest (manifest.ts API)
+- https://developer.chrome.com/blog/richer-pwa-installation (Richer Install UI)
+- https://web.dev/articles/customize-install (Custom install experience)
+- https://developer.chrome.com/blog/update-install-criteria (Chrome installability criteria update)
+- https://developer.mozilla.org/en-US/docs/Web/API/Window/beforeinstallprompt_event (beforeinstallprompt)
 
 ### 37. ロゴ・ファビコン全面刷新 (2026-02-21)
 
