@@ -150,6 +150,12 @@ export const groups: Group[] = [
               { href: '/settings/contact', label: 'お問い合わせ' },
             ],
           },
+          {
+            title: 'アプリ',
+            links: [
+              { href: '/settings/install', label: 'アプリをインストール' },
+            ],
+          },
         ],
       },
     ],
