@@ -52,19 +52,18 @@ logger = logging.getLogger(__name__)
 try:
     from app.infrastructure.logging.service import LoggingService
     from app.infrastructure.logging.agents_logging_integration import MultiAgentWorkflowLogger
-    from app.infrastructure.external_apis.notion_service import NotionService as NotionSyncService
     from app.infrastructure.analysis.cost_calculation_service import CostCalculationService
     LOGGING_ENABLED = True
-    NOTION_SYNC_ENABLED = True
 except ImportError as e:
     logger.warning(f"Logging system not available: {e}")
-    # Use None and handle the checks properly
     LoggingService = None  # type: ignore
     MultiAgentWorkflowLogger = None  # type: ignore
-    NotionSyncService = None  # type: ignore
     CostCalculationService = None  # type: ignore
     LOGGING_ENABLED = False
-    NOTION_SYNC_ENABLED = False
+
+# Notion同期は廃止済み
+NOTION_SYNC_ENABLED = False
+NotionSyncService = None  # type: ignore
 
 # ステップ分類定数 - 完全なステップカバレッジ
 # 注意(legacy-flow): 旧リサーチステップ（`research_planning` / `research_plan_generated` /

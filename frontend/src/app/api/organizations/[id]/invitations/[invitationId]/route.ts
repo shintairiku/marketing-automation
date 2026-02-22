@@ -61,7 +61,7 @@ export async function POST(
     }
 
     // 新しい招待を作成（再送）
-    const appUrl = process.env.NEXT_PUBLIC_SITE_URL || process.env.NEXT_PUBLIC_APP_URL || process.env.VERCEL_URL;
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.VERCEL_URL;
     if (!appUrl) {
       return NextResponse.json(
         { error: 'サーバー設定エラー: サイトURLが設定されていません' },

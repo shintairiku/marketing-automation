@@ -54,8 +54,8 @@ async def get_current_user_email(
             raise HTTPException(status_code=401, detail="Invalid token: no user ID")
         # Clerk Backend API でメール取得
         import httpx
-        import os
-        clerk_secret = os.getenv("CLERK_SECRET_KEY", "")
+        from app.core.config import settings
+        clerk_secret = settings.clerk_secret_key
         if clerk_secret:
             async with httpx.AsyncClient() as client:
                 resp = await client.get(

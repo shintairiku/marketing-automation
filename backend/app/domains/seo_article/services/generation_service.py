@@ -26,15 +26,14 @@ from .background_task_manager import BackgroundTaskManager
 # ログ関連のインポート（オプション）
 try:
     from app.infrastructure.logging.service import LoggingService
-    from app.infrastructure.external_apis.notion_service import NotionService as NotionSyncService
     LOGGING_ENABLED = True
-    NOTION_SYNC_ENABLED = True
 except ImportError:
-    # Use None and handle the checks properly
     LoggingService = None  # type: ignore
-    NotionSyncService = None  # type: ignore
     LOGGING_ENABLED = False
-    NOTION_SYNC_ENABLED = False
+
+# Notion同期は廃止済み
+NOTION_SYNC_ENABLED = False
+NotionSyncService = None  # type: ignore
 
 logger = logging.getLogger(__name__)
 

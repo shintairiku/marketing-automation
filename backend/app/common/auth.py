@@ -14,16 +14,13 @@ from fastapi import Depends, HTTPException
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from typing import Optional
 import logging
-import os
 import time
+
+from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
 security = HTTPBearer(auto_error=False)
-
-# 環境変数
-CLERK_PUBLISHABLE_KEY = os.getenv("CLERK_PUBLISHABLE_KEY", "")
-CLERK_SECRET_KEY = os.getenv("CLERK_SECRET_KEY", "")
 
 # JWKSのキャッシュ有効期限（秒）
 JWKS_CACHE_TTL = 3600  # 1時間
@@ -37,13 +34,12 @@ def _get_clerk_jwks_url() -> str:
     例: pk_test_xxx -> https://xxx.clerk.accounts.dev/.well-known/jwks.json
     """
     # まず環境変数から直接取得を試みる（最優先）
-    frontend_api = os.getenv("CLERK_FRONTEND_API", "")
-    if frontend_api:
-        jwks_url = f"https://{frontend_api}/.well-known/jwks.json"
+    if settings.clerk_frontend_api:
+        jwks_url = f"https://{settings.clerk_frontend_api}/.well-known/jwks.json"
         logger.info(f"🔑 [AUTH] Using CLERK_FRONTEND_API: {jwks_url}")
         return jwks_url
 
-    if not CLERK_PUBLISHABLE_KEY:
+    if not settings.clerk_publishable_key:
         raise ValueError("CLERK_PUBLISHABLE_KEY is not set")
 
     # Publishable keyからフロントエンドAPIを抽出
@@ -51,7 +47,7 @@ def _get_clerk_jwks_url() -> str:
     try:
         import base64
         # pk_test_ または pk_live_ プレフィックスを除去
-        key_part = CLERK_PUBLISHABLE_KEY.replace("pk_test_", "").replace("pk_live_", "")
+        key_part = settings.clerk_publishable_key.replace("pk_test_", "").replace("pk_live_", "")
 
         # Base64デコード（パディング調整）
         # 必要に応じてパディングを追加
