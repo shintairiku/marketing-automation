@@ -26,6 +26,16 @@ const nextConfig = {
   async headers() {
     return [
       {
+        // Security headers for all routes
+        source: '/:path*',
+        headers: [
+          { key: 'X-Frame-Options', value: 'SAMEORIGIN' },
+          { key: 'X-Content-Type-Options', value: 'nosniff' },
+          { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
+          { key: 'Permissions-Policy', value: 'geolocation=(), microphone=(), camera=()' },
+        ],
+      },
+      {
         // Service Worker: no-cache + correct Content-Type
         source: '/sw.js',
         headers: [
