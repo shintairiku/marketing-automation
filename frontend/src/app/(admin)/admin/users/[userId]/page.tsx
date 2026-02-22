@@ -373,6 +373,7 @@ export default function AdminUserDetailPage() {
       {/* User header */}
       <div className="flex flex-col sm:flex-row items-start gap-4">
         {user.avatar_url ? (
+          // eslint-disable-next-line @next/next/no-img-element
           <img
             src={user.avatar_url}
             alt=""
