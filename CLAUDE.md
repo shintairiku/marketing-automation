@@ -2735,6 +2735,53 @@ CONTACT_NOTIFICATION_EMAIL=admin@yourdomain.com
 - SDK: `openai` v2.16.0 (`responses.py` L222-224, `response_create_params.py` L85-91)
 - SDK: `openai-agents` v0.7.0 (`openai_responses.py` L338-341, `run.py` L1469-1527)
 
+### 49. Admin Blog Usage UI リデザイン (2026-02-22)
+
+**概要**: `/admin/blog-usage` のダイアログ式詳細表示を廃止し、動的ルート `/admin/blog-usage/[processId]` の詳細ページを全面リデザイン。
+
+**`blog-usage/page.tsx` 変更 (1235行→~800行)**:
+- Dialog式「詳細」ボタンを削除
+- 「ページ」ボタンを「詳細」にリネーム（動的ルートへの遷移のみ）
+- Dialog関連コード全削除: imports, state (traceOpen/traceData/traceLoading/traceError), fetchTrace, traceLlmCalls/traceToolCalls memo, Dialog JSX (~225行), 5つの型定義, 3つのヘルパー関数
+
+**`blog-usage/[processId]/page.tsx` 全面リライト (723行→~1287行)**:
+- **ヘッダー**: ユーザープロンプト表示、ステータスバッジ（色分け）、作成日時・ユーザーメール・セッション時間
+- **メトリクスカード (6枚)**: Total Cost / Total Tokens / Cache Hit Rate（プログレスバー付き） / LLM Calls / Tool Calls / Duration
+- **キャッシュパフォーマンスセクション**: LLM Call ごとの水平バーチャート（emerald >70% / amber 40-70% / red <40%）
+- **LLM Calls テーブル**: クリックで行展開（response_data JSON表示）、Cache%に色付きテキスト
+- **Tool Calls セクション**: カードベースレイアウト、クリック展開で入出力JSON表示
+- **会話履歴**: Collapsible（デフォルト閉じ）、チャット風レイアウト（user=右寄せ青、assistant=左寄せ灰、tool_call=amber、reasoning=purple）
+- **時系列イベント**: Collapsible（デフォルト閉じ）、シンプルテーブル
+
+### 50. 管理画面レイアウト: 日本語化 + 折りたたみサイドバー + shadcn UI化 (2026-02-22)
+
+**変更ファイル**: `frontend/src/app/(admin)/admin/layout.tsx` (155行→~190行)
+
+**ナビゲーション日本語化**:
+- Dashboard → ダッシュボード
+- Users → ユーザー管理
+- Usage → 記事別Usage
+- Inquiries → お問い合わせ
+- Plans → プラン設定
+- Back → アプリに戻る
+- ヘッダータイトル: Admin → 管理画面
+
+**折りたたみサイドバー（デスクトップ）**:
+- サイドバー下部に「閉じる」ボタン（ChevronLeft/ChevronRight アイコン）
+- 折りたたみ時: w-[60px]、アイコンのみ表示
+- 展開時: w-56、アイコン + ラベル表示
+- `transition-[width] duration-200` でスムーズなアニメーション
+- `localStorage('admin-sidebar-collapsed')` で状態を永続化
+- 折りたたみ時はホバーで **Tooltip** にラベル表示
+
+**shadcn UI 化**:
+- モバイルサイドバー: 素のdiv overlay → **Sheet** コンポーネント（side="left"、スライドインアニメーション）
+- ハンバーガーボタン: 素のbutton → **Button** variant="ghost" size="icon"
+- 「アプリに戻る」: 素のLink → **Button** variant="ghost" asChild
+- 折りたたみトグル: **Button** variant="ghost"
+- アイコンホバー: **Tooltip** / **TooltipTrigger** / **TooltipContent** (TooltipProvider delayDuration=100)
+- パス一致判定: 厳密一致(/) + プレフィックス一致(子ルート)
+
 > ## **【最重要・再掲】記憶の更新は絶対に忘れるな**
 > **このファイルの冒頭にも書いたが、改めて念押しする。**
 > 作業が完了したら、コミットする前に、必ずこのファイルに変更内容を記録せよ。

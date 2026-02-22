@@ -12,7 +12,6 @@ import {
   FileText,
   Hash,
   Info,
-  Loader2,
   RefreshCw,
   TrendingUp,
 } from 'lucide-react';
@@ -37,12 +36,6 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from '@/components/ui/collapsible';
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
 import { Progress } from '@/components/ui/progress';
 import {
   Select,
@@ -83,107 +76,6 @@ interface BlogUsageItem {
   models: string[];
 }
 
-interface BlogTraceLlmCall {
-  id: string;
-  execution_id: string;
-  call_sequence: number;
-  api_type: string;
-  model_name: string;
-  provider: string;
-  prompt_tokens: number;
-  completion_tokens: number;
-  total_tokens: number;
-  cached_tokens: number;
-  reasoning_tokens: number;
-  estimated_cost_usd: number;
-  api_response_id?: string | null;
-  called_at?: string | null;
-  response_data: Record<string, unknown>;
-}
-
-interface BlogTraceToolCall {
-  id: string;
-  execution_id: string;
-  call_sequence: number;
-  tool_name: string;
-  tool_function: string;
-  status: string;
-  input_parameters: Record<string, unknown>;
-  output_data: Record<string, unknown>;
-  execution_time_ms?: number | null;
-  error_type?: string | null;
-  error_message?: string | null;
-  called_at?: string | null;
-  completed_at?: string | null;
-  tool_metadata: Record<string, unknown>;
-}
-
-interface BlogTraceEvent {
-  id: string;
-  execution_id?: string | null;
-  event_sequence: number;
-  source: string;
-  event_type: string;
-  event_name?: string | null;
-  agent_name?: string | null;
-  role?: string | null;
-  message_text?: string | null;
-  tool_name?: string | null;
-  tool_call_id?: string | null;
-  response_id?: string | null;
-  model_name?: string | null;
-  prompt_tokens: number;
-  completion_tokens: number;
-  cached_tokens: number;
-  reasoning_tokens: number;
-  total_tokens: number;
-  input_payload: Record<string, unknown>;
-  output_payload: Record<string, unknown>;
-  event_metadata: Record<string, unknown>;
-  created_at?: string | null;
-}
-
-interface BlogUsageTraceExecution {
-  id: string;
-  step_number: number;
-  sub_step_number: number;
-  status: string;
-  llm_model?: string | null;
-  started_at?: string | null;
-  completed_at?: string | null;
-  duration_ms?: number | null;
-  input_tokens: number;
-  output_tokens: number;
-  cache_tokens: number;
-  reasoning_tokens: number;
-  llm_calls: BlogTraceLlmCall[];
-  tool_calls: BlogTraceToolCall[];
-}
-
-interface BlogUsageTraceResponse {
-  process_id: string;
-  user_id?: string | null;
-  user_email?: string | null;
-  status?: string | null;
-  created_at?: string | null;
-  updated_at?: string | null;
-  session_id?: string | null;
-  session_status?: string | null;
-  session_created_at?: string | null;
-  session_completed_at?: string | null;
-  initial_input: Record<string, unknown>;
-  session_metadata: Record<string, unknown>;
-  conversation_history: Array<Record<string, unknown>>;
-  last_response_id?: string | null;
-  total_tokens: number;
-  input_tokens: number;
-  output_tokens: number;
-  cached_tokens: number;
-  reasoning_tokens: number;
-  estimated_cost_usd: number;
-  executions: BlogUsageTraceExecution[];
-  trace_events: BlogTraceEvent[];
-}
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -246,12 +138,6 @@ function truncateId(id: string, length = 8): string {
   return id.length <= length ? id : `${id.slice(0, length)}…`;
 }
 
-function formatResponseId(id?: string | null): string {
-  if (!id) return '-';
-  if (id.length <= 30) return id;
-  return `${id.slice(0, 20)}…${id.slice(-10)}`;
-}
-
 function shortenModel(name: string): string {
   return name
     .replace('litellm/gemini/', '')
@@ -280,33 +166,6 @@ function getCostStyle(cost: number): string {
   if (cost > 1.0) return 'bg-red-50 text-red-700 border-red-200';
   if (cost > 0.3) return 'bg-amber-50 text-amber-700 border-amber-200';
   return 'bg-emerald-50 text-emerald-700 border-emerald-200';
-}
-
-function toJsonPreview(value: unknown, max = 260): string {
-  try {
-    const text = JSON.stringify(value, null, 2);
-    if (!text) return '-';
-    return text.length > max ? `${text.slice(0, max)}…` : text;
-  } catch {
-    return String(value ?? '-');
-  }
-}
-
-function extractConversationText(item: Record<string, unknown>): string {
-  const content = item.content;
-  if (typeof content === 'string') return content;
-  if (Array.isArray(content)) {
-    const texts: string[] = [];
-    content.forEach((part) => {
-      if (!part || typeof part !== 'object') return;
-      const textPart = (part as { text?: unknown }).text;
-      if (typeof textPart === 'string' && textPart.trim().length > 0) {
-        texts.push(textPart);
-      }
-    });
-    if (texts.length > 0) return texts.join('\n');
-  }
-  return toJsonPreview(content, 220);
 }
 
 // ---------------------------------------------------------------------------
@@ -353,10 +212,6 @@ export default function AdminBlogUsagePage() {
   const [sortKey, setSortKey] = useState<'created_at' | 'estimated_cost_usd' | 'total_tokens'>('created_at');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
   const [pricingOpen, setPricingOpen] = useState(false);
-  const [traceOpen, setTraceOpen] = useState(false);
-  const [traceLoading, setTraceLoading] = useState(false);
-  const [traceError, setTraceError] = useState<string | null>(null);
-  const [traceData, setTraceData] = useState<BlogUsageTraceResponse | null>(null);
 
   // ---- Fetch ----
   const fetchData = useCallback(async () => {
@@ -383,36 +238,6 @@ export default function AdminBlogUsagePage() {
     }
   }, [getToken, days]);
 
-  const fetchTrace = useCallback(
-    async (processId: string) => {
-      setTraceOpen(true);
-      setTraceLoading(true);
-      setTraceError(null);
-      setTraceData(null);
-      try {
-        const token = await getToken();
-        const response = await fetch(
-          `${baseURL}/admin/usage/blog/${processId}/trace`,
-          {
-            headers: {
-              'Content-Type': 'application/json',
-              ...(token && { Authorization: `Bearer ${token}` }),
-            },
-          }
-        );
-        if (!response.ok) {
-          throw new Error('詳細トレースの取得に失敗しました');
-        }
-        const data: BlogUsageTraceResponse = await response.json();
-        setTraceData(data);
-      } catch (err) {
-        setTraceError(err instanceof Error ? err.message : 'トレース取得中にエラーが発生しました');
-      } finally {
-        setTraceLoading(false);
-      }
-    },
-    [getToken]
-  );
 
   useEffect(() => {
     fetchData();
@@ -521,27 +346,6 @@ export default function AdminBlogUsagePage() {
     });
   }, [items, sortKey, sortDir]);
 
-  const traceLlmCalls = useMemo(() => {
-    return (traceData?.executions || [])
-      .flatMap((execution) => execution.llm_calls)
-      .sort((a, b) => {
-        const ta = a.called_at || '';
-        const tb = b.called_at || '';
-        if (ta === tb) return a.call_sequence - b.call_sequence;
-        return ta > tb ? 1 : -1;
-      });
-  }, [traceData]);
-
-  const traceToolCalls = useMemo(() => {
-    return (traceData?.executions || [])
-      .flatMap((execution) => execution.tool_calls)
-      .sort((a, b) => {
-        const ta = a.called_at || '';
-        const tb = b.called_at || '';
-        if (ta === tb) return a.call_sequence - b.call_sequence;
-        return ta > tb ? 1 : -1;
-      });
-  }, [traceData]);
 
   const handleSort = (key: typeof sortKey) => {
     if (sortKey === key) {
@@ -977,22 +781,12 @@ export default function AdminBlogUsagePage() {
                         </div>
                       </TableCell>
                       <TableCell className="text-right">
-                        <div className="flex items-center justify-end gap-1">
-                          <Button size="sm" variant="outline" className="h-7 px-2 text-[11px]" asChild>
-                            <Link href={`/admin/blog-usage/${item.process_id}`}>
-                              <Eye className="h-3 w-3 mr-1" />
-                              ページ
-                            </Link>
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="h-7 px-2 text-[11px]"
-                            onClick={() => fetchTrace(item.process_id)}
-                          >
+                        <Button size="sm" variant="outline" className="h-7 px-2 text-[11px]" asChild>
+                          <Link href={`/admin/blog-usage/${item.process_id}`}>
+                            <Eye className="h-3 w-3 mr-1" />
                             詳細
-                          </Button>
-                        </div>
+                          </Link>
+                        </Button>
                       </TableCell>
                     </TableRow>
                   ))}
@@ -1003,232 +797,6 @@ export default function AdminBlogUsagePage() {
         </CardContent>
       </Card>
 
-      <Dialog open={traceOpen} onOpenChange={setTraceOpen}>
-        <DialogContent className="max-w-6xl max-h-[85vh] overflow-hidden">
-          <DialogHeader>
-            <DialogTitle className="text-base">
-              プロセストレース詳細
-              {traceData?.process_id ? `: ${truncateId(traceData.process_id, 12)}` : ''}
-            </DialogTitle>
-          </DialogHeader>
-
-          <div className="overflow-y-auto pr-1 space-y-5">
-            {traceLoading ? (
-              <div className="py-10 text-center text-sm text-muted-foreground">
-                <Loader2 className="h-4 w-4 animate-spin inline-block mr-2" />
-                トレースを読み込み中...
-              </div>
-            ) : traceError ? (
-              <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-                {traceError}
-              </div>
-            ) : traceData ? (
-              <>
-                <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-                  <Card>
-                    <CardContent className="pt-4">
-                      <p className="text-[11px] text-muted-foreground">ステータス</p>
-                      <p className="text-sm font-medium">{traceData.status || '-'}</p>
-                    </CardContent>
-                  </Card>
-                  <Card>
-                    <CardContent className="pt-4">
-                      <p className="text-[11px] text-muted-foreground">総トークン</p>
-                      <p className="text-sm font-medium tabular-nums">{formatNumber(traceData.total_tokens)}</p>
-                    </CardContent>
-                  </Card>
-                  <Card>
-                    <CardContent className="pt-4">
-                      <p className="text-[11px] text-muted-foreground">総コスト</p>
-                      <p className="text-sm font-medium tabular-nums">{formatUsd(traceData.estimated_cost_usd)}</p>
-                    </CardContent>
-                  </Card>
-                  <Card>
-                    <CardContent className="pt-4">
-                      <p className="text-[11px] text-muted-foreground">LLM Call数</p>
-                      <p className="text-sm font-medium tabular-nums">{traceLlmCalls.length}</p>
-                    </CardContent>
-                  </Card>
-                  <Card>
-                    <CardContent className="pt-4">
-                      <p className="text-[11px] text-muted-foreground">Tool Call数</p>
-                      <p className="text-sm font-medium tabular-nums">{traceToolCalls.length}</p>
-                    </CardContent>
-                  </Card>
-                </div>
-
-                <Card>
-                  <CardHeader className="pb-2">
-                    <CardTitle className="text-sm">会話履歴 ({traceData.conversation_history.length})</CardTitle>
-                  </CardHeader>
-                  <CardContent className="space-y-2 max-h-52 overflow-y-auto">
-                    {traceData.conversation_history.length === 0 ? (
-                      <p className="text-xs text-muted-foreground">会話履歴は保存されていません</p>
-                    ) : (
-                      traceData.conversation_history.map((item, idx) => (
-                        <div key={idx} className="rounded-md border p-2">
-                          <p className="text-[11px] text-muted-foreground mb-1">
-                            {String(item.role || 'unknown')} #{idx + 1}
-                          </p>
-                          <pre className="text-[11px] whitespace-pre-wrap break-words leading-5">
-                            {extractConversationText(item)}
-                          </pre>
-                        </div>
-                      ))
-                    )}
-                  </CardContent>
-                </Card>
-
-                <Card>
-                  <CardHeader className="pb-2">
-                    <CardTitle className="text-sm">レスポンス別トークン (LLM Calls)</CardTitle>
-                  </CardHeader>
-                  <CardContent className="overflow-x-auto">
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead className="text-xs">日時</TableHead>
-                          <TableHead className="text-xs">モデル</TableHead>
-                          <TableHead className="text-xs text-right">Input</TableHead>
-                          <TableHead className="text-xs text-right">Output</TableHead>
-                          <TableHead className="text-xs text-right">Cached</TableHead>
-                          <TableHead className="text-xs text-right">Reasoning</TableHead>
-                          <TableHead className="text-xs text-right">Total</TableHead>
-                          <TableHead className="text-xs text-right">Cost</TableHead>
-                          <TableHead className="text-xs">Response ID</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {traceLlmCalls.length === 0 ? (
-                          <TableRow>
-                            <TableCell colSpan={9} className="text-xs text-center text-muted-foreground">
-                              LLM callログがありません
-                            </TableCell>
-                          </TableRow>
-                        ) : (
-                          traceLlmCalls.map((call) => (
-                            <TableRow key={call.id}>
-                              <TableCell className="text-xs whitespace-nowrap">{formatDate(call.called_at)}</TableCell>
-                              <TableCell className="text-xs font-mono">{shortenModel(call.model_name)}</TableCell>
-                              <TableCell className="text-xs text-right tabular-nums">{formatNumber(call.prompt_tokens)}</TableCell>
-                              <TableCell className="text-xs text-right tabular-nums">{formatNumber(call.completion_tokens)}</TableCell>
-                              <TableCell className="text-xs text-right tabular-nums">{formatNumber(call.cached_tokens)}</TableCell>
-                              <TableCell className="text-xs text-right tabular-nums">{formatNumber(call.reasoning_tokens)}</TableCell>
-                              <TableCell className="text-xs text-right tabular-nums font-medium">{formatNumber(call.total_tokens)}</TableCell>
-                              <TableCell className="text-xs text-right tabular-nums">{formatUsd(call.estimated_cost_usd)}</TableCell>
-                              <TableCell className="text-[11px] font-mono" title={call.api_response_id || '-'}>
-                                {formatResponseId(call.api_response_id)}
-                              </TableCell>
-                            </TableRow>
-                          ))
-                        )}
-                      </TableBody>
-                    </Table>
-                  </CardContent>
-                </Card>
-
-                <Card>
-                  <CardHeader className="pb-2">
-                    <CardTitle className="text-sm">ツール呼び出し詳細</CardTitle>
-                  </CardHeader>
-                  <CardContent className="overflow-x-auto">
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead className="text-xs">日時</TableHead>
-                          <TableHead className="text-xs">Tool</TableHead>
-                          <TableHead className="text-xs">Status</TableHead>
-                          <TableHead className="text-xs text-right">実行時間</TableHead>
-                          <TableHead className="text-xs">入力</TableHead>
-                          <TableHead className="text-xs">出力</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {traceToolCalls.length === 0 ? (
-                          <TableRow>
-                            <TableCell colSpan={6} className="text-xs text-center text-muted-foreground">
-                              Tool callログがありません
-                            </TableCell>
-                          </TableRow>
-                        ) : (
-                          traceToolCalls.map((tool) => (
-                            <TableRow key={tool.id}>
-                              <TableCell className="text-xs whitespace-nowrap">{formatDate(tool.called_at)}</TableCell>
-                              <TableCell className="text-xs font-mono">{tool.tool_name}</TableCell>
-                              <TableCell className="text-xs">{tool.status}</TableCell>
-                              <TableCell className="text-xs text-right tabular-nums">
-                                {tool.execution_time_ms ? `${tool.execution_time_ms}ms` : '-'}
-                              </TableCell>
-                              <TableCell className="text-[11px]">
-                                <pre className="whitespace-pre-wrap break-words">{toJsonPreview(tool.input_parameters, 180)}</pre>
-                              </TableCell>
-                              <TableCell className="text-[11px]">
-                                <pre className="whitespace-pre-wrap break-words">{toJsonPreview(tool.output_data, 180)}</pre>
-                              </TableCell>
-                            </TableRow>
-                          ))
-                        )}
-                      </TableBody>
-                    </Table>
-                  </CardContent>
-                </Card>
-
-                <Card>
-                  <CardHeader className="pb-2">
-                    <CardTitle className="text-sm">時系列イベント ({traceData.trace_events.length})</CardTitle>
-                  </CardHeader>
-                  <CardContent className="overflow-x-auto max-h-[340px]">
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead className="text-xs text-right">Seq</TableHead>
-                          <TableHead className="text-xs">時刻</TableHead>
-                          <TableHead className="text-xs">Event</TableHead>
-                          <TableHead className="text-xs">Tool/Model</TableHead>
-                          <TableHead className="text-xs text-right">Tokens</TableHead>
-                          <TableHead className="text-xs">Message</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {traceData.trace_events.length === 0 ? (
-                          <TableRow>
-                            <TableCell colSpan={6} className="text-xs text-center text-muted-foreground">
-                              追加トレースイベントはありません
-                            </TableCell>
-                          </TableRow>
-                        ) : (
-                          traceData.trace_events.map((ev) => (
-                            <TableRow key={ev.id}>
-                              <TableCell className="text-xs text-right tabular-nums">{ev.event_sequence}</TableCell>
-                              <TableCell className="text-xs whitespace-nowrap">{formatDate(ev.created_at)}</TableCell>
-                              <TableCell className="text-xs font-mono">{ev.event_type}</TableCell>
-                              <TableCell className="text-[11px]">
-                                {ev.tool_name || ev.model_name || '-'}
-                              </TableCell>
-                              <TableCell className="text-xs text-right tabular-nums">
-                                {ev.total_tokens > 0 ? formatNumber(ev.total_tokens) : '-'}
-                              </TableCell>
-                              <TableCell className="text-[11px]">
-                                <pre className="whitespace-pre-wrap break-words">
-                                  {ev.message_text || toJsonPreview(ev.input_payload, 120)}
-                                </pre>
-                              </TableCell>
-                            </TableRow>
-                          ))
-                        )}
-                      </TableBody>
-                    </Table>
-                  </CardContent>
-                </Card>
-              </>
-            ) : (
-              <div className="py-10 text-center text-sm text-muted-foreground">
-                プロセスを選択してください
-              </div>
-            )}
-          </div>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }
