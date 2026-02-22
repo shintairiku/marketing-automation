@@ -3,9 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev --turbopack",
-    "build": "NEXT_BUILD_DIR=.next-build next build",
-    "start": "NEXT_BUILD_DIR=.next-build next start",
+    "dev": "NEXT_DEV_DIR=.next-dev next dev --turbopack",
+    "build": "next build",
+    "start": "next start",
     "lint": "next lint",
     "stripe:listen": "stripe listen --forward-to=localhost:3000/api/webhooks",
     "generate-types": "npx supabase gen types typescript --project-id wptklzekgtduiluwzhap --schema public > src/libs/supabase/types.ts",

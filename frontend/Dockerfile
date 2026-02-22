@@ -57,7 +57,7 @@ ENV NODE_ENV production
 # RUN npm install -g bun
 
 # standalone 出力に必要なファイルを builder ステージからコピー
-COPY --from=builder --chown=node:node /app/.next-build/standalone ./
+COPY --from=builder --chown=node:node /app/.next/standalone ./
 # COPY --from=builder /app/public ./public # この行を削除 (standaloneに含まれるため)
 # COPY --from=builder --chown=node:node /app/.next/static ./.next/static # この行も削除 (standaloneに含まれるため)
 
