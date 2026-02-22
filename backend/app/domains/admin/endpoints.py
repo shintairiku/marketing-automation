@@ -2,6 +2,7 @@
 """
 Admin domain API endpoints
 """
+
 from fastapi import APIRouter, Depends, HTTPException
 import logging
 
@@ -20,6 +21,7 @@ from app.domains.admin.schemas import (
     RecentActivityResponse,
     UserUsageItem,
     BlogUsageItem,
+    BlogUsageTraceResponse,
     PlanTierRead,
     PlanTierListResponse,
     CreatePlanTierRequest,
@@ -128,7 +130,9 @@ async def get_generation_trend(
         raise HTTPException(status_code=500, detail="Failed to get generation trend")
 
 
-@router.get("/stats/subscription-distribution", response_model=SubscriptionDistributionResponse)
+@router.get(
+    "/stats/subscription-distribution", response_model=SubscriptionDistributionResponse
+)
 async def get_subscription_distribution(
     admin_email: str = Depends(get_admin_user_email_from_token),
 ):
@@ -182,6 +186,25 @@ async def get_blog_usage(
     except Exception as e:
         logger.error(f"Error getting blog usage: {e}")
         raise HTTPException(status_code=500, detail="Failed to get blog usage")
+
+
+@router.get("/usage/blog/{process_id}/trace", response_model=BlogUsageTraceResponse)
+async def get_blog_usage_trace(
+    process_id: str,
+    admin_email: str = Depends(get_admin_user_email_from_token),
+):
+    """Get detailed trace for one blog process (admin only)"""
+    logger.info(f"Admin user {admin_email} requested blog usage trace: {process_id}")
+    try:
+        detail = admin_service.get_blog_usage_trace(process_id=process_id)
+        if not detail:
+            raise HTTPException(status_code=404, detail="Blog process not found")
+        return detail
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting blog usage trace for {process_id}: {e}")
+        raise HTTPException(status_code=500, detail="Failed to get blog usage trace")
 
 
 @router.patch("/users/{user_id}/privilege", response_model=UserUpdateResponse)
@@ -266,8 +289,7 @@ async def grant_articles(
         result = usage_service.grant_articles(user_id=user_id, amount=request.amount)
         if not result:
             raise HTTPException(
-                status_code=404,
-                detail="User not found or no usage tracking record"
+                status_code=404, detail="User not found or no usage tracking record"
             )
         return GrantArticlesResponse(
             success=True,
@@ -366,7 +388,9 @@ async def apply_plan_tier(
     admin_email: str = Depends(get_admin_user_email_from_token),
 ):
     """Apply tier limits to all active users with this tier (admin only)"""
-    logger.info(f"Admin user {admin_email} applying plan tier {tier_id} to active users")
+    logger.info(
+        f"Admin user {admin_email} applying plan tier {tier_id} to active users"
+    )
     try:
         return admin_service.apply_tier_to_active_users(tier_id)
     except ValueError as e:

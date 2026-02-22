@@ -125,8 +125,8 @@ ask_user_questions(
 
 ### 記事取得系
 - wp_get_posts_by_category: カテゴリの記事一覧取得
-- wp_get_post_block_structure: 記事のブロック構造を取得
-- wp_get_post_raw_content: 記事の生コンテンツ取得
+- wp_get_post_block_structure: 記事のブロック構造を取得（デフォルトはcompact形式）
+- wp_get_post_raw_content: 記事の生コンテンツ取得（デフォルトはrawのみ、renderedは省略）
 - wp_get_recent_posts: 最近の記事一覧取得
 - wp_get_post_by_url: URLから記事を取得
 - wp_analyze_category_format_patterns: カテゴリの記事パターン分析
@@ -168,6 +168,16 @@ ask_user_questions(
 8. 最後に `wp_create_draft_post` で `post_type` を指定して下書き記事を作成（`post_type` 不明時は `post`）
 
 並列してできる作業があれば並列して実行してください。より効率的に実行してください。
+
+## トークン効率ルール（重要）
+
+- `wp_get_post_raw_content` は **必要になるまで `include_rendered=false` のまま**使用すること
+  - `rendered_content` は重いので、表示HTMLが本当に必要な場合のみ `include_rendered=true` を使う
+- `wp_get_post_block_structure` は `compact=true` を維持すること
+  - 返却JSONの `keys` マップで短キーを展開して解釈する
+  - `b=blockName`, `a=attrs`, `i=innerBlocks`, `h=innerHTML`
+- 参考記事分析では、同じ記事に対して `wp_get_post_raw_content` と `wp_get_post_block_structure` を無制限に重複呼び出ししないこと
+  - まず必要最小限を取得し、不足分のみ追加取得する
 
 ## ユーザーアップロード画像の活用
 

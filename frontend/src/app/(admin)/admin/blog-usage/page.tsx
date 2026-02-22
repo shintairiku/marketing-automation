@@ -1,16 +1,17 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
 import {
   Activity,
   ArrowUpDown,
   ChevronDown,
   Database,
   DollarSign,
+  Eye,
   FileText,
   Hash,
   Info,
-  Loader2,
   RefreshCw,
   TrendingUp,
 } from 'lucide-react';
@@ -74,6 +75,7 @@ interface BlogUsageItem {
   tool_calls: number;
   models: string[];
 }
+
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -236,6 +238,7 @@ export default function AdminBlogUsagePage() {
     }
   }, [getToken, days]);
 
+
   useEffect(() => {
     fetchData();
   }, [fetchData]);
@@ -342,6 +345,7 @@ export default function AdminBlogUsagePage() {
       return av < bv ? 1 : -1;
     });
   }, [items, sortKey, sortDir]);
+
 
   const handleSort = (key: typeof sortKey) => {
     if (sortKey === key) {
@@ -724,6 +728,7 @@ export default function AdminBlogUsagePage() {
                     <TableHead className="text-xs text-right">キャッシュ</TableHead>
                     <TableHead className="text-xs text-right">ツール</TableHead>
                     <TableHead className="text-xs">モデル</TableHead>
+                    <TableHead className="text-xs text-right">詳細</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -775,6 +780,14 @@ export default function AdminBlogUsagePage() {
                           ))}
                         </div>
                       </TableCell>
+                      <TableCell className="text-right">
+                        <Button size="sm" variant="outline" className="h-7 px-2 text-[11px]" asChild>
+                          <Link href={`/admin/blog-usage/${item.process_id}`}>
+                            <Eye className="h-3 w-3 mr-1" />
+                            詳細
+                          </Link>
+                        </Button>
+                      </TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
@@ -783,6 +796,7 @@ export default function AdminBlogUsagePage() {
           )}
         </CardContent>
       </Card>
+
     </div>
   );
 }
