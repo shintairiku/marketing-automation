@@ -37,7 +37,7 @@ STRIPE_CMD := stripe listen --forward-to localhost:3000/api/subscription/webhook
 # Supabase port (from supabase/config.toml)
 SUPABASE_API_PORT := 15421
 
-.PHONY: dev frontend backend supabase stripe stop lint build check help
+.PHONY: dev frontend backend supabase stripe stop lint build check fix help
 
 # ---------------------------------------------------------------------------
 # Main targets
@@ -102,10 +102,13 @@ stop:
 
 ## Run lint checks (frontend ESLint + backend ruff)
 lint:
-	@echo "=== Backend lint (ruff) ==="
-	@cd $(BACK_DIR) && uv run python -m ruff check app
+	@echo "=== Backend: ruff check ==="
+	@cd $(BACK_DIR) && uv run ruff check app
 	@echo ""
-	@echo "=== Frontend lint (ESLint) ==="
+	@echo "=== Backend: ruff format --check ==="
+	@cd $(BACK_DIR) && uv run ruff format --check app || true
+	@echo ""
+	@echo "=== Frontend: ESLint ==="
 	@cd $(FRONT_DIR) && bun run lint
 
 ## Run frontend production build
@@ -116,6 +119,14 @@ build:
 check: lint build
 	@echo ""
 	@echo "All checks passed."
+
+## Auto-fix: ruff format + lint fix
+fix:
+	@echo "=== Backend: ruff format ==="
+	@cd $(BACK_DIR) && uv run ruff format app
+	@echo ""
+	@echo "=== Backend: ruff fix ==="
+	@cd $(BACK_DIR) && uv run ruff check --fix app
 
 # ---------------------------------------------------------------------------
 # Help
@@ -135,6 +146,7 @@ help:
 	@echo "    make stop             Stop Supabase containers"
 	@echo ""
 	@echo "  Quality:"
-	@echo "    make lint             Run frontend + backend lint"
+	@echo "    make lint             Run ruff check/format + ESLint"
 	@echo "    make build            Run frontend production build"
 	@echo "    make check            Run lint + build (pre-push)"
+	@echo "    make fix              Auto-fix: ruff format + ruff --fix"
