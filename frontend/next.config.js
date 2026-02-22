@@ -1,5 +1,8 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  // dev (.next) と build (.next-build) で出力先を分離し、
+  // bun run dev 中に bun run build しても dev が壊れないようにする。
+  distDir: process.env.NEXT_BUILD_DIR || '.next',
   images: {
     remotePatterns: [
       {
