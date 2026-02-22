@@ -279,7 +279,12 @@ class WordPressMcpClient:
 
             # structuredContentがあればそれを返す、なければtextを返す
             if result.get("structuredContent"):
-                return json.dumps(result["structuredContent"], ensure_ascii=False, indent=2)
+                # LLM入力トークン削減のため、空白を含まないJSONで返す
+                return json.dumps(
+                    result["structuredContent"],
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                )
 
             content = result.get("content", [])
             if content and len(content) > 0 and content[0].get("text"):
