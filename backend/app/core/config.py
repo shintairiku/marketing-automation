@@ -125,7 +125,7 @@ class Settings(BaseSettings):
     blog_generation_max_turns: int = Field(default_factory=lambda: int(os.getenv("BLOG_GENERATION_MAX_TURNS", "100")))
     blog_generation_parallel_tool_calls: bool = Field(default_factory=lambda: os.getenv("BLOG_GENERATION_PARALLEL_TOOL_CALLS", "true").lower() == "true")
     blog_prompt_cache_enabled: bool = Field(default_factory=lambda: os.getenv("BLOG_PROMPT_CACHE_ENABLED", "true").lower() == "true")
-    blog_prompt_cache_scope: str = Field(default_factory=lambda: os.getenv("BLOG_PROMPT_CACHE_SCOPE", "process"))
+    blog_prompt_cache_scope: str = Field(default_factory=lambda: os.getenv("BLOG_PROMPT_CACHE_SCOPE", "global"))
     blog_prompt_cache_key_version: str = Field(default_factory=lambda: os.getenv("BLOG_PROMPT_CACHE_KEY_VERSION", "v1"))
     blog_prompt_cache_retention_24h: bool = Field(default_factory=lambda: os.getenv("BLOG_PROMPT_CACHE_RETENTION_24H", "true").lower() == "true")
     credential_encryption_key: str = Field(default_factory=lambda: os.getenv("CREDENTIAL_ENCRYPTION_KEY", ""))

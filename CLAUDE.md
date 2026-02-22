@@ -2661,6 +2661,80 @@ CONTACT_NOTIFICATION_EMAIL=admin@yourdomain.com
 **実行コマンド**:
 - `cd frontend && bunx eslint "src/app/(admin)/admin/blog-usage/[processId]/page.tsx"`
 
+### 48. Prompt Caching 根本最適化 — グローバルスコープ化 & モダリティ分離廃止 (2026-02-22)
+
+**背景**:
+- 実データ分析で4プロセスのキャッシュヒット率が 26-66%（平均 ~45%）と低かった
+- 特に2回目の実行（ユーザー回答後の continue_generation）で 0% になるケースが頻発
+- gpt-5.2 はキャッシュ入力 90% 割引（$1.75 → $0.175/Mトークン）のため、改善の経済効果が大きい
+
+**根本原因（大規模調査で特定）**:
+
+1. **`prompt_cache_key` のスコープが `process`**: 各プロセスが固有キーを持つため、プロセス間でキャッシュが共有されない。全Blog AIリクエストで tools + instructions プレフィックス（~12,000+トークン）は同一なのに、プロセスごとに異なるサーバーにルーティングされていた
+2. **modality（text/image）でキーを分割**: 画像付きリクエストが別サーバーにルーティングされ、キャッシュが不必要に分断。キャッシュはプレフィックス一致で動作し、tools + instructions プレフィックスはモダリティに関係なく同一
+3. **gpt-5.2 は `prompt_cache_key` 必須**: テストで実証。`prompt_cache_key` なしだと gpt-5.2 は自動キャッシュされない（gpt-5-mini は自動で機能する）
+
+**公式仕様の検証結果**:
+- `instructions` パラメータと `developer` ロールメッセージは **キャッシュ的に完全同一**（テストで実証、同じプレフィックスを共有）
+- `prompt_cache_key` は **サーバールーティング** に影響（同一キー → 同一サーバー → キャッシュヒット率向上）
+- `prompt_cache_key` が異なると、内容が同一でも **キャッシュミス**（隔離されたバケット）
+- Agents SDK は内部の全ターンで `extra_body`（`prompt_cache_key` 含む）を正しく伝搬（SDK ソース確認済み）
+- 最小キャッシュ閾値: 1024 トークン、128 トークン刻みでプレフィックス一致
+- `prompt_cache_retention='24h'`: キャッシュ保持を最大24時間に延長
+
+**変更内容**:
+
+| ファイル | 変更 |
+|---------|------|
+| `backend/app/core/config.py` | `BLOG_PROMPT_CACHE_SCOPE` デフォルトを `"process"` → `"global"` に変更 |
+| `backend/app/domains/blog/services/generation_service.py` | `_build_prompt_cache_key()` から `has_images` パラメータとモダリティ分岐を削除 |
+| 同上 | `_build_run_model_settings()` から `has_images` パラメータを削除 |
+| 同上 | `_build_blog_run_config()` から `has_images` パラメータを削除 |
+| 同上 | `run_generation()` / `continue_generation()` から `has_images` 変数と `_input_has_images()` 呼び出しを削除 |
+| 同上 | `_input_has_images()` メソッドを削除（未参照） |
+| 同上 | キー生成のフォールバックスコープを `"site"` → `"global"` に変更 |
+
+**キーの変化**:
+- 旧: `bai:v1:gpt-5.2:p:txt:HASH1` (process/site ごとに異なるキー、modality で分岐)
+- 新: `bai:v1:gpt-5.2:g:HASH2` (全Blog AIリクエストで同一キー)
+
+**実測テスト結果（gpt-5.2、実際の BLOG_WRITER_INSTRUCTIONS 使用）**:
+| リクエスト | input_tokens | cached_tokens | ヒット率 |
+|-----------|-------------|--------------|---------|
+| 1 (コールドスタート) | 2,791 | 0 | 0.0% |
+| 2 (ウォームアップ後) | 2,793 | 2,688 | **96.2%** |
+| 3 (別プロセス、同一キー) | 2,791 | 2,560 | **91.7%** |
+| 4 (previous_response_id) | 2,867 | 2,688 | **93.8%** |
+| **合計** | 11,242 | 7,936 | **70.6%** (コールドスタート含む) |
+| **コスト削減** | | | **63.5%** |
+
+**本番でのキャッシュ率予測**:
+- 22ツールのスキーマ定義（~8,000-15,000トークン）が追加のキャッシュ対象プレフィックスに
+- 2回目以降のリクエストでは tools + instructions プレフィックス全体がキャッシュヒット
+- **推定キャッシュ率: 80-95%**（コールドスタートを除く）
+- **推定コスト削減: 60-80%**（入力トークンコスト）
+
+**OpenAI Prompt Caching 重要な技術知見**:
+
+| 項目 | 詳細 | ソース |
+|------|------|--------|
+| `instructions` vs `developer` | キャッシュ的に同一。同じプレフィックスを共有 | 実測テスト |
+| gpt-5.2 自動キャッシュ | **されない**。`prompt_cache_key` 必須 | 実測テスト |
+| gpt-5-mini 自動キャッシュ | される。`prompt_cache_key` なしでも95%+ | 実測テスト |
+| `prompt_cache_key` 隔離 | 異なるキー = 異なるバケット。内容同一でもキャッシュミス | 実測テスト |
+| 最小閾値 | 1024 トークン。以下はキャッシュされない | OpenAI公式 |
+| 増分単位 | 128 トークン刻みでプレフィックス一致 | OpenAI公式 |
+| `previous_response_id` との組み合わせ | `instructions` は持ち越されない（毎回再送）が、キャッシュは効く | SDK docstring + 実測 |
+| RPM上限 | prefix + key あたり ~15 RPM 以下が推奨 | OpenAI公式 |
+| 料金割引 | gpt-5系: 90%、gpt-4.1系: 75%、gpt-4o系: 50% | OpenAI pricing |
+
+**情報ソース**:
+- https://developers.openai.com/api/docs/guides/prompt-caching/
+- https://developers.openai.com/cookbook/examples/prompt_caching_201/
+- https://developers.openai.com/api/docs/pricing
+- SDK: `openai` v2.16.0 (`responses.py` L222-224, `response_create_params.py` L85-91)
+- SDK: `openai-agents` v0.7.0 (`openai_responses.py` L338-341, `run.py` L1469-1527)
+
 > ## **【最重要・再掲】記憶の更新は絶対に忘れるな**
 > **このファイルの冒頭にも書いたが、改めて念押しする。**
 > 作業が完了したら、コミットする前に、必ずこのファイルに変更内容を記録せよ。

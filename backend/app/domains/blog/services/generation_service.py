@@ -168,50 +168,38 @@ class BlogGenerationService:
     # キャッシュ最適化ヘルパー
     # ===========================================================
 
-    @staticmethod
-    def _input_has_images(agent_input: Any) -> bool:
-        """入力に input_image が含まれているかを判定する。"""
-        if not isinstance(agent_input, list):
-            return False
-        for item in agent_input:
-            content = (
-                item.get("content")
-                if isinstance(item, dict)
-                else getattr(item, "content", None)
-            )
-            if not isinstance(content, list):
-                continue
-            for part in content:
-                if isinstance(part, dict) and part.get("type") == "input_image":
-                    return True
-        return False
-
     def _build_prompt_cache_key(
         self,
         process_id: str,
         site_id: Optional[str],
-        has_images: bool,
     ) -> str:
-        """Prompt cache key を安定生成する。"""
-        scope = (settings.blog_prompt_cache_scope or "site").strip().lower()
+        """Prompt cache key を安定生成する。
+
+        prompt_cache_key はOpenAIのサーバールーティングに影響し、同一キーの
+        リクエストが同じサーバーに送られることでキャッシュヒット率が向上する。
+        キャッシュ自体はプレフィックス一致（tools + instructions）で判定されるため、
+        入力のモダリティ（テキスト/画像）はキーに含めない。
+        全Blog AIリクエストで tools + instructions プレフィックスは同一なので、
+        global スコープが最もキャッシュ効率が高い。
+        """
+        scope = (settings.blog_prompt_cache_scope or "global").strip().lower()
         if scope == "process":
             scope_part = f"process:{process_id}"
             scope_code = "p"
-        elif scope == "global":
-            scope_part = "global"
-            scope_code = "g"
-        else:
+        elif scope == "site":
             scope_part = f"site:{site_id or 'unknown'}"
             scope_code = "s"
+        else:  # global (default)
+            scope_part = "global"
+            scope_code = "g"
 
         model = (settings.blog_generation_model or "unknown").replace(":", "_")
         version = (settings.blog_prompt_cache_key_version or "v1").strip() or "v1"
-        modality = "image" if has_images else "text"
 
         # OpenAI prompt_cache_key は最大64文字。可読な短い接頭辞 + 安定ハッシュで構成する。
         canonical = (
             f"workflow=blog_generation|version={version}|model={model}|"
-            f"scope={scope_part}|modality={modality}"
+            f"scope={scope_part}"
         )
         digest = hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:24]
 
@@ -224,16 +212,14 @@ class BlogGenerationService:
 
         version_short = _slug(version, 8)
         model_short = _slug(model, 12)
-        modality_code = "img" if has_images else "txt"
 
-        key = f"bai:{version_short}:{model_short}:{scope_code}:{modality_code}:{digest}"
+        key = f"bai:{version_short}:{model_short}:{scope_code}:{digest}"
         return key[:64]
 
     def _build_run_model_settings(
         self,
         process_id: str,
         site_id: Optional[str],
-        has_images: bool,
     ) -> ModelSettings:
         """RunConfigに注入するモデル設定を構築（キャッシュ/並列ツール）。"""
         extra_body: Dict[str, Any] = {}
@@ -241,7 +227,6 @@ class BlogGenerationService:
             extra_body["prompt_cache_key"] = self._build_prompt_cache_key(
                 process_id=process_id,
                 site_id=site_id,
-                has_images=has_images,
             )
 
         prompt_cache_retention: Optional[str] = (
@@ -261,12 +246,10 @@ class BlogGenerationService:
         site_id: Optional[str],
         workflow_name: str,
         is_continuation: bool,
-        has_images: bool,
     ) -> RunConfig:
         model_settings = self._build_run_model_settings(
             process_id=process_id,
             site_id=site_id,
-            has_images=has_images,
         )
         return RunConfig(
             group_id=process_id,
@@ -364,7 +347,6 @@ class BlogGenerationService:
                 uploaded_images,
             )
 
-            has_images = self._input_has_images(input_message)
             # RunConfig設定（group_id で同一プロセスのトレースを紐付け）
             run_config = self._build_blog_run_config(
                 process_id=process_id,
@@ -372,7 +354,6 @@ class BlogGenerationService:
                 site_id=wordpress_site.get("id"),
                 workflow_name="Blog Generation",
                 is_continuation=False,
-                has_images=has_images,
             )
 
             # ログセッションを確保（ブログAI用）
@@ -481,7 +462,6 @@ class BlogGenerationService:
                 process_id=process_id,
             )
 
-            has_images = self._input_has_images(answer_content)
             # RunConfig設定（group_id で初回トレースと紐付け）
             run_config = self._build_blog_run_config(
                 process_id=process_id,
@@ -489,7 +469,6 @@ class BlogGenerationService:
                 site_id=wordpress_site.get("id"),
                 workflow_name="Blog Generation (continued)",
                 is_continuation=True,
-                has_images=has_images,
             )
 
             # ログセッションを確保（ブログAI用）
