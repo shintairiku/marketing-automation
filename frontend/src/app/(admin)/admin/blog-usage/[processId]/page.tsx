@@ -177,8 +177,11 @@ function toJsonPreview(value: unknown, max = 240): string {
   }
 }
 
-function extractConversationText(item: Record<string, unknown>): string {
-  const content = item.content;
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === 'object' && !Array.isArray(value);
+}
+
+function extractTextFromContent(content: unknown): string | null {
   if (typeof content === 'string') return content;
   if (Array.isArray(content)) {
     const texts: string[] = [];
@@ -191,7 +194,81 @@ function extractConversationText(item: Record<string, unknown>): string {
     });
     if (texts.length > 0) return texts.join('\n');
   }
-  return toJsonPreview(content, 220);
+  return null;
+}
+
+function extractConversationText(item: Record<string, unknown>): string {
+  const itemType = typeof item.type === 'string' ? item.type : undefined;
+  const role = typeof item.role === 'string' ? item.role : undefined;
+
+  const contentText = extractTextFromContent(item.content);
+  if (contentText) return contentText;
+
+  if (itemType === 'function_call') {
+    const name = typeof item.name === 'string' ? item.name : 'unknown_tool';
+    const args = item.arguments;
+    const argsText =
+      typeof args === 'string'
+        ? args
+        : args !== undefined
+          ? toJsonPreview(args, 320)
+          : '(arguments なし)';
+    return `${name}(${argsText})`;
+  }
+
+  if (itemType === 'function_call_output') {
+    const output = item.output;
+    if (typeof output === 'string') return output;
+    if (output !== undefined) return toJsonPreview(output, 320);
+    return '(tool output なし)';
+  }
+
+  if (itemType === 'reasoning') {
+    const summary = item.summary;
+    if (typeof summary === 'string' && summary.trim()) return summary;
+    if (Array.isArray(summary)) {
+      const texts: string[] = [];
+      summary.forEach((part) => {
+        if (!isRecord(part)) return;
+        const text = part.text;
+        if (typeof text === 'string' && text.trim()) texts.push(text);
+      });
+      if (texts.length > 0) return texts.join('\n');
+      return toJsonPreview(summary, 320);
+    }
+    return '(reasoning item)';
+  }
+
+  if (role) {
+    const content = item.content;
+    if (content !== undefined) return toJsonPreview(content, 220);
+  }
+
+  return toJsonPreview(item, 220);
+}
+
+function getConversationItemLabel(
+  item: Record<string, unknown>,
+  toolNameByCallId: Map<string, string>
+): string {
+  const role = typeof item.role === 'string' ? item.role : undefined;
+  if (role) return role;
+
+  const itemType = typeof item.type === 'string' ? item.type : undefined;
+  if (!itemType) return 'unknown';
+
+  if (itemType === 'function_call') {
+    const name = typeof item.name === 'string' ? item.name : 'unknown_tool';
+    return `tool_call:${name}`;
+  }
+
+  if (itemType === 'function_call_output') {
+    const callId = typeof item.call_id === 'string' ? item.call_id : undefined;
+    const toolName = callId ? toolNameByCallId.get(callId) : undefined;
+    return toolName ? `tool_output:${toolName}` : 'tool_output';
+  }
+
+  return itemType;
 }
 
 function toFullText(value: unknown): string {
@@ -277,6 +354,20 @@ export default function AdminBlogUsageDetailPage() {
       });
   }, [data]);
 
+  const conversationToolNameByCallId = useMemo(() => {
+    const map = new Map<string, string>();
+    (data?.conversation_history || []).forEach((item) => {
+      if (!item || typeof item !== 'object') return;
+      const type = typeof item.type === 'string' ? item.type : undefined;
+      const callId = typeof item.call_id === 'string' ? item.call_id : undefined;
+      const name = typeof item.name === 'string' ? item.name : undefined;
+      if (type === 'function_call' && callId && name) {
+        map.set(callId, name);
+      }
+    });
+    return map;
+  }, [data]);
+
   if (loading) {
     return (
       <div className="space-y-5">
@@ -340,14 +431,16 @@ export default function AdminBlogUsageDetailPage() {
                 <p className="text-xs text-muted-foreground">会話履歴は保存されていません</p>
               ) : (
                 data.conversation_history.map((item, idx) => {
+                  const label = getConversationItemLabel(item, conversationToolNameByCallId);
                   const fullText = extractConversationText(item);
                   const preview =
                     fullText.length > 220 ? `${fullText.slice(0, 220)}…` : fullText;
+                  const callId = typeof item.call_id === 'string' ? item.call_id : null;
                   return (
                     <div key={idx} className="rounded-md border p-2">
                       <div className="mb-1 flex items-center justify-between gap-2">
                         <p className="text-[11px] text-muted-foreground">
-                          {String(item.role || 'unknown')} #{idx + 1}
+                          {label} #{idx + 1}
                         </p>
                         <Button
                           size="sm"
@@ -355,14 +448,19 @@ export default function AdminBlogUsageDetailPage() {
                           className="h-6 px-2 text-[10px]"
                           onClick={() =>
                             openDetailViewer(
-                              `会話履歴 #${idx + 1} (${String(item.role || 'unknown')})`,
-                              fullText
+                              `会話履歴 #${idx + 1} (${label})`,
+                              item
                             )
                           }
                         >
                           全文
                         </Button>
                       </div>
+                      {callId ? (
+                        <p className="mb-1 text-[10px] text-muted-foreground font-mono">
+                          {callId}
+                        </p>
+                      ) : null}
                       <pre className="text-[11px] whitespace-pre-wrap break-words leading-5">
                         {preview}
                       </pre>

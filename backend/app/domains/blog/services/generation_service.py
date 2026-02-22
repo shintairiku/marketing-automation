@@ -8,6 +8,7 @@ Blog AI Domain - Generation Service
 """
 
 import asyncio
+import hashlib
 import json
 import time
 from collections import deque
@@ -15,7 +16,7 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional
 import httpx
 
-from agents import Runner, RunConfig
+from agents import ModelSettings, Runner, RunConfig
 from agents.stream_events import (
     AgentUpdatedStreamEvent,
     RawResponsesStreamEvent,
@@ -164,6 +165,141 @@ class BlogGenerationService:
         self._agent = build_blog_writer_agent()
 
     # ===========================================================
+    # キャッシュ最適化ヘルパー
+    # ===========================================================
+
+    @staticmethod
+    def _input_has_images(agent_input: Any) -> bool:
+        """入力に input_image が含まれているかを判定する。"""
+        if not isinstance(agent_input, list):
+            return False
+        for item in agent_input:
+            content = (
+                item.get("content")
+                if isinstance(item, dict)
+                else getattr(item, "content", None)
+            )
+            if not isinstance(content, list):
+                continue
+            for part in content:
+                if isinstance(part, dict) and part.get("type") == "input_image":
+                    return True
+        return False
+
+    def _build_prompt_cache_key(
+        self,
+        process_id: str,
+        site_id: Optional[str],
+        has_images: bool,
+    ) -> str:
+        """Prompt cache key を安定生成する。"""
+        scope = (settings.blog_prompt_cache_scope or "site").strip().lower()
+        if scope == "process":
+            scope_part = f"process:{process_id}"
+            scope_code = "p"
+        elif scope == "global":
+            scope_part = "global"
+            scope_code = "g"
+        else:
+            scope_part = f"site:{site_id or 'unknown'}"
+            scope_code = "s"
+
+        model = (settings.blog_generation_model or "unknown").replace(":", "_")
+        version = (settings.blog_prompt_cache_key_version or "v1").strip() or "v1"
+        modality = "image" if has_images else "text"
+
+        # OpenAI prompt_cache_key は最大64文字。可読な短い接頭辞 + 安定ハッシュで構成する。
+        canonical = (
+            f"workflow=blog_generation|version={version}|model={model}|"
+            f"scope={scope_part}|modality={modality}"
+        )
+        digest = hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:24]
+
+        def _slug(text: str, max_len: int) -> str:
+            cleaned = "".join(
+                ch if (ch.isalnum() or ch in "._-") else "_"
+                for ch in (text or "")
+            )
+            return (cleaned or "x")[:max_len]
+
+        version_short = _slug(version, 8)
+        model_short = _slug(model, 12)
+        modality_code = "img" if has_images else "txt"
+
+        key = f"bai:{version_short}:{model_short}:{scope_code}:{modality_code}:{digest}"
+        return key[:64]
+
+    def _build_run_model_settings(
+        self,
+        process_id: str,
+        site_id: Optional[str],
+        has_images: bool,
+    ) -> ModelSettings:
+        """RunConfigに注入するモデル設定を構築（キャッシュ/並列ツール）。"""
+        extra_body: Dict[str, Any] = {}
+        if settings.blog_prompt_cache_enabled:
+            extra_body["prompt_cache_key"] = self._build_prompt_cache_key(
+                process_id=process_id,
+                site_id=site_id,
+                has_images=has_images,
+            )
+
+        prompt_cache_retention: Optional[str] = (
+            "24h" if settings.blog_prompt_cache_retention_24h else None
+        )
+
+        return ModelSettings(
+            parallel_tool_calls=settings.blog_generation_parallel_tool_calls,
+            prompt_cache_retention=prompt_cache_retention,
+            extra_body=extra_body or None,
+        )
+
+    def _build_blog_run_config(
+        self,
+        process_id: str,
+        user_id: str,
+        site_id: Optional[str],
+        workflow_name: str,
+        is_continuation: bool,
+        has_images: bool,
+    ) -> RunConfig:
+        model_settings = self._build_run_model_settings(
+            process_id=process_id,
+            site_id=site_id,
+            has_images=has_images,
+        )
+        return RunConfig(
+            group_id=process_id,
+            workflow_name=workflow_name,
+            trace_metadata={
+                "process_id": process_id,
+                "user_id": user_id,
+                "site_id": site_id,
+                "is_continuation": str(is_continuation).lower(),
+            },
+            model_settings=model_settings,
+        )
+
+    @staticmethod
+    def _extract_cache_metadata_from_run_config(run_config: RunConfig) -> Dict[str, Any]:
+        model_settings = getattr(run_config, "model_settings", None)
+        extra_body = getattr(model_settings, "extra_body", None) if model_settings else None
+        prompt_cache_key = None
+        if isinstance(extra_body, dict):
+            prompt_cache_key = extra_body.get("prompt_cache_key")
+        return {
+            "prompt_cache_key": prompt_cache_key,
+            "prompt_cache_retention": getattr(
+                model_settings, "prompt_cache_retention", None
+            )
+            if model_settings
+            else None,
+            "parallel_tool_calls": getattr(model_settings, "parallel_tool_calls", None)
+            if model_settings
+            else None,
+        }
+
+    # ===========================================================
     # 公開メソッド
     # ===========================================================
 
@@ -228,15 +364,15 @@ class BlogGenerationService:
                 uploaded_images,
             )
 
+            has_images = self._input_has_images(input_message)
             # RunConfig設定（group_id で同一プロセスのトレースを紐付け）
-            run_config = RunConfig(
-                group_id=process_id,
+            run_config = self._build_blog_run_config(
+                process_id=process_id,
+                user_id=user_id,
+                site_id=wordpress_site.get("id"),
                 workflow_name="Blog Generation",
-                trace_metadata={
-                    "process_id": process_id,
-                    "user_id": user_id,
-                    "site_id": wordpress_site["id"],
-                },
+                is_continuation=False,
+                has_images=has_images,
             )
 
             # ログセッションを確保（ブログAI用）
@@ -345,16 +481,15 @@ class BlogGenerationService:
                 process_id=process_id,
             )
 
+            has_images = self._input_has_images(answer_content)
             # RunConfig設定（group_id で初回トレースと紐付け）
-            run_config = RunConfig(
-                group_id=process_id,
+            run_config = self._build_blog_run_config(
+                process_id=process_id,
+                user_id=user_id,
+                site_id=wordpress_site.get("id"),
                 workflow_name="Blog Generation (continued)",
-                trace_metadata={
-                    "process_id": process_id,
-                    "user_id": user_id,
-                    "site_id": wordpress_site["id"],
-                    "is_continuation": "true",
-                },
+                is_continuation=True,
+                has_images=has_images,
             )
 
             # ログセッションを確保（ブログAI用）
@@ -988,12 +1123,14 @@ class BlogGenerationService:
             # ========================================
             # LLM使用量ログ
             # ========================================
+            cache_config = self._extract_cache_metadata_from_run_config(run_config)
             self._finalize_execution_logging(
                 result=result,
                 execution_id=execution_id,
                 logging_service=logging_service,
                 started_at=execution_start,
                 usage_entries_from_stream=response_usage_entries,
+                cache_config=cache_config,
             )
 
             self._flush_trace_events(trace_events)
@@ -2134,6 +2271,7 @@ class BlogGenerationService:
         logging_service: Optional[Any],
         started_at: float,
         usage_entries_from_stream: Optional[List[Dict[str, Any]]] = None,
+        cache_config: Optional[Dict[str, Any]] = None,
     ) -> None:
         if not execution_id or not logging_service:
             return
@@ -2186,26 +2324,42 @@ class BlogGenerationService:
             if usage_entries:
                 for i, entry in enumerate(usage_entries):
                     cost = self._estimate_cost(entry)
+                    input_tokens = int(entry.get("input_tokens", 0))
+                    cached_tokens = int(entry.get("cached_tokens", 0))
+                    cache_hit_rate = (
+                        round((cached_tokens / input_tokens) * 100, 2)
+                        if input_tokens > 0
+                        else 0.0
+                    )
                     logging_service.create_llm_call_log(
                         execution_id=execution_id,
                         call_sequence=i + 1,
                         api_type="responses_api",
                         model_name=entry.get("model") or settings.blog_generation_model,
                         provider="openai",
-                        prompt_tokens=int(entry.get("input_tokens", 0)),
+                        prompt_tokens=input_tokens,
                         completion_tokens=int(entry.get("output_tokens", 0)),
                         total_tokens=int(entry.get("total_tokens", 0) or 0),
-                        cached_tokens=int(entry.get("cached_tokens", 0)),
+                        cached_tokens=cached_tokens,
                         reasoning_tokens=int(entry.get("reasoning_tokens", 0)),
                         estimated_cost_usd=cost,
                         api_response_id=entry.get("response_id"),
                         response_data={
                             "usage_source": usage_source,
                             "response_id": entry.get("response_id"),
+                            "cache_hit_rate": cache_hit_rate,
+                            "cache_config": cache_config or {},
                         },
                     )
             elif usage_summary:
                 cost = self._estimate_cost(usage_summary)
+                input_tokens = int(usage_summary.get("input_tokens", 0))
+                cached_tokens = int(usage_summary.get("cached_tokens", 0))
+                cache_hit_rate = (
+                    round((cached_tokens / input_tokens) * 100, 2)
+                    if input_tokens > 0
+                    else 0.0
+                )
                 logging_service.create_llm_call_log(
                     execution_id=execution_id,
                     call_sequence=1,
@@ -2213,16 +2367,18 @@ class BlogGenerationService:
                     model_name=usage_summary.get("model")
                     or settings.blog_generation_model,
                     provider="openai",
-                    prompt_tokens=int(usage_summary.get("input_tokens", 0)),
+                    prompt_tokens=input_tokens,
                     completion_tokens=int(usage_summary.get("output_tokens", 0)),
                     total_tokens=int(usage_summary.get("total_tokens", 0)),
-                    cached_tokens=int(usage_summary.get("cached_tokens", 0)),
+                    cached_tokens=cached_tokens,
                     reasoning_tokens=int(usage_summary.get("reasoning_tokens", 0)),
                     estimated_cost_usd=cost,
                     api_response_id=usage_summary.get("response_id"),
                     response_data={
                         "usage_source": usage_source,
                         "response_id": usage_summary.get("response_id"),
+                        "cache_hit_rate": cache_hit_rate,
+                        "cache_config": cache_config or {},
                     },
                 )
         except Exception as e:

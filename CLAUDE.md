@@ -2585,6 +2585,82 @@ CONTACT_NOTIFICATION_EMAIL=admin@yourdomain.com
 - `cd backend && PYTHONPATH=. uv run python - <<'PY' ... 実ツール呼び出し比較スクリプト ... PY`
 - `cd backend && uv run ruff check app/domains/blog/agents/tools.py app/domains/blog/agents/definitions.py app/domains/blog/services/wordpress_mcp_service.py`
 
+### 46. Prompt Caching 最大化の実装（Blog AI / Responses API）(2026-02-22)
+
+**背景**:
+- `cached_tokens=0` が一部ターンで発生し、キャッシュ効果が不安定だった。
+- 実DB（`process_id=cd1abfe9-9a13-4cc9-881b-e0e28dacf1ea`）で `llm_call_logs` を確認すると、同一実行内でも `0%` と `80%+` が混在。
+- 公式仕様に沿って、`prompt_cache_key` の明示・保持期間設定・観測メタデータ追加を実施。
+
+**公式根拠**:
+- Prompt caching は先頭プレフィックス一致ベースで、`prompt_cache_key` はヒット率最適化に有効。
+- `prompt_cache_retention=24h` で保持期間を延長できる。
+- Responses API / Agents SDK では `ModelSettings.extra_body` と `prompt_cache_retention` 経由で設定可能。
+
+**実装内容**:
+1. `backend/app/domains/blog/services/generation_service.py`
+   - `RunConfig` 生成を共通化: `_build_blog_run_config()`
+   - キャッシュ設定付き `ModelSettings` を注入: `_build_run_model_settings()`
+   - 安定 `prompt_cache_key` を生成: `_build_prompt_cache_key()`
+   - 入力が画像付きかを判定して cache key に反映: `_input_has_images()`
+   - `llm_call_logs.response_data` に以下を追加:
+     - `cache_hit_rate`
+     - `cache_config.prompt_cache_key`
+     - `cache_config.prompt_cache_retention`
+     - `cache_config.parallel_tool_calls`
+2. `backend/app/core/config.py`
+   - 追加環境変数:
+     - `BLOG_GENERATION_PARALLEL_TOOL_CALLS` (default: `true`)
+     - `BLOG_PROMPT_CACHE_ENABLED` (default: `true`)
+     - `BLOG_PROMPT_CACHE_SCOPE` (default: `site`)
+     - `BLOG_PROMPT_CACHE_KEY_VERSION` (default: `v1`)
+     - `BLOG_PROMPT_CACHE_RETENTION_24H` (default: `true`)
+3. `backend/testing/analyze_blog_prompt_cache.py` を新規追加
+   - プロセス単位で `llm_call_logs` の cache hit 率を可視化
+   - 各レスポンスの `in/cache/out/reasoning/hit%` を時系列表示
+   - `response_data.cache_config` も確認可能
+
+**期待効果**:
+- 同一サイト・同一ワークフローでのキャッシュ命中率を安定化
+- `parallel_tool_calls` 明示化で依存のないツールを同一ターンで実行しやすくし、ターン数増加を抑制
+- 「なぜそのターンが `cached=0` だったか」をDBログから追跡可能に
+
+**実行コマンド**:
+- `cd backend && uv run ruff check app/core/config.py app/domains/blog/services/generation_service.py testing/analyze_blog_prompt_cache.py`
+- `cd backend && PYTHONPATH=. uv run python testing/analyze_blog_prompt_cache.py cd1abfe9-9a13-4cc9-881b-e0e28dacf1ea`
+
+**追記（2026-02-22 hotfix）**:
+- `prompt_cache_key` を可読文字列連結で生成した結果、OpenAI の上限64文字を超えて `400 invalid_request_error` が発生。
+- `generation_service.py` の `_build_prompt_cache_key()` を修正し、`可読な短い接頭辞 + SHA-256ハッシュ(24hex)` 方式に変更。
+- `site/process/global` + `text/image` の差分は維持しつつ、常時64文字以下（実測45文字）を保証。
+- 続く実運用観測で `site` スコープでも途中 `cached_tokens=0` が残るケースがあったため、`backend/app/core/config.py` の既定値を `BLOG_PROMPT_CACHE_SCOPE=process` に変更（未指定時のみ適用）。
+
+### 47. 管理画面Trace詳細の会話履歴 `unknown` 表示解消（function_call / output / reasoning対応）(2026-02-22)
+
+**背景**:
+- `blog_context.conversation_history` は `result.to_input_list()` をそのまま保存しているため、`role=user/assistant` だけでなく
+  `type=reasoning`, `type=function_call`, `type=function_call_output` が大量に含まれる。
+- 管理画面詳細 `frontend/src/app/(admin)/admin/blog-usage/[processId]/page.tsx` では `item.role` のみで表示ラベルを作っていたため、
+  これらがすべて `unknown` と表示され、本文も `-` になっていた。
+
+**実DB確認（process_id=8f4b300a-a5cf-4cb4-8fff-3f1b03623f30）**:
+- `conversation_history` 32件中、`reasoning` / `function_call` / `function_call_output` が多数存在
+- 例: `wp_get_site_info`, `wp_get_post_types`, `ask_user_questions`, `wp_create_draft_post` の引数・返却が履歴内に正しく保存されている
+- つまり「ログ欠損」ではなく「UI解釈不足」が原因
+
+**UI修正**:
+- `page.tsx` に会話履歴専用の解釈ヘルパーを追加
+  - `tool_call:<name>`
+  - `tool_output:<name>`
+  - `reasoning`
+  - `assistant` / `user`
+- `function_call.arguments`, `function_call_output.output`, `reasoning.summary`, `message.content` を型別にプレビュー表示
+- `全文` ボタンはテキストではなく **履歴アイテムの生JSON** を開くよう変更（引数/返却値を正確に確認可能）
+- `function_call_output` は同一履歴内の `call_id -> tool_name` マップでツール名を補完表示
+
+**実行コマンド**:
+- `cd frontend && bunx eslint "src/app/(admin)/admin/blog-usage/[processId]/page.tsx"`
+
 > ## **【最重要・再掲】記憶の更新は絶対に忘れるな**
 > **このファイルの冒頭にも書いたが、改めて念押しする。**
 > 作業が完了したら、コミットする前に、必ずこのファイルに変更内容を記録せよ。
