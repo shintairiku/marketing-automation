@@ -1902,6 +1902,57 @@ CONTACT_NOTIFICATION_EMAIL=admin@yourdomain.com
 # SMTP_FROM_EMAIL=noreply@yourdomain.com
 ```
 
+### 32. Blog Memory フェーズ1実装 (2026-02-23)
+
+**概要**: Blogドメイン向け長期記憶（Memory）をフェーズ1として実装。`process_id` を正規IDとして扱い、`organization_id` を生成開始時に固定する運用へ統一。
+
+**バックエンド実装**
+- `backend/app/domains/blog/services/memory_service.py`（新規）
+  - `append_item`, `upsert_meta`, `search`, `run_embedding_batch`
+  - OpenAI Embedding 生成（`MEMORY_EMBED_*` 設定対応）
+  - RPCエラーを `BLOG_PROCESS_NOT_FOUND` / `ROLE_TOOL_RESULT_FORBIDDEN` 等へマッピング
+- `backend/app/domains/blog/services/memory_embedding_job.py`（新規）
+  - `run_blog_memory_embedding_job(limit)` を追加（後段ジョブ用）
+- `backend/app/domains/blog/endpoints.py`
+  - `POST /blog/generation/{process_id}/memory/items`
+  - `POST /blog/generation/{process_id}/memory/meta/upsert`
+  - `POST /blog/generation/{process_id}/memory/search`
+  - Memory API呼び出し前にアプリ層で process 所有チェック（404/403）
+  - `/blog/generation/start` で `blog_generation_state.organization_id` を `wordpress_sites.organization_id` から保存
+  - 使用量プリチェックを「ユーザー推定組織」ではなく「サイト紐づけ組織」基準へ変更
+- `backend/app/domains/blog/services/generation_service.py`
+  - Memory文脈検索を開始時プロンプトに注入
+  - `user_input` / `final_summary` のMemory保存（失敗しても本処理継続）
+  - 完了時に `memory_upsert_meta` を連携
+  - 使用量記録の `organization_id` を `blog_generation_state.organization_id` 基準へ統一
+- `backend/app/domains/blog/agents/tools.py`
+  - `memory_search`, `memory_append_item`, `memory_upsert_meta` を追加
+  - processコンテキストと引数 `process_id` の一致チェック（不一致は `FORBIDDEN`）
+  - `ask_user_questions` で processコンテキスト未設定時は `INVALID_ARGUMENT`
+- `backend/app/domains/blog/services/wordpress_mcp_service.py`
+  - 全 `wp_*` ツール呼び出し前に process/user/site の整合チェックを追加（context必須）
+
+**スキーマ / 設定**
+- `backend/app/domains/blog/schemas.py`
+  - Blog Memory API用リクエスト/レスポンスモデルを追加
+- `backend/app/core/config.py`
+  - `MEMORY_EMBED_MODEL`, `MEMORY_EMBED_DIM`, `MEMORY_EMBED_BATCH_SIZE`, `MEMORY_EMBED_MAX_RETRIES`, `MEMORY_EMBED_RETRY_BASE_SEC` を追加
+
+**DBマイグレーション**
+- `supabase/migrations/20260223113000_add_blog_memory_tables_rpc_rls.sql`（新規）
+  - `blog_memory_items`, `blog_memory_meta`
+  - `is_owner_in_scope` 関数とRLS policy
+  - RPC: `blog_memory_append_item`, `blog_memory_append_tool_result`, `blog_memory_upsert_meta`, `blog_memory_search_meta`, `blog_memory_get_items`
+  - `vector` extension と ivfflat index を追加
+
+**テスト (TDD)**
+- `backend/tests/test_blog_memory_tdd.py`（新規）
+  - Red/Greenで以下を担保:
+    - start時 `organization_id` 保存
+    - Memory APIの404エラー/成功レスポンス
+    - `tool_result` append禁止
+    - usage記録が process固定 `organization_id` を使う
+
 ### 2026-02-10 自己改善
 - **再検証の重要性**: 実装完了後のユーザー再検証要求で、`useArticles.ts` と `admin/plans/page.tsx` に `USE_PROXY` パターンが欠けているバグを発見した。最初の実装時にサーバーサイドAPI Routes (9ファイル) のみに注力し、クライアントサイドhooksの直接fetch呼び出しを見落としていた。**サーバーサイド→バックエンド通信だけでなく、ブラウザ→バックエンド通信パスも全て確認すべき。**
 - **FastAPI末尾スラッシュ + Cloud Run scheme 変換の複合問題**: `frontend/src/app/api/proxy/[...path]/route.ts` の `ensureTrailingSlash()` が `/blog/sites` を `/blog/sites/` に変換し、FastAPI (`redirect_slashes=True`) が 307 で `/blog/sites` へ戻す。さらに Cloud Run の `Location` が `http://...run.app/...` になり、プロキシがそれを手動追従すると Cloud Run 側で 302/307 が連鎖する。**手動リダイレクト追従を使う場合は、(1) 末尾スラッシュ強制をしない、(2) `Location` が `http://` でも `https://` に正規化する、の両方を実施すべき。**
