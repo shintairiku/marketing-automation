@@ -37,6 +37,7 @@ from app.domains.blog.services.wordpress_mcp_service import (
     clear_mcp_client_cache,
     set_mcp_context,
 )
+from app.domains.blog.services.memory_service import get_blog_memory_service
 try:
     from app.infrastructure.logging.service import LoggingService
     LOGGING_SERVICE_AVAILABLE = True
@@ -186,16 +187,35 @@ class BlogGenerationService:
 
             # アップロード済み画像を取得
             db_images = supabase.table("blog_generation_state").select(
-                "uploaded_images"
+                "uploaded_images, organization_id"
             ).eq("id", process_id).single().execute()
             uploaded_images = (
                 db_images.data.get("uploaded_images", [])
                 if db_images.data else []
             )
+            process_org_id = db_images.data.get("organization_id") if db_images.data else None
 
-            # 入力メッセージを構築（画像対応）
+            # Memory文脈を検索して入力メッセージへ注入
+            memory_context = await self._build_memory_context(
+                process_id=process_id,
+                query=user_prompt,
+            )
+
+            # 入力メッセージを構築（画像対応 + memory context）
             input_message = self._build_input_message(
-                user_prompt, reference_url, wordpress_site, uploaded_images,
+                user_prompt=user_prompt,
+                reference_url=reference_url,
+                wordpress_site=wordpress_site,
+                uploaded_images=uploaded_images,
+                process_id=process_id,
+                memory_context=memory_context,
+            )
+
+            # 初回入力をMemoryへ保存
+            await self._append_memory_item_safe(
+                process_id=process_id,
+                role="user_input",
+                content=user_prompt,
             )
 
             # RunConfig設定（group_id で同一プロセスのトレースを紐付け）
@@ -213,7 +233,7 @@ class BlogGenerationService:
             log_session_id = self._get_or_create_log_session(
                 process_id=process_id,
                 user_id=user_id,
-                organization_id=self._get_user_org_for_usage(user_id),
+                organization_id=process_org_id,
                 wordpress_site_id=wordpress_site.get("id"),
                 initial_input={
                     "user_prompt": user_prompt,
@@ -264,13 +284,14 @@ class BlogGenerationService:
         try:
             # 現在の状態を取得
             db_result = supabase.table("blog_generation_state").select(
-                "blog_context"
+                "blog_context, organization_id"
             ).eq("id", process_id).single().execute()
 
             if not db_result.data:
                 raise Exception("プロセスが見つかりません")
 
             blog_context = db_result.data.get("blog_context", {})
+            process_org_id = db_result.data.get("organization_id")
             conversation_history = blog_context.get("conversation_history")
             previous_response_id = blog_context.get("last_response_id")
 
@@ -308,6 +329,13 @@ class BlogGenerationService:
                 process_id=process_id,
             )
 
+            # 継続時のユーザー回答をMemoryへ保存
+            await self._append_memory_item_safe(
+                process_id=process_id,
+                role="user_input",
+                content=self._format_user_answers_for_memory(user_answers),
+            )
+
             # RunConfig設定（group_id で初回トレースと紐付け）
             run_config = RunConfig(
                 group_id=process_id,
@@ -324,7 +352,7 @@ class BlogGenerationService:
             log_session_id = self._get_or_create_log_session(
                 process_id=process_id,
                 user_id=user_id,
-                organization_id=self._get_user_org_for_usage(user_id),
+                organization_id=process_org_id,
                 wordpress_site_id=wordpress_site.get("id"),
                 initial_input={
                     "user_prompt": blog_context.get("user_prompt"),
@@ -823,6 +851,8 @@ class BlogGenerationService:
         reference_url: Optional[str],
         wordpress_site: Dict[str, Any],
         uploaded_images: Optional[List[Dict[str, Any]]] = None,
+        process_id: Optional[str] = None,
+        memory_context: Optional[str] = None,
     ) -> Any:
         """初回入力メッセージを構築（画像対応）
 
@@ -831,6 +861,8 @@ class BlogGenerationService:
             reference_url: 参考記事URL
             wordpress_site: WordPressサイト情報
             uploaded_images: アップロード済み画像情報
+            process_id: 実行中プロセスID（memory_* ツール呼び出し用）
+            memory_context: 事前検索したMemory文脈
 
         Returns:
             str: テキストのみの場合
@@ -841,6 +873,13 @@ class BlogGenerationService:
         parts = [
             f"## リクエスト\n\n{user_prompt}",
         ]
+
+        if process_id:
+            parts.append(
+                "\n## 実行コンテキスト\n\n"
+                f"- process_id: {process_id}\n"
+                "- memory_search / memory_append_item / memory_upsert_meta を使う場合はこの process_id を使用してください。"
+            )
 
         if reference_url:
             parts.append(f"\n## 参考記事URL\n\n{reference_url}")
@@ -871,12 +910,20 @@ class BlogGenerationService:
                 original = img.get("original_filename", img.get("filename", f"image_{i}"))
                 parts.append(f"- 画像{i}: {original}")
 
+        if memory_context:
+            parts.append(
+                "\n## 過去Memory検索結果\n\n"
+                f"{memory_context}\n"
+            )
+
         parts.append(
             "\n## 指示\n\n"
+            "開始時に必要なら `memory_search` で過去文脈を確認し、重要な情報を記事に反映してください。\n"
             "上記のリクエストに基づいて、WordPressブログ記事を作成してください。\n"
             "`wp_get_post_types` は未取得の場合のみ実行し、取得済みなら再利用してください。\n"
             "投稿タイプエラー（`invalid_post_type`）時のみ `wp_get_post_types` を再取得してください。\n"
-            "`wp_create_draft_post` で `post_type` を指定して下書きを保存してください。"
+            "`wp_create_draft_post` で `post_type` を指定して下書きを保存してください。\n"
+            "完了時には `memory_upsert_meta(process_id, title, short_summary)` を呼んでメタ更新してください。"
         )
 
         text_content = "\n".join(parts)
@@ -990,6 +1037,127 @@ class BlogGenerationService:
         # 画像がある場合はマルチモーダル入力を構築
         content_parts = [{"type": "input_text", "text": text_content}] + image_parts
         return [{"role": "user", "content": content_parts}]
+
+    async def _build_memory_context(self, process_id: str, query: str) -> Optional[str]:
+        """過去Memoryを検索して、入力プロンプトへ注入する簡易文脈を組み立てる。"""
+        try:
+            memory_service = get_blog_memory_service()
+            hits = await memory_service.search(
+                process_id=process_id,
+                query=query,
+                k=3,
+                include_roles=[
+                    "user_input",
+                    "assistant_output",
+                    "source",
+                    "system_note",
+                    "final_summary",
+                ],
+                time_window_days=365,
+                per_process_item_limit=5,
+            )
+            if not hits:
+                return None
+
+            lines: List[str] = []
+            for idx, hit in enumerate(hits, start=1):
+                meta = hit.get("meta", {})
+                lines.append(
+                    f"{idx}. {meta.get('title') or '(no title)'}"
+                    f" / 要約: {meta.get('short_summary') or ''}"
+                )
+                for item in (hit.get("items") or [])[:3]:
+                    role = item.get("role", "unknown")
+                    content = str(item.get("content") or "").strip()
+                    if len(content) > 200:
+                        content = content[:200] + "..."
+                    lines.append(f"   - [{role}] {content}")
+            return "\n".join(lines)
+        except Exception as e:
+            logger.warning(f"Memory context build failed for {process_id}: {e}")
+            return None
+
+    async def _append_memory_item_safe(
+        self,
+        process_id: str,
+        role: str,
+        content: str,
+    ) -> None:
+        """Memory append失敗で本処理を止めない。"""
+        try:
+            if not content or not content.strip():
+                return
+            memory_service = get_blog_memory_service()
+            await memory_service.append_item(
+                process_id=process_id,
+                role=role,
+                content=content,
+            )
+        except Exception as e:
+            logger.warning(
+                "Memory append failed (process_id=%s, role=%s): %s",
+                process_id,
+                role,
+                e,
+            )
+
+    async def _upsert_memory_meta_safe(
+        self,
+        process_id: str,
+        title: str,
+        short_summary: str,
+        draft_post_id: Optional[int],
+    ) -> None:
+        """Memory meta upsert失敗で本処理を止めない。"""
+        try:
+            memory_service = get_blog_memory_service()
+            await memory_service.upsert_meta(
+                process_id=process_id,
+                title=title,
+                short_summary=short_summary,
+                draft_post_id=draft_post_id,
+            )
+        except Exception as e:
+            logger.warning("Memory upsert failed (process_id=%s): %s", process_id, e)
+
+    @staticmethod
+    def _format_user_answers_for_memory(user_answers: Dict[str, Any]) -> str:
+        lines: List[str] = []
+        for key, value in user_answers.items():
+            if value is None:
+                continue
+            text = str(value).strip()
+            if not text:
+                continue
+            lines.append(f"{key}: {text}")
+        return "\n".join(lines)
+
+    @staticmethod
+    def _build_memory_title(output: Optional[BlogCompletionOutput]) -> str:
+        """メタ用タイトルを構造化出力から安全に生成する。"""
+        if not output or not output.summary:
+            return "ブログ生成結果"
+
+        first_line = output.summary.strip().splitlines()[0] if output.summary.strip() else "ブログ生成結果"
+        title = first_line.strip()
+        if title.startswith("#"):
+            title = title.lstrip("#").strip()
+        if len(title) > 200:
+            title = title[:200]
+        return title or "ブログ生成結果"
+
+    @staticmethod
+    def _get_process_organization_id(process_id: str) -> Optional[str]:
+        """process開始時に確定した organization_id を取得する。"""
+        try:
+            result = supabase.table("blog_generation_state").select(
+                "organization_id"
+            ).eq("id", process_id).maybe_single().execute()
+            if result.data:
+                return result.data.get("organization_id")
+            return None
+        except Exception:
+            return None
 
     # ===========================================================
     # Logging helpers
@@ -1427,9 +1595,29 @@ class BlogGenerationService:
                 },
             )
 
+        # 完了メッセージをMemoryへ保存し、メタをupsert
+        if output and output.summary:
+            await self._append_memory_item_safe(
+                process_id=process_id,
+                role="final_summary",
+                content=output.summary,
+            )
+
+        title_for_meta = self._build_memory_title(output)
+        summary_for_meta = (output.summary or "生成完了").strip()
+        if len(summary_for_meta) > 2000:
+            summary_for_meta = summary_for_meta[:2000]
+
+        await self._upsert_memory_meta_safe(
+            process_id=process_id,
+            title=title_for_meta,
+            short_summary=summary_for_meta,
+            draft_post_id=(output.post_id if output else None),
+        )
+
         # 生成成功時に使用量をカウント
         try:
-            org_id = self._get_user_org_for_usage(user_id)
+            org_id = self._get_process_organization_id(process_id)
             usage_service.record_success(
                 user_id=user_id,
                 process_id=process_id,
@@ -1438,33 +1626,6 @@ class BlogGenerationService:
             logger.info(f"Usage recorded for process {process_id}")
         except Exception as e:
             logger.error(f"Failed to record usage for process {process_id}: {e}")
-
-    @staticmethod
-    def _get_user_org_for_usage(user_id: str) -> Optional[str]:
-        """ユーザーの使用量追跡対象の組織IDを取得"""
-        try:
-            # 1. upgraded_to_org_id を確認
-            sub = supabase.table("user_subscriptions").select(
-                "upgraded_to_org_id"
-            ).eq("user_id", user_id).maybe_single().execute()
-            if sub.data and sub.data.get("upgraded_to_org_id"):
-                return sub.data["upgraded_to_org_id"]
-
-            # 2. organization_members でアクティブな組織サブスクを探す
-            memberships = supabase.table("organization_members").select(
-                "organization_id"
-            ).eq("user_id", user_id).execute()
-            if memberships.data:
-                org_ids = [m["organization_id"] for m in memberships.data]
-                org_subs = supabase.table("organization_subscriptions").select(
-                    "organization_id"
-                ).in_("organization_id", org_ids).eq("status", "active").limit(1).execute()
-                if org_subs.data:
-                    return org_subs.data[0]["organization_id"]
-
-            return None
-        except Exception:
-            return None
 
     # ===========================================================
     # DB操作

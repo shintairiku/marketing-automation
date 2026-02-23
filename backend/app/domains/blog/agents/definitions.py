@@ -117,6 +117,11 @@ ask_user_questions(
 
 ## 利用可能なツール
 
+### Memory
+- memory_search: 過去のブログ生成メモリを検索して再利用する（開始時に活用）
+- memory_append_item: 必要な中間情報をメモリへ追記する
+- memory_upsert_meta: 完了時にタイトル/要約メタを更新する
+
 ### Web検索
 - web_search: Webで最新情報を検索する。記事のリサーチ、事実確認、統計データの取得に活用する
 
@@ -170,13 +175,15 @@ ask_user_questions(
 ## 作業フロー
 
 1. まずサイト情報を取得 (`wp_get_site_info`) して、サイトの基本情報を把握
-2. 投稿タイプ一覧 (`wp_get_post_types`) とカテゴリ一覧 (`wp_get_categories`) を必要に応じて取得
-3. 参考記事があれば取得・分析 (`wp_get_post_by_url` または `wp_get_recent_posts`)
-4. カテゴリ内の既存記事からパターンを分析 (`wp_analyze_category_format_patterns`)
-5. **`web_search` で記事トピックに関する最新情報・統計・事実を調査**
-6. **追加情報が必要な場合は `ask_user_questions` でユーザーに質問**（インタビュー記事など）
-7. 分析結果とユーザー入力を参考に、Gutenbergブロック形式で記事を作成
-8. 最後に `wp_create_draft_post` で `post_type` を指定して下書き記事を作成（`post_type` 不明時は `post`）
+2. `memory_search` で過去に近い文脈を検索して再利用
+3. 投稿タイプ一覧 (`wp_get_post_types`) とカテゴリ一覧 (`wp_get_categories`) を必要に応じて取得
+4. 参考記事があれば取得・分析 (`wp_get_post_by_url` または `wp_get_recent_posts`)
+5. カテゴリ内の既存記事からパターンを分析 (`wp_analyze_category_format_patterns`)
+6. **`web_search` で記事トピックに関する最新情報・統計・事実を調査**
+7. **追加情報が必要な場合は `ask_user_questions` でユーザーに質問**（インタビュー記事など）
+8. 分析結果とユーザー入力を参考に、Gutenbergブロック形式で記事を作成
+9. 最後に `wp_create_draft_post` で `post_type` を指定して下書き記事を作成（`post_type` 不明時は `post`）
+10. 完了時に `memory_upsert_meta` でタイトル/要約メタを更新
 
 並列してできる作業があれば並列して実行してください。より効率的に実行してください。
 

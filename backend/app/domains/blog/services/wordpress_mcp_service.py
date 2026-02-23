@@ -671,6 +671,44 @@ def get_current_process_id() -> Optional[str]:
     return _current_process_id.get()
 
 
+def _validate_tool_process_context(
+    resolved_site_id: Optional[str],
+    resolved_user_id: Optional[str],
+) -> None:
+    """
+    Blog生成ツール実行時の process_id 整合性チェック。
+
+    - process_id 未設定: INVALID_ARGUMENT
+    - process_id が存在しない / 所有不一致 / site不一致: FORBIDDEN
+    """
+    process_id = _current_process_id.get()
+    if not process_id:
+        raise MCPError(
+            "INVALID_ARGUMENT: process_id context is not set for tool execution",
+            code=400,
+        )
+
+    process_result = supabase.table("blog_generation_state").select(
+        "id, user_id, wordpress_site_id"
+    ).eq("id", process_id).maybe_single().execute()
+
+    process_row = process_result.data
+    if not process_row:
+        raise MCPError(
+            f"FORBIDDEN: process_id not found ({process_id})",
+            code=403,
+        )
+
+    owner_user_id = process_row.get("user_id")
+    owner_site_id = process_row.get("wordpress_site_id")
+
+    if resolved_user_id and owner_user_id and owner_user_id != resolved_user_id:
+        raise MCPError("FORBIDDEN: process owner mismatch", code=403)
+
+    if resolved_site_id and owner_site_id and owner_site_id != resolved_site_id:
+        raise MCPError("FORBIDDEN: process site mismatch", code=403)
+
+
 async def call_wordpress_mcp_tool(
     tool_name: str,
     args: Dict[str, Any] | None = None,
@@ -694,6 +732,7 @@ async def call_wordpress_mcp_tool(
     # 明示的引数 > コンテキスト変数 > None（フォールバック）
     resolved_site_id = site_id or _current_site_id.get()
     resolved_user_id = user_id or _current_user_id.get()
+    _validate_tool_process_context(resolved_site_id, resolved_user_id)
     client = get_wordpress_mcp_client(resolved_site_id, resolved_user_id)
     return await client.call_tool(tool_name, args, timeout)
 
