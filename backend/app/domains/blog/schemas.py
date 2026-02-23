@@ -194,6 +194,88 @@ class BlogDraftResult(BaseModel):
 
 
 # =====================================================
+# Blog Memory関連
+# =====================================================
+
+BlogMemoryRole = Literal[
+    "user_input",
+    "assistant_output",
+    "source",
+    "system_note",
+    "final_summary",
+    "tool_result",
+]
+
+BlogMemoryAppendRole = Literal[
+    "user_input",
+    "assistant_output",
+    "source",
+    "system_note",
+    "final_summary",
+]
+
+
+class BlogMemoryAppendItemRequest(BaseModel):
+    role: BlogMemoryAppendRole
+    content: str = Field(..., min_length=1, max_length=200000)
+
+
+class BlogMemoryUpsertMetaRequest(BaseModel):
+    title: str = Field(..., min_length=1, max_length=200)
+    short_summary: str = Field(..., min_length=1, max_length=2000)
+
+
+class BlogMemorySearchRequest(BaseModel):
+    query: str = Field(..., min_length=1, max_length=4000)
+    k: int = Field(default=10, ge=1, le=50)
+    include_roles: Optional[List[BlogMemoryRole]] = None
+    time_window_days: Optional[int] = Field(default=365, ge=1, le=3650)
+    per_process_item_limit: int = Field(default=20, ge=1, le=100)
+
+
+class BlogMemoryItem(BaseModel):
+    role: BlogMemoryRole
+    content: str
+    created_at: datetime
+
+
+class BlogMemoryMeta(BaseModel):
+    draft_post_id: Optional[int] = None
+    title: str
+    short_summary: str
+
+
+class BlogMemoryHit(BaseModel):
+    process_id: str
+    score: Optional[float] = None
+    meta: BlogMemoryMeta
+    items: List[BlogMemoryItem] = Field(default_factory=list)
+
+
+class BlogMemoryAppendItemData(BaseModel):
+    memory_item_id: str
+
+
+class BlogMemorySearchData(BaseModel):
+    hits: List[BlogMemoryHit] = Field(default_factory=list)
+
+
+class BlogMemorySuccessResponse(BaseModel):
+    ok: Literal[True] = True
+    data: Dict[str, Any] = Field(default_factory=dict)
+
+
+class BlogMemoryErrorDetail(BaseModel):
+    code: str
+    message: str
+
+
+class BlogMemoryErrorResponse(BaseModel):
+    ok: Literal[False] = False
+    error: BlogMemoryErrorDetail
+
+
+# =====================================================
 # MCP関連
 # =====================================================
 
