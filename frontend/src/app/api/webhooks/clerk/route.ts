@@ -104,8 +104,8 @@ export async function POST(req: NextRequest) {
         const userId = data.public_user_data.user_id;
         const email = data.public_user_data.identifier || null;
         const displayName = [
-          data.public_user_data.first_name,
           data.public_user_data.last_name,
+          data.public_user_data.first_name,
         ].filter(Boolean).join(' ') || null;
         const role = data.role === 'org:admin' ? 'admin' : 'member';
 

@@ -1,179 +1,250 @@
-# Shintairiku Marketing‑Automation Monorepo
+# BlogAI — AI ブログ記事生成 SaaS
 
-FastAPI バックエンド（Python 3.12）／Next.js **15**（Bun）フロントエンド／Supabase（Postgres + Auth + RLS）のモノレポです。**uv** で Python 依存を管理し、開発時は `uv run uvicorn main:app --reload --host 0.0.0.0 --port 8080` 等で起動できます。フロントは Bun で `bun run dev`、DB は Supabase CLI の `link`→`db push` で反映します
+AI を活用した SEO 記事・ブログ記事の自動生成プラットフォーム。WordPress 連携、SEO 分析、画像生成、組織管理、サブスクリプション課金を提供。
 
 ---
 
-## リポジトリ構成（主要）
+## Quick Start（開発環境）
 
-```
-backend/
-  ├─ Dockerfile                     # uv + Uvicorn。Cloud Run の PORT に追従
-  ├─ main.py                        # FastAPI 本体（CORS, ルーティング, /health）
-  ├─ pyproject.toml                 # uv 用依存。fastapi/uvicorn/openai 等
-  ├─ .env.example                   # バックエンド用環境変数（雛形）
-  ├─ app/
-  │   ├─ api/router.py              # 主要ルーター集約（/articles ほか）
-  │   ├─ core/{config,exceptions}.py
-  │   ├─ common/{auth,database,schemas}.py
-  │   ├─ domains/
-  │   │   ├─ seo_article/{endpoints,schemas,services,...}
-  │   │   ├─ organization/{endpoints,schemas,service}.py
-  │   │   ├─ company/{endpoints,models,schemas,service}.py
-  │   │   ├─ style_template/{endpoints,schemas,service}.py
-  │   │   └─ image_generation/{endpoints,schemas,service}.py
-  │   └─ infrastructure/{external_apis,analysis,logging,...}
-frontend/
-  ├─ Dockerfile                     # Next.js standalone 出力（server.js）
-  ├─ next.config.js                 # /api/proxy → BACKEND への rewrite
-  ├─ package.json                   # scripts, Next.js 15 / React 19 依存
-  ├─ tailwind.config.ts, postcss.config.js, tsconfig.json
-  ├─ .env.example                   # Supabase/Stripe/Clerk など
-  └─ src/                           # app ディレクトリ, API ルート, libs, hooks など
-shared/supabase/
-  ├─ config.toml                    # auth.site_url 等の設定
-  ├─ migrations/                    # すべての SQL マイグレーション
-  └─ seed.sql                       # 追加データ（必要に応じて）
+### 前提ツール
 
-docker-compose.yml                  # frontend_dev(3000), backend(8008→8000), stripe-cli
-.env.example                         # ルートの環境変数雛形
+| ツール | バージョン | インストール |
+|--------|-----------|-------------|
+| Python | 3.12+ | `pyenv install 3.12` |
+| uv | latest | `curl -LsSf https://astral.sh/uv/install.sh \| sh` |
+| Bun | v1+ | `curl -fsSL https://bun.sh/install \| bash` |
+| Docker | latest | WSL2: Docker Desktop / Linux: `apt install docker.io` |
+| Supabase CLI | latest | `npx supabase` (npx 経由で自動取得) |
+| Stripe CLI | latest | `brew install stripe/stripe-cli/stripe` (任意) |
+
+### 1. リポジトリをクローン & 環境変数を設定
+
+```bash
+git clone <repo-url> && cd next-supabase-starter
+
+# 環境変数テンプレートをコピーして値を埋める
+cp backend/.env.example backend/.env
+cp frontend/.env.example frontend/.env.local
+cp supabase/.env.example supabase/.env
 ```
 
+### 2. 依存をインストール
+
+```bash
+cd backend && uv sync && cd ..
+cd frontend && bun install && cd ..
+```
+
+### 3. 開発サーバーを起動
+
+```bash
+make dev
+```
+
+これだけ。以下が自動で起動します：
+
+| サービス | URL | 備考 |
+|---------|-----|------|
+| Frontend (Next.js) | http://localhost:3000 | Turbopack 有効 |
+| Backend (FastAPI) | http://localhost:8080 | --reload 有効 |
+| Supabase Studio | http://localhost:15423 | 起動済みなら自動スキップ |
+
+**Ctrl+C** で全サービス停止。
+
+### その他の `make` コマンド
+
+```bash
+make dev              # Supabase + Backend + Frontend を起動
+make dev STRIPE=1     # 上記 + Stripe webhook listener
+make frontend         # Frontend のみ
+make backend          # Backend のみ
+make supabase         # Supabase のみ (起動済みならスキップ)
+make stripe           # Stripe CLI のみ
+make stop             # Supabase コンテナ停止
+make lint             # Frontend ESLint + Backend ruff
+make build            # Frontend 本番ビルド
+make check            # lint + build (プッシュ前チェック)
+```
+
+### DB マイグレーション
+
+```bash
+# ローカル Supabase にマイグレーション適用
+npx supabase db reset          # 全マイグレーション再適用 + seed
+
+# リモート (Dev/Prod) に適用 — CI/CD が自動実行
+# develop push → Dev Supabase
+# main push    → Prod Supabase
+
+# 新しいマイグレーション作成
+npx supabase migration new <name>
+
+# TypeScript 型再生成 (テーブル/カラム変更後)
+cd frontend && bun run generate-types
+```
+
 ---
 
-## 前提ツール
+## プロジェクト構成
 
-* Python **3.12**（`pyenv` 推奨）
-* **Bun** v1 系
-* Node.js（本番ビルド／standalone 実行で使用）
-* **Supabase CLI**（`npm i -g supabase` または `npx supabase`）
-* Docker / Docker Compose（任意）
+```
+├── backend/                  # FastAPI + Python 3.12 (uv)
+│   ├── main.py               # エントリポイント
+│   ├── app/
+│   │   ├── api/router.py     # ルーター集約
+│   │   ├── core/             # 設定, 例外処理
+│   │   ├── common/           # 認証, DB, スキーマ
+│   │   ├── domains/          # DDD ドメイン
+│   │   │   ├── blog/         # Blog AI (WordPress連携)
+│   │   │   ├── seo_article/  # SEO 記事生成
+│   │   │   ├── usage/        # 利用上限管理
+│   │   │   ├── contact/      # お問い合わせ
+│   │   │   ├── admin/        # 管理者機能
+│   │   │   └── ...
+│   │   └── infrastructure/   # 外部API (GCS, SerpAPI, Clerk)
+│   └── pyproject.toml
+│
+├── frontend/                 # Next.js 15 + React 19 + TypeScript (Bun)
+│   ├── src/
+│   │   ├── app/              # App Router (pages, API routes)
+│   │   ├── components/       # UI (shadcn/ui + Radix)
+│   │   ├── features/         # ドメイン別 UI
+│   │   ├── hooks/            # カスタムフック
+│   │   └── lib/              # API クライアント, サブスクリプション
+│   └── package.json
+│
+├── supabase/                 # Supabase ローカル設定
+│   ├── config.toml           # ポート: 15421-15423
+│   ├── migrations/           # SQL マイグレーション
+│   └── seed.sql              # 初期データ (plan_tiers 等)
+│
+├── Makefile                  # 開発コマンド (make dev, make check, ...)
+├── docker-compose.yml        # Docker 開発環境 (任意)
+└── docs/                     # 設計ドキュメント
+```
 
 ---
 
-## 環境変数の配置
+## Tech Stack
 
-* ルート: `.env` または `.env.local`（Supabase/Stripe/Google 等の共通）
-* バックエンド: `backend/.env`（API キー, ALLOWED\_ORIGINS など）
-* フロント: `frontend/.env.local`（NEXT\_PUBLIC\_\* 系, Clerk/Stripe/Supabase など）
+| レイヤー | 技術 |
+|---------|------|
+| Frontend | Next.js 15, React 19, TypeScript, Tailwind CSS 3, shadcn/ui, Framer Motion |
+| Backend | FastAPI, Python 3.12, OpenAI Agents SDK, Google Vertex AI (Imagen-4) |
+| DB | Supabase (PostgreSQL 17 + Realtime + RLS) |
+| Auth | Clerk (JWT RS256, Third-Party Auth for Supabase) |
+| Payment | Stripe (Checkout, Billing, Customer Portal) |
+| Infra | Vercel (Frontend), Cloud Run (Backend), GCS (画像) |
+| CI/CD | GitHub Actions (lint, Docker build, DB migrations) |
+| Package | Bun (frontend), uv (backend) |
 
-**代表例（抜粋）**
+---
+
+## 環境変数
+
+### Backend (`backend/.env`)
 
 ```env
-# Supabase（必須）
+# 必須
+OPENAI_API_KEY=
+SUPABASE_URL=
+SUPABASE_ANON_KEY=
+SUPABASE_SERVICE_ROLE_KEY=
+CLERK_SECRET_KEY=
+CLERK_PUBLISHABLE_KEY=
+ALLOWED_ORIGINS=http://localhost:3000
+
+# AI モデル (デフォルト値あり)
+BLOG_GENERATION_MODEL=gpt-5.2
+RESEARCH_MODEL=gpt-5-mini
+
+# その他 (詳細は backend/.env.example)
+STRIPE_SECRET_KEY=
+GEMINI_API_KEY=
+GOOGLE_CLOUD_PROJECT=
+CREDENTIAL_ENCRYPTION_KEY=
+```
+
+### Frontend (`frontend/.env.local`)
+
+```env
+# 必須
 NEXT_PUBLIC_SUPABASE_URL=
 NEXT_PUBLIC_SUPABASE_ANON_KEY=
 SUPABASE_SERVICE_ROLE_KEY=
-SUPABASE_DB_PASSWORD=
+NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=
+CLERK_SECRET_KEY=
+NEXT_PUBLIC_API_BASE_URL=http://localhost:8080
 
-# Backend URL（フロント → API プロキシに利用）
-NEXT_PUBLIC_API_BASE_URL=http://localhost:8000
-NEXT_PUBLIC_SITE_URL=http://localhost:3000
-
-# Stripe / Clerk（必要な場合のみ）
+# Stripe (課金テスト時)
 NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=
 STRIPE_SECRET_KEY=
 STRIPE_WEBHOOK_SECRET=
-NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=
-CLERK_SECRET_KEY=
+```
 
-# バックエンド専用
-ALLOWED_ORIGINS=http://localhost:3000
-OPENAI_API_KEY=
-GEMINI_API_KEY=
-SERPAPI_API_KEY=
+### Supabase (`supabase/.env`)
+
+```env
+CLERK_DOMAIN=your-clerk-domain.clerk.accounts.dev
 ```
 
 ---
 
-## セットアップ手順
+## Git ブランチ戦略
 
-### 1) Supabase をリンクしてマイグレーション
-
-1. CLI ログイン
-
-   ```bash
-   supabase login
-   ```
-2. プロジェクトにリンク（既存プロジェクトを選択）
-
-   ```bash
-   npx supabase link
-   # 既に project-ref が分かっている場合
-   # npx supabase link --project-ref <your-ref>
-   ```
-3. マイグレーション適用（DDL を反映 & 型生成を実行する運用を推奨）
-
-   ```bash
-   npx supabase db push
-   # あるいはフロントスクリプト：
-   # bun run migration:up    # migration up --linked && 型生成
-   # bun run generate-types  # types → frontend/src/libs/supabase/types.ts
-   ```
-
-> `shared/supabase/migrations/` に初期スキーマと拡張マイグレーションがまとまっています（`users` RLS, organizations/article\_flows, company\_info, style\_guide\_templates, Supabase Realtime 連携, 外部キー修正 など）。
-
-### 2) バックエンド（FastAPI + Uvicorn）
-
-```bash
-cd backend
-uv sync
-uv run uvicorn main:app --reload --host 0.0.0.0 --port 8080
+```
+main     ← 本番 (Vercel Production, Cloud Run Production, Prod Supabase)
+develop  ← 開発 (Vercel Preview, Cloud Run Develop, Dev Supabase)
+feat/*   ← 機能ブランチ → develop に PR
+fix/*    ← バグ修正 → develop に PR
 ```
 
-* 主要エンドポイント: `/`（稼働確認メッセージ）, `/health`（ヘルス）
-* ルーター: `/articles`, `/organizations`, `/companies`, `/style-templates`, `/images` を集約
-* CORS: `ALLOWED_ORIGINS`（カンマ区切り）で許可オリジンを設定
-
-### 3) フロントエンド（Next.js 15 + Bun）
-
-```bash
-cd frontend
-bun install
-bun run dev
-```
-
-* `next.config.js` の `rewrites()` で `'/api/proxy/:path*' → ${NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000'}/:path*` に転送
-* 開発既定 URL は `http://localhost:3000`
-* 必要に応じて `NEXT_PUBLIC_API_BASE_URL` を API に合わせて変更
+- PR は **develop → main** でマージ
+- CI: `ci-backend.yml` (ruff + Docker), `db-migrations.yml` (Supabase push)
+- Vercel: Git Integration で自動ビルド・デプロイ
 
 ---
 
-## Docker / Docker Compose（任意）
+## プッシュ前チェック（必須）
 
-開発をまとめて動かす場合：
+```bash
+make check
+```
+
+以下が実行されます：
+1. Backend lint (`ruff check`)
+2. Frontend lint (`next lint`)
+3. Frontend build (`next build`)
+
+**lint または build が失敗する状態でプッシュしてはいけません。**
+
+---
+
+## Docker Compose（任意）
+
+ネイティブ起動 (`make dev`) の代替として Docker でも開発可能：
 
 ```bash
 docker compose up -d frontend_dev backend
-# ログ
 docker compose logs -f backend
 ```
 
-* Frontend: [http://localhost:3000（\`frontend\_dev\`）](http://localhost:3000（`frontend_dev`）)
-* Backend:  [http://localhost:8008](http://localhost:8008) → コンテナ 8000 へフォワード
-* Stripe CLI（任意）: `stripe listen --forward-to=frontend_dev:3000/api/webhooks`
+| サービス | ポート |
+|---------|--------|
+| frontend_dev | 3000 |
+| backend | 8008 → 8000 |
+| stripe-cli | (webhook 転送) |
 
-**Backend コンテナ**は uv を用いて依存を同期し、Cloud Run 互換のコマンドで起動します：
+---
 
-```dockerfile
-CMD ["sh","-c","uv run uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000}"]
+## パッケージ管理ルール
+
+```bash
+# Frontend (JavaScript/TypeScript)
+bun add <package>          # npm install は禁止
+bun install                # lock file 同期
+
+# Backend (Python)
+uv add <package>           # pip install は禁止
+uv sync                    # lock file 同期
 ```
-
-**Frontend コンテナ**は Next.js **standalone** 出力を `node server.js` で実行します（`EXPOSE 3000`）。
-
----
-
-## データベース（要点）
-
-* 初期化: `20240115041359_init.sql` — `users` テーブル + **RLS（自身のみ参照/更新）**
-* 以降: organizations / article\_flows / company\_info / style\_guide\_templates / 画像プレースホルダー / GCS 対応 / Realtime / FK 修正 / Agents ログなど随時拡張
-* `shared/supabase/config.toml` の `auth.site_url` はローカルでは `http://localhost:3000` を想定
-
----
-
-## 実運用ヒント
-
-* **型の同期**: マイグレーション後は `bun run generate-types` でフロントの Supabase 型を再生成
-* **CORS**: フロント URL を `ALLOWED_ORIGINS` に必ず含める
-* **API プロキシ**: フロントからは `/api/proxy/*` を使うとバックエンド切替が容易
-* **Cloud Run**: `PORT` は実行環境から注入されるため Dockerfile は `${PORT:-8000}` を利用

@@ -30,7 +30,7 @@ export async function POST(request: Request) {
     const client = await clerkClient();
     const user = await client.users.getUser(userId);
     const userEmail = user.emailAddresses?.[0]?.emailAddress;
-    const userFullName = `${user.firstName || ''} ${user.lastName || ''}`.trim();
+    const userFullName = `${user.lastName || ''} ${user.firstName || ''}`.trim();
 
     if (!userEmail) {
       return NextResponse.json({ error: 'Email not found' }, { status: 400 });

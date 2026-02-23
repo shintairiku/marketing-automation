@@ -74,7 +74,7 @@ export async function POST(request: NextRequest) {
     const client = await clerkClient();
     const user = await client.users.getUser(userId);
     const userEmail = user.emailAddresses?.[0]?.emailAddress;
-    const userFullName = `${user.firstName || ''} ${user.lastName || ''}`.trim();
+    const userFullName = `${user.lastName || ''} ${user.firstName || ''}`.trim();
     const isPrivileged = isPrivilegedEmail(userEmail);
 
     // 非特権ユーザーは直接組織作成不可（チームプラン購入フローで作成される）

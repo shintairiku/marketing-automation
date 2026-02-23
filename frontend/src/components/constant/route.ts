@@ -2,6 +2,7 @@ interface SubLink {
   href: string;
   label: string;
   disabled?: boolean;
+  privilegeOnly?: boolean;
 }
 
 interface LinkSection {
@@ -30,8 +31,23 @@ const NON_PRIVILEGED_GROUP_TITLES = ['Blog', 'Settings'];
  * Blog AI + Settings のみ表示
  */
 export function getFilteredGroups(isPrivileged: boolean): Group[] {
-  if (isPrivileged) return groups;
-  return groups.filter((g) => NON_PRIVILEGED_GROUP_TITLES.includes(g.title));
+  const filtered = isPrivileged
+    ? groups
+    : groups.filter((g) => NON_PRIVILEGED_GROUP_TITLES.includes(g.title));
+
+  if (isPrivileged) return filtered;
+
+  // 非特権ユーザーから privilegeOnly リンクを除外
+  return filtered.map((g) => ({
+    ...g,
+    links: g.links.map((link) => ({
+      ...link,
+      subLinks: link.subLinks.map((section) => ({
+        ...section,
+        links: section.links.filter((sub) => !sub.privilegeOnly),
+      })).filter((section) => section.links.length > 0),
+    })),
+  }));
 }
 
 export const groups: Group[] = [
@@ -153,7 +169,7 @@ export const groups: Group[] = [
           {
             title: 'アプリ',
             links: [
-              { href: '/settings/install', label: 'アプリをインストール' },
+              { href: '/settings/install', label: 'アプリをインストール', privilegeOnly: true },
             ],
           },
         ],

@@ -43,7 +43,7 @@ export default function ContactPage() {
   const isArticleLimitRequest = initialCategory === 'article_limit_increase';
 
   const [name, setName] = useState(
-    () => [user?.firstName, user?.lastName].filter(Boolean).join(' ') || ''
+    () => [user?.lastName, user?.firstName].filter(Boolean).join(' ') || ''
   );
   const [email, setEmail] = useState(
     () => user?.primaryEmailAddress?.emailAddress || ''

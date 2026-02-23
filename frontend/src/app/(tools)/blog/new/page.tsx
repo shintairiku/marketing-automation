@@ -472,6 +472,7 @@ export default function BlogNewPage() {
               <div className="grid grid-cols-3 sm:grid-cols-5 gap-3">
                 {imagePreviewUrls.map((url, idx) => (
                   <div key={idx} className="relative group aspect-square">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img
                       src={url}
                       alt={`プレビュー ${idx + 1}`}

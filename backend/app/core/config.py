@@ -14,32 +14,25 @@ if env_path.exists():
 
 class Settings(BaseSettings):
     """アプリケーション設定を管理するクラス"""
-    # 必須環境変数をオプショナルにして起動エラーを防ぐ
+    # --- AI API Keys ---
     openai_api_key: str = Field(default_factory=lambda: os.getenv("OPENAI_API_KEY", ""))
-    # SerpAPI設定  
     serpapi_key: str = Field(default_factory=lambda: os.getenv("SERPAPI_API_KEY", ""))
-    
     gemini_api_key: str = Field(default_factory=lambda: os.getenv("GEMINI_API_KEY", ""))
-    # 他のAPIキーが必要な場合は追加
-    # anthropic_api_key: Optional[str] = Field(None, env="ANTHROPIC_API_KEY")
-    # gemini_api_key: Optional[str] = Field(None, env="GEMINI_API_KEY")
 
-    # Supabase設定
+    # --- Database ---
     supabase_url: str = Field(default_factory=lambda: os.getenv("SUPABASE_URL", ""))
-    supabase_key: str = Field(default_factory=lambda: os.getenv("SUPABASE_ANON_KEY", ""))
     supabase_service_role_key: str = Field(default_factory=lambda: os.getenv("SUPABASE_SERVICE_ROLE_KEY", ""))
 
-    # Clerk設定 (optional)
+    # --- Authentication ---
     clerk_secret_key: str = Field(default_factory=lambda: os.getenv("CLERK_SECRET_KEY", ""))
     clerk_publishable_key: str = Field(default_factory=lambda: os.getenv("CLERK_PUBLISHABLE_KEY", ""))
-    # Clerk Frontend API URL（オプション: Publishable Keyから自動取得できない場合のフォールバック）
+    # JWKS URL 自動導出が失敗する場合のフォールバック
     clerk_frontend_api: str = Field(default_factory=lambda: os.getenv("CLERK_FRONTEND_API", ""))
 
-    # Stripe設定 (optional)
-    stripe_secret_key: str = Field(default_factory=lambda: os.getenv("STRIPE_SECRET_KEY", ""))
-    stripe_webhook_secret: str = Field(default_factory=lambda: os.getenv("STRIPE_WEBHOOK_SECRET", ""))
+    # --- CORS ---
+    allowed_origins: str = Field(default_factory=lambda: os.getenv("ALLOWED_ORIGINS", "http://localhost:3000"))
 
-    # モデル設定（用途別に個別コントロール可能）
+    # --- AI Model Settings ---
     research_model: str = os.getenv("RESEARCH_MODEL", "gpt-5-mini")
     writing_model: str = os.getenv("WRITING_MODEL", "gpt-4o-mini")
     outline_model: str = os.getenv("OUTLINE_MODEL") or writing_model  # 未指定時は執筆モデルを利用
@@ -47,14 +40,11 @@ class Settings(BaseSettings):
     serp_analysis_model: str = os.getenv("SERP_ANALYSIS_MODEL") or research_model
     persona_model: str = os.getenv("PERSONA_MODEL") or writing_model
     theme_model: str = os.getenv("THEME_MODEL") or writing_model
-    
-    # Agents SDK specific settings
-    model_for_agents: str = os.getenv("MODEL_FOR_AGENTS", "gpt-4o-mini")
-    # Article editing agents (UI / simple agent) can override their model via env
+
+    # Article editing agents
     article_edit_agent_model: str = os.getenv("ARTICLE_EDIT_AGENT_MODEL", "gpt-5-mini")
     article_edit_agent_reasoning_summary: str = os.getenv("ARTICLE_EDIT_AGENT_REASONING_SUMMARY", "detailed")
     article_edit_service_model: str = os.getenv("ARTICLE_EDIT_SERVICE_MODEL", "gpt-4o")
-    max_turns_for_agents: int = int(os.getenv("MAX_TURNS_FOR_AGENTS", "20"))
 
     # AI Content Generation settings (using Responses API)
     ai_content_generation_model: str = os.getenv("AI_CONTENT_GENERATION_MODEL", "gpt-5-mini")
@@ -65,17 +55,11 @@ class Settings(BaseSettings):
     reasoning_translate_model: str = os.getenv("REASONING_TRANSLATE_MODEL", "gpt-5-nano")
 
     # Scraping settings
-    scraping_timeout: int = int(os.getenv("SCRAPING_TIMEOUT", "5"))
-    scraping_delay: float = float(os.getenv("SCRAPING_DELAY", "0.2"))
     max_concurrent_scraping: int = int(os.getenv("MAX_CONCURRENT_SCRAPING", "5"))
-    serpapi_rate_limit: int = int(os.getenv("SERPAPI_RATE_LIMIT", "50"))
 
     # デバッグフラグ
     debug: bool = os.getenv("DEBUG", "false").lower() == "true"
-    
-    # 記事生成フロー設定（廃止予定: flow_typeでユーザーごとに制御）
-    # use_reordered_flow: bool = os.getenv("USE_REORDERED_FLOW", "true").lower() == "true"
-    
+
     # Google Cloud設定 (画像生成用)
     google_cloud_project: str = Field(default_factory=lambda: os.getenv("GOOGLE_CLOUD_PROJECT", ""))
     google_cloud_location: str = Field(default_factory=lambda: os.getenv("GOOGLE_CLOUD_LOCATION", "us-central1"))
@@ -97,10 +81,6 @@ class Settings(BaseSettings):
     # Google Cloud Storage設定
     gcs_bucket_name: str = Field(default_factory=lambda: os.getenv("GCS_BUCKET_NAME", ""))
     gcs_public_url_base: str = Field(default_factory=lambda: os.getenv("GCS_PUBLIC_URL_BASE", ""))
-
-    # Notion API設定
-    notion_api_key: str = Field(default_factory=lambda: os.getenv("NOTION_API_KEY", ""))
-    notion_database_id: str = Field(default_factory=lambda: os.getenv("NOTION_DATABASE_ID", ""))
 
     # リトライ設定
     max_retries: int = 3
@@ -129,8 +109,6 @@ class Settings(BaseSettings):
     blog_prompt_cache_key_version: str = Field(default_factory=lambda: os.getenv("BLOG_PROMPT_CACHE_KEY_VERSION", "v1"))
     blog_prompt_cache_retention_24h: bool = Field(default_factory=lambda: os.getenv("BLOG_PROMPT_CACHE_RETENTION_24H", "true").lower() == "true")
     credential_encryption_key: str = Field(default_factory=lambda: os.getenv("CREDENTIAL_ENCRYPTION_KEY", ""))
-    temp_upload_dir: str = Field(default_factory=lambda: os.getenv("TEMP_UPLOAD_DIR", "/tmp/blog_uploads"))
-    frontend_url: str = Field(default_factory=lambda: os.getenv("FRONTEND_URL", "http://localhost:3000"))
 
     # SMTP / Contact notification settings
     smtp_host: str = Field(default_factory=lambda: os.getenv("SMTP_HOST", ""))

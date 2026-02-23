@@ -394,6 +394,7 @@ export default function AdminUsersPage() {
                         <TableCell>
                           <div className="flex items-center gap-3">
                             {user.avatar_url ? (
+                              // eslint-disable-next-line @next/next/no-img-element
                               <img
                                 src={user.avatar_url}
                                 alt=""
