@@ -69,3 +69,5 @@ backend/tests/text-edit-agent/test.html
 test-results/
 playwright/
 playwright-report/
+
+.tmp/
