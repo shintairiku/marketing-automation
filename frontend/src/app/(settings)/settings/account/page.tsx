@@ -52,7 +52,7 @@ export default function AccountSettingsPage() {
         <CardContent className="space-y-6">
           <div className="flex items-center space-x-4">
             <Avatar className="h-20 w-20">
-              <AvatarImage src={user.imageUrl} alt={user.firstName || "User"} />
+              <AvatarImage src={user.imageUrl} alt={`${user.lastName || ''} ${user.firstName || ''}`.trim() || "User"} />
               <AvatarFallback>
                 <User className="h-10 w-10" />
               </AvatarFallback>
@@ -61,23 +61,23 @@ export default function AccountSettingsPage() {
           
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="firstName">名前（姓）</Label>
-              <Input 
-                id="firstName" 
-                value={user.firstName || ""}
-                disabled
-                className="opacity-60"
-                placeholder="山田" 
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="lastName">名前（名）</Label>
-              <Input 
-                id="lastName" 
+              <Label htmlFor="lastName">姓</Label>
+              <Input
+                id="lastName"
                 value={user.lastName || ""}
                 disabled
                 className="opacity-60"
-                placeholder="太郎" 
+                placeholder="山田"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="firstName">名</Label>
+              <Input
+                id="firstName"
+                value={user.firstName || ""}
+                disabled
+                className="opacity-60"
+                placeholder="太郎"
               />
             </div>
           </div>
