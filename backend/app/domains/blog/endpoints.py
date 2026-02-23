@@ -153,6 +153,15 @@ def _build_memory_error_response(code: str, message: str) -> Dict[str, Any]:
 
 def _get_owned_process_or_raise(supabase_client, process_id: str, user_id: str) -> Dict[str, Any]:
     """process_id の所有確認。存在しない場合404、他ユーザー所有なら403。"""
+    try:
+        uuid.UUID(process_id)
+    except ValueError as e:
+        raise BlogMemoryError(
+            code="INVALID_ARGUMENT",
+            message="process_id の形式が不正です",
+            http_status=status.HTTP_400_BAD_REQUEST,
+        ) from e
+
     result = supabase_client.table("blog_generation_state").select(
         "id, user_id, organization_id, wordpress_site_id, draft_post_id"
     ).eq("id", process_id).maybe_single().execute()

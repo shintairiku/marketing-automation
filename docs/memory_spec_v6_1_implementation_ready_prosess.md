@@ -54,6 +54,12 @@
   - 仕様との対応: 7.1, 7.2, 7.3, 8.1, 8.2
   - 影響範囲: Blog Memory API / RPC / embedding batch / 検索結果整合性
   - 検証結果: 別`process_id`に対して `hits` が返り、`meta.title/short_summary` と `items.content` を取得できることを確認。
+- 2026-02-23 23:20
+  - 対象: `backend/app/domains/blog/endpoints.py`, `backend/app/domains/blog/services/memory_service.py`, `backend/tests/test_blog_memory_tdd.py`
+  - 実施内容: `process_id` 不正形式時に `INTERNAL_ERROR` ではなく `INVALID_ARGUMENT(400)` を返すよう修正。DB例外マッピングにもUUID不正を追加。
+  - 仕様との対応: 7.4, 7.5, 13.1
+  - 影響範囲: Blog Memory APIエラーハンドリング / テスト
+  - 検証結果: `uv run pytest tests/test_blog_memory_tdd.py -q` で `8 passed`。
 
 ### ログ追記テンプレート
 - YYYY-MM-DD HH:MM

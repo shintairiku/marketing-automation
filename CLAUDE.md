@@ -1952,6 +1952,15 @@ CONTACT_NOTIFICATION_EMAIL=admin@yourdomain.com
     - Memory APIの404エラー/成功レスポンス
     - `tool_result` append禁止
     - usage記録が process固定 `organization_id` を使う
+    - `process_id` 不正形式時に `INVALID_ARGUMENT(400)` を返すこと
+
+**追加修正 (2026-02-23 夜)**
+- `backend/app/domains/blog/endpoints.py`
+  - `process_id` 所有チェック前にUUID形式を検証し、不正時は `INVALID_ARGUMENT` を返すよう変更
+- `backend/app/domains/blog/services/memory_service.py`
+  - DB例外マッピングに `invalid input syntax for type uuid` を追加
+- `backend/tests/test_blog_memory_tdd.py`
+  - malformed `process_id` と UUID例外マッピングのテストケースを追加（計8ケース）
 
 ### 2026-02-10 自己改善
 - **再検証の重要性**: 実装完了後のユーザー再検証要求で、`useArticles.ts` と `admin/plans/page.tsx` に `USE_PROXY` パターンが欠けているバグを発見した。最初の実装時にサーバーサイドAPI Routes (9ファイル) のみに注力し、クライアントサイドhooksの直接fetch呼び出しを見落としていた。**サーバーサイド→バックエンド通信だけでなく、ブラウザ→バックエンド通信パスも全て確認すべき。**

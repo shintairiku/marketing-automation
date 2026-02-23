@@ -419,6 +419,12 @@ class BlogMemoryService:
         message = str(exc)
         upper = message.upper()
 
+        if "INVALID INPUT SYNTAX FOR TYPE UUID" in upper:
+            return BlogMemoryError(
+                code="INVALID_ARGUMENT",
+                message="process_id の形式が不正です",
+                http_status=400,
+            )
         if "BLOG_PROCESS_NOT_FOUND" in upper:
             return BlogMemoryError(
                 code="BLOG_PROCESS_NOT_FOUND",

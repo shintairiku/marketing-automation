@@ -122,7 +122,7 @@ async def test_append_memory_item_returns_not_found_when_process_missing(monkeyp
     monkeypatch.setattr(blog_endpoints, "get_supabase_client", lambda: fake_db)
 
     response = await blog_endpoints.append_memory_item(
-        process_id="missing-process",
+        process_id="11111111-1111-1111-1111-111111111111",
         request=BlogMemoryAppendItemRequest(role="user_input", content="hello"),
         user_id="user-1",
     )
@@ -134,10 +134,27 @@ async def test_append_memory_item_returns_not_found_when_process_missing(monkeyp
 
 
 @pytest.mark.asyncio
+async def test_append_memory_item_returns_invalid_argument_for_malformed_process_id(monkeypatch):
+    fake_db = _FakeSupabase(process_row=None)
+    monkeypatch.setattr(blog_endpoints, "get_supabase_client", lambda: fake_db)
+
+    response = await blog_endpoints.append_memory_item(
+        process_id="not-a-uuid",
+        request=BlogMemoryAppendItemRequest(role="user_input", content="hello"),
+        user_id="user-1",
+    )
+
+    assert response.status_code == 400
+    payload = json.loads(response.body.decode("utf-8"))
+    assert payload["ok"] is False
+    assert payload["error"]["code"] == "INVALID_ARGUMENT"
+
+
+@pytest.mark.asyncio
 async def test_append_memory_item_success_payload(monkeypatch):
     fake_db = _FakeSupabase(
         process_row={
-            "id": "process-1",
+            "id": "11111111-1111-1111-1111-111111111111",
             "user_id": "user-1",
             "organization_id": "org-1",
             "wordpress_site_id": "site-1",
@@ -147,7 +164,7 @@ async def test_append_memory_item_success_payload(monkeypatch):
 
     class _FakeMemoryService:
         async def append_item(self, process_id: str, role: str, content: str) -> str:
-            assert process_id == "process-1"
+            assert process_id == "11111111-1111-1111-1111-111111111111"
             assert role == "assistant_output"
             assert content == "保存テスト"
             return "memory-item-1"
@@ -156,7 +173,7 @@ async def test_append_memory_item_success_payload(monkeypatch):
     monkeypatch.setattr(blog_endpoints, "get_blog_memory_service", lambda: _FakeMemoryService())
 
     response = await blog_endpoints.append_memory_item(
-        process_id="process-1",
+        process_id="11111111-1111-1111-1111-111111111111",
         request=BlogMemoryAppendItemRequest(role="assistant_output", content="保存テスト"),
         user_id="user-1",
     )
@@ -178,6 +195,15 @@ async def test_memory_service_rejects_tool_result_role():
         )
 
     assert exc.value.code == "ROLE_TOOL_RESULT_FORBIDDEN"
+
+
+@pytest.mark.asyncio
+async def test_memory_service_maps_invalid_uuid_error_to_invalid_argument():
+    err = BlogMemoryService._map_db_exception(
+        Exception('invalid input syntax for type uuid: "bad-id"')
+    )
+    assert err.code == "INVALID_ARGUMENT"
+    assert err.http_status == 400
 
 
 @pytest.mark.asyncio
