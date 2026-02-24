@@ -14,6 +14,7 @@ import {
   FileText,
   ImageIcon,
   ImagePlus,
+  Info,
   Loader2,
   MessageSquare,
   RefreshCw,
@@ -640,6 +641,17 @@ export default function BlogProcessPage() {
               </motion.div>
             )}
           </div>
+          {state.status === "completed" && (state.draft_preview_url || state.draft_edit_url) && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ delay: 0.6 }}
+              className="flex items-center gap-2 text-xs text-rose-600 bg-rose-50 border border-rose-200/60 rounded-lg px-3 py-2 mt-2"
+            >
+              <Info className="w-3.5 h-3.5 flex-shrink-0" />
+              <span>プレビュー・編集にはWordPressへのログインが必要です</span>
+            </motion.div>
+          )}
           {state.user_prompt && (
             <p className="text-stone-400 text-sm leading-relaxed line-clamp-2">
               {state.user_prompt}
