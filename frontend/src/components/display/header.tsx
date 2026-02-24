@@ -1,6 +1,7 @@
 'use client';
 
 import Image from 'next/image';
+import Link from 'next/link';
 import { LuMenu } from 'react-icons/lu';
 
 import { useSidebar } from '@/contexts/SidebarContext';
@@ -28,10 +29,9 @@ export default function Header() {
         >
           <LuMenu size={20} />
         </button>
-        <div className="flex items-center gap-5">
-          <Image src="/logo.png" alt="logo" width={32} height={32} />
-          <p className="hidden sm:block text-white text-lg font-bold">BlogAI</p>
-        </div>
+        <Link href="/blog/new" className="flex items-center">
+          <Image src="/logo-white.png" alt="ブログAI" width={99} height={28} className="shrink-0" />
+        </Link>
       </div>
       <div className="flex items-center gap-4">
         <SignedIn>

@@ -138,9 +138,9 @@ export async function POST(
     const client = await clerkClient();
     const clerkRole = role === 'admin' ? 'org:admin' : 'org:member';
 
-    const appUrl = process.env.NEXT_PUBLIC_SITE_URL || process.env.NEXT_PUBLIC_APP_URL || process.env.VERCEL_URL;
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.VERCEL_URL;
     if (!appUrl) {
-      console.error('No site URL configured. Set NEXT_PUBLIC_SITE_URL or NEXT_PUBLIC_APP_URL.');
+      console.error('No site URL configured. Set NEXT_PUBLIC_APP_URL.');
       return NextResponse.json(
         { error: 'サーバー設定エラー: サイトURLが設定されていません' },
         { status: 500 }

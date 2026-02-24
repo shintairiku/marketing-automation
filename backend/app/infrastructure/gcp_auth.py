@@ -130,7 +130,8 @@ class GCPAuthManager:
     
     def setup_genai_client(self) -> None:
         """Setup the Google Generative AI client."""
-        api_key = os.getenv('GOOGLE_API_KEY') or os.getenv('GEMINI_API_KEY')
+        from app.core.config import settings as _settings
+        api_key = os.getenv('GOOGLE_API_KEY') or _settings.gemini_api_key
         if api_key:
             genai.configure(api_key=api_key)
             logger.info("Configured GenAI with API key")

@@ -67,14 +67,16 @@ export async function POST(req: NextRequest) {
         const userId = data.id;
         const email = data.email_addresses?.[0]?.email_address || null;
 
-        // user_subscriptions に初期レコード作成
+        // user_subscriptions にフリープランで初期レコード作成
+        const isPrivileged = isPrivilegedEmail(email);
         const { error } = await supabase
           .from('user_subscriptions')
           .upsert({
             user_id: userId,
             email,
-            status: 'none',
-            is_privileged: isPrivilegedEmail(email),
+            status: 'active',
+            is_privileged: isPrivileged,
+            plan_tier_id: isPrivileged ? null : 'free',
           }, { onConflict: 'user_id' });
 
         if (error) {
@@ -102,8 +104,8 @@ export async function POST(req: NextRequest) {
         const userId = data.public_user_data.user_id;
         const email = data.public_user_data.identifier || null;
         const displayName = [
-          data.public_user_data.first_name,
           data.public_user_data.last_name,
+          data.public_user_data.first_name,
         ].filter(Boolean).join(' ') || null;
         const role = data.role === 'org:admin' ? 'admin' : 'member';
 

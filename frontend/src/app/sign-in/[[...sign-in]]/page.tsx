@@ -3,8 +3,8 @@ import { Metadata } from 'next';
 import { SignIn } from '@clerk/nextjs';
 
 export const metadata: Metadata = {
-  title: 'サインイン - 新大陸',
-  description: '新大陸アカウントにサインインします。',
+  title: 'サインイン - ブログAI',
+  description: 'ブログAIアカウントにサインインします。',
 };
 
 export default function SignInPage() {

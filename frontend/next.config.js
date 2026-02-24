@@ -1,5 +1,8 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  // dev と build で出力先を分離し、dev 中に build しても dev が壊れないようにする。
+  // dev: NEXT_DEV_DIR=.next-dev → .next-dev/  |  build/start: デフォルト .next/
+  distDir: process.env.NEXT_DEV_DIR || '.next',
   images: {
     remotePatterns: [
       {
@@ -20,6 +23,38 @@ const nextConfig = {
   },
   // rewrites は削除: Cloud Run 非公開化に伴い、全リクエストを route handler 経由に集約。
   // route handler で X-Serverless-Authorization (Google ID Token) を付与する。
+  async headers() {
+    return [
+      {
+        // Security headers for all routes
+        source: '/:path*',
+        headers: [
+          { key: 'X-Frame-Options', value: 'SAMEORIGIN' },
+          { key: 'X-Content-Type-Options', value: 'nosniff' },
+          { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
+          { key: 'Permissions-Policy', value: 'geolocation=(), microphone=(), camera=()' },
+        ],
+      },
+      {
+        // Service Worker: no-cache + correct Content-Type
+        source: '/sw.js',
+        headers: [
+          {
+            key: 'Content-Type',
+            value: 'application/javascript; charset=utf-8',
+          },
+          {
+            key: 'Cache-Control',
+            value: 'no-cache, no-store, must-revalidate',
+          },
+          {
+            key: 'Service-Worker-Allowed',
+            value: '/',
+          },
+        ],
+      },
+    ];
+  },
 };
 
 module.exports = nextConfig;

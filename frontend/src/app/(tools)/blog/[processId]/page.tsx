@@ -14,6 +14,7 @@ import {
   FileText,
   ImageIcon,
   ImagePlus,
+  Info,
   Loader2,
   MessageSquare,
   RefreshCw,
@@ -176,6 +177,8 @@ export default function BlogProcessPage() {
   // Activity feed from process events
   const [activities, setActivities] = useState<ActivityEntry[]>([]);
   const activityEndRef = useRef<HTMLDivElement>(null);
+  const feedContainerRef = useRef<HTMLDivElement>(null);
+  const isNearBottomRef = useRef(true);
   const [, setTick] = useState(0); // for elapsed time refresh
   const [activityLogOpen, setActivityLogOpen] = useState(false);
   const [justCompleted, setJustCompleted] = useState(false);
@@ -366,9 +369,20 @@ export default function BlogProcessPage() {
     }
   }, [state?.status]);
 
-  // ---- Auto-scroll activity feed ----
+  // ---- Track whether user is near the bottom of the feed ----
+  const handleFeedScroll = useCallback(() => {
+    const el = feedContainerRef.current;
+    if (!el) return;
+    const threshold = 80;
+    isNearBottomRef.current =
+      el.scrollHeight - el.scrollTop - el.clientHeight <= threshold;
+  }, []);
+
+  // ---- Auto-scroll activity feed (only when user is near bottom) ----
   useEffect(() => {
-    activityEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    if (isNearBottomRef.current) {
+      activityEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    }
   }, [activities]);
 
   // ---- Image upload handlers for question phase ----
@@ -627,6 +641,17 @@ export default function BlogProcessPage() {
               </motion.div>
             )}
           </div>
+          {state.status === "completed" && (state.draft_preview_url || state.draft_edit_url) && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ delay: 0.6 }}
+              className="flex items-center gap-2 text-xs text-rose-600 bg-rose-50 border border-rose-200/60 rounded-lg px-3 py-2 mt-2"
+            >
+              <Info className="w-3.5 h-3.5 flex-shrink-0" />
+              <span>プレビュー・編集にはWordPressへのログインが必要です</span>
+            </motion.div>
+          )}
           {state.user_prompt && (
             <p className="text-stone-400 text-sm leading-relaxed line-clamp-2">
               {state.user_prompt}
@@ -1105,6 +1130,8 @@ export default function BlogProcessPage() {
               {/* Activity feed */}
               <div className="rounded-2xl border border-stone-200/60 bg-white/50 backdrop-blur-sm overflow-hidden">
                 <div
+                  ref={feedContainerRef}
+                  onScroll={handleFeedScroll}
                   className="overflow-y-auto overscroll-contain min-h-[250px]"
                   style={{ maxHeight: 'calc(100dvh - 355px)' }}
                 >

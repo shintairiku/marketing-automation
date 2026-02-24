@@ -10,7 +10,7 @@ project_id = "next-supabase-starter"
 # -----------------------------------------------------------------------------
 [api]
 enabled = true
-port = 54321
+port = 15421
 schemas = ["public", "graphql_public"]
 extra_search_path = ["public", "extensions"]
 # 記事一覧・管理画面等で大量行を返す可能性があるため拡張
@@ -23,8 +23,8 @@ enabled = false
 # Database — PostgreSQL 17 (リモートSupabaseと同一バージョン)
 # -----------------------------------------------------------------------------
 [db]
-port = 54322
-shadow_port = 54320
+port = 15422
+shadow_port = 15420
 health_timeout = "2m"
 major_version = 17
 
@@ -51,12 +51,12 @@ sql_paths = ["./seed.sql"]
 enabled = true
 
 # -----------------------------------------------------------------------------
-# Studio — ローカルDB管理GUI (http://localhost:54323)
+# Studio — ローカルDB管理GUI (http://localhost:15423)
 # テーブル確認、データ編集、SQL実行に便利
 # -----------------------------------------------------------------------------
 [studio]
 enabled = true
-port = 54323
+port = 15423
 api_url = "http://127.0.0.1"
 openai_api_key = "env(OPENAI_API_KEY)"
 
@@ -166,7 +166,7 @@ deno_version = 2
 # -----------------------------------------------------------------------------
 [analytics]
 enabled = false
-port = 54327
+port = 15427
 backend = "postgres"
 
 # -----------------------------------------------------------------------------

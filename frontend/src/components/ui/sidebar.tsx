@@ -1,6 +1,7 @@
 'use client';
 
 import { ReactNode } from 'react';
+import Image from 'next/image';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { 
@@ -70,10 +71,8 @@ export function Sidebar({ className }: SidebarProps) {
     <div className={cn('h-full w-64 border-r border-border bg-background p-4', className)}>
       <div className="mb-8 py-2">
         <Link href="/dashboard" className="flex items-center gap-2">
-          <div className="flex h-8 w-8 items-center justify-center rounded-md bg-indigo-600">
-            <span className="font-alt text-lg font-bold text-foreground">S</span>
-          </div>
-          <span className="font-alt text-xl font-semibold text-foreground">新大陸</span>
+          <Image src="/icon.png" alt="ブログAI" width={32} height={32} />
+          <span className="text-xl font-semibold text-foreground">ブログAI</span>
         </Link>
       </div>
 

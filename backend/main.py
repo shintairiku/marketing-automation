@@ -1,9 +1,7 @@
 # -*- coding: utf-8 -*-
-import os
 from pathlib import Path
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
 
 # 新しいインポートパス
 from app.api.router import api_router
@@ -19,9 +17,7 @@ app = FastAPI(
 )
 
 # CORS設定
-
-# 環境変数から許可するオリジンを取得
-allowed_origins = os.getenv("ALLOWED_ORIGINS", "http://localhost:3000").split(",")
+allowed_origins = settings.allowed_origins.split(",")
 
 app.add_middleware(
     CORSMiddleware,

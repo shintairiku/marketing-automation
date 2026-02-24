@@ -181,21 +181,21 @@ export default function AdminInquiriesPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
-          <h2 className="text-2xl font-bold">お問い合わせ管理</h2>
-          <p className="text-sm text-muted-foreground">
+          <h2 className="text-xl sm:text-2xl font-bold">お問い合わせ管理</h2>
+          <p className="text-xs sm:text-sm text-muted-foreground">
             ユーザーからのお問い合わせを確認・対応します（全{total}件）
           </p>
         </div>
-        <Button variant="outline" size="sm" onClick={() => fetchInquiries()}>
+        <Button variant="outline" size="sm" className="self-start sm:self-auto shrink-0" onClick={() => fetchInquiries()}>
           <RefreshCw className="mr-2 h-4 w-4" />
           更新
         </Button>
       </div>
 
       {/* Status summary cards */}
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-3 gap-2 sm:gap-4">
         {(['new', 'read', 'replied'] as const).map((s) => {
           const cfg = STATUS_CONFIG[s];
           const Icon = cfg.icon;
@@ -208,13 +208,13 @@ export default function AdminInquiriesPage() {
               )}
               onClick={() => setStatusFilter(statusFilter === s ? 'all' : s)}
             >
-              <CardContent className="flex items-center gap-3 p-4">
-                <div className={cn('flex h-10 w-10 items-center justify-center rounded-lg', cfg.color)}>
-                  <Icon className="h-5 w-5" />
+              <CardContent className="flex items-center gap-2 sm:gap-3 p-3 sm:p-4">
+                <div className={cn('flex h-8 w-8 sm:h-10 sm:w-10 items-center justify-center rounded-lg shrink-0', cfg.color)}>
+                  <Icon className="h-4 w-4 sm:h-5 sm:w-5" />
                 </div>
-                <div>
-                  <p className="text-2xl font-bold">{statusCounts[s] || 0}</p>
-                  <p className="text-xs text-muted-foreground">{cfg.label}</p>
+                <div className="min-w-0">
+                  <p className="text-lg sm:text-2xl font-bold">{statusCounts[s] || 0}</p>
+                  <p className="text-[10px] sm:text-xs text-muted-foreground">{cfg.label}</p>
                 </div>
               </CardContent>
             </Card>
@@ -260,46 +260,51 @@ export default function AdminInquiriesPage() {
               <Card key={inq.id} className="overflow-hidden">
                 {/* Summary row */}
                 <button
-                  className="flex w-full items-center gap-4 px-5 py-4 text-left hover:bg-muted/30 transition-colors"
+                  className="flex w-full items-start sm:items-center gap-2 sm:gap-4 px-3 sm:px-5 py-3 sm:py-4 text-left hover:bg-muted/30 transition-colors"
                   onClick={() => setExpandedId(isExpanded ? null : inq.id)}
                 >
-                  <Badge className={cn('shrink-0 text-xs', statusCfg.color)} variant="secondary">
-                    {statusCfg.label}
-                  </Badge>
-                  <Badge variant="outline" className="shrink-0 text-xs">
-                    {CATEGORY_LABELS[inq.category] || inq.category}
-                  </Badge>
+                  <div className="flex flex-col sm:flex-row sm:items-center gap-1.5 sm:gap-2 shrink-0 pt-0.5 sm:pt-0">
+                    <Badge className={cn('shrink-0 text-xs', statusCfg.color)} variant="secondary">
+                      {statusCfg.label}
+                    </Badge>
+                    <Badge variant="outline" className="shrink-0 text-xs">
+                      {CATEGORY_LABELS[inq.category] || inq.category}
+                    </Badge>
+                  </div>
                   <div className="min-w-0 flex-1">
-                    <p className="truncate font-medium">{inq.subject}</p>
+                    <p className="truncate font-medium text-sm sm:text-base">{inq.subject}</p>
                     <p className="truncate text-xs text-muted-foreground">
                       {inq.name} ({inq.email})
                     </p>
+                    <span className="text-[10px] text-muted-foreground sm:hidden">
+                      {formatDate(inq.created_at)}
+                    </span>
                   </div>
-                  <span className="shrink-0 text-xs text-muted-foreground">
+                  <span className="hidden sm:block shrink-0 text-xs text-muted-foreground">
                     {formatDate(inq.created_at)}
                   </span>
                   {isExpanded ? (
-                    <ChevronUp className="h-4 w-4 shrink-0 text-muted-foreground" />
+                    <ChevronUp className="h-4 w-4 shrink-0 text-muted-foreground mt-0.5 sm:mt-0" />
                   ) : (
-                    <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
+                    <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground mt-0.5 sm:mt-0" />
                   )}
                 </button>
 
                 {/* Detail panel */}
                 {isExpanded && (
-                  <div className="border-t bg-muted/10 px-5 py-4 space-y-4">
-                    <div className="grid grid-cols-2 gap-x-6 gap-y-2 text-sm">
+                  <div className="border-t bg-muted/10 px-3 sm:px-5 py-4 space-y-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2 text-sm">
                       <div>
                         <span className="text-muted-foreground">送信者:</span>{' '}
                         <span className="font-medium">{inq.name}</span>
                       </div>
-                      <div>
+                      <div className="break-all">
                         <span className="text-muted-foreground">メール:</span>{' '}
                         <a href={`mailto:${inq.email}`} className="text-blue-600 hover:underline">
                           {inq.email}
                         </a>
                       </div>
-                      <div>
+                      <div className="break-all">
                         <span className="text-muted-foreground">ユーザーID:</span>{' '}
                         <span className="font-mono text-xs">{inq.user_id}</span>
                       </div>
@@ -372,7 +377,7 @@ export default function AdminInquiriesPage() {
                     </div>
 
                     {/* Actions */}
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
                       {inq.status === 'new' && (
                         <Button
                           size="sm"
