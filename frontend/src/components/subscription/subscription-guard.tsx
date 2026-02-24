@@ -10,7 +10,7 @@
 import { createContext, type ReactNode,useCallback, useContext, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 
-import { hasActiveAccess, hasActiveOrgAccess, isPrivilegedEmail, type OrgSubscription, type UsageInfo, type UserSubscription } from '@/lib/subscription';
+import { hasActiveAccess, hasActiveOrgAccess, hasPrivilegedRole, type OrgSubscription, type UsageInfo, type UserSubscription } from '@/lib/subscription';
 import { useAuth, useUser } from '@clerk/nextjs';
 
 // サブスクリプションコンテキスト
@@ -75,10 +75,10 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
     }
   }, [isAuthLoaded, fetchSubscription]);
 
-  // アクセス権の判定（個人 OR 組織のいずれかで有効ならアクセス可）
-  const userEmail = user?.primaryEmailAddress?.emailAddress;
+  // アクセス権の判定（ロール OR 個人 OR 組織のいずれかで有効ならアクセス可）
+  const isPrivileged = hasPrivilegedRole(user?.publicMetadata as Record<string, unknown>);
   const hasAccess =
-    isPrivilegedEmail(userEmail) ||        // @shintairiku.jp
+    isPrivileged ||                        // admin/privileged ロール
     hasActiveAccess(subscription) ||       // 個人サブスクリプション
     hasActiveOrgAccess(orgSubscription);   // 組織サブスクリプション
 

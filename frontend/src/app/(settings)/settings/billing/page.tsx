@@ -7,7 +7,7 @@
  * - 未契約 → 個人プラン or チームプランを購入
  * - 個人プラン契約中 → チームプランへアップグレード or 管理
  * - チームプラン契約中 → シート変更 / 管理（Stripe Customer Portal）
- * - @shintairiku.jp → 無料アクセス
+ * - 特権ロール (admin/privileged) → 無料アクセス
  */
 
 import { useCallback, useEffect, useState } from 'react';
@@ -61,7 +61,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { isPrivilegedEmail } from '@/lib/subscription';
+import { hasPrivilegedRole } from '@/lib/subscription';
 import { useAuth, useUser } from '@clerk/nextjs';
 
 // ============================================
@@ -255,8 +255,7 @@ export default function BillingSettingsPage() {
       .finally(() => setLoadingStatus(false));
   }, [isAuthLoaded, isSignedIn]);
 
-  const userEmail = user?.primaryEmailAddress?.emailAddress;
-  const isPrivileged = isPrivilegedEmail(userEmail);
+  const isPrivileged = hasPrivilegedRole(user?.publicMetadata as Record<string, unknown>);
 
   // 現在のプラン判定
   const hasIndividualPlan = subStatus?.subscription?.status === 'active';
@@ -558,7 +557,7 @@ export default function BillingSettingsPage() {
           <div className="flex items-center gap-2 text-purple-800">
             <Sparkles className="h-5 w-5" />
             <span className="font-semibold">
-              @shintairiku.jp アカウントをお持ちのため、すべての機能を無料でご利用いただけます。
+              特権アカウントのため、すべての機能を無料でご利用いただけます。
             </span>
           </div>
         </div>

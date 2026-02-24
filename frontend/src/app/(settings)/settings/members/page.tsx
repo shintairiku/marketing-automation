@@ -35,7 +35,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { isPrivilegedEmail } from "@/lib/subscription";
+import { hasPrivilegedRole } from "@/lib/subscription";
 import { useUser } from "@clerk/nextjs";
 
 // ============================================
@@ -146,8 +146,7 @@ export default function MembersSettingsPage() {
   const [orgName, setOrgName] = useState("");
   const [creatingOrg, setCreatingOrg] = useState(false);
 
-  const userEmail = user?.primaryEmailAddress?.emailAddress;
-  const isPrivileged = isPrivilegedEmail(userEmail);
+  const isPrivileged = hasPrivilegedRole(user?.publicMetadata as Record<string, unknown>);
 
   // ============================================
   // データ取得
