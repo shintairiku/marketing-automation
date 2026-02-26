@@ -1,0 +1,1441 @@
+seed_no,role,content
+1,user_input,高専1-2年生に向けて「高専生の勉強方法」の記事を書きたいです。最短で成果を出す観点で、すぐ実行できる内容にしてください。
+1,user_input,"Q(q1): 開催形式はオンラインですか？
+A: オンライン開催です
+
+Q(q2): 告知画像はありますか？
+InputType: image_upload
+A: uploaded:seminar-001.webp"
+1,source,参考情報: https://example.com/blog/reference-001 / 高専生の勉強方法 の基礎と実践例を確認。
+1,system_note,読者=高専1-2年生。結論先出し・箇条書き中心・行動チェックリスト付きで構成する。
+1,assistant_output,導入: 高専生の勉強方法の課題を明確化。本編: 3ステップ（準備/実行/振り返り）。終盤: 1週間の実践計画テンプレートを提示。
+1,final_summary,高専生の勉強方法 実践ガイド 001 の要点: 学習目的を定義し、小さな実行単位に分解して継続することで成果につなげる。
+1,tool_result,"{""tool_name"": ""web_search"", ""status"": ""ok"", ""input"": {""process_id"": ""__PROCESS_ID__"", ""q"": ""高専生の勉強方法 高専1-2年生 実例"", ""max_results"": 5}, ""output"": {""items"": [{""title"": ""高専生の勉強方法 の基本"", ""url"": ""https://example.com/source/001/1"", ""snippet"": ""要点整理と学習手順を簡潔に説明している。""}, {""title"": ""高専生の勉強方法 の失敗例"", ""url"": ""https://example.com/source/001/2"", ""snippet"": ""よくある失敗と対策をケース別に解説している。""}]}, ""ts"": ""2026-02-23T12:01:00Z""}"
+2,user_input,既存顧客向けのイベント告知記事を作りたいです。テーマは「生成AI活用セミナー告知」。イベント概要を明確にするを重視してください。
+2,user_input,"Q(q1): 開催日時と会場を教えてください。
+A: 2026-03-03 19:00 / 東京会場
+
+Q(q2): 告知画像はありますか？
+InputType: image_upload
+A: uploaded:event-banner-002.webp"
+2,source,参考情報: https://example.com/blog/reference-002 / 生成AI活用セミナー告知 の開催概要、参加特典、申込導線を確認。
+2,system_note,読者=既存顧客。冒頭で開催概要を提示し、日時・場所・対象・申込方法を表形式か箇条書きで明記。
+2,assistant_output,導入: 参加者の課題に共感。本編: 開催概要・タイムテーブル・登壇内容・参加メリット。終盤: 申込ボタンと締切を明示。
+2,final_summary,生成AI活用セミナー告知｜開催案内 002 の要点: 誰向けに何が得られるイベントかを明確にし、申し込みまでの行動を迷わせない構成にした。
+2,tool_result,"{""tool_name"": ""wp_get_recent_posts"", ""status"": ""ok"", ""input"": {""process_id"": ""__PROCESS_ID__"", ""q"": ""生成AI活用セミナー告知 既存顧客 実例"", ""max_results"": 5}, ""output"": {""items"": [{""title"": ""生成AI活用セミナー告知 の基本"", ""url"": ""https://example.com/source/002/1"", ""snippet"": ""要点整理と学習手順を簡潔に説明している。""}, {""title"": ""生成AI活用セミナー告知 の失敗例"", ""url"": ""https://example.com/source/002/2"", ""snippet"": ""よくある失敗と対策をケース別に解説している。""}]}, ""ts"": ""2026-02-23T12:02:00Z""}"
+3,user_input,新規取引先向けに社員紹介記事を書きたいです。「社員紹介インタビュー」として、具体的なエピソードを入れてください。
+3,user_input,"Q(q1): 担当領域と最近の成果を教えてください。
+A: SaaS導入支援。直近四半期で解約率を4%改善しました。
+
+Q(q2): プロフィール写真はありますか？
+InputType: image_upload
+A: uploaded:employee-003.webp"
+3,source,参考情報: https://example.com/blog/reference-003 / 担当業務、経歴、価値観、プロジェクト実績を確認。
+3,system_note,読者=新規取引先。人物像が伝わるように、背景・現在・今後の挑戦の順で構成する。
+3,assistant_output,導入: 配属背景を紹介。本編: 担当業務・成功体験・チームでの工夫。終盤: 読者へのメッセージと採用/問い合わせ導線。
+3,final_summary,社員紹介インタビュー｜担当者インタビュー 003 の要点: 社員の人柄と専門性を具体エピソードで示し、組織理解につながる記事にした。
+3,tool_result,"{""tool_name"": ""wp_get_post_types"", ""status"": ""ok"", ""input"": {""process_id"": ""__PROCESS_ID__"", ""q"": ""社員紹介インタビュー 新規取引先 実例"", ""max_results"": 5}, ""output"": {""items"": [{""title"": ""社員紹介インタビュー の基本"", ""url"": ""https://example.com/source/003/1"", ""snippet"": ""要点整理と学習手順を簡潔に説明している。""}, {""title"": ""社員紹介インタビュー の失敗例"", ""url"": ""https://example.com/source/003/2"", ""snippet"": ""よくある失敗と対策をケース別に解説している。""}]}, ""ts"": ""2026-02-23T12:03:00Z""}"
+4,user_input,見込み顧客向けに「導入事例レポート」の記事を作成したいです。ビフォーアフターと数値成果をわかりやすく入れてください。
+4,user_input,"Q(q1): 開催形式はオンラインですか？
+A: オフライン開催です
+
+Q(q2): 告知画像はありますか？
+InputType: image_upload
+A: uploaded:seminar-004.webp"
+4,source,参考情報: https://example.com/blog/reference-004 / 導入事例レポート の基礎と実践例を確認。
+4,system_note,読者=見込み顧客。結論先出し・箇条書き中心・行動チェックリスト付きで構成する。
+4,assistant_output,導入: 導入事例レポートの課題を明確化。本編: 3ステップ（準備/実行/振り返り）。終盤: 1週間の実践計画テンプレートを提示。
+4,final_summary,導入事例レポート｜活用事例 004 の要点: 学習目的を定義し、小さな実行単位に分解して継続することで成果につなげる。
+4,tool_result,"{""tool_name"": ""wp_get_categories"", ""status"": ""ok"", ""input"": {""process_id"": ""__PROCESS_ID__"", ""q"": ""導入事例レポート 見込み顧客 実例"", ""max_results"": 5}, ""output"": {""items"": [{""title"": ""導入事例レポート の基本"", ""url"": ""https://example.com/source/004/1"", ""snippet"": ""要点整理と学習手順を簡潔に説明している。""}, {""title"": ""導入事例レポート の失敗例"", ""url"": ""https://example.com/source/004/2"", ""snippet"": ""よくある失敗と対策をケース別に解説している。""}]}, ""ts"": ""2026-02-23T12:04:00Z""}"
+5,user_input,管理者ユーザー向けに「機能アップデート案内」の説明記事を作りたいです。手順を箇条書きで明確にしてください。
+5,user_input,"Q(q1): 開催形式はオンラインですか？
+A: オンライン開催です
+
+Q(q2): 告知画像はありますか？
+InputType: image_upload
+A: uploaded:seminar-005.webp"
+5,source,参考情報: https://example.com/blog/reference-005 / 機能アップデート案内 の基礎と実践例を確認。
+5,system_note,読者=管理者ユーザー。結論先出し・箇条書き中心・行動チェックリスト付きで構成する。
+5,assistant_output,導入: 機能アップデート案内の課題を明確化。本編: 3ステップ（準備/実行/振り返り）。終盤: 1週間の実践計画テンプレートを提示。
+5,final_summary,機能アップデート案内ガイド 005 の要点: 学習目的を定義し、小さな実行単位に分解して継続することで成果につなげる。
+5,tool_result,"{""tool_name"": ""web_search"", ""status"": ""ok"", ""input"": {""process_id"": ""__PROCESS_ID__"", ""q"": ""機能アップデート案内 管理者ユーザー 実例"", ""max_results"": 5}, ""output"": {""items"": [{""title"": ""機能アップデート案内 の基本"", ""url"": ""https://example.com/source/005/1"", ""snippet"": ""要点整理と学習手順を簡潔に説明している。""}, {""title"": ""機能アップデート案内 の失敗例"", ""url"": ""https://example.com/source/005/2"", ""snippet"": ""よくある失敗と対策をケース別に解説している。""}]}, ""ts"": ""2026-02-23T12:05:00Z""}"
+6,user_input,社外パートナーに向けて「社内カルチャー紹介」の記事を書きたいです。共感を増やす観点で、すぐ実行できる内容にしてください。
+6,user_input,"Q(q1): 開催形式はオンラインですか？
+A: オフライン開催です
+
+Q(q2): 告知画像はありますか？
+InputType: image_upload
+A: uploaded:seminar-006.webp"
+6,source,参考情報: https://example.com/blog/reference-006 / 社内カルチャー紹介 の基礎と実践例を確認。
+6,system_note,読者=社外パートナー。結論先出し・箇条書き中心・行動チェックリスト付きで構成する。
+6,assistant_output,導入: 社内カルチャー紹介の課題を明確化。本編: 3ステップ（準備/実行/振り返り）。終盤: 1週間の実践計画テンプレートを提示。
+6,final_summary,社内カルチャー紹介 実践ガイド 006 の要点: 学習目的を定義し、小さな実行単位に分解して継続することで成果につなげる。
+6,tool_result,"{""tool_name"": ""wp_get_recent_posts"", ""status"": ""ok"", ""input"": {""process_id"": ""__PROCESS_ID__"", ""q"": ""社内カルチャー紹介 社外パートナー 実例"", ""max_results"": 5}, ""output"": {""items"": [{""title"": ""社内カルチャー紹介 の基本"", ""url"": ""https://example.com/source/006/1"", ""snippet"": ""要点整理と学習手順を簡潔に説明している。""}, {""title"": ""社内カルチャー紹介 の失敗例"", ""url"": ""https://example.com/source/006/2"", ""snippet"": ""よくある失敗と対策をケース別に解説している。""}]}, ""ts"": ""2026-02-23T12:06:00Z""}"
+7,user_input,マーケ担当者に向けて「ウェビナー開催案内」の記事を書きたいです。集客を強化する観点で、すぐ実行できる内容にしてください。
+7,user_input,"Q(q1): 開催形式はオンラインですか？
+A: オンライン開催です
+
+Q(q2): 告知画像はありますか？
+InputType: image_upload
+A: uploaded:seminar-007.webp"
+7,source,参考情報: https://example.com/blog/reference-007 / ウェビナー開催案内 の基礎と実践例を確認。
+7,system_note,読者=マーケ担当者。結論先出し・箇条書き中心・行動チェックリスト付きで構成する。
+7,assistant_output,導入: ウェビナー開催案内の課題を明確化。本編: 3ステップ（準備/実行/振り返り）。終盤: 1週間の実践計画テンプレートを提示。
+7,final_summary,ウェビナー開催案内 実践ガイド 007 の要点: 学習目的を定義し、小さな実行単位に分解して継続することで成果につなげる。
+7,tool_result,"{""tool_name"": ""wp_get_post_types"", ""status"": ""ok"", ""input"": {""process_id"": ""__PROCESS_ID__"", ""q"": ""ウェビナー開催案内 マーケ担当者 実例"", ""max_results"": 5}, ""output"": {""items"": [{""title"": ""ウェビナー開催案内 の基本"", ""url"": ""https://example.com/source/007/1"", ""snippet"": ""要点整理と学習手順を簡潔に説明している。""}, {""title"": ""ウェビナー開催案内 の失敗例"", ""url"": ""https://example.com/source/007/2"", ""snippet"": ""よくある失敗と対策をケース別に解説している。""}]}, ""ts"": ""2026-02-23T12:07:00Z""}"
+8,user_input,業界メディアに向けて「パートナー連携発表」の記事を書きたいです。期待効果を示す観点で、すぐ実行できる内容にしてください。
+8,user_input,"Q(q1): 開催形式はオンラインですか？
+A: オフライン開催です
+
+Q(q2): 告知画像はありますか？
+InputType: image_upload
+A: uploaded:seminar-008.webp"
+8,source,参考情報: https://example.com/blog/reference-008 / パートナー連携発表 の基礎と実践例を確認。
+8,system_note,読者=業界メディア。結論先出し・箇条書き中心・行動チェックリスト付きで構成する。
+8,assistant_output,導入: パートナー連携発表の課題を明確化。本編: 3ステップ（準備/実行/振り返り）。終盤: 1週間の実践計画テンプレートを提示。
+8,final_summary,パートナー連携発表 実践ガイド 008 の要点: 学習目的を定義し、小さな実行単位に分解して継続することで成果につなげる。
+8,tool_result,"{""tool_name"": ""wp_get_categories"", ""status"": ""ok"", ""input"": {""process_id"": ""__PROCESS_ID__"", ""q"": ""パートナー連携発表 業界メディア 実例"", ""max_results"": 5}, ""output"": {""items"": [{""title"": ""パートナー連携発表 の基本"", ""url"": ""https://example.com/source/008/1"", ""snippet"": ""要点整理と学習手順を簡潔に説明している。""}, {""title"": ""パートナー連携発表 の失敗例"", ""url"": ""https://example.com/source/008/2"", ""snippet"": ""よくある失敗と対策をケース別に解説している。""}]}, ""ts"": ""2026-02-23T12:08:00Z""}"
+9,user_input,社員家族に向けて「地域イベント参加レポート」の記事を書きたいです。継続参加につなげる観点で、すぐ実行できる内容にしてください。
+9,user_input,"Q(q1): 開催形式はオンラインですか？
+A: オンライン開催です
+
+Q(q2): 告知画像はありますか？
+InputType: image_upload
+A: uploaded:seminar-009.webp"
+9,source,参考情報: https://example.com/blog/reference-009 / 地域イベント参加レポート の基礎と実践例を確認。
+9,system_note,読者=社員家族。結論先出し・箇条書き中心・行動チェックリスト付きで構成する。
+9,assistant_output,導入: 地域イベント参加レポートの課題を明確化。本編: 3ステップ（準備/実行/振り返り）。終盤: 1週間の実践計画テンプレートを提示。
+9,final_summary,地域イベント参加レポート 実践ガイド 009 の要点: 学習目的を定義し、小さな実行単位に分解して継続することで成果につなげる。
+9,tool_result,"{""tool_name"": ""web_search"", ""status"": ""ok"", ""input"": {""process_id"": ""__PROCESS_ID__"", ""q"": ""地域イベント参加レポート 社員家族 実例"", ""max_results"": 5}, ""output"": {""items"": [{""title"": ""地域イベント参加レポート の基本"", ""url"": ""https://example.com/source/009/1"", ""snippet"": ""要点整理と学習手順を簡潔に説明している。""}, {""title"": ""地域イベント参加レポート の失敗例"", ""url"": ""https://example.com/source/009/2"", ""snippet"": ""よくある失敗と対策をケース別に解説している。""}]}, ""ts"": ""2026-02-23T12:09:00Z""}"
+10,user_input,新入社員向けに「新入社員オンボーディング紹介」の説明記事を作りたいです。手順を箇条書きで明確にしてください。
+10,user_input,"Q(q1): 開催形式はオンラインですか？
+A: オフライン開催です
+
+Q(q2): 告知画像はありますか？
+InputType: image_upload
+A: uploaded:seminar-010.webp"
+10,source,参考情報: https://example.com/blog/reference-010 / 新入社員オンボーディング紹介 の基礎と実践例を確認。
+10,system_note,読者=新入社員。結論先出し・箇条書き中心・行動チェックリスト付きで構成する。
+10,assistant_output,導入: 新入社員オンボーディング紹介の課題を明確化。本編: 3ステップ（準備/実行/振り返り）。終盤: 1週間の実践計画テンプレートを提示。
+10,final_summary,新入社員オンボーディング紹介ガイド 010 の要点: 学習目的を定義し、小さな実行単位に分解して継続することで成果につなげる。
+10,tool_result,"{""tool_name"": ""wp_get_recent_posts"", ""status"": ""ok"", ""input"": {""process_id"": ""__PROCESS_ID__"", ""q"": ""新入社員オンボーディング紹介 新入社員 実例"", ""max_results"": 5}, ""output"": {""items"": [{""title"": ""新入社員オンボーディング紹介 の基本"", ""url"": ""https://example.com/source/010/1"", ""snippet"": ""要点整理と学習手順を簡潔に説明している。""}, {""title"": ""新入社員オンボーディング紹介 の失敗例"", ""url"": ""https://example.com/source/010/2"", ""snippet"": ""よくある失敗と対策をケース別に解説している。""}]}, ""ts"": ""2026-02-23T12:10:00Z""}"
+11,user_input,高専4-5年生に向けて「高専生の勉強方法」の記事を書きたいです。継続できる仕組みを作る観点で、すぐ実行できる内容にしてください。
+11,user_input,"Q(q1): 開催形式はオンラインですか？
+A: オンライン開催です
+
+Q(q2): 告知画像はありますか？
+InputType: image_upload
+A: uploaded:seminar-011.webp"
+11,source,参考情報: https://example.com/blog/reference-011 / 高専生の勉強方法 の基礎と実践例を確認。
+11,system_note,読者=高専4-5年生。結論先出し・箇条書き中心・行動チェックリスト付きで構成する。
+11,assistant_output,導入: 高専生の勉強方法の課題を明確化。本編: 3ステップ（準備/実行/振り返り）。終盤: 1週間の実践計画テンプレートを提示。
+11,final_summary,高専生の勉強方法 実践ガイド 011 の要点: 学習目的を定義し、小さな実行単位に分解して継続することで成果につなげる。
+11,tool_result,"{""tool_name"": ""wp_get_post_types"", ""status"": ""ok"", ""input"": {""process_id"": ""__PROCESS_ID__"", ""q"": ""高専生の勉強方法 高専4-5年生 実例"", ""max_results"": 5}, ""output"": {""items"": [{""title"": ""高専生の勉強方法 の基本"", ""url"": ""https://example.com/source/011/1"", ""snippet"": ""要点整理と学習手順を簡潔に説明している。""}, {""title"": ""高専生の勉強方法 の失敗例"", ""url"": ""https://example.com/source/011/2"", ""snippet"": ""よくある失敗と対策をケース別に解説している。""}]}, ""ts"": ""2026-02-23T12:11:00Z""}"
+12,user_input,地域参加者向けのイベント告知記事を作りたいです。テーマは「生成AI活用セミナー告知」。申込導線を改善するを重視してください。
+12,user_input,"Q(q1): 開催日時と会場を教えてください。
+A: 2026-03-13 19:00 / 東京会場
+
+Q(q2): 告知画像はありますか？
+InputType: image_upload
+A: uploaded:event-banner-012.webp"
+12,source,参考情報: https://example.com/blog/reference-012 / 生成AI活用セミナー告知 の開催概要、参加特典、申込導線を確認。
+12,system_note,読者=地域参加者。冒頭で開催概要を提示し、日時・場所・対象・申込方法を表形式か箇条書きで明記。
+12,assistant_output,導入: 参加者の課題に共感。本編: 開催概要・タイムテーブル・登壇内容・参加メリット。終盤: 申込ボタンと締切を明示。
+12,final_summary,生成AI活用セミナー告知｜開催案内 012 の要点: 誰向けに何が得られるイベントかを明確にし、申し込みまでの行動を迷わせない構成にした。
+12,tool_result,"{""tool_name"": ""wp_get_categories"", ""status"": ""ok"", ""input"": {""process_id"": ""__PROCESS_ID__"", ""q"": ""生成AI活用セミナー告知 地域参加者 実例"", ""max_results"": 5}, ""output"": {""items"": [{""title"": ""生成AI活用セミナー告知 の基本"", ""url"": ""https://example.com/source/012/1"", ""snippet"": ""要点整理と学習手順を簡潔に説明している。""}, {""title"": ""生成AI活用セミナー告知 の失敗例"", ""url"": ""https://example.com/source/012/2"", ""snippet"": ""よくある失敗と対策をケース別に解説している。""}]}, ""ts"": ""2026-02-23T12:12:00Z""}"
+13,user_input,採用候補者向けに社員紹介記事を書きたいです。「社員紹介インタビュー」として、具体的なエピソードを入れてください。
+13,user_input,"Q(q1): 担当領域と最近の成果を教えてください。
+A: SaaS導入支援。直近四半期で解約率を4%改善しました。
+
+Q(q2): プロフィール写真はありますか？
+InputType: image_upload
+A: uploaded:employee-013.webp"
+13,source,参考情報: https://example.com/blog/reference-013 / 担当業務、経歴、価値観、プロジェクト実績を確認。
+13,system_note,読者=採用候補者。人物像が伝わるように、背景・現在・今後の挑戦の順で構成する。
+13,assistant_output,導入: 配属背景を紹介。本編: 担当業務・成功体験・チームでの工夫。終盤: 読者へのメッセージと採用/問い合わせ導線。
+13,final_summary,社員紹介インタビュー｜担当者インタビュー 013 の要点: 社員の人柄と専門性を具体エピソードで示し、組織理解につながる記事にした。
+13,tool_result,"{""tool_name"": ""web_search"", ""status"": ""ok"", ""input"": {""process_id"": ""__PROCESS_ID__"", ""q"": ""社員紹介インタビュー 採用候補者 実例"", ""max_results"": 5}, ""output"": {""items"": [{""title"": ""社員紹介インタビュー の基本"", ""url"": ""https://example.com/source/013/1"", ""snippet"": ""要点整理と学習手順を簡潔に説明している。""}, {""title"": ""社員紹介インタビュー の失敗例"", ""url"": ""https://example.com/source/013/2"", ""snippet"": ""よくある失敗と対策をケース別に解説している。""}]}, ""ts"": ""2026-02-23T12:13:00Z""}"
+14,user_input,既存顧客向けに「導入事例レポート」の記事を作成したいです。ビフォーアフターと数値成果をわかりやすく入れてください。
+14,user_input,"Q(q1): 開催形式はオンラインですか？
+A: オフライン開催です
+
+Q(q2): 告知画像はありますか？
+InputType: image_upload
+A: uploaded:seminar-014.webp"
+14,source,参考情報: https://example.com/blog/reference-014 / 導入事例レポート の基礎と実践例を確認。
+14,system_note,読者=既存顧客。結論先出し・箇条書き中心・行動チェックリスト付きで構成する。
+14,assistant_output,導入: 導入事例レポートの課題を明確化。本編: 3ステップ（準備/実行/振り返り）。終盤: 1週間の実践計画テンプレートを提示。
+14,final_summary,導入事例レポート｜活用事例 014 の要点: 学習目的を定義し、小さな実行単位に分解して継続することで成果につなげる。
+14,tool_result,"{""tool_name"": ""wp_get_recent_posts"", ""status"": ""ok"", ""input"": {""process_id"": ""__PROCESS_ID__"", ""q"": ""導入事例レポート 既存顧客 実例"", ""max_results"": 5}, ""output"": {""items"": [{""title"": ""導入事例レポート の基本"", ""url"": ""https://example.com/source/014/1"", ""snippet"": ""要点整理と学習手順を簡潔に説明している。""}, {""title"": ""導入事例レポート の失敗例"", ""url"": ""https://example.com/source/014/2"", ""snippet"": ""よくある失敗と対策をケース別に解説している。""}]}, ""ts"": ""2026-02-23T12:14:00Z""}"
+15,user_input,サポート担当者向けに「機能アップデート案内」の説明記事を作りたいです。手順を箇条書きで明確にしてください。
+15,user_input,"Q(q1): 開催形式はオンラインですか？
+A: オンライン開催です
+
+Q(q2): 告知画像はありますか？
+InputType: image_upload
+A: uploaded:seminar-015.webp"
+15,source,参考情報: https://example.com/blog/reference-015 / 機能アップデート案内 の基礎と実践例を確認。
+15,system_note,読者=サポート担当者。結論先出し・箇条書き中心・行動チェックリスト付きで構成する。
+15,assistant_output,導入: 機能アップデート案内の課題を明確化。本編: 3ステップ（準備/実行/振り返り）。終盤: 1週間の実践計画テンプレートを提示。
+15,final_summary,機能アップデート案内ガイド 015 の要点: 学習目的を定義し、小さな実行単位に分解して継続することで成果につなげる。
+15,tool_result,"{""tool_name"": ""wp_get_post_types"", ""status"": ""ok"", ""input"": {""process_id"": ""__PROCESS_ID__"", ""q"": ""機能アップデート案内 サポート担当者 実例"", ""max_results"": 5}, ""output"": {""items"": [{""title"": ""機能アップデート案内 の基本"", ""url"": ""https://example.com/source/015/1"", ""snippet"": ""要点整理と学習手順を簡潔に説明している。""}, {""title"": ""機能アップデート案内 の失敗例"", ""url"": ""https://example.com/source/015/2"", ""snippet"": ""よくある失敗と対策をケース別に解説している。""}]}, ""ts"": ""2026-02-23T12:15:00Z""}"
+16,user_input,採用候補者に向けて「社内カルチャー紹介」の記事を書きたいです。価値観を伝える観点で、すぐ実行できる内容にしてください。
+16,user_input,"Q(q1): 開催形式はオンラインですか？
+A: オフライン開催です
+
+Q(q2): 告知画像はありますか？
+InputType: image_upload
+A: uploaded:seminar-016.webp"
+16,source,参考情報: https://example.com/blog/reference-016 / 社内カルチャー紹介 の基礎と実践例を確認。
+16,system_note,読者=採用候補者。結論先出し・箇条書き中心・行動チェックリスト付きで構成する。
+16,assistant_output,導入: 社内カルチャー紹介の課題を明確化。本編: 3ステップ（準備/実行/振り返り）。終盤: 1週間の実践計画テンプレートを提示。
+16,final_summary,社内カルチャー紹介 実践ガイド 016 の要点: 学習目的を定義し、小さな実行単位に分解して継続することで成果につなげる。
+16,tool_result,"{""tool_name"": ""wp_get_categories"", ""status"": ""ok"", ""input"": {""process_id"": ""__PROCESS_ID__"", ""q"": ""社内カルチャー紹介 採用候補者 実例"", ""max_results"": 5}, ""output"": {""items"": [{""title"": ""社内カルチャー紹介 の基本"", ""url"": ""https://example.com/source/016/1"", ""snippet"": ""要点整理と学習手順を簡潔に説明している。""}, {""title"": ""社内カルチャー紹介 の失敗例"", ""url"": ""https://example.com/source/016/2"", ""snippet"": ""よくある失敗と対策をケース別に解説している。""}]}, ""ts"": ""2026-02-23T12:16:00Z""}"
+17,user_input,営業担当者に向けて「ウェビナー開催案内」の記事を書きたいです。内容を分かりやすくする観点で、すぐ実行できる内容にしてください。
+17,user_input,"Q(q1): 開催形式はオンラインですか？
+A: オンライン開催です
+
+Q(q2): 告知画像はありますか？
+InputType: image_upload
+A: uploaded:seminar-017.webp"
+17,source,参考情報: https://example.com/blog/reference-017 / ウェビナー開催案内 の基礎と実践例を確認。
+17,system_note,読者=営業担当者。結論先出し・箇条書き中心・行動チェックリスト付きで構成する。
+17,assistant_output,導入: ウェビナー開催案内の課題を明確化。本編: 3ステップ（準備/実行/振り返り）。終盤: 1週間の実践計画テンプレートを提示。
+17,final_summary,ウェビナー開催案内 実践ガイド 017 の要点: 学習目的を定義し、小さな実行単位に分解して継続することで成果につなげる。
+17,tool_result,"{""tool_name"": ""web_search"", ""status"": ""ok"", ""input"": {""process_id"": ""__PROCESS_ID__"", ""q"": ""ウェビナー開催案内 営業担当者 実例"", ""max_results"": 5}, ""output"": {""items"": [{""title"": ""ウェビナー開催案内 の基本"", ""url"": ""https://example.com/source/017/1"", ""snippet"": ""要点整理と学習手順を簡潔に説明している。""}, {""title"": ""ウェビナー開催案内 の失敗例"", ""url"": ""https://example.com/source/017/2"", ""snippet"": ""よくある失敗と対策をケース別に解説している。""}]}, ""ts"": ""2026-02-23T12:17:00Z""}"
+18,user_input,提携候補企業に向けて「パートナー連携発表」の記事を書きたいです。信頼感を高める観点で、すぐ実行できる内容にしてください。
+18,user_input,"Q(q1): 開催形式はオンラインですか？
+A: オフライン開催です
+
+Q(q2): 告知画像はありますか？
+InputType: image_upload
+A: uploaded:seminar-018.webp"
+18,source,参考情報: https://example.com/blog/reference-018 / パートナー連携発表 の基礎と実践例を確認。
+18,system_note,読者=提携候補企業。結論先出し・箇条書き中心・行動チェックリスト付きで構成する。
+18,assistant_output,導入: パートナー連携発表の課題を明確化。本編: 3ステップ（準備/実行/振り返り）。終盤: 1週間の実践計画テンプレートを提示。
+18,final_summary,パートナー連携発表 実践ガイド 018 の要点: 学習目的を定義し、小さな実行単位に分解して継続することで成果につなげる。
+18,tool_result,"{""tool_name"": ""wp_get_recent_posts"", ""status"": ""ok"", ""input"": {""process_id"": ""__PROCESS_ID__"", ""q"": ""パートナー連携発表 提携候補企業 実例"", ""max_results"": 5}, ""output"": {""items"": [{""title"": ""パートナー連携発表 の基本"", ""url"": ""https://example.com/source/018/1"", ""snippet"": ""要点整理と学習手順を簡潔に説明している。""}, {""title"": ""パートナー連携発表 の失敗例"", ""url"": ""https://example.com/source/018/2"", ""snippet"": ""よくある失敗と対策をケース別に解説している。""}]}, ""ts"": ""2026-02-23T12:18:00Z""}"
+19,user_input,地域住民に向けて「地域イベント参加レポート」の記事を書きたいです。活動内容を可視化する観点で、すぐ実行できる内容にしてください。
+19,user_input,"Q(q1): 開催形式はオンラインですか？
+A: オンライン開催です
+
+Q(q2): 告知画像はありますか？
+InputType: image_upload
+A: uploaded:seminar-019.webp"
+19,source,参考情報: https://example.com/blog/reference-019 / 地域イベント参加レポート の基礎と実践例を確認。
+19,system_note,読者=地域住民。結論先出し・箇条書き中心・行動チェックリスト付きで構成する。
+19,assistant_output,導入: 地域イベント参加レポートの課題を明確化。本編: 3ステップ（準備/実行/振り返り）。終盤: 1週間の実践計画テンプレートを提示。
+19,final_summary,地域イベント参加レポート 実践ガイド 019 の要点: 学習目的を定義し、小さな実行単位に分解して継続することで成果につなげる。
+19,tool_result,"{""tool_name"": ""wp_get_post_types"", ""status"": ""ok"", ""input"": {""process_id"": ""__PROCESS_ID__"", ""q"": ""地域イベント参加レポート 地域住民 実例"", ""max_results"": 5}, ""output"": {""items"": [{""title"": ""地域イベント参加レポート の基本"", ""url"": ""https://example.com/source/019/1"", ""snippet"": ""要点整理と学習手順を簡潔に説明している。""}, {""title"": ""地域イベント参加レポート の失敗例"", ""url"": ""https://example.com/source/019/2"", ""snippet"": ""よくある失敗と対策をケース別に解説している。""}]}, ""ts"": ""2026-02-23T12:19:00Z""}"
+20,user_input,配属先マネージャー向けに「新入社員オンボーディング紹介」の説明記事を作りたいです。手順を箇条書きで明確にしてください。
+20,user_input,"Q(q1): 開催形式はオンラインですか？
+A: オフライン開催です
+
+Q(q2): 告知画像はありますか？
+InputType: image_upload
+A: uploaded:seminar-020.webp"
+20,source,参考情報: https://example.com/blog/reference-020 / 新入社員オンボーディング紹介 の基礎と実践例を確認。
+20,system_note,読者=配属先マネージャー。結論先出し・箇条書き中心・行動チェックリスト付きで構成する。
+20,assistant_output,導入: 新入社員オンボーディング紹介の課題を明確化。本編: 3ステップ（準備/実行/振り返り）。終盤: 1週間の実践計画テンプレートを提示。
+20,final_summary,新入社員オンボーディング紹介ガイド 020 の要点: 学習目的を定義し、小さな実行単位に分解して継続することで成果につなげる。
+20,tool_result,"{""tool_name"": ""wp_get_categories"", ""status"": ""ok"", ""input"": {""process_id"": ""__PROCESS_ID__"", ""q"": ""新入社員オンボーディング紹介 配属先マネージャー 実例"", ""max_results"": 5}, ""output"": {""items"": [{""title"": ""新入社員オンボーディング紹介 の基本"", ""url"": ""https://example.com/source/020/1"", ""snippet"": ""要点整理と学習手順を簡潔に説明している。""}, {""title"": ""新入社員オンボーディング紹介 の失敗例"", ""url"": ""https://example.com/source/020/2"", ""snippet"": ""よくある失敗と対策をケース別に解説している。""}]}, ""ts"": ""2026-02-23T12:20:00Z""}"
+21,user_input,高専1-2年生に向けて「高専生の勉強方法」の記事を書きたいです。再現性を高める観点で、すぐ実行できる内容にしてください。
+21,user_input,"Q(q1): 開催形式はオンラインですか？
+A: オンライン開催です
+
+Q(q2): 告知画像はありますか？
+InputType: image_upload
+A: uploaded:seminar-021.webp"
+21,source,参考情報: https://example.com/blog/reference-021 / 高専生の勉強方法 の基礎と実践例を確認。
+21,system_note,読者=高専1-2年生。結論先出し・箇条書き中心・行動チェックリスト付きで構成する。
+21,assistant_output,導入: 高専生の勉強方法の課題を明確化。本編: 3ステップ（準備/実行/振り返り）。終盤: 1週間の実践計画テンプレートを提示。
+21,final_summary,高専生の勉強方法 実践ガイド 021 の要点: 学習目的を定義し、小さな実行単位に分解して継続することで成果につなげる。
+21,tool_result,"{""tool_name"": ""web_search"", ""status"": ""ok"", ""input"": {""process_id"": ""__PROCESS_ID__"", ""q"": ""高専生の勉強方法 高専1-2年生 実例"", ""max_results"": 5}, ""output"": {""items"": [{""title"": ""高専生の勉強方法 の基本"", ""url"": ""https://example.com/source/021/1"", ""snippet"": ""要点整理と学習手順を簡潔に説明している。""}, {""title"": ""高専生の勉強方法 の失敗例"", ""url"": ""https://example.com/source/021/2"", ""snippet"": ""よくある失敗と対策をケース別に解説している。""}]}, ""ts"": ""2026-02-23T12:21:00Z""}"
+22,user_input,既存顧客向けのイベント告知記事を作りたいです。テーマは「生成AI活用セミナー告知」。参加率を上げるを重視してください。
+22,user_input,"Q(q1): 開催日時と会場を教えてください。
+A: 2026-03-03 19:00 / 東京会場
+
+Q(q2): 告知画像はありますか？
+InputType: image_upload
+A: uploaded:event-banner-022.webp"
+22,source,参考情報: https://example.com/blog/reference-022 / 生成AI活用セミナー告知 の開催概要、参加特典、申込導線を確認。
+22,system_note,読者=既存顧客。冒頭で開催概要を提示し、日時・場所・対象・申込方法を表形式か箇条書きで明記。
+22,assistant_output,導入: 参加者の課題に共感。本編: 開催概要・タイムテーブル・登壇内容・参加メリット。終盤: 申込ボタンと締切を明示。
+22,final_summary,生成AI活用セミナー告知｜開催案内 022 の要点: 誰向けに何が得られるイベントかを明確にし、申し込みまでの行動を迷わせない構成にした。
+22,tool_result,"{""tool_name"": ""wp_get_recent_posts"", ""status"": ""ok"", ""input"": {""process_id"": ""__PROCESS_ID__"", ""q"": ""生成AI活用セミナー告知 既存顧客 実例"", ""max_results"": 5}, ""output"": {""items"": [{""title"": ""生成AI活用セミナー告知 の基本"", ""url"": ""https://example.com/source/022/1"", ""snippet"": ""要点整理と学習手順を簡潔に説明している。""}, {""title"": ""生成AI活用セミナー告知 の失敗例"", ""url"": ""https://example.com/source/022/2"", ""snippet"": ""よくある失敗と対策をケース別に解説している。""}]}, ""ts"": ""2026-02-23T12:22:00Z""}"
+23,user_input,新規取引先向けに社員紹介記事を書きたいです。「社員紹介インタビュー」として、具体的なエピソードを入れてください。
+23,user_input,"Q(q1): 担当領域と最近の成果を教えてください。
+A: SaaS導入支援。直近四半期で解約率を4%改善しました。
+
+Q(q2): プロフィール写真はありますか？
+InputType: image_upload
+A: uploaded:employee-023.webp"
+23,source,参考情報: https://example.com/blog/reference-023 / 担当業務、経歴、価値観、プロジェクト実績を確認。
+23,system_note,読者=新規取引先。人物像が伝わるように、背景・現在・今後の挑戦の順で構成する。
+23,assistant_output,導入: 配属背景を紹介。本編: 担当業務・成功体験・チームでの工夫。終盤: 読者へのメッセージと採用/問い合わせ導線。
+23,final_summary,社員紹介インタビュー｜担当者インタビュー 023 の要点: 社員の人柄と専門性を具体エピソードで示し、組織理解につながる記事にした。
+23,tool_result,"{""tool_name"": ""wp_get_post_types"", ""status"": ""ok"", ""input"": {""process_id"": ""__PROCESS_ID__"", ""q"": ""社員紹介インタビュー 新規取引先 実例"", ""max_results"": 5}, ""output"": {""items"": [{""title"": ""社員紹介インタビュー の基本"", ""url"": ""https://example.com/source/023/1"", ""snippet"": ""要点整理と学習手順を簡潔に説明している。""}, {""title"": ""社員紹介インタビュー の失敗例"", ""url"": ""https://example.com/source/023/2"", ""snippet"": ""よくある失敗と対策をケース別に解説している。""}]}, ""ts"": ""2026-02-23T12:23:00Z""}"
+24,user_input,業界関係者向けに「導入事例レポート」の記事を作成したいです。ビフォーアフターと数値成果をわかりやすく入れてください。
+24,user_input,"Q(q1): 開催形式はオンラインですか？
+A: オフライン開催です
+
+Q(q2): 告知画像はありますか？
+InputType: image_upload
+A: uploaded:seminar-024.webp"
+24,source,参考情報: https://example.com/blog/reference-024 / 導入事例レポート の基礎と実践例を確認。
+24,system_note,読者=業界関係者。結論先出し・箇条書き中心・行動チェックリスト付きで構成する。
+24,assistant_output,導入: 導入事例レポートの課題を明確化。本編: 3ステップ（準備/実行/振り返り）。終盤: 1週間の実践計画テンプレートを提示。
+24,final_summary,導入事例レポート｜活用事例 024 の要点: 学習目的を定義し、小さな実行単位に分解して継続することで成果につなげる。
+24,tool_result,"{""tool_name"": ""wp_get_categories"", ""status"": ""ok"", ""input"": {""process_id"": ""__PROCESS_ID__"", ""q"": ""導入事例レポート 業界関係者 実例"", ""max_results"": 5}, ""output"": {""items"": [{""title"": ""導入事例レポート の基本"", ""url"": ""https://example.com/source/024/1"", ""snippet"": ""要点整理と学習手順を簡潔に説明している。""}, {""title"": ""導入事例レポート の失敗例"", ""url"": ""https://example.com/source/024/2"", ""snippet"": ""よくある失敗と対策をケース別に解説している。""}]}, ""ts"": ""2026-02-23T12:24:00Z""}"
+25,user_input,既存ユーザー向けに「機能アップデート案内」の説明記事を作りたいです。手順を箇条書きで明確にしてください。
+25,user_input,"Q(q1): 開催形式はオンラインですか？
+A: オンライン開催です
+
+Q(q2): 告知画像はありますか？
+InputType: image_upload
+A: uploaded:seminar-025.webp"
+25,source,参考情報: https://example.com/blog/reference-025 / 機能アップデート案内 の基礎と実践例を確認。
+25,system_note,読者=既存ユーザー。結論先出し・箇条書き中心・行動チェックリスト付きで構成する。
+25,assistant_output,導入: 機能アップデート案内の課題を明確化。本編: 3ステップ（準備/実行/振り返り）。終盤: 1週間の実践計画テンプレートを提示。
+25,final_summary,機能アップデート案内ガイド 025 の要点: 学習目的を定義し、小さな実行単位に分解して継続することで成果につなげる。
+25,tool_result,"{""tool_name"": ""web_search"", ""status"": ""ok"", ""input"": {""process_id"": ""__PROCESS_ID__"", ""q"": ""機能アップデート案内 既存ユーザー 実例"", ""max_results"": 5}, ""output"": {""items"": [{""title"": ""機能アップデート案内 の基本"", ""url"": ""https://example.com/source/025/1"", ""snippet"": ""要点整理と学習手順を簡潔に説明している。""}, {""title"": ""機能アップデート案内 の失敗例"", ""url"": ""https://example.com/source/025/2"", ""snippet"": ""よくある失敗と対策をケース別に解説している。""}]}, ""ts"": ""2026-02-23T12:25:00Z""}"
+26,user_input,新入社員に向けて「社内カルチャー紹介」の記事を書きたいです。働くイメージを持たせる観点で、すぐ実行できる内容にしてください。
+26,user_input,"Q(q1): 開催形式はオンラインですか？
+A: オフライン開催です
+
+Q(q2): 告知画像はありますか？
+InputType: image_upload
+A: uploaded:seminar-026.webp"
+26,source,参考情報: https://example.com/blog/reference-026 / 社内カルチャー紹介 の基礎と実践例を確認。
+26,system_note,読者=新入社員。結論先出し・箇条書き中心・行動チェックリスト付きで構成する。
+26,assistant_output,導入: 社内カルチャー紹介の課題を明確化。本編: 3ステップ（準備/実行/振り返り）。終盤: 1週間の実践計画テンプレートを提示。
+26,final_summary,社内カルチャー紹介 実践ガイド 026 の要点: 学習目的を定義し、小さな実行単位に分解して継続することで成果につなげる。
+26,tool_result,"{""tool_name"": ""wp_get_recent_posts"", ""status"": ""ok"", ""input"": {""process_id"": ""__PROCESS_ID__"", ""q"": ""社内カルチャー紹介 新入社員 実例"", ""max_results"": 5}, ""output"": {""items"": [{""title"": ""社内カルチャー紹介 の基本"", ""url"": ""https://example.com/source/026/1"", ""snippet"": ""要点整理と学習手順を簡潔に説明している。""}, {""title"": ""社内カルチャー紹介 の失敗例"", ""url"": ""https://example.com/source/026/2"", ""snippet"": ""よくある失敗と対策をケース別に解説している。""}]}, ""ts"": ""2026-02-23T12:26:00Z""}"
+27,user_input,プロダクト担当者に向けて「ウェビナー開催案内」の記事を書きたいです。申込率を上げる観点で、すぐ実行できる内容にしてください。
+27,user_input,"Q(q1): 開催形式はオンラインですか？
+A: オンライン開催です
+
+Q(q2): 告知画像はありますか？
+InputType: image_upload
+A: uploaded:seminar-027.webp"
+27,source,参考情報: https://example.com/blog/reference-027 / ウェビナー開催案内 の基礎と実践例を確認。
+27,system_note,読者=プロダクト担当者。結論先出し・箇条書き中心・行動チェックリスト付きで構成する。
+27,assistant_output,導入: ウェビナー開催案内の課題を明確化。本編: 3ステップ（準備/実行/振り返り）。終盤: 1週間の実践計画テンプレートを提示。
+27,final_summary,ウェビナー開催案内 実践ガイド 027 の要点: 学習目的を定義し、小さな実行単位に分解して継続することで成果につなげる。
+27,tool_result,"{""tool_name"": ""wp_get_post_types"", ""status"": ""ok"", ""input"": {""process_id"": ""__PROCESS_ID__"", ""q"": ""ウェビナー開催案内 プロダクト担当者 実例"", ""max_results"": 5}, ""output"": {""items"": [{""title"": ""ウェビナー開催案内 の基本"", ""url"": ""https://example.com/source/027/1"", ""snippet"": ""要点整理と学習手順を簡潔に説明している。""}, {""title"": ""ウェビナー開催案内 の失敗例"", ""url"": ""https://example.com/source/027/2"", ""snippet"": ""よくある失敗と対策をケース別に解説している。""}]}, ""ts"": ""2026-02-23T12:27:00Z""}"
+28,user_input,既存顧客に向けて「パートナー連携発表」の記事を書きたいです。提携価値を伝える観点で、すぐ実行できる内容にしてください。
+28,user_input,"Q(q1): 開催形式はオンラインですか？
+A: オフライン開催です
+
+Q(q2): 告知画像はありますか？
+InputType: image_upload
+A: uploaded:seminar-028.webp"
+28,source,参考情報: https://example.com/blog/reference-028 / パートナー連携発表 の基礎と実践例を確認。
+28,system_note,読者=既存顧客。結論先出し・箇条書き中心・行動チェックリスト付きで構成する。
+28,assistant_output,導入: パートナー連携発表の課題を明確化。本編: 3ステップ（準備/実行/振り返り）。終盤: 1週間の実践計画テンプレートを提示。
+28,final_summary,パートナー連携発表 実践ガイド 028 の要点: 学習目的を定義し、小さな実行単位に分解して継続することで成果につなげる。
+28,tool_result,"{""tool_name"": ""wp_get_categories"", ""status"": ""ok"", ""input"": {""process_id"": ""__PROCESS_ID__"", ""q"": ""パートナー連携発表 既存顧客 実例"", ""max_results"": 5}, ""output"": {""items"": [{""title"": ""パートナー連携発表 の基本"", ""url"": ""https://example.com/source/028/1"", ""snippet"": ""要点整理と学習手順を簡潔に説明している。""}, {""title"": ""パートナー連携発表 の失敗例"", ""url"": ""https://example.com/source/028/2"", ""snippet"": ""よくある失敗と対策をケース別に解説している。""}]}, ""ts"": ""2026-02-23T12:28:00Z""}"
+29,user_input,自治体関係者に向けて「地域イベント参加レポート」の記事を書きたいです。社会的意義を伝える観点で、すぐ実行できる内容にしてください。
+29,user_input,"Q(q1): 開催形式はオンラインですか？
+A: オンライン開催です
+
+Q(q2): 告知画像はありますか？
+InputType: image_upload
+A: uploaded:seminar-029.webp"
+29,source,参考情報: https://example.com/blog/reference-029 / 地域イベント参加レポート の基礎と実践例を確認。
+29,system_note,読者=自治体関係者。結論先出し・箇条書き中心・行動チェックリスト付きで構成する。
+29,assistant_output,導入: 地域イベント参加レポートの課題を明確化。本編: 3ステップ（準備/実行/振り返り）。終盤: 1週間の実践計画テンプレートを提示。
+29,final_summary,地域イベント参加レポート 実践ガイド 029 の要点: 学習目的を定義し、小さな実行単位に分解して継続することで成果につなげる。
+29,tool_result,"{""tool_name"": ""web_search"", ""status"": ""ok"", ""input"": {""process_id"": ""__PROCESS_ID__"", ""q"": ""地域イベント参加レポート 自治体関係者 実例"", ""max_results"": 5}, ""output"": {""items"": [{""title"": ""地域イベント参加レポート の基本"", ""url"": ""https://example.com/source/029/1"", ""snippet"": ""要点整理と学習手順を簡潔に説明している。""}, {""title"": ""地域イベント参加レポート の失敗例"", ""url"": ""https://example.com/source/029/2"", ""snippet"": ""よくある失敗と対策をケース別に解説している。""}]}, ""ts"": ""2026-02-23T12:29:00Z""}"
+30,user_input,人事担当者向けに「新入社員オンボーディング紹介」の説明記事を作りたいです。手順を箇条書きで明確にしてください。
+30,user_input,"Q(q1): 開催形式はオンラインですか？
+A: オフライン開催です
+
+Q(q2): 告知画像はありますか？
+InputType: image_upload
+A: uploaded:seminar-030.webp"
+30,source,参考情報: https://example.com/blog/reference-030 / 新入社員オンボーディング紹介 の基礎と実践例を確認。
+30,system_note,読者=人事担当者。結論先出し・箇条書き中心・行動チェックリスト付きで構成する。
+30,assistant_output,導入: 新入社員オンボーディング紹介の課題を明確化。本編: 3ステップ（準備/実行/振り返り）。終盤: 1週間の実践計画テンプレートを提示。
+30,final_summary,新入社員オンボーディング紹介ガイド 030 の要点: 学習目的を定義し、小さな実行単位に分解して継続することで成果につなげる。
+30,tool_result,"{""tool_name"": ""wp_get_recent_posts"", ""status"": ""ok"", ""input"": {""process_id"": ""__PROCESS_ID__"", ""q"": ""新入社員オンボーディング紹介 人事担当者 実例"", ""max_results"": 5}, ""output"": {""items"": [{""title"": ""新入社員オンボーディング紹介 の基本"", ""url"": ""https://example.com/source/030/1"", ""snippet"": ""要点整理と学習手順を簡潔に説明している。""}, {""title"": ""新入社員オンボーディング紹介 の失敗例"", ""url"": ""https://example.com/source/030/2"", ""snippet"": ""よくある失敗と対策をケース別に解説している。""}]}, ""ts"": ""2026-02-23T12:30:00Z""}"
+31,user_input,高専4-5年生に向けて「高専生の勉強方法」の記事を書きたいです。最短で成果を出す観点で、すぐ実行できる内容にしてください。
+31,user_input,"Q(q1): 開催形式はオンラインですか？
+A: オンライン開催です
+
+Q(q2): 告知画像はありますか？
+InputType: image_upload
+A: uploaded:seminar-031.webp"
+31,source,参考情報: https://example.com/blog/reference-031 / 高専生の勉強方法 の基礎と実践例を確認。
+31,system_note,読者=高専4-5年生。結論先出し・箇条書き中心・行動チェックリスト付きで構成する。
+31,assistant_output,導入: 高専生の勉強方法の課題を明確化。本編: 3ステップ（準備/実行/振り返り）。終盤: 1週間の実践計画テンプレートを提示。
+31,final_summary,高専生の勉強方法 実践ガイド 031 の要点: 学習目的を定義し、小さな実行単位に分解して継続することで成果につなげる。
+31,tool_result,"{""tool_name"": ""wp_get_post_types"", ""status"": ""ok"", ""input"": {""process_id"": ""__PROCESS_ID__"", ""q"": ""高専生の勉強方法 高専4-5年生 実例"", ""max_results"": 5}, ""output"": {""items"": [{""title"": ""高専生の勉強方法 の基本"", ""url"": ""https://example.com/source/031/1"", ""snippet"": ""要点整理と学習手順を簡潔に説明している。""}, {""title"": ""高専生の勉強方法 の失敗例"", ""url"": ""https://example.com/source/031/2"", ""snippet"": ""よくある失敗と対策をケース別に解説している。""}]}, ""ts"": ""2026-02-23T12:31:00Z""}"
+32,user_input,地域参加者向けのイベント告知記事を作りたいです。テーマは「生成AI活用セミナー告知」。イベント概要を明確にするを重視してください。
+32,user_input,"Q(q1): 開催日時と会場を教えてください。
+A: 2026-03-13 19:00 / 東京会場
+
+Q(q2): 告知画像はありますか？
+InputType: image_upload
+A: uploaded:event-banner-032.webp"
+32,source,参考情報: https://example.com/blog/reference-032 / 生成AI活用セミナー告知 の開催概要、参加特典、申込導線を確認。
+32,system_note,読者=地域参加者。冒頭で開催概要を提示し、日時・場所・対象・申込方法を表形式か箇条書きで明記。
+32,assistant_output,導入: 参加者の課題に共感。本編: 開催概要・タイムテーブル・登壇内容・参加メリット。終盤: 申込ボタンと締切を明示。
+32,final_summary,生成AI活用セミナー告知｜開催案内 032 の要点: 誰向けに何が得られるイベントかを明確にし、申し込みまでの行動を迷わせない構成にした。
+32,tool_result,"{""tool_name"": ""wp_get_categories"", ""status"": ""ok"", ""input"": {""process_id"": ""__PROCESS_ID__"", ""q"": ""生成AI活用セミナー告知 地域参加者 実例"", ""max_results"": 5}, ""output"": {""items"": [{""title"": ""生成AI活用セミナー告知 の基本"", ""url"": ""https://example.com/source/032/1"", ""snippet"": ""要点整理と学習手順を簡潔に説明している。""}, {""title"": ""生成AI活用セミナー告知 の失敗例"", ""url"": ""https://example.com/source/032/2"", ""snippet"": ""よくある失敗と対策をケース別に解説している。""}]}, ""ts"": ""2026-02-23T12:32:00Z""}"
+33,user_input,採用候補者向けに社員紹介記事を書きたいです。「社員紹介インタビュー」として、具体的なエピソードを入れてください。
+33,user_input,"Q(q1): 担当領域と最近の成果を教えてください。
+A: SaaS導入支援。直近四半期で解約率を4%改善しました。
+
+Q(q2): プロフィール写真はありますか？
+InputType: image_upload
+A: uploaded:employee-033.webp"
+33,source,参考情報: https://example.com/blog/reference-033 / 担当業務、経歴、価値観、プロジェクト実績を確認。
+33,system_note,読者=採用候補者。人物像が伝わるように、背景・現在・今後の挑戦の順で構成する。
+33,assistant_output,導入: 配属背景を紹介。本編: 担当業務・成功体験・チームでの工夫。終盤: 読者へのメッセージと採用/問い合わせ導線。
+33,final_summary,社員紹介インタビュー｜担当者インタビュー 033 の要点: 社員の人柄と専門性を具体エピソードで示し、組織理解につながる記事にした。
+33,tool_result,"{""tool_name"": ""web_search"", ""status"": ""ok"", ""input"": {""process_id"": ""__PROCESS_ID__"", ""q"": ""社員紹介インタビュー 採用候補者 実例"", ""max_results"": 5}, ""output"": {""items"": [{""title"": ""社員紹介インタビュー の基本"", ""url"": ""https://example.com/source/033/1"", ""snippet"": ""要点整理と学習手順を簡潔に説明している。""}, {""title"": ""社員紹介インタビュー の失敗例"", ""url"": ""https://example.com/source/033/2"", ""snippet"": ""よくある失敗と対策をケース別に解説している。""}]}, ""ts"": ""2026-02-23T12:33:00Z""}"
+34,user_input,見込み顧客向けに「導入事例レポート」の記事を作成したいです。ビフォーアフターと数値成果をわかりやすく入れてください。
+34,user_input,"Q(q1): 開催形式はオンラインですか？
+A: オフライン開催です
+
+Q(q2): 告知画像はありますか？
+InputType: image_upload
+A: uploaded:seminar-034.webp"
+34,source,参考情報: https://example.com/blog/reference-034 / 導入事例レポート の基礎と実践例を確認。
+34,system_note,読者=見込み顧客。結論先出し・箇条書き中心・行動チェックリスト付きで構成する。
+34,assistant_output,導入: 導入事例レポートの課題を明確化。本編: 3ステップ（準備/実行/振り返り）。終盤: 1週間の実践計画テンプレートを提示。
+34,final_summary,導入事例レポート｜活用事例 034 の要点: 学習目的を定義し、小さな実行単位に分解して継続することで成果につなげる。
+34,tool_result,"{""tool_name"": ""wp_get_recent_posts"", ""status"": ""ok"", ""input"": {""process_id"": ""__PROCESS_ID__"", ""q"": ""導入事例レポート 見込み顧客 実例"", ""max_results"": 5}, ""output"": {""items"": [{""title"": ""導入事例レポート の基本"", ""url"": ""https://example.com/source/034/1"", ""snippet"": ""要点整理と学習手順を簡潔に説明している。""}, {""title"": ""導入事例レポート の失敗例"", ""url"": ""https://example.com/source/034/2"", ""snippet"": ""よくある失敗と対策をケース別に解説している。""}]}, ""ts"": ""2026-02-23T12:34:00Z""}"
+35,user_input,管理者ユーザー向けに「機能アップデート案内」の説明記事を作りたいです。手順を箇条書きで明確にしてください。
+35,user_input,"Q(q1): 開催形式はオンラインですか？
+A: オンライン開催です
+
+Q(q2): 告知画像はありますか？
+InputType: image_upload
+A: uploaded:seminar-035.webp"
+35,source,参考情報: https://example.com/blog/reference-035 / 機能アップデート案内 の基礎と実践例を確認。
+35,system_note,読者=管理者ユーザー。結論先出し・箇条書き中心・行動チェックリスト付きで構成する。
+35,assistant_output,導入: 機能アップデート案内の課題を明確化。本編: 3ステップ（準備/実行/振り返り）。終盤: 1週間の実践計画テンプレートを提示。
+35,final_summary,機能アップデート案内ガイド 035 の要点: 学習目的を定義し、小さな実行単位に分解して継続することで成果につなげる。
+35,tool_result,"{""tool_name"": ""wp_get_post_types"", ""status"": ""ok"", ""input"": {""process_id"": ""__PROCESS_ID__"", ""q"": ""機能アップデート案内 管理者ユーザー 実例"", ""max_results"": 5}, ""output"": {""items"": [{""title"": ""機能アップデート案内 の基本"", ""url"": ""https://example.com/source/035/1"", ""snippet"": ""要点整理と学習手順を簡潔に説明している。""}, {""title"": ""機能アップデート案内 の失敗例"", ""url"": ""https://example.com/source/035/2"", ""snippet"": ""よくある失敗と対策をケース別に解説している。""}]}, ""ts"": ""2026-02-23T12:35:00Z""}"
+36,user_input,社外パートナーに向けて「社内カルチャー紹介」の記事を書きたいです。共感を増やす観点で、すぐ実行できる内容にしてください。
+36,user_input,"Q(q1): 開催形式はオンラインですか？
+A: オフライン開催です
+
+Q(q2): 告知画像はありますか？
+InputType: image_upload
+A: uploaded:seminar-036.webp"
+36,source,参考情報: https://example.com/blog/reference-036 / 社内カルチャー紹介 の基礎と実践例を確認。
+36,system_note,読者=社外パートナー。結論先出し・箇条書き中心・行動チェックリスト付きで構成する。
+36,assistant_output,導入: 社内カルチャー紹介の課題を明確化。本編: 3ステップ（準備/実行/振り返り）。終盤: 1週間の実践計画テンプレートを提示。
+36,final_summary,社内カルチャー紹介 実践ガイド 036 の要点: 学習目的を定義し、小さな実行単位に分解して継続することで成果につなげる。
+36,tool_result,"{""tool_name"": ""wp_get_categories"", ""status"": ""ok"", ""input"": {""process_id"": ""__PROCESS_ID__"", ""q"": ""社内カルチャー紹介 社外パートナー 実例"", ""max_results"": 5}, ""output"": {""items"": [{""title"": ""社内カルチャー紹介 の基本"", ""url"": ""https://example.com/source/036/1"", ""snippet"": ""要点整理と学習手順を簡潔に説明している。""}, {""title"": ""社内カルチャー紹介 の失敗例"", ""url"": ""https://example.com/source/036/2"", ""snippet"": ""よくある失敗と対策をケース別に解説している。""}]}, ""ts"": ""2026-02-23T12:36:00Z""}"
+37,user_input,マーケ担当者に向けて「ウェビナー開催案内」の記事を書きたいです。集客を強化する観点で、すぐ実行できる内容にしてください。
+37,user_input,"Q(q1): 開催形式はオンラインですか？
+A: オンライン開催です
+
+Q(q2): 告知画像はありますか？
+InputType: image_upload
+A: uploaded:seminar-037.webp"
+37,source,参考情報: https://example.com/blog/reference-037 / ウェビナー開催案内 の基礎と実践例を確認。
+37,system_note,読者=マーケ担当者。結論先出し・箇条書き中心・行動チェックリスト付きで構成する。
+37,assistant_output,導入: ウェビナー開催案内の課題を明確化。本編: 3ステップ（準備/実行/振り返り）。終盤: 1週間の実践計画テンプレートを提示。
+37,final_summary,ウェビナー開催案内 実践ガイド 037 の要点: 学習目的を定義し、小さな実行単位に分解して継続することで成果につなげる。
+37,tool_result,"{""tool_name"": ""web_search"", ""status"": ""ok"", ""input"": {""process_id"": ""__PROCESS_ID__"", ""q"": ""ウェビナー開催案内 マーケ担当者 実例"", ""max_results"": 5}, ""output"": {""items"": [{""title"": ""ウェビナー開催案内 の基本"", ""url"": ""https://example.com/source/037/1"", ""snippet"": ""要点整理と学習手順を簡潔に説明している。""}, {""title"": ""ウェビナー開催案内 の失敗例"", ""url"": ""https://example.com/source/037/2"", ""snippet"": ""よくある失敗と対策をケース別に解説している。""}]}, ""ts"": ""2026-02-23T12:37:00Z""}"
+38,user_input,業界メディアに向けて「パートナー連携発表」の記事を書きたいです。期待効果を示す観点で、すぐ実行できる内容にしてください。
+38,user_input,"Q(q1): 開催形式はオンラインですか？
+A: オフライン開催です
+
+Q(q2): 告知画像はありますか？
+InputType: image_upload
+A: uploaded:seminar-038.webp"
+38,source,参考情報: https://example.com/blog/reference-038 / パートナー連携発表 の基礎と実践例を確認。
+38,system_note,読者=業界メディア。結論先出し・箇条書き中心・行動チェックリスト付きで構成する。
+38,assistant_output,導入: パートナー連携発表の課題を明確化。本編: 3ステップ（準備/実行/振り返り）。終盤: 1週間の実践計画テンプレートを提示。
+38,final_summary,パートナー連携発表 実践ガイド 038 の要点: 学習目的を定義し、小さな実行単位に分解して継続することで成果につなげる。
+38,tool_result,"{""tool_name"": ""wp_get_recent_posts"", ""status"": ""ok"", ""input"": {""process_id"": ""__PROCESS_ID__"", ""q"": ""パートナー連携発表 業界メディア 実例"", ""max_results"": 5}, ""output"": {""items"": [{""title"": ""パートナー連携発表 の基本"", ""url"": ""https://example.com/source/038/1"", ""snippet"": ""要点整理と学習手順を簡潔に説明している。""}, {""title"": ""パートナー連携発表 の失敗例"", ""url"": ""https://example.com/source/038/2"", ""snippet"": ""よくある失敗と対策をケース別に解説している。""}]}, ""ts"": ""2026-02-23T12:38:00Z""}"
+39,user_input,社員家族に向けて「地域イベント参加レポート」の記事を書きたいです。継続参加につなげる観点で、すぐ実行できる内容にしてください。
+39,user_input,"Q(q1): 開催形式はオンラインですか？
+A: オンライン開催です
+
+Q(q2): 告知画像はありますか？
+InputType: image_upload
+A: uploaded:seminar-039.webp"
+39,source,参考情報: https://example.com/blog/reference-039 / 地域イベント参加レポート の基礎と実践例を確認。
+39,system_note,読者=社員家族。結論先出し・箇条書き中心・行動チェックリスト付きで構成する。
+39,assistant_output,導入: 地域イベント参加レポートの課題を明確化。本編: 3ステップ（準備/実行/振り返り）。終盤: 1週間の実践計画テンプレートを提示。
+39,final_summary,地域イベント参加レポート 実践ガイド 039 の要点: 学習目的を定義し、小さな実行単位に分解して継続することで成果につなげる。
+39,tool_result,"{""tool_name"": ""wp_get_post_types"", ""status"": ""ok"", ""input"": {""process_id"": ""__PROCESS_ID__"", ""q"": ""地域イベント参加レポート 社員家族 実例"", ""max_results"": 5}, ""output"": {""items"": [{""title"": ""地域イベント参加レポート の基本"", ""url"": ""https://example.com/source/039/1"", ""snippet"": ""要点整理と学習手順を簡潔に説明している。""}, {""title"": ""地域イベント参加レポート の失敗例"", ""url"": ""https://example.com/source/039/2"", ""snippet"": ""よくある失敗と対策をケース別に解説している。""}]}, ""ts"": ""2026-02-23T12:39:00Z""}"
+40,user_input,新入社員向けに「新入社員オンボーディング紹介」の説明記事を作りたいです。手順を箇条書きで明確にしてください。
+40,user_input,"Q(q1): 開催形式はオンラインですか？
+A: オフライン開催です
+
+Q(q2): 告知画像はありますか？
+InputType: image_upload
+A: uploaded:seminar-040.webp"
+40,source,参考情報: https://example.com/blog/reference-040 / 新入社員オンボーディング紹介 の基礎と実践例を確認。
+40,system_note,読者=新入社員。結論先出し・箇条書き中心・行動チェックリスト付きで構成する。
+40,assistant_output,導入: 新入社員オンボーディング紹介の課題を明確化。本編: 3ステップ（準備/実行/振り返り）。終盤: 1週間の実践計画テンプレートを提示。
+40,final_summary,新入社員オンボーディング紹介ガイド 040 の要点: 学習目的を定義し、小さな実行単位に分解して継続することで成果につなげる。
+40,tool_result,"{""tool_name"": ""wp_get_categories"", ""status"": ""ok"", ""input"": {""process_id"": ""__PROCESS_ID__"", ""q"": ""新入社員オンボーディング紹介 新入社員 実例"", ""max_results"": 5}, ""output"": {""items"": [{""title"": ""新入社員オンボーディング紹介 の基本"", ""url"": ""https://example.com/source/040/1"", ""snippet"": ""要点整理と学習手順を簡潔に説明している。""}, {""title"": ""新入社員オンボーディング紹介 の失敗例"", ""url"": ""https://example.com/source/040/2"", ""snippet"": ""よくある失敗と対策をケース別に解説している。""}]}, ""ts"": ""2026-02-23T12:40:00Z""}"
+41,user_input,高専1-2年生に向けて「高専生の勉強方法」の記事を書きたいです。継続できる仕組みを作る観点で、すぐ実行できる内容にしてください。
+41,user_input,"Q(q1): 開催形式はオンラインですか？
+A: オンライン開催です
+
+Q(q2): 告知画像はありますか？
+InputType: image_upload
+A: uploaded:seminar-041.webp"
+41,source,参考情報: https://example.com/blog/reference-041 / 高専生の勉強方法 の基礎と実践例を確認。
+41,system_note,読者=高専1-2年生。結論先出し・箇条書き中心・行動チェックリスト付きで構成する。
+41,assistant_output,導入: 高専生の勉強方法の課題を明確化。本編: 3ステップ（準備/実行/振り返り）。終盤: 1週間の実践計画テンプレートを提示。
+41,final_summary,高専生の勉強方法 実践ガイド 041 の要点: 学習目的を定義し、小さな実行単位に分解して継続することで成果につなげる。
+41,tool_result,"{""tool_name"": ""web_search"", ""status"": ""ok"", ""input"": {""process_id"": ""__PROCESS_ID__"", ""q"": ""高専生の勉強方法 高専1-2年生 実例"", ""max_results"": 5}, ""output"": {""items"": [{""title"": ""高専生の勉強方法 の基本"", ""url"": ""https://example.com/source/041/1"", ""snippet"": ""要点整理と学習手順を簡潔に説明している。""}, {""title"": ""高専生の勉強方法 の失敗例"", ""url"": ""https://example.com/source/041/2"", ""snippet"": ""よくある失敗と対策をケース別に解説している。""}]}, ""ts"": ""2026-02-23T12:41:00Z""}"
+42,user_input,既存顧客向けのイベント告知記事を作りたいです。テーマは「生成AI活用セミナー告知」。申込導線を改善するを重視してください。
+42,user_input,"Q(q1): 開催日時と会場を教えてください。
+A: 2026-03-03 19:00 / 東京会場
+
+Q(q2): 告知画像はありますか？
+InputType: image_upload
+A: uploaded:event-banner-042.webp"
+42,source,参考情報: https://example.com/blog/reference-042 / 生成AI活用セミナー告知 の開催概要、参加特典、申込導線を確認。
+42,system_note,読者=既存顧客。冒頭で開催概要を提示し、日時・場所・対象・申込方法を表形式か箇条書きで明記。
+42,assistant_output,導入: 参加者の課題に共感。本編: 開催概要・タイムテーブル・登壇内容・参加メリット。終盤: 申込ボタンと締切を明示。
+42,final_summary,生成AI活用セミナー告知｜開催案内 042 の要点: 誰向けに何が得られるイベントかを明確にし、申し込みまでの行動を迷わせない構成にした。
+42,tool_result,"{""tool_name"": ""wp_get_recent_posts"", ""status"": ""ok"", ""input"": {""process_id"": ""__PROCESS_ID__"", ""q"": ""生成AI活用セミナー告知 既存顧客 実例"", ""max_results"": 5}, ""output"": {""items"": [{""title"": ""生成AI活用セミナー告知 の基本"", ""url"": ""https://example.com/source/042/1"", ""snippet"": ""要点整理と学習手順を簡潔に説明している。""}, {""title"": ""生成AI活用セミナー告知 の失敗例"", ""url"": ""https://example.com/source/042/2"", ""snippet"": ""よくある失敗と対策をケース別に解説している。""}]}, ""ts"": ""2026-02-23T12:42:00Z""}"
+43,user_input,新規取引先向けに社員紹介記事を書きたいです。「社員紹介インタビュー」として、具体的なエピソードを入れてください。
+43,user_input,"Q(q1): 担当領域と最近の成果を教えてください。
+A: SaaS導入支援。直近四半期で解約率を4%改善しました。
+
+Q(q2): プロフィール写真はありますか？
+InputType: image_upload
+A: uploaded:employee-043.webp"
+43,source,参考情報: https://example.com/blog/reference-043 / 担当業務、経歴、価値観、プロジェクト実績を確認。
+43,system_note,読者=新規取引先。人物像が伝わるように、背景・現在・今後の挑戦の順で構成する。
+43,assistant_output,導入: 配属背景を紹介。本編: 担当業務・成功体験・チームでの工夫。終盤: 読者へのメッセージと採用/問い合わせ導線。
+43,final_summary,社員紹介インタビュー｜担当者インタビュー 043 の要点: 社員の人柄と専門性を具体エピソードで示し、組織理解につながる記事にした。
+43,tool_result,"{""tool_name"": ""wp_get_post_types"", ""status"": ""ok"", ""input"": {""process_id"": ""__PROCESS_ID__"", ""q"": ""社員紹介インタビュー 新規取引先 実例"", ""max_results"": 5}, ""output"": {""items"": [{""title"": ""社員紹介インタビュー の基本"", ""url"": ""https://example.com/source/043/1"", ""snippet"": ""要点整理と学習手順を簡潔に説明している。""}, {""title"": ""社員紹介インタビュー の失敗例"", ""url"": ""https://example.com/source/043/2"", ""snippet"": ""よくある失敗と対策をケース別に解説している。""}]}, ""ts"": ""2026-02-23T12:43:00Z""}"
+44,user_input,既存顧客向けに「導入事例レポート」の記事を作成したいです。ビフォーアフターと数値成果をわかりやすく入れてください。
+44,user_input,"Q(q1): 開催形式はオンラインですか？
+A: オフライン開催です
+
+Q(q2): 告知画像はありますか？
+InputType: image_upload
+A: uploaded:seminar-044.webp"
+44,source,参考情報: https://example.com/blog/reference-044 / 導入事例レポート の基礎と実践例を確認。
+44,system_note,読者=既存顧客。結論先出し・箇条書き中心・行動チェックリスト付きで構成する。
+44,assistant_output,導入: 導入事例レポートの課題を明確化。本編: 3ステップ（準備/実行/振り返り）。終盤: 1週間の実践計画テンプレートを提示。
+44,final_summary,導入事例レポート｜活用事例 044 の要点: 学習目的を定義し、小さな実行単位に分解して継続することで成果につなげる。
+44,tool_result,"{""tool_name"": ""wp_get_categories"", ""status"": ""ok"", ""input"": {""process_id"": ""__PROCESS_ID__"", ""q"": ""導入事例レポート 既存顧客 実例"", ""max_results"": 5}, ""output"": {""items"": [{""title"": ""導入事例レポート の基本"", ""url"": ""https://example.com/source/044/1"", ""snippet"": ""要点整理と学習手順を簡潔に説明している。""}, {""title"": ""導入事例レポート の失敗例"", ""url"": ""https://example.com/source/044/2"", ""snippet"": ""よくある失敗と対策をケース別に解説している。""}]}, ""ts"": ""2026-02-23T12:44:00Z""}"
+45,user_input,サポート担当者向けに「機能アップデート案内」の説明記事を作りたいです。手順を箇条書きで明確にしてください。
+45,user_input,"Q(q1): 開催形式はオンラインですか？
+A: オンライン開催です
+
+Q(q2): 告知画像はありますか？
+InputType: image_upload
+A: uploaded:seminar-045.webp"
+45,source,参考情報: https://example.com/blog/reference-045 / 機能アップデート案内 の基礎と実践例を確認。
+45,system_note,読者=サポート担当者。結論先出し・箇条書き中心・行動チェックリスト付きで構成する。
+45,assistant_output,導入: 機能アップデート案内の課題を明確化。本編: 3ステップ（準備/実行/振り返り）。終盤: 1週間の実践計画テンプレートを提示。
+45,final_summary,機能アップデート案内ガイド 045 の要点: 学習目的を定義し、小さな実行単位に分解して継続することで成果につなげる。
+45,tool_result,"{""tool_name"": ""web_search"", ""status"": ""ok"", ""input"": {""process_id"": ""__PROCESS_ID__"", ""q"": ""機能アップデート案内 サポート担当者 実例"", ""max_results"": 5}, ""output"": {""items"": [{""title"": ""機能アップデート案内 の基本"", ""url"": ""https://example.com/source/045/1"", ""snippet"": ""要点整理と学習手順を簡潔に説明している。""}, {""title"": ""機能アップデート案内 の失敗例"", ""url"": ""https://example.com/source/045/2"", ""snippet"": ""よくある失敗と対策をケース別に解説している。""}]}, ""ts"": ""2026-02-23T12:45:00Z""}"
+46,user_input,採用候補者に向けて「社内カルチャー紹介」の記事を書きたいです。価値観を伝える観点で、すぐ実行できる内容にしてください。
+46,user_input,"Q(q1): 開催形式はオンラインですか？
+A: オフライン開催です
+
+Q(q2): 告知画像はありますか？
+InputType: image_upload
+A: uploaded:seminar-046.webp"
+46,source,参考情報: https://example.com/blog/reference-046 / 社内カルチャー紹介 の基礎と実践例を確認。
+46,system_note,読者=採用候補者。結論先出し・箇条書き中心・行動チェックリスト付きで構成する。
+46,assistant_output,導入: 社内カルチャー紹介の課題を明確化。本編: 3ステップ（準備/実行/振り返り）。終盤: 1週間の実践計画テンプレートを提示。
+46,final_summary,社内カルチャー紹介 実践ガイド 046 の要点: 学習目的を定義し、小さな実行単位に分解して継続することで成果につなげる。
+46,tool_result,"{""tool_name"": ""wp_get_recent_posts"", ""status"": ""ok"", ""input"": {""process_id"": ""__PROCESS_ID__"", ""q"": ""社内カルチャー紹介 採用候補者 実例"", ""max_results"": 5}, ""output"": {""items"": [{""title"": ""社内カルチャー紹介 の基本"", ""url"": ""https://example.com/source/046/1"", ""snippet"": ""要点整理と学習手順を簡潔に説明している。""}, {""title"": ""社内カルチャー紹介 の失敗例"", ""url"": ""https://example.com/source/046/2"", ""snippet"": ""よくある失敗と対策をケース別に解説している。""}]}, ""ts"": ""2026-02-23T12:46:00Z""}"
+47,user_input,営業担当者に向けて「ウェビナー開催案内」の記事を書きたいです。内容を分かりやすくする観点で、すぐ実行できる内容にしてください。
+47,user_input,"Q(q1): 開催形式はオンラインですか？
+A: オンライン開催です
+
+Q(q2): 告知画像はありますか？
+InputType: image_upload
+A: uploaded:seminar-047.webp"
+47,source,参考情報: https://example.com/blog/reference-047 / ウェビナー開催案内 の基礎と実践例を確認。
+47,system_note,読者=営業担当者。結論先出し・箇条書き中心・行動チェックリスト付きで構成する。
+47,assistant_output,導入: ウェビナー開催案内の課題を明確化。本編: 3ステップ（準備/実行/振り返り）。終盤: 1週間の実践計画テンプレートを提示。
+47,final_summary,ウェビナー開催案内 実践ガイド 047 の要点: 学習目的を定義し、小さな実行単位に分解して継続することで成果につなげる。
+47,tool_result,"{""tool_name"": ""wp_get_post_types"", ""status"": ""ok"", ""input"": {""process_id"": ""__PROCESS_ID__"", ""q"": ""ウェビナー開催案内 営業担当者 実例"", ""max_results"": 5}, ""output"": {""items"": [{""title"": ""ウェビナー開催案内 の基本"", ""url"": ""https://example.com/source/047/1"", ""snippet"": ""要点整理と学習手順を簡潔に説明している。""}, {""title"": ""ウェビナー開催案内 の失敗例"", ""url"": ""https://example.com/source/047/2"", ""snippet"": ""よくある失敗と対策をケース別に解説している。""}]}, ""ts"": ""2026-02-23T12:47:00Z""}"
+48,user_input,提携候補企業に向けて「パートナー連携発表」の記事を書きたいです。信頼感を高める観点で、すぐ実行できる内容にしてください。
+48,user_input,"Q(q1): 開催形式はオンラインですか？
+A: オフライン開催です
+
+Q(q2): 告知画像はありますか？
+InputType: image_upload
+A: uploaded:seminar-048.webp"
+48,source,参考情報: https://example.com/blog/reference-048 / パートナー連携発表 の基礎と実践例を確認。
+48,system_note,読者=提携候補企業。結論先出し・箇条書き中心・行動チェックリスト付きで構成する。
+48,assistant_output,導入: パートナー連携発表の課題を明確化。本編: 3ステップ（準備/実行/振り返り）。終盤: 1週間の実践計画テンプレートを提示。
+48,final_summary,パートナー連携発表 実践ガイド 048 の要点: 学習目的を定義し、小さな実行単位に分解して継続することで成果につなげる。
+48,tool_result,"{""tool_name"": ""wp_get_categories"", ""status"": ""ok"", ""input"": {""process_id"": ""__PROCESS_ID__"", ""q"": ""パートナー連携発表 提携候補企業 実例"", ""max_results"": 5}, ""output"": {""items"": [{""title"": ""パートナー連携発表 の基本"", ""url"": ""https://example.com/source/048/1"", ""snippet"": ""要点整理と学習手順を簡潔に説明している。""}, {""title"": ""パートナー連携発表 の失敗例"", ""url"": ""https://example.com/source/048/2"", ""snippet"": ""よくある失敗と対策をケース別に解説している。""}]}, ""ts"": ""2026-02-23T12:48:00Z""}"
+49,user_input,地域住民に向けて「地域イベント参加レポート」の記事を書きたいです。活動内容を可視化する観点で、すぐ実行できる内容にしてください。
+49,user_input,"Q(q1): 開催形式はオンラインですか？
+A: オンライン開催です
+
+Q(q2): 告知画像はありますか？
+InputType: image_upload
+A: uploaded:seminar-049.webp"
+49,source,参考情報: https://example.com/blog/reference-049 / 地域イベント参加レポート の基礎と実践例を確認。
+49,system_note,読者=地域住民。結論先出し・箇条書き中心・行動チェックリスト付きで構成する。
+49,assistant_output,導入: 地域イベント参加レポートの課題を明確化。本編: 3ステップ（準備/実行/振り返り）。終盤: 1週間の実践計画テンプレートを提示。
+49,final_summary,地域イベント参加レポート 実践ガイド 049 の要点: 学習目的を定義し、小さな実行単位に分解して継続することで成果につなげる。
+49,tool_result,"{""tool_name"": ""web_search"", ""status"": ""ok"", ""input"": {""process_id"": ""__PROCESS_ID__"", ""q"": ""地域イベント参加レポート 地域住民 実例"", ""max_results"": 5}, ""output"": {""items"": [{""title"": ""地域イベント参加レポート の基本"", ""url"": ""https://example.com/source/049/1"", ""snippet"": ""要点整理と学習手順を簡潔に説明している。""}, {""title"": ""地域イベント参加レポート の失敗例"", ""url"": ""https://example.com/source/049/2"", ""snippet"": ""よくある失敗と対策をケース別に解説している。""}]}, ""ts"": ""2026-02-23T12:49:00Z""}"
+50,user_input,配属先マネージャー向けに「新入社員オンボーディング紹介」の説明記事を作りたいです。手順を箇条書きで明確にしてください。
+50,user_input,"Q(q1): 開催形式はオンラインですか？
+A: オフライン開催です
+
+Q(q2): 告知画像はありますか？
+InputType: image_upload
+A: uploaded:seminar-050.webp"
+50,source,参考情報: https://example.com/blog/reference-050 / 新入社員オンボーディング紹介 の基礎と実践例を確認。
+50,system_note,読者=配属先マネージャー。結論先出し・箇条書き中心・行動チェックリスト付きで構成する。
+50,assistant_output,導入: 新入社員オンボーディング紹介の課題を明確化。本編: 3ステップ（準備/実行/振り返り）。終盤: 1週間の実践計画テンプレートを提示。
+50,final_summary,新入社員オンボーディング紹介ガイド 050 の要点: 学習目的を定義し、小さな実行単位に分解して継続することで成果につなげる。
+50,tool_result,"{""tool_name"": ""wp_get_recent_posts"", ""status"": ""ok"", ""input"": {""process_id"": ""__PROCESS_ID__"", ""q"": ""新入社員オンボーディング紹介 配属先マネージャー 実例"", ""max_results"": 5}, ""output"": {""items"": [{""title"": ""新入社員オンボーディング紹介 の基本"", ""url"": ""https://example.com/source/050/1"", ""snippet"": ""要点整理と学習手順を簡潔に説明している。""}, {""title"": ""新入社員オンボーディング紹介 の失敗例"", ""url"": ""https://example.com/source/050/2"", ""snippet"": ""よくある失敗と対策をケース別に解説している。""}]}, ""ts"": ""2026-02-23T12:50:00Z""}"
+51,user_input,高専4-5年生に向けて「高専生の勉強方法」の記事を書きたいです。再現性を高める観点で、すぐ実行できる内容にしてください。
+51,user_input,"Q(q1): 開催形式はオンラインですか？
+A: オンライン開催です
+
+Q(q2): 告知画像はありますか？
+InputType: image_upload
+A: uploaded:seminar-051.webp"
+51,source,参考情報: https://example.com/blog/reference-051 / 高専生の勉強方法 の基礎と実践例を確認。
+51,system_note,読者=高専4-5年生。結論先出し・箇条書き中心・行動チェックリスト付きで構成する。
+51,assistant_output,導入: 高専生の勉強方法の課題を明確化。本編: 3ステップ（準備/実行/振り返り）。終盤: 1週間の実践計画テンプレートを提示。
+51,final_summary,高専生の勉強方法 実践ガイド 051 の要点: 学習目的を定義し、小さな実行単位に分解して継続することで成果につなげる。
+51,tool_result,"{""tool_name"": ""wp_get_post_types"", ""status"": ""ok"", ""input"": {""process_id"": ""__PROCESS_ID__"", ""q"": ""高専生の勉強方法 高専4-5年生 実例"", ""max_results"": 5}, ""output"": {""items"": [{""title"": ""高専生の勉強方法 の基本"", ""url"": ""https://example.com/source/051/1"", ""snippet"": ""要点整理と学習手順を簡潔に説明している。""}, {""title"": ""高専生の勉強方法 の失敗例"", ""url"": ""https://example.com/source/051/2"", ""snippet"": ""よくある失敗と対策をケース別に解説している。""}]}, ""ts"": ""2026-02-23T12:51:00Z""}"
+52,user_input,地域参加者向けのイベント告知記事を作りたいです。テーマは「生成AI活用セミナー告知」。参加率を上げるを重視してください。
+52,user_input,"Q(q1): 開催日時と会場を教えてください。
+A: 2026-03-13 19:00 / 東京会場
+
+Q(q2): 告知画像はありますか？
+InputType: image_upload
+A: uploaded:event-banner-052.webp"
+52,source,参考情報: https://example.com/blog/reference-052 / 生成AI活用セミナー告知 の開催概要、参加特典、申込導線を確認。
+52,system_note,読者=地域参加者。冒頭で開催概要を提示し、日時・場所・対象・申込方法を表形式か箇条書きで明記。
+52,assistant_output,導入: 参加者の課題に共感。本編: 開催概要・タイムテーブル・登壇内容・参加メリット。終盤: 申込ボタンと締切を明示。
+52,final_summary,生成AI活用セミナー告知｜開催案内 052 の要点: 誰向けに何が得られるイベントかを明確にし、申し込みまでの行動を迷わせない構成にした。
+52,tool_result,"{""tool_name"": ""wp_get_categories"", ""status"": ""ok"", ""input"": {""process_id"": ""__PROCESS_ID__"", ""q"": ""生成AI活用セミナー告知 地域参加者 実例"", ""max_results"": 5}, ""output"": {""items"": [{""title"": ""生成AI活用セミナー告知 の基本"", ""url"": ""https://example.com/source/052/1"", ""snippet"": ""要点整理と学習手順を簡潔に説明している。""}, {""title"": ""生成AI活用セミナー告知 の失敗例"", ""url"": ""https://example.com/source/052/2"", ""snippet"": ""よくある失敗と対策をケース別に解説している。""}]}, ""ts"": ""2026-02-23T12:52:00Z""}"
+53,user_input,採用候補者向けに社員紹介記事を書きたいです。「社員紹介インタビュー」として、具体的なエピソードを入れてください。
+53,user_input,"Q(q1): 担当領域と最近の成果を教えてください。
+A: SaaS導入支援。直近四半期で解約率を4%改善しました。
+
+Q(q2): プロフィール写真はありますか？
+InputType: image_upload
+A: uploaded:employee-053.webp"
+53,source,参考情報: https://example.com/blog/reference-053 / 担当業務、経歴、価値観、プロジェクト実績を確認。
+53,system_note,読者=採用候補者。人物像が伝わるように、背景・現在・今後の挑戦の順で構成する。
+53,assistant_output,導入: 配属背景を紹介。本編: 担当業務・成功体験・チームでの工夫。終盤: 読者へのメッセージと採用/問い合わせ導線。
+53,final_summary,社員紹介インタビュー｜担当者インタビュー 053 の要点: 社員の人柄と専門性を具体エピソードで示し、組織理解につながる記事にした。
+53,tool_result,"{""tool_name"": ""web_search"", ""status"": ""ok"", ""input"": {""process_id"": ""__PROCESS_ID__"", ""q"": ""社員紹介インタビュー 採用候補者 実例"", ""max_results"": 5}, ""output"": {""items"": [{""title"": ""社員紹介インタビュー の基本"", ""url"": ""https://example.com/source/053/1"", ""snippet"": ""要点整理と学習手順を簡潔に説明している。""}, {""title"": ""社員紹介インタビュー の失敗例"", ""url"": ""https://example.com/source/053/2"", ""snippet"": ""よくある失敗と対策をケース別に解説している。""}]}, ""ts"": ""2026-02-23T12:53:00Z""}"
+54,user_input,業界関係者向けに「導入事例レポート」の記事を作成したいです。ビフォーアフターと数値成果をわかりやすく入れてください。
+54,user_input,"Q(q1): 開催形式はオンラインですか？
+A: オフライン開催です
+
+Q(q2): 告知画像はありますか？
+InputType: image_upload
+A: uploaded:seminar-054.webp"
+54,source,参考情報: https://example.com/blog/reference-054 / 導入事例レポート の基礎と実践例を確認。
+54,system_note,読者=業界関係者。結論先出し・箇条書き中心・行動チェックリスト付きで構成する。
+54,assistant_output,導入: 導入事例レポートの課題を明確化。本編: 3ステップ（準備/実行/振り返り）。終盤: 1週間の実践計画テンプレートを提示。
+54,final_summary,導入事例レポート｜活用事例 054 の要点: 学習目的を定義し、小さな実行単位に分解して継続することで成果につなげる。
+54,tool_result,"{""tool_name"": ""wp_get_recent_posts"", ""status"": ""ok"", ""input"": {""process_id"": ""__PROCESS_ID__"", ""q"": ""導入事例レポート 業界関係者 実例"", ""max_results"": 5}, ""output"": {""items"": [{""title"": ""導入事例レポート の基本"", ""url"": ""https://example.com/source/054/1"", ""snippet"": ""要点整理と学習手順を簡潔に説明している。""}, {""title"": ""導入事例レポート の失敗例"", ""url"": ""https://example.com/source/054/2"", ""snippet"": ""よくある失敗と対策をケース別に解説している。""}]}, ""ts"": ""2026-02-23T12:54:00Z""}"
+55,user_input,既存ユーザー向けに「機能アップデート案内」の説明記事を作りたいです。手順を箇条書きで明確にしてください。
+55,user_input,"Q(q1): 開催形式はオンラインですか？
+A: オンライン開催です
+
+Q(q2): 告知画像はありますか？
+InputType: image_upload
+A: uploaded:seminar-055.webp"
+55,source,参考情報: https://example.com/blog/reference-055 / 機能アップデート案内 の基礎と実践例を確認。
+55,system_note,読者=既存ユーザー。結論先出し・箇条書き中心・行動チェックリスト付きで構成する。
+55,assistant_output,導入: 機能アップデート案内の課題を明確化。本編: 3ステップ（準備/実行/振り返り）。終盤: 1週間の実践計画テンプレートを提示。
+55,final_summary,機能アップデート案内ガイド 055 の要点: 学習目的を定義し、小さな実行単位に分解して継続することで成果につなげる。
+55,tool_result,"{""tool_name"": ""wp_get_post_types"", ""status"": ""ok"", ""input"": {""process_id"": ""__PROCESS_ID__"", ""q"": ""機能アップデート案内 既存ユーザー 実例"", ""max_results"": 5}, ""output"": {""items"": [{""title"": ""機能アップデート案内 の基本"", ""url"": ""https://example.com/source/055/1"", ""snippet"": ""要点整理と学習手順を簡潔に説明している。""}, {""title"": ""機能アップデート案内 の失敗例"", ""url"": ""https://example.com/source/055/2"", ""snippet"": ""よくある失敗と対策をケース別に解説している。""}]}, ""ts"": ""2026-02-23T12:55:00Z""}"
+56,user_input,新入社員に向けて「社内カルチャー紹介」の記事を書きたいです。働くイメージを持たせる観点で、すぐ実行できる内容にしてください。
+56,user_input,"Q(q1): 開催形式はオンラインですか？
+A: オフライン開催です
+
+Q(q2): 告知画像はありますか？
+InputType: image_upload
+A: uploaded:seminar-056.webp"
+56,source,参考情報: https://example.com/blog/reference-056 / 社内カルチャー紹介 の基礎と実践例を確認。
+56,system_note,読者=新入社員。結論先出し・箇条書き中心・行動チェックリスト付きで構成する。
+56,assistant_output,導入: 社内カルチャー紹介の課題を明確化。本編: 3ステップ（準備/実行/振り返り）。終盤: 1週間の実践計画テンプレートを提示。
+56,final_summary,社内カルチャー紹介 実践ガイド 056 の要点: 学習目的を定義し、小さな実行単位に分解して継続することで成果につなげる。
+56,tool_result,"{""tool_name"": ""wp_get_categories"", ""status"": ""ok"", ""input"": {""process_id"": ""__PROCESS_ID__"", ""q"": ""社内カルチャー紹介 新入社員 実例"", ""max_results"": 5}, ""output"": {""items"": [{""title"": ""社内カルチャー紹介 の基本"", ""url"": ""https://example.com/source/056/1"", ""snippet"": ""要点整理と学習手順を簡潔に説明している。""}, {""title"": ""社内カルチャー紹介 の失敗例"", ""url"": ""https://example.com/source/056/2"", ""snippet"": ""よくある失敗と対策をケース別に解説している。""}]}, ""ts"": ""2026-02-23T12:56:00Z""}"
+57,user_input,プロダクト担当者に向けて「ウェビナー開催案内」の記事を書きたいです。申込率を上げる観点で、すぐ実行できる内容にしてください。
+57,user_input,"Q(q1): 開催形式はオンラインですか？
+A: オンライン開催です
+
+Q(q2): 告知画像はありますか？
+InputType: image_upload
+A: uploaded:seminar-057.webp"
+57,source,参考情報: https://example.com/blog/reference-057 / ウェビナー開催案内 の基礎と実践例を確認。
+57,system_note,読者=プロダクト担当者。結論先出し・箇条書き中心・行動チェックリスト付きで構成する。
+57,assistant_output,導入: ウェビナー開催案内の課題を明確化。本編: 3ステップ（準備/実行/振り返り）。終盤: 1週間の実践計画テンプレートを提示。
+57,final_summary,ウェビナー開催案内 実践ガイド 057 の要点: 学習目的を定義し、小さな実行単位に分解して継続することで成果につなげる。
+57,tool_result,"{""tool_name"": ""web_search"", ""status"": ""ok"", ""input"": {""process_id"": ""__PROCESS_ID__"", ""q"": ""ウェビナー開催案内 プロダクト担当者 実例"", ""max_results"": 5}, ""output"": {""items"": [{""title"": ""ウェビナー開催案内 の基本"", ""url"": ""https://example.com/source/057/1"", ""snippet"": ""要点整理と学習手順を簡潔に説明している。""}, {""title"": ""ウェビナー開催案内 の失敗例"", ""url"": ""https://example.com/source/057/2"", ""snippet"": ""よくある失敗と対策をケース別に解説している。""}]}, ""ts"": ""2026-02-23T12:57:00Z""}"
+58,user_input,既存顧客に向けて「パートナー連携発表」の記事を書きたいです。提携価値を伝える観点で、すぐ実行できる内容にしてください。
+58,user_input,"Q(q1): 開催形式はオンラインですか？
+A: オフライン開催です
+
+Q(q2): 告知画像はありますか？
+InputType: image_upload
+A: uploaded:seminar-058.webp"
+58,source,参考情報: https://example.com/blog/reference-058 / パートナー連携発表 の基礎と実践例を確認。
+58,system_note,読者=既存顧客。結論先出し・箇条書き中心・行動チェックリスト付きで構成する。
+58,assistant_output,導入: パートナー連携発表の課題を明確化。本編: 3ステップ（準備/実行/振り返り）。終盤: 1週間の実践計画テンプレートを提示。
+58,final_summary,パートナー連携発表 実践ガイド 058 の要点: 学習目的を定義し、小さな実行単位に分解して継続することで成果につなげる。
+58,tool_result,"{""tool_name"": ""wp_get_recent_posts"", ""status"": ""ok"", ""input"": {""process_id"": ""__PROCESS_ID__"", ""q"": ""パートナー連携発表 既存顧客 実例"", ""max_results"": 5}, ""output"": {""items"": [{""title"": ""パートナー連携発表 の基本"", ""url"": ""https://example.com/source/058/1"", ""snippet"": ""要点整理と学習手順を簡潔に説明している。""}, {""title"": ""パートナー連携発表 の失敗例"", ""url"": ""https://example.com/source/058/2"", ""snippet"": ""よくある失敗と対策をケース別に解説している。""}]}, ""ts"": ""2026-02-23T12:58:00Z""}"
+59,user_input,自治体関係者に向けて「地域イベント参加レポート」の記事を書きたいです。社会的意義を伝える観点で、すぐ実行できる内容にしてください。
+59,user_input,"Q(q1): 開催形式はオンラインですか？
+A: オンライン開催です
+
+Q(q2): 告知画像はありますか？
+InputType: image_upload
+A: uploaded:seminar-059.webp"
+59,source,参考情報: https://example.com/blog/reference-059 / 地域イベント参加レポート の基礎と実践例を確認。
+59,system_note,読者=自治体関係者。結論先出し・箇条書き中心・行動チェックリスト付きで構成する。
+59,assistant_output,導入: 地域イベント参加レポートの課題を明確化。本編: 3ステップ（準備/実行/振り返り）。終盤: 1週間の実践計画テンプレートを提示。
+59,final_summary,地域イベント参加レポート 実践ガイド 059 の要点: 学習目的を定義し、小さな実行単位に分解して継続することで成果につなげる。
+59,tool_result,"{""tool_name"": ""wp_get_post_types"", ""status"": ""ok"", ""input"": {""process_id"": ""__PROCESS_ID__"", ""q"": ""地域イベント参加レポート 自治体関係者 実例"", ""max_results"": 5}, ""output"": {""items"": [{""title"": ""地域イベント参加レポート の基本"", ""url"": ""https://example.com/source/059/1"", ""snippet"": ""要点整理と学習手順を簡潔に説明している。""}, {""title"": ""地域イベント参加レポート の失敗例"", ""url"": ""https://example.com/source/059/2"", ""snippet"": ""よくある失敗と対策をケース別に解説している。""}]}, ""ts"": ""2026-02-23T12:59:00Z""}"
+60,user_input,人事担当者向けに「新入社員オンボーディング紹介」の説明記事を作りたいです。手順を箇条書きで明確にしてください。
+60,user_input,"Q(q1): 開催形式はオンラインですか？
+A: オフライン開催です
+
+Q(q2): 告知画像はありますか？
+InputType: image_upload
+A: uploaded:seminar-060.webp"
+60,source,参考情報: https://example.com/blog/reference-060 / 新入社員オンボーディング紹介 の基礎と実践例を確認。
+60,system_note,読者=人事担当者。結論先出し・箇条書き中心・行動チェックリスト付きで構成する。
+60,assistant_output,導入: 新入社員オンボーディング紹介の課題を明確化。本編: 3ステップ（準備/実行/振り返り）。終盤: 1週間の実践計画テンプレートを提示。
+60,final_summary,新入社員オンボーディング紹介ガイド 060 の要点: 学習目的を定義し、小さな実行単位に分解して継続することで成果につなげる。
+60,tool_result,"{""tool_name"": ""wp_get_categories"", ""status"": ""ok"", ""input"": {""process_id"": ""__PROCESS_ID__"", ""q"": ""新入社員オンボーディング紹介 人事担当者 実例"", ""max_results"": 5}, ""output"": {""items"": [{""title"": ""新入社員オンボーディング紹介 の基本"", ""url"": ""https://example.com/source/060/1"", ""snippet"": ""要点整理と学習手順を簡潔に説明している。""}, {""title"": ""新入社員オンボーディング紹介 の失敗例"", ""url"": ""https://example.com/source/060/2"", ""snippet"": ""よくある失敗と対策をケース別に解説している。""}]}, ""ts"": ""2026-02-23T13:00:00Z""}"
+61,user_input,高専1-2年生に向けて「高専生の勉強方法」の記事を書きたいです。最短で成果を出す観点で、すぐ実行できる内容にしてください。
+61,user_input,"Q(q1): 開催形式はオンラインですか？
+A: オンライン開催です
+
+Q(q2): 告知画像はありますか？
+InputType: image_upload
+A: uploaded:seminar-061.webp"
+61,source,参考情報: https://example.com/blog/reference-061 / 高専生の勉強方法 の基礎と実践例を確認。
+61,system_note,読者=高専1-2年生。結論先出し・箇条書き中心・行動チェックリスト付きで構成する。
+61,assistant_output,導入: 高専生の勉強方法の課題を明確化。本編: 3ステップ（準備/実行/振り返り）。終盤: 1週間の実践計画テンプレートを提示。
+61,final_summary,高専生の勉強方法 実践ガイド 061 の要点: 学習目的を定義し、小さな実行単位に分解して継続することで成果につなげる。
+61,tool_result,"{""tool_name"": ""web_search"", ""status"": ""ok"", ""input"": {""process_id"": ""__PROCESS_ID__"", ""q"": ""高専生の勉強方法 高専1-2年生 実例"", ""max_results"": 5}, ""output"": {""items"": [{""title"": ""高専生の勉強方法 の基本"", ""url"": ""https://example.com/source/061/1"", ""snippet"": ""要点整理と学習手順を簡潔に説明している。""}, {""title"": ""高専生の勉強方法 の失敗例"", ""url"": ""https://example.com/source/061/2"", ""snippet"": ""よくある失敗と対策をケース別に解説している。""}]}, ""ts"": ""2026-02-23T13:01:00Z""}"
+62,user_input,既存顧客向けのイベント告知記事を作りたいです。テーマは「生成AI活用セミナー告知」。イベント概要を明確にするを重視してください。
+62,user_input,"Q(q1): 開催日時と会場を教えてください。
+A: 2026-03-03 19:00 / 東京会場
+
+Q(q2): 告知画像はありますか？
+InputType: image_upload
+A: uploaded:event-banner-062.webp"
+62,source,参考情報: https://example.com/blog/reference-062 / 生成AI活用セミナー告知 の開催概要、参加特典、申込導線を確認。
+62,system_note,読者=既存顧客。冒頭で開催概要を提示し、日時・場所・対象・申込方法を表形式か箇条書きで明記。
+62,assistant_output,導入: 参加者の課題に共感。本編: 開催概要・タイムテーブル・登壇内容・参加メリット。終盤: 申込ボタンと締切を明示。
+62,final_summary,生成AI活用セミナー告知｜開催案内 062 の要点: 誰向けに何が得られるイベントかを明確にし、申し込みまでの行動を迷わせない構成にした。
+62,tool_result,"{""tool_name"": ""wp_get_recent_posts"", ""status"": ""ok"", ""input"": {""process_id"": ""__PROCESS_ID__"", ""q"": ""生成AI活用セミナー告知 既存顧客 実例"", ""max_results"": 5}, ""output"": {""items"": [{""title"": ""生成AI活用セミナー告知 の基本"", ""url"": ""https://example.com/source/062/1"", ""snippet"": ""要点整理と学習手順を簡潔に説明している。""}, {""title"": ""生成AI活用セミナー告知 の失敗例"", ""url"": ""https://example.com/source/062/2"", ""snippet"": ""よくある失敗と対策をケース別に解説している。""}]}, ""ts"": ""2026-02-23T13:02:00Z""}"
+63,user_input,新規取引先向けに社員紹介記事を書きたいです。「社員紹介インタビュー」として、具体的なエピソードを入れてください。
+63,user_input,"Q(q1): 担当領域と最近の成果を教えてください。
+A: SaaS導入支援。直近四半期で解約率を4%改善しました。
+
+Q(q2): プロフィール写真はありますか？
+InputType: image_upload
+A: uploaded:employee-063.webp"
+63,source,参考情報: https://example.com/blog/reference-063 / 担当業務、経歴、価値観、プロジェクト実績を確認。
+63,system_note,読者=新規取引先。人物像が伝わるように、背景・現在・今後の挑戦の順で構成する。
+63,assistant_output,導入: 配属背景を紹介。本編: 担当業務・成功体験・チームでの工夫。終盤: 読者へのメッセージと採用/問い合わせ導線。
+63,final_summary,社員紹介インタビュー｜担当者インタビュー 063 の要点: 社員の人柄と専門性を具体エピソードで示し、組織理解につながる記事にした。
+63,tool_result,"{""tool_name"": ""wp_get_post_types"", ""status"": ""ok"", ""input"": {""process_id"": ""__PROCESS_ID__"", ""q"": ""社員紹介インタビュー 新規取引先 実例"", ""max_results"": 5}, ""output"": {""items"": [{""title"": ""社員紹介インタビュー の基本"", ""url"": ""https://example.com/source/063/1"", ""snippet"": ""要点整理と学習手順を簡潔に説明している。""}, {""title"": ""社員紹介インタビュー の失敗例"", ""url"": ""https://example.com/source/063/2"", ""snippet"": ""よくある失敗と対策をケース別に解説している。""}]}, ""ts"": ""2026-02-23T13:03:00Z""}"
+64,user_input,見込み顧客向けに「導入事例レポート」の記事を作成したいです。ビフォーアフターと数値成果をわかりやすく入れてください。
+64,user_input,"Q(q1): 開催形式はオンラインですか？
+A: オフライン開催です
+
+Q(q2): 告知画像はありますか？
+InputType: image_upload
+A: uploaded:seminar-064.webp"
+64,source,参考情報: https://example.com/blog/reference-064 / 導入事例レポート の基礎と実践例を確認。
+64,system_note,読者=見込み顧客。結論先出し・箇条書き中心・行動チェックリスト付きで構成する。
+64,assistant_output,導入: 導入事例レポートの課題を明確化。本編: 3ステップ（準備/実行/振り返り）。終盤: 1週間の実践計画テンプレートを提示。
+64,final_summary,導入事例レポート｜活用事例 064 の要点: 学習目的を定義し、小さな実行単位に分解して継続することで成果につなげる。
+64,tool_result,"{""tool_name"": ""wp_get_categories"", ""status"": ""ok"", ""input"": {""process_id"": ""__PROCESS_ID__"", ""q"": ""導入事例レポート 見込み顧客 実例"", ""max_results"": 5}, ""output"": {""items"": [{""title"": ""導入事例レポート の基本"", ""url"": ""https://example.com/source/064/1"", ""snippet"": ""要点整理と学習手順を簡潔に説明している。""}, {""title"": ""導入事例レポート の失敗例"", ""url"": ""https://example.com/source/064/2"", ""snippet"": ""よくある失敗と対策をケース別に解説している。""}]}, ""ts"": ""2026-02-23T13:04:00Z""}"
+65,user_input,管理者ユーザー向けに「機能アップデート案内」の説明記事を作りたいです。手順を箇条書きで明確にしてください。
+65,user_input,"Q(q1): 開催形式はオンラインですか？
+A: オンライン開催です
+
+Q(q2): 告知画像はありますか？
+InputType: image_upload
+A: uploaded:seminar-065.webp"
+65,source,参考情報: https://example.com/blog/reference-065 / 機能アップデート案内 の基礎と実践例を確認。
+65,system_note,読者=管理者ユーザー。結論先出し・箇条書き中心・行動チェックリスト付きで構成する。
+65,assistant_output,導入: 機能アップデート案内の課題を明確化。本編: 3ステップ（準備/実行/振り返り）。終盤: 1週間の実践計画テンプレートを提示。
+65,final_summary,機能アップデート案内ガイド 065 の要点: 学習目的を定義し、小さな実行単位に分解して継続することで成果につなげる。
+65,tool_result,"{""tool_name"": ""web_search"", ""status"": ""ok"", ""input"": {""process_id"": ""__PROCESS_ID__"", ""q"": ""機能アップデート案内 管理者ユーザー 実例"", ""max_results"": 5}, ""output"": {""items"": [{""title"": ""機能アップデート案内 の基本"", ""url"": ""https://example.com/source/065/1"", ""snippet"": ""要点整理と学習手順を簡潔に説明している。""}, {""title"": ""機能アップデート案内 の失敗例"", ""url"": ""https://example.com/source/065/2"", ""snippet"": ""よくある失敗と対策をケース別に解説している。""}]}, ""ts"": ""2026-02-23T13:05:00Z""}"
+66,user_input,社外パートナーに向けて「社内カルチャー紹介」の記事を書きたいです。共感を増やす観点で、すぐ実行できる内容にしてください。
+66,user_input,"Q(q1): 開催形式はオンラインですか？
+A: オフライン開催です
+
+Q(q2): 告知画像はありますか？
+InputType: image_upload
+A: uploaded:seminar-066.webp"
+66,source,参考情報: https://example.com/blog/reference-066 / 社内カルチャー紹介 の基礎と実践例を確認。
+66,system_note,読者=社外パートナー。結論先出し・箇条書き中心・行動チェックリスト付きで構成する。
+66,assistant_output,導入: 社内カルチャー紹介の課題を明確化。本編: 3ステップ（準備/実行/振り返り）。終盤: 1週間の実践計画テンプレートを提示。
+66,final_summary,社内カルチャー紹介 実践ガイド 066 の要点: 学習目的を定義し、小さな実行単位に分解して継続することで成果につなげる。
+66,tool_result,"{""tool_name"": ""wp_get_recent_posts"", ""status"": ""ok"", ""input"": {""process_id"": ""__PROCESS_ID__"", ""q"": ""社内カルチャー紹介 社外パートナー 実例"", ""max_results"": 5}, ""output"": {""items"": [{""title"": ""社内カルチャー紹介 の基本"", ""url"": ""https://example.com/source/066/1"", ""snippet"": ""要点整理と学習手順を簡潔に説明している。""}, {""title"": ""社内カルチャー紹介 の失敗例"", ""url"": ""https://example.com/source/066/2"", ""snippet"": ""よくある失敗と対策をケース別に解説している。""}]}, ""ts"": ""2026-02-23T13:06:00Z""}"
+67,user_input,マーケ担当者に向けて「ウェビナー開催案内」の記事を書きたいです。集客を強化する観点で、すぐ実行できる内容にしてください。
+67,user_input,"Q(q1): 開催形式はオンラインですか？
+A: オンライン開催です
+
+Q(q2): 告知画像はありますか？
+InputType: image_upload
+A: uploaded:seminar-067.webp"
+67,source,参考情報: https://example.com/blog/reference-067 / ウェビナー開催案内 の基礎と実践例を確認。
+67,system_note,読者=マーケ担当者。結論先出し・箇条書き中心・行動チェックリスト付きで構成する。
+67,assistant_output,導入: ウェビナー開催案内の課題を明確化。本編: 3ステップ（準備/実行/振り返り）。終盤: 1週間の実践計画テンプレートを提示。
+67,final_summary,ウェビナー開催案内 実践ガイド 067 の要点: 学習目的を定義し、小さな実行単位に分解して継続することで成果につなげる。
+67,tool_result,"{""tool_name"": ""wp_get_post_types"", ""status"": ""ok"", ""input"": {""process_id"": ""__PROCESS_ID__"", ""q"": ""ウェビナー開催案内 マーケ担当者 実例"", ""max_results"": 5}, ""output"": {""items"": [{""title"": ""ウェビナー開催案内 の基本"", ""url"": ""https://example.com/source/067/1"", ""snippet"": ""要点整理と学習手順を簡潔に説明している。""}, {""title"": ""ウェビナー開催案内 の失敗例"", ""url"": ""https://example.com/source/067/2"", ""snippet"": ""よくある失敗と対策をケース別に解説している。""}]}, ""ts"": ""2026-02-23T13:07:00Z""}"
+68,user_input,業界メディアに向けて「パートナー連携発表」の記事を書きたいです。期待効果を示す観点で、すぐ実行できる内容にしてください。
+68,user_input,"Q(q1): 開催形式はオンラインですか？
+A: オフライン開催です
+
+Q(q2): 告知画像はありますか？
+InputType: image_upload
+A: uploaded:seminar-068.webp"
+68,source,参考情報: https://example.com/blog/reference-068 / パートナー連携発表 の基礎と実践例を確認。
+68,system_note,読者=業界メディア。結論先出し・箇条書き中心・行動チェックリスト付きで構成する。
+68,assistant_output,導入: パートナー連携発表の課題を明確化。本編: 3ステップ（準備/実行/振り返り）。終盤: 1週間の実践計画テンプレートを提示。
+68,final_summary,パートナー連携発表 実践ガイド 068 の要点: 学習目的を定義し、小さな実行単位に分解して継続することで成果につなげる。
+68,tool_result,"{""tool_name"": ""wp_get_categories"", ""status"": ""ok"", ""input"": {""process_id"": ""__PROCESS_ID__"", ""q"": ""パートナー連携発表 業界メディア 実例"", ""max_results"": 5}, ""output"": {""items"": [{""title"": ""パートナー連携発表 の基本"", ""url"": ""https://example.com/source/068/1"", ""snippet"": ""要点整理と学習手順を簡潔に説明している。""}, {""title"": ""パートナー連携発表 の失敗例"", ""url"": ""https://example.com/source/068/2"", ""snippet"": ""よくある失敗と対策をケース別に解説している。""}]}, ""ts"": ""2026-02-23T13:08:00Z""}"
+69,user_input,社員家族に向けて「地域イベント参加レポート」の記事を書きたいです。継続参加につなげる観点で、すぐ実行できる内容にしてください。
+69,user_input,"Q(q1): 開催形式はオンラインですか？
+A: オンライン開催です
+
+Q(q2): 告知画像はありますか？
+InputType: image_upload
+A: uploaded:seminar-069.webp"
+69,source,参考情報: https://example.com/blog/reference-069 / 地域イベント参加レポート の基礎と実践例を確認。
+69,system_note,読者=社員家族。結論先出し・箇条書き中心・行動チェックリスト付きで構成する。
+69,assistant_output,導入: 地域イベント参加レポートの課題を明確化。本編: 3ステップ（準備/実行/振り返り）。終盤: 1週間の実践計画テンプレートを提示。
+69,final_summary,地域イベント参加レポート 実践ガイド 069 の要点: 学習目的を定義し、小さな実行単位に分解して継続することで成果につなげる。
+69,tool_result,"{""tool_name"": ""web_search"", ""status"": ""ok"", ""input"": {""process_id"": ""__PROCESS_ID__"", ""q"": ""地域イベント参加レポート 社員家族 実例"", ""max_results"": 5}, ""output"": {""items"": [{""title"": ""地域イベント参加レポート の基本"", ""url"": ""https://example.com/source/069/1"", ""snippet"": ""要点整理と学習手順を簡潔に説明している。""}, {""title"": ""地域イベント参加レポート の失敗例"", ""url"": ""https://example.com/source/069/2"", ""snippet"": ""よくある失敗と対策をケース別に解説している。""}]}, ""ts"": ""2026-02-23T13:09:00Z""}"
+70,user_input,新入社員向けに「新入社員オンボーディング紹介」の説明記事を作りたいです。手順を箇条書きで明確にしてください。
+70,user_input,"Q(q1): 開催形式はオンラインですか？
+A: オフライン開催です
+
+Q(q2): 告知画像はありますか？
+InputType: image_upload
+A: uploaded:seminar-070.webp"
+70,source,参考情報: https://example.com/blog/reference-070 / 新入社員オンボーディング紹介 の基礎と実践例を確認。
+70,system_note,読者=新入社員。結論先出し・箇条書き中心・行動チェックリスト付きで構成する。
+70,assistant_output,導入: 新入社員オンボーディング紹介の課題を明確化。本編: 3ステップ（準備/実行/振り返り）。終盤: 1週間の実践計画テンプレートを提示。
+70,final_summary,新入社員オンボーディング紹介ガイド 070 の要点: 学習目的を定義し、小さな実行単位に分解して継続することで成果につなげる。
+70,tool_result,"{""tool_name"": ""wp_get_recent_posts"", ""status"": ""ok"", ""input"": {""process_id"": ""__PROCESS_ID__"", ""q"": ""新入社員オンボーディング紹介 新入社員 実例"", ""max_results"": 5}, ""output"": {""items"": [{""title"": ""新入社員オンボーディング紹介 の基本"", ""url"": ""https://example.com/source/070/1"", ""snippet"": ""要点整理と学習手順を簡潔に説明している。""}, {""title"": ""新入社員オンボーディング紹介 の失敗例"", ""url"": ""https://example.com/source/070/2"", ""snippet"": ""よくある失敗と対策をケース別に解説している。""}]}, ""ts"": ""2026-02-23T13:10:00Z""}"
+71,user_input,高専4-5年生に向けて「高専生の勉強方法」の記事を書きたいです。継続できる仕組みを作る観点で、すぐ実行できる内容にしてください。
+71,user_input,"Q(q1): 開催形式はオンラインですか？
+A: オンライン開催です
+
+Q(q2): 告知画像はありますか？
+InputType: image_upload
+A: uploaded:seminar-071.webp"
+71,source,参考情報: https://example.com/blog/reference-071 / 高専生の勉強方法 の基礎と実践例を確認。
+71,system_note,読者=高専4-5年生。結論先出し・箇条書き中心・行動チェックリスト付きで構成する。
+71,assistant_output,導入: 高専生の勉強方法の課題を明確化。本編: 3ステップ（準備/実行/振り返り）。終盤: 1週間の実践計画テンプレートを提示。
+71,final_summary,高専生の勉強方法 実践ガイド 071 の要点: 学習目的を定義し、小さな実行単位に分解して継続することで成果につなげる。
+71,tool_result,"{""tool_name"": ""wp_get_post_types"", ""status"": ""ok"", ""input"": {""process_id"": ""__PROCESS_ID__"", ""q"": ""高専生の勉強方法 高専4-5年生 実例"", ""max_results"": 5}, ""output"": {""items"": [{""title"": ""高専生の勉強方法 の基本"", ""url"": ""https://example.com/source/071/1"", ""snippet"": ""要点整理と学習手順を簡潔に説明している。""}, {""title"": ""高専生の勉強方法 の失敗例"", ""url"": ""https://example.com/source/071/2"", ""snippet"": ""よくある失敗と対策をケース別に解説している。""}]}, ""ts"": ""2026-02-23T13:11:00Z""}"
+72,user_input,地域参加者向けのイベント告知記事を作りたいです。テーマは「生成AI活用セミナー告知」。申込導線を改善するを重視してください。
+72,user_input,"Q(q1): 開催日時と会場を教えてください。
+A: 2026-03-13 19:00 / 東京会場
+
+Q(q2): 告知画像はありますか？
+InputType: image_upload
+A: uploaded:event-banner-072.webp"
+72,source,参考情報: https://example.com/blog/reference-072 / 生成AI活用セミナー告知 の開催概要、参加特典、申込導線を確認。
+72,system_note,読者=地域参加者。冒頭で開催概要を提示し、日時・場所・対象・申込方法を表形式か箇条書きで明記。
+72,assistant_output,導入: 参加者の課題に共感。本編: 開催概要・タイムテーブル・登壇内容・参加メリット。終盤: 申込ボタンと締切を明示。
+72,final_summary,生成AI活用セミナー告知｜開催案内 072 の要点: 誰向けに何が得られるイベントかを明確にし、申し込みまでの行動を迷わせない構成にした。
+72,tool_result,"{""tool_name"": ""wp_get_categories"", ""status"": ""ok"", ""input"": {""process_id"": ""__PROCESS_ID__"", ""q"": ""生成AI活用セミナー告知 地域参加者 実例"", ""max_results"": 5}, ""output"": {""items"": [{""title"": ""生成AI活用セミナー告知 の基本"", ""url"": ""https://example.com/source/072/1"", ""snippet"": ""要点整理と学習手順を簡潔に説明している。""}, {""title"": ""生成AI活用セミナー告知 の失敗例"", ""url"": ""https://example.com/source/072/2"", ""snippet"": ""よくある失敗と対策をケース別に解説している。""}]}, ""ts"": ""2026-02-23T13:12:00Z""}"
+73,user_input,採用候補者向けに社員紹介記事を書きたいです。「社員紹介インタビュー」として、具体的なエピソードを入れてください。
+73,user_input,"Q(q1): 担当領域と最近の成果を教えてください。
+A: SaaS導入支援。直近四半期で解約率を4%改善しました。
+
+Q(q2): プロフィール写真はありますか？
+InputType: image_upload
+A: uploaded:employee-073.webp"
+73,source,参考情報: https://example.com/blog/reference-073 / 担当業務、経歴、価値観、プロジェクト実績を確認。
+73,system_note,読者=採用候補者。人物像が伝わるように、背景・現在・今後の挑戦の順で構成する。
+73,assistant_output,導入: 配属背景を紹介。本編: 担当業務・成功体験・チームでの工夫。終盤: 読者へのメッセージと採用/問い合わせ導線。
+73,final_summary,社員紹介インタビュー｜担当者インタビュー 073 の要点: 社員の人柄と専門性を具体エピソードで示し、組織理解につながる記事にした。
+73,tool_result,"{""tool_name"": ""web_search"", ""status"": ""ok"", ""input"": {""process_id"": ""__PROCESS_ID__"", ""q"": ""社員紹介インタビュー 採用候補者 実例"", ""max_results"": 5}, ""output"": {""items"": [{""title"": ""社員紹介インタビュー の基本"", ""url"": ""https://example.com/source/073/1"", ""snippet"": ""要点整理と学習手順を簡潔に説明している。""}, {""title"": ""社員紹介インタビュー の失敗例"", ""url"": ""https://example.com/source/073/2"", ""snippet"": ""よくある失敗と対策をケース別に解説している。""}]}, ""ts"": ""2026-02-23T13:13:00Z""}"
+74,user_input,既存顧客向けに「導入事例レポート」の記事を作成したいです。ビフォーアフターと数値成果をわかりやすく入れてください。
+74,user_input,"Q(q1): 開催形式はオンラインですか？
+A: オフライン開催です
+
+Q(q2): 告知画像はありますか？
+InputType: image_upload
+A: uploaded:seminar-074.webp"
+74,source,参考情報: https://example.com/blog/reference-074 / 導入事例レポート の基礎と実践例を確認。
+74,system_note,読者=既存顧客。結論先出し・箇条書き中心・行動チェックリスト付きで構成する。
+74,assistant_output,導入: 導入事例レポートの課題を明確化。本編: 3ステップ（準備/実行/振り返り）。終盤: 1週間の実践計画テンプレートを提示。
+74,final_summary,導入事例レポート｜活用事例 074 の要点: 学習目的を定義し、小さな実行単位に分解して継続することで成果につなげる。
+74,tool_result,"{""tool_name"": ""wp_get_recent_posts"", ""status"": ""ok"", ""input"": {""process_id"": ""__PROCESS_ID__"", ""q"": ""導入事例レポート 既存顧客 実例"", ""max_results"": 5}, ""output"": {""items"": [{""title"": ""導入事例レポート の基本"", ""url"": ""https://example.com/source/074/1"", ""snippet"": ""要点整理と学習手順を簡潔に説明している。""}, {""title"": ""導入事例レポート の失敗例"", ""url"": ""https://example.com/source/074/2"", ""snippet"": ""よくある失敗と対策をケース別に解説している。""}]}, ""ts"": ""2026-02-23T13:14:00Z""}"
+75,user_input,サポート担当者向けに「機能アップデート案内」の説明記事を作りたいです。手順を箇条書きで明確にしてください。
+75,user_input,"Q(q1): 開催形式はオンラインですか？
+A: オンライン開催です
+
+Q(q2): 告知画像はありますか？
+InputType: image_upload
+A: uploaded:seminar-075.webp"
+75,source,参考情報: https://example.com/blog/reference-075 / 機能アップデート案内 の基礎と実践例を確認。
+75,system_note,読者=サポート担当者。結論先出し・箇条書き中心・行動チェックリスト付きで構成する。
+75,assistant_output,導入: 機能アップデート案内の課題を明確化。本編: 3ステップ（準備/実行/振り返り）。終盤: 1週間の実践計画テンプレートを提示。
+75,final_summary,機能アップデート案内ガイド 075 の要点: 学習目的を定義し、小さな実行単位に分解して継続することで成果につなげる。
+75,tool_result,"{""tool_name"": ""wp_get_post_types"", ""status"": ""ok"", ""input"": {""process_id"": ""__PROCESS_ID__"", ""q"": ""機能アップデート案内 サポート担当者 実例"", ""max_results"": 5}, ""output"": {""items"": [{""title"": ""機能アップデート案内 の基本"", ""url"": ""https://example.com/source/075/1"", ""snippet"": ""要点整理と学習手順を簡潔に説明している。""}, {""title"": ""機能アップデート案内 の失敗例"", ""url"": ""https://example.com/source/075/2"", ""snippet"": ""よくある失敗と対策をケース別に解説している。""}]}, ""ts"": ""2026-02-23T13:15:00Z""}"
+76,user_input,採用候補者に向けて「社内カルチャー紹介」の記事を書きたいです。価値観を伝える観点で、すぐ実行できる内容にしてください。
+76,user_input,"Q(q1): 開催形式はオンラインですか？
+A: オフライン開催です
+
+Q(q2): 告知画像はありますか？
+InputType: image_upload
+A: uploaded:seminar-076.webp"
+76,source,参考情報: https://example.com/blog/reference-076 / 社内カルチャー紹介 の基礎と実践例を確認。
+76,system_note,読者=採用候補者。結論先出し・箇条書き中心・行動チェックリスト付きで構成する。
+76,assistant_output,導入: 社内カルチャー紹介の課題を明確化。本編: 3ステップ（準備/実行/振り返り）。終盤: 1週間の実践計画テンプレートを提示。
+76,final_summary,社内カルチャー紹介 実践ガイド 076 の要点: 学習目的を定義し、小さな実行単位に分解して継続することで成果につなげる。
+76,tool_result,"{""tool_name"": ""wp_get_categories"", ""status"": ""ok"", ""input"": {""process_id"": ""__PROCESS_ID__"", ""q"": ""社内カルチャー紹介 採用候補者 実例"", ""max_results"": 5}, ""output"": {""items"": [{""title"": ""社内カルチャー紹介 の基本"", ""url"": ""https://example.com/source/076/1"", ""snippet"": ""要点整理と学習手順を簡潔に説明している。""}, {""title"": ""社内カルチャー紹介 の失敗例"", ""url"": ""https://example.com/source/076/2"", ""snippet"": ""よくある失敗と対策をケース別に解説している。""}]}, ""ts"": ""2026-02-23T13:16:00Z""}"
+77,user_input,営業担当者に向けて「ウェビナー開催案内」の記事を書きたいです。内容を分かりやすくする観点で、すぐ実行できる内容にしてください。
+77,user_input,"Q(q1): 開催形式はオンラインですか？
+A: オンライン開催です
+
+Q(q2): 告知画像はありますか？
+InputType: image_upload
+A: uploaded:seminar-077.webp"
+77,source,参考情報: https://example.com/blog/reference-077 / ウェビナー開催案内 の基礎と実践例を確認。
+77,system_note,読者=営業担当者。結論先出し・箇条書き中心・行動チェックリスト付きで構成する。
+77,assistant_output,導入: ウェビナー開催案内の課題を明確化。本編: 3ステップ（準備/実行/振り返り）。終盤: 1週間の実践計画テンプレートを提示。
+77,final_summary,ウェビナー開催案内 実践ガイド 077 の要点: 学習目的を定義し、小さな実行単位に分解して継続することで成果につなげる。
+77,tool_result,"{""tool_name"": ""web_search"", ""status"": ""ok"", ""input"": {""process_id"": ""__PROCESS_ID__"", ""q"": ""ウェビナー開催案内 営業担当者 実例"", ""max_results"": 5}, ""output"": {""items"": [{""title"": ""ウェビナー開催案内 の基本"", ""url"": ""https://example.com/source/077/1"", ""snippet"": ""要点整理と学習手順を簡潔に説明している。""}, {""title"": ""ウェビナー開催案内 の失敗例"", ""url"": ""https://example.com/source/077/2"", ""snippet"": ""よくある失敗と対策をケース別に解説している。""}]}, ""ts"": ""2026-02-23T13:17:00Z""}"
+78,user_input,提携候補企業に向けて「パートナー連携発表」の記事を書きたいです。信頼感を高める観点で、すぐ実行できる内容にしてください。
+78,user_input,"Q(q1): 開催形式はオンラインですか？
+A: オフライン開催です
+
+Q(q2): 告知画像はありますか？
+InputType: image_upload
+A: uploaded:seminar-078.webp"
+78,source,参考情報: https://example.com/blog/reference-078 / パートナー連携発表 の基礎と実践例を確認。
+78,system_note,読者=提携候補企業。結論先出し・箇条書き中心・行動チェックリスト付きで構成する。
+78,assistant_output,導入: パートナー連携発表の課題を明確化。本編: 3ステップ（準備/実行/振り返り）。終盤: 1週間の実践計画テンプレートを提示。
+78,final_summary,パートナー連携発表 実践ガイド 078 の要点: 学習目的を定義し、小さな実行単位に分解して継続することで成果につなげる。
+78,tool_result,"{""tool_name"": ""wp_get_recent_posts"", ""status"": ""ok"", ""input"": {""process_id"": ""__PROCESS_ID__"", ""q"": ""パートナー連携発表 提携候補企業 実例"", ""max_results"": 5}, ""output"": {""items"": [{""title"": ""パートナー連携発表 の基本"", ""url"": ""https://example.com/source/078/1"", ""snippet"": ""要点整理と学習手順を簡潔に説明している。""}, {""title"": ""パートナー連携発表 の失敗例"", ""url"": ""https://example.com/source/078/2"", ""snippet"": ""よくある失敗と対策をケース別に解説している。""}]}, ""ts"": ""2026-02-23T13:18:00Z""}"
+79,user_input,地域住民に向けて「地域イベント参加レポート」の記事を書きたいです。活動内容を可視化する観点で、すぐ実行できる内容にしてください。
+79,user_input,"Q(q1): 開催形式はオンラインですか？
+A: オンライン開催です
+
+Q(q2): 告知画像はありますか？
+InputType: image_upload
+A: uploaded:seminar-079.webp"
+79,source,参考情報: https://example.com/blog/reference-079 / 地域イベント参加レポート の基礎と実践例を確認。
+79,system_note,読者=地域住民。結論先出し・箇条書き中心・行動チェックリスト付きで構成する。
+79,assistant_output,導入: 地域イベント参加レポートの課題を明確化。本編: 3ステップ（準備/実行/振り返り）。終盤: 1週間の実践計画テンプレートを提示。
+79,final_summary,地域イベント参加レポート 実践ガイド 079 の要点: 学習目的を定義し、小さな実行単位に分解して継続することで成果につなげる。
+79,tool_result,"{""tool_name"": ""wp_get_post_types"", ""status"": ""ok"", ""input"": {""process_id"": ""__PROCESS_ID__"", ""q"": ""地域イベント参加レポート 地域住民 実例"", ""max_results"": 5}, ""output"": {""items"": [{""title"": ""地域イベント参加レポート の基本"", ""url"": ""https://example.com/source/079/1"", ""snippet"": ""要点整理と学習手順を簡潔に説明している。""}, {""title"": ""地域イベント参加レポート の失敗例"", ""url"": ""https://example.com/source/079/2"", ""snippet"": ""よくある失敗と対策をケース別に解説している。""}]}, ""ts"": ""2026-02-23T13:19:00Z""}"
+80,user_input,配属先マネージャー向けに「新入社員オンボーディング紹介」の説明記事を作りたいです。手順を箇条書きで明確にしてください。
+80,user_input,"Q(q1): 開催形式はオンラインですか？
+A: オフライン開催です
+
+Q(q2): 告知画像はありますか？
+InputType: image_upload
+A: uploaded:seminar-080.webp"
+80,source,参考情報: https://example.com/blog/reference-080 / 新入社員オンボーディング紹介 の基礎と実践例を確認。
+80,system_note,読者=配属先マネージャー。結論先出し・箇条書き中心・行動チェックリスト付きで構成する。
+80,assistant_output,導入: 新入社員オンボーディング紹介の課題を明確化。本編: 3ステップ（準備/実行/振り返り）。終盤: 1週間の実践計画テンプレートを提示。
+80,final_summary,新入社員オンボーディング紹介ガイド 080 の要点: 学習目的を定義し、小さな実行単位に分解して継続することで成果につなげる。
+80,tool_result,"{""tool_name"": ""wp_get_categories"", ""status"": ""ok"", ""input"": {""process_id"": ""__PROCESS_ID__"", ""q"": ""新入社員オンボーディング紹介 配属先マネージャー 実例"", ""max_results"": 5}, ""output"": {""items"": [{""title"": ""新入社員オンボーディング紹介 の基本"", ""url"": ""https://example.com/source/080/1"", ""snippet"": ""要点整理と学習手順を簡潔に説明している。""}, {""title"": ""新入社員オンボーディング紹介 の失敗例"", ""url"": ""https://example.com/source/080/2"", ""snippet"": ""よくある失敗と対策をケース別に解説している。""}]}, ""ts"": ""2026-02-23T13:20:00Z""}"
+81,user_input,高専1-2年生に向けて「高専生の勉強方法」の記事を書きたいです。再現性を高める観点で、すぐ実行できる内容にしてください。
+81,user_input,"Q(q1): 開催形式はオンラインですか？
+A: オンライン開催です
+
+Q(q2): 告知画像はありますか？
+InputType: image_upload
+A: uploaded:seminar-081.webp"
+81,source,参考情報: https://example.com/blog/reference-081 / 高専生の勉強方法 の基礎と実践例を確認。
+81,system_note,読者=高専1-2年生。結論先出し・箇条書き中心・行動チェックリスト付きで構成する。
+81,assistant_output,導入: 高専生の勉強方法の課題を明確化。本編: 3ステップ（準備/実行/振り返り）。終盤: 1週間の実践計画テンプレートを提示。
+81,final_summary,高専生の勉強方法 実践ガイド 081 の要点: 学習目的を定義し、小さな実行単位に分解して継続することで成果につなげる。
+81,tool_result,"{""tool_name"": ""web_search"", ""status"": ""ok"", ""input"": {""process_id"": ""__PROCESS_ID__"", ""q"": ""高専生の勉強方法 高専1-2年生 実例"", ""max_results"": 5}, ""output"": {""items"": [{""title"": ""高専生の勉強方法 の基本"", ""url"": ""https://example.com/source/081/1"", ""snippet"": ""要点整理と学習手順を簡潔に説明している。""}, {""title"": ""高専生の勉強方法 の失敗例"", ""url"": ""https://example.com/source/081/2"", ""snippet"": ""よくある失敗と対策をケース別に解説している。""}]}, ""ts"": ""2026-02-23T13:21:00Z""}"
+82,user_input,既存顧客向けのイベント告知記事を作りたいです。テーマは「生成AI活用セミナー告知」。参加率を上げるを重視してください。
+82,user_input,"Q(q1): 開催日時と会場を教えてください。
+A: 2026-03-03 19:00 / 東京会場
+
+Q(q2): 告知画像はありますか？
+InputType: image_upload
+A: uploaded:event-banner-082.webp"
+82,source,参考情報: https://example.com/blog/reference-082 / 生成AI活用セミナー告知 の開催概要、参加特典、申込導線を確認。
+82,system_note,読者=既存顧客。冒頭で開催概要を提示し、日時・場所・対象・申込方法を表形式か箇条書きで明記。
+82,assistant_output,導入: 参加者の課題に共感。本編: 開催概要・タイムテーブル・登壇内容・参加メリット。終盤: 申込ボタンと締切を明示。
+82,final_summary,生成AI活用セミナー告知｜開催案内 082 の要点: 誰向けに何が得られるイベントかを明確にし、申し込みまでの行動を迷わせない構成にした。
+82,tool_result,"{""tool_name"": ""wp_get_recent_posts"", ""status"": ""ok"", ""input"": {""process_id"": ""__PROCESS_ID__"", ""q"": ""生成AI活用セミナー告知 既存顧客 実例"", ""max_results"": 5}, ""output"": {""items"": [{""title"": ""生成AI活用セミナー告知 の基本"", ""url"": ""https://example.com/source/082/1"", ""snippet"": ""要点整理と学習手順を簡潔に説明している。""}, {""title"": ""生成AI活用セミナー告知 の失敗例"", ""url"": ""https://example.com/source/082/2"", ""snippet"": ""よくある失敗と対策をケース別に解説している。""}]}, ""ts"": ""2026-02-23T13:22:00Z""}"
+83,user_input,新規取引先向けに社員紹介記事を書きたいです。「社員紹介インタビュー」として、具体的なエピソードを入れてください。
+83,user_input,"Q(q1): 担当領域と最近の成果を教えてください。
+A: SaaS導入支援。直近四半期で解約率を4%改善しました。
+
+Q(q2): プロフィール写真はありますか？
+InputType: image_upload
+A: uploaded:employee-083.webp"
+83,source,参考情報: https://example.com/blog/reference-083 / 担当業務、経歴、価値観、プロジェクト実績を確認。
+83,system_note,読者=新規取引先。人物像が伝わるように、背景・現在・今後の挑戦の順で構成する。
+83,assistant_output,導入: 配属背景を紹介。本編: 担当業務・成功体験・チームでの工夫。終盤: 読者へのメッセージと採用/問い合わせ導線。
+83,final_summary,社員紹介インタビュー｜担当者インタビュー 083 の要点: 社員の人柄と専門性を具体エピソードで示し、組織理解につながる記事にした。
+83,tool_result,"{""tool_name"": ""wp_get_post_types"", ""status"": ""ok"", ""input"": {""process_id"": ""__PROCESS_ID__"", ""q"": ""社員紹介インタビュー 新規取引先 実例"", ""max_results"": 5}, ""output"": {""items"": [{""title"": ""社員紹介インタビュー の基本"", ""url"": ""https://example.com/source/083/1"", ""snippet"": ""要点整理と学習手順を簡潔に説明している。""}, {""title"": ""社員紹介インタビュー の失敗例"", ""url"": ""https://example.com/source/083/2"", ""snippet"": ""よくある失敗と対策をケース別に解説している。""}]}, ""ts"": ""2026-02-23T13:23:00Z""}"
+84,user_input,業界関係者向けに「導入事例レポート」の記事を作成したいです。ビフォーアフターと数値成果をわかりやすく入れてください。
+84,user_input,"Q(q1): 開催形式はオンラインですか？
+A: オフライン開催です
+
+Q(q2): 告知画像はありますか？
+InputType: image_upload
+A: uploaded:seminar-084.webp"
+84,source,参考情報: https://example.com/blog/reference-084 / 導入事例レポート の基礎と実践例を確認。
+84,system_note,読者=業界関係者。結論先出し・箇条書き中心・行動チェックリスト付きで構成する。
+84,assistant_output,導入: 導入事例レポートの課題を明確化。本編: 3ステップ（準備/実行/振り返り）。終盤: 1週間の実践計画テンプレートを提示。
+84,final_summary,導入事例レポート｜活用事例 084 の要点: 学習目的を定義し、小さな実行単位に分解して継続することで成果につなげる。
+84,tool_result,"{""tool_name"": ""wp_get_categories"", ""status"": ""ok"", ""input"": {""process_id"": ""__PROCESS_ID__"", ""q"": ""導入事例レポート 業界関係者 実例"", ""max_results"": 5}, ""output"": {""items"": [{""title"": ""導入事例レポート の基本"", ""url"": ""https://example.com/source/084/1"", ""snippet"": ""要点整理と学習手順を簡潔に説明している。""}, {""title"": ""導入事例レポート の失敗例"", ""url"": ""https://example.com/source/084/2"", ""snippet"": ""よくある失敗と対策をケース別に解説している。""}]}, ""ts"": ""2026-02-23T13:24:00Z""}"
+85,user_input,既存ユーザー向けに「機能アップデート案内」の説明記事を作りたいです。手順を箇条書きで明確にしてください。
+85,user_input,"Q(q1): 開催形式はオンラインですか？
+A: オンライン開催です
+
+Q(q2): 告知画像はありますか？
+InputType: image_upload
+A: uploaded:seminar-085.webp"
+85,source,参考情報: https://example.com/blog/reference-085 / 機能アップデート案内 の基礎と実践例を確認。
+85,system_note,読者=既存ユーザー。結論先出し・箇条書き中心・行動チェックリスト付きで構成する。
+85,assistant_output,導入: 機能アップデート案内の課題を明確化。本編: 3ステップ（準備/実行/振り返り）。終盤: 1週間の実践計画テンプレートを提示。
+85,final_summary,機能アップデート案内ガイド 085 の要点: 学習目的を定義し、小さな実行単位に分解して継続することで成果につなげる。
+85,tool_result,"{""tool_name"": ""web_search"", ""status"": ""ok"", ""input"": {""process_id"": ""__PROCESS_ID__"", ""q"": ""機能アップデート案内 既存ユーザー 実例"", ""max_results"": 5}, ""output"": {""items"": [{""title"": ""機能アップデート案内 の基本"", ""url"": ""https://example.com/source/085/1"", ""snippet"": ""要点整理と学習手順を簡潔に説明している。""}, {""title"": ""機能アップデート案内 の失敗例"", ""url"": ""https://example.com/source/085/2"", ""snippet"": ""よくある失敗と対策をケース別に解説している。""}]}, ""ts"": ""2026-02-23T13:25:00Z""}"
+86,user_input,新入社員に向けて「社内カルチャー紹介」の記事を書きたいです。働くイメージを持たせる観点で、すぐ実行できる内容にしてください。
+86,user_input,"Q(q1): 開催形式はオンラインですか？
+A: オフライン開催です
+
+Q(q2): 告知画像はありますか？
+InputType: image_upload
+A: uploaded:seminar-086.webp"
+86,source,参考情報: https://example.com/blog/reference-086 / 社内カルチャー紹介 の基礎と実践例を確認。
+86,system_note,読者=新入社員。結論先出し・箇条書き中心・行動チェックリスト付きで構成する。
+86,assistant_output,導入: 社内カルチャー紹介の課題を明確化。本編: 3ステップ（準備/実行/振り返り）。終盤: 1週間の実践計画テンプレートを提示。
+86,final_summary,社内カルチャー紹介 実践ガイド 086 の要点: 学習目的を定義し、小さな実行単位に分解して継続することで成果につなげる。
+86,tool_result,"{""tool_name"": ""wp_get_recent_posts"", ""status"": ""ok"", ""input"": {""process_id"": ""__PROCESS_ID__"", ""q"": ""社内カルチャー紹介 新入社員 実例"", ""max_results"": 5}, ""output"": {""items"": [{""title"": ""社内カルチャー紹介 の基本"", ""url"": ""https://example.com/source/086/1"", ""snippet"": ""要点整理と学習手順を簡潔に説明している。""}, {""title"": ""社内カルチャー紹介 の失敗例"", ""url"": ""https://example.com/source/086/2"", ""snippet"": ""よくある失敗と対策をケース別に解説している。""}]}, ""ts"": ""2026-02-23T13:26:00Z""}"
+87,user_input,プロダクト担当者に向けて「ウェビナー開催案内」の記事を書きたいです。申込率を上げる観点で、すぐ実行できる内容にしてください。
+87,user_input,"Q(q1): 開催形式はオンラインですか？
+A: オンライン開催です
+
+Q(q2): 告知画像はありますか？
+InputType: image_upload
+A: uploaded:seminar-087.webp"
+87,source,参考情報: https://example.com/blog/reference-087 / ウェビナー開催案内 の基礎と実践例を確認。
+87,system_note,読者=プロダクト担当者。結論先出し・箇条書き中心・行動チェックリスト付きで構成する。
+87,assistant_output,導入: ウェビナー開催案内の課題を明確化。本編: 3ステップ（準備/実行/振り返り）。終盤: 1週間の実践計画テンプレートを提示。
+87,final_summary,ウェビナー開催案内 実践ガイド 087 の要点: 学習目的を定義し、小さな実行単位に分解して継続することで成果につなげる。
+87,tool_result,"{""tool_name"": ""wp_get_post_types"", ""status"": ""ok"", ""input"": {""process_id"": ""__PROCESS_ID__"", ""q"": ""ウェビナー開催案内 プロダクト担当者 実例"", ""max_results"": 5}, ""output"": {""items"": [{""title"": ""ウェビナー開催案内 の基本"", ""url"": ""https://example.com/source/087/1"", ""snippet"": ""要点整理と学習手順を簡潔に説明している。""}, {""title"": ""ウェビナー開催案内 の失敗例"", ""url"": ""https://example.com/source/087/2"", ""snippet"": ""よくある失敗と対策をケース別に解説している。""}]}, ""ts"": ""2026-02-23T13:27:00Z""}"
+88,user_input,既存顧客に向けて「パートナー連携発表」の記事を書きたいです。提携価値を伝える観点で、すぐ実行できる内容にしてください。
+88,user_input,"Q(q1): 開催形式はオンラインですか？
+A: オフライン開催です
+
+Q(q2): 告知画像はありますか？
+InputType: image_upload
+A: uploaded:seminar-088.webp"
+88,source,参考情報: https://example.com/blog/reference-088 / パートナー連携発表 の基礎と実践例を確認。
+88,system_note,読者=既存顧客。結論先出し・箇条書き中心・行動チェックリスト付きで構成する。
+88,assistant_output,導入: パートナー連携発表の課題を明確化。本編: 3ステップ（準備/実行/振り返り）。終盤: 1週間の実践計画テンプレートを提示。
+88,final_summary,パートナー連携発表 実践ガイド 088 の要点: 学習目的を定義し、小さな実行単位に分解して継続することで成果につなげる。
+88,tool_result,"{""tool_name"": ""wp_get_categories"", ""status"": ""ok"", ""input"": {""process_id"": ""__PROCESS_ID__"", ""q"": ""パートナー連携発表 既存顧客 実例"", ""max_results"": 5}, ""output"": {""items"": [{""title"": ""パートナー連携発表 の基本"", ""url"": ""https://example.com/source/088/1"", ""snippet"": ""要点整理と学習手順を簡潔に説明している。""}, {""title"": ""パートナー連携発表 の失敗例"", ""url"": ""https://example.com/source/088/2"", ""snippet"": ""よくある失敗と対策をケース別に解説している。""}]}, ""ts"": ""2026-02-23T13:28:00Z""}"
+89,user_input,自治体関係者に向けて「地域イベント参加レポート」の記事を書きたいです。社会的意義を伝える観点で、すぐ実行できる内容にしてください。
+89,user_input,"Q(q1): 開催形式はオンラインですか？
+A: オンライン開催です
+
+Q(q2): 告知画像はありますか？
+InputType: image_upload
+A: uploaded:seminar-089.webp"
+89,source,参考情報: https://example.com/blog/reference-089 / 地域イベント参加レポート の基礎と実践例を確認。
+89,system_note,読者=自治体関係者。結論先出し・箇条書き中心・行動チェックリスト付きで構成する。
+89,assistant_output,導入: 地域イベント参加レポートの課題を明確化。本編: 3ステップ（準備/実行/振り返り）。終盤: 1週間の実践計画テンプレートを提示。
+89,final_summary,地域イベント参加レポート 実践ガイド 089 の要点: 学習目的を定義し、小さな実行単位に分解して継続することで成果につなげる。
+89,tool_result,"{""tool_name"": ""web_search"", ""status"": ""ok"", ""input"": {""process_id"": ""__PROCESS_ID__"", ""q"": ""地域イベント参加レポート 自治体関係者 実例"", ""max_results"": 5}, ""output"": {""items"": [{""title"": ""地域イベント参加レポート の基本"", ""url"": ""https://example.com/source/089/1"", ""snippet"": ""要点整理と学習手順を簡潔に説明している。""}, {""title"": ""地域イベント参加レポート の失敗例"", ""url"": ""https://example.com/source/089/2"", ""snippet"": ""よくある失敗と対策をケース別に解説している。""}]}, ""ts"": ""2026-02-23T13:29:00Z""}"
+90,user_input,人事担当者向けに「新入社員オンボーディング紹介」の説明記事を作りたいです。手順を箇条書きで明確にしてください。
+90,user_input,"Q(q1): 開催形式はオンラインですか？
+A: オフライン開催です
+
+Q(q2): 告知画像はありますか？
+InputType: image_upload
+A: uploaded:seminar-090.webp"
+90,source,参考情報: https://example.com/blog/reference-090 / 新入社員オンボーディング紹介 の基礎と実践例を確認。
+90,system_note,読者=人事担当者。結論先出し・箇条書き中心・行動チェックリスト付きで構成する。
+90,assistant_output,導入: 新入社員オンボーディング紹介の課題を明確化。本編: 3ステップ（準備/実行/振り返り）。終盤: 1週間の実践計画テンプレートを提示。
+90,final_summary,新入社員オンボーディング紹介ガイド 090 の要点: 学習目的を定義し、小さな実行単位に分解して継続することで成果につなげる。
+90,tool_result,"{""tool_name"": ""wp_get_recent_posts"", ""status"": ""ok"", ""input"": {""process_id"": ""__PROCESS_ID__"", ""q"": ""新入社員オンボーディング紹介 人事担当者 実例"", ""max_results"": 5}, ""output"": {""items"": [{""title"": ""新入社員オンボーディング紹介 の基本"", ""url"": ""https://example.com/source/090/1"", ""snippet"": ""要点整理と学習手順を簡潔に説明している。""}, {""title"": ""新入社員オンボーディング紹介 の失敗例"", ""url"": ""https://example.com/source/090/2"", ""snippet"": ""よくある失敗と対策をケース別に解説している。""}]}, ""ts"": ""2026-02-23T13:30:00Z""}"
+91,user_input,高専4-5年生に向けて「高専生の勉強方法」の記事を書きたいです。最短で成果を出す観点で、すぐ実行できる内容にしてください。
+91,user_input,"Q(q1): 開催形式はオンラインですか？
+A: オンライン開催です
+
+Q(q2): 告知画像はありますか？
+InputType: image_upload
+A: uploaded:seminar-091.webp"
+91,source,参考情報: https://example.com/blog/reference-091 / 高専生の勉強方法 の基礎と実践例を確認。
+91,system_note,読者=高専4-5年生。結論先出し・箇条書き中心・行動チェックリスト付きで構成する。
+91,assistant_output,導入: 高専生の勉強方法の課題を明確化。本編: 3ステップ（準備/実行/振り返り）。終盤: 1週間の実践計画テンプレートを提示。
+91,final_summary,高専生の勉強方法 実践ガイド 091 の要点: 学習目的を定義し、小さな実行単位に分解して継続することで成果につなげる。
+91,tool_result,"{""tool_name"": ""wp_get_post_types"", ""status"": ""ok"", ""input"": {""process_id"": ""__PROCESS_ID__"", ""q"": ""高専生の勉強方法 高専4-5年生 実例"", ""max_results"": 5}, ""output"": {""items"": [{""title"": ""高専生の勉強方法 の基本"", ""url"": ""https://example.com/source/091/1"", ""snippet"": ""要点整理と学習手順を簡潔に説明している。""}, {""title"": ""高専生の勉強方法 の失敗例"", ""url"": ""https://example.com/source/091/2"", ""snippet"": ""よくある失敗と対策をケース別に解説している。""}]}, ""ts"": ""2026-02-23T13:31:00Z""}"
+92,user_input,地域参加者向けのイベント告知記事を作りたいです。テーマは「生成AI活用セミナー告知」。イベント概要を明確にするを重視してください。
+92,user_input,"Q(q1): 開催日時と会場を教えてください。
+A: 2026-03-13 19:00 / 東京会場
+
+Q(q2): 告知画像はありますか？
+InputType: image_upload
+A: uploaded:event-banner-092.webp"
+92,source,参考情報: https://example.com/blog/reference-092 / 生成AI活用セミナー告知 の開催概要、参加特典、申込導線を確認。
+92,system_note,読者=地域参加者。冒頭で開催概要を提示し、日時・場所・対象・申込方法を表形式か箇条書きで明記。
+92,assistant_output,導入: 参加者の課題に共感。本編: 開催概要・タイムテーブル・登壇内容・参加メリット。終盤: 申込ボタンと締切を明示。
+92,final_summary,生成AI活用セミナー告知｜開催案内 092 の要点: 誰向けに何が得られるイベントかを明確にし、申し込みまでの行動を迷わせない構成にした。
+92,tool_result,"{""tool_name"": ""wp_get_categories"", ""status"": ""ok"", ""input"": {""process_id"": ""__PROCESS_ID__"", ""q"": ""生成AI活用セミナー告知 地域参加者 実例"", ""max_results"": 5}, ""output"": {""items"": [{""title"": ""生成AI活用セミナー告知 の基本"", ""url"": ""https://example.com/source/092/1"", ""snippet"": ""要点整理と学習手順を簡潔に説明している。""}, {""title"": ""生成AI活用セミナー告知 の失敗例"", ""url"": ""https://example.com/source/092/2"", ""snippet"": ""よくある失敗と対策をケース別に解説している。""}]}, ""ts"": ""2026-02-23T13:32:00Z""}"
+93,user_input,採用候補者向けに社員紹介記事を書きたいです。「社員紹介インタビュー」として、具体的なエピソードを入れてください。
+93,user_input,"Q(q1): 担当領域と最近の成果を教えてください。
+A: SaaS導入支援。直近四半期で解約率を4%改善しました。
+
+Q(q2): プロフィール写真はありますか？
+InputType: image_upload
+A: uploaded:employee-093.webp"
+93,source,参考情報: https://example.com/blog/reference-093 / 担当業務、経歴、価値観、プロジェクト実績を確認。
+93,system_note,読者=採用候補者。人物像が伝わるように、背景・現在・今後の挑戦の順で構成する。
+93,assistant_output,導入: 配属背景を紹介。本編: 担当業務・成功体験・チームでの工夫。終盤: 読者へのメッセージと採用/問い合わせ導線。
+93,final_summary,社員紹介インタビュー｜担当者インタビュー 093 の要点: 社員の人柄と専門性を具体エピソードで示し、組織理解につながる記事にした。
+93,tool_result,"{""tool_name"": ""web_search"", ""status"": ""ok"", ""input"": {""process_id"": ""__PROCESS_ID__"", ""q"": ""社員紹介インタビュー 採用候補者 実例"", ""max_results"": 5}, ""output"": {""items"": [{""title"": ""社員紹介インタビュー の基本"", ""url"": ""https://example.com/source/093/1"", ""snippet"": ""要点整理と学習手順を簡潔に説明している。""}, {""title"": ""社員紹介インタビュー の失敗例"", ""url"": ""https://example.com/source/093/2"", ""snippet"": ""よくある失敗と対策をケース別に解説している。""}]}, ""ts"": ""2026-02-23T13:33:00Z""}"
+94,user_input,見込み顧客向けに「導入事例レポート」の記事を作成したいです。ビフォーアフターと数値成果をわかりやすく入れてください。
+94,user_input,"Q(q1): 開催形式はオンラインですか？
+A: オフライン開催です
+
+Q(q2): 告知画像はありますか？
+InputType: image_upload
+A: uploaded:seminar-094.webp"
+94,source,参考情報: https://example.com/blog/reference-094 / 導入事例レポート の基礎と実践例を確認。
+94,system_note,読者=見込み顧客。結論先出し・箇条書き中心・行動チェックリスト付きで構成する。
+94,assistant_output,導入: 導入事例レポートの課題を明確化。本編: 3ステップ（準備/実行/振り返り）。終盤: 1週間の実践計画テンプレートを提示。
+94,final_summary,導入事例レポート｜活用事例 094 の要点: 学習目的を定義し、小さな実行単位に分解して継続することで成果につなげる。
+94,tool_result,"{""tool_name"": ""wp_get_recent_posts"", ""status"": ""ok"", ""input"": {""process_id"": ""__PROCESS_ID__"", ""q"": ""導入事例レポート 見込み顧客 実例"", ""max_results"": 5}, ""output"": {""items"": [{""title"": ""導入事例レポート の基本"", ""url"": ""https://example.com/source/094/1"", ""snippet"": ""要点整理と学習手順を簡潔に説明している。""}, {""title"": ""導入事例レポート の失敗例"", ""url"": ""https://example.com/source/094/2"", ""snippet"": ""よくある失敗と対策をケース別に解説している。""}]}, ""ts"": ""2026-02-23T13:34:00Z""}"
+95,user_input,管理者ユーザー向けに「機能アップデート案内」の説明記事を作りたいです。手順を箇条書きで明確にしてください。
+95,user_input,"Q(q1): 開催形式はオンラインですか？
+A: オンライン開催です
+
+Q(q2): 告知画像はありますか？
+InputType: image_upload
+A: uploaded:seminar-095.webp"
+95,source,参考情報: https://example.com/blog/reference-095 / 機能アップデート案内 の基礎と実践例を確認。
+95,system_note,読者=管理者ユーザー。結論先出し・箇条書き中心・行動チェックリスト付きで構成する。
+95,assistant_output,導入: 機能アップデート案内の課題を明確化。本編: 3ステップ（準備/実行/振り返り）。終盤: 1週間の実践計画テンプレートを提示。
+95,final_summary,機能アップデート案内ガイド 095 の要点: 学習目的を定義し、小さな実行単位に分解して継続することで成果につなげる。
+95,tool_result,"{""tool_name"": ""wp_get_post_types"", ""status"": ""ok"", ""input"": {""process_id"": ""__PROCESS_ID__"", ""q"": ""機能アップデート案内 管理者ユーザー 実例"", ""max_results"": 5}, ""output"": {""items"": [{""title"": ""機能アップデート案内 の基本"", ""url"": ""https://example.com/source/095/1"", ""snippet"": ""要点整理と学習手順を簡潔に説明している。""}, {""title"": ""機能アップデート案内 の失敗例"", ""url"": ""https://example.com/source/095/2"", ""snippet"": ""よくある失敗と対策をケース別に解説している。""}]}, ""ts"": ""2026-02-23T13:35:00Z""}"
+96,user_input,社外パートナーに向けて「社内カルチャー紹介」の記事を書きたいです。共感を増やす観点で、すぐ実行できる内容にしてください。
+96,user_input,"Q(q1): 開催形式はオンラインですか？
+A: オフライン開催です
+
+Q(q2): 告知画像はありますか？
+InputType: image_upload
+A: uploaded:seminar-096.webp"
+96,source,参考情報: https://example.com/blog/reference-096 / 社内カルチャー紹介 の基礎と実践例を確認。
+96,system_note,読者=社外パートナー。結論先出し・箇条書き中心・行動チェックリスト付きで構成する。
+96,assistant_output,導入: 社内カルチャー紹介の課題を明確化。本編: 3ステップ（準備/実行/振り返り）。終盤: 1週間の実践計画テンプレートを提示。
+96,final_summary,社内カルチャー紹介 実践ガイド 096 の要点: 学習目的を定義し、小さな実行単位に分解して継続することで成果につなげる。
+96,tool_result,"{""tool_name"": ""wp_get_categories"", ""status"": ""ok"", ""input"": {""process_id"": ""__PROCESS_ID__"", ""q"": ""社内カルチャー紹介 社外パートナー 実例"", ""max_results"": 5}, ""output"": {""items"": [{""title"": ""社内カルチャー紹介 の基本"", ""url"": ""https://example.com/source/096/1"", ""snippet"": ""要点整理と学習手順を簡潔に説明している。""}, {""title"": ""社内カルチャー紹介 の失敗例"", ""url"": ""https://example.com/source/096/2"", ""snippet"": ""よくある失敗と対策をケース別に解説している。""}]}, ""ts"": ""2026-02-23T13:36:00Z""}"
+97,user_input,マーケ担当者に向けて「ウェビナー開催案内」の記事を書きたいです。集客を強化する観点で、すぐ実行できる内容にしてください。
+97,user_input,"Q(q1): 開催形式はオンラインですか？
+A: オンライン開催です
+
+Q(q2): 告知画像はありますか？
+InputType: image_upload
+A: uploaded:seminar-097.webp"
+97,source,参考情報: https://example.com/blog/reference-097 / ウェビナー開催案内 の基礎と実践例を確認。
+97,system_note,読者=マーケ担当者。結論先出し・箇条書き中心・行動チェックリスト付きで構成する。
+97,assistant_output,導入: ウェビナー開催案内の課題を明確化。本編: 3ステップ（準備/実行/振り返り）。終盤: 1週間の実践計画テンプレートを提示。
+97,final_summary,ウェビナー開催案内 実践ガイド 097 の要点: 学習目的を定義し、小さな実行単位に分解して継続することで成果につなげる。
+97,tool_result,"{""tool_name"": ""web_search"", ""status"": ""ok"", ""input"": {""process_id"": ""__PROCESS_ID__"", ""q"": ""ウェビナー開催案内 マーケ担当者 実例"", ""max_results"": 5}, ""output"": {""items"": [{""title"": ""ウェビナー開催案内 の基本"", ""url"": ""https://example.com/source/097/1"", ""snippet"": ""要点整理と学習手順を簡潔に説明している。""}, {""title"": ""ウェビナー開催案内 の失敗例"", ""url"": ""https://example.com/source/097/2"", ""snippet"": ""よくある失敗と対策をケース別に解説している。""}]}, ""ts"": ""2026-02-23T13:37:00Z""}"
+98,user_input,業界メディアに向けて「パートナー連携発表」の記事を書きたいです。期待効果を示す観点で、すぐ実行できる内容にしてください。
+98,user_input,"Q(q1): 開催形式はオンラインですか？
+A: オフライン開催です
+
+Q(q2): 告知画像はありますか？
+InputType: image_upload
+A: uploaded:seminar-098.webp"
+98,source,参考情報: https://example.com/blog/reference-098 / パートナー連携発表 の基礎と実践例を確認。
+98,system_note,読者=業界メディア。結論先出し・箇条書き中心・行動チェックリスト付きで構成する。
+98,assistant_output,導入: パートナー連携発表の課題を明確化。本編: 3ステップ（準備/実行/振り返り）。終盤: 1週間の実践計画テンプレートを提示。
+98,final_summary,パートナー連携発表 実践ガイド 098 の要点: 学習目的を定義し、小さな実行単位に分解して継続することで成果につなげる。
+98,tool_result,"{""tool_name"": ""wp_get_recent_posts"", ""status"": ""ok"", ""input"": {""process_id"": ""__PROCESS_ID__"", ""q"": ""パートナー連携発表 業界メディア 実例"", ""max_results"": 5}, ""output"": {""items"": [{""title"": ""パートナー連携発表 の基本"", ""url"": ""https://example.com/source/098/1"", ""snippet"": ""要点整理と学習手順を簡潔に説明している。""}, {""title"": ""パートナー連携発表 の失敗例"", ""url"": ""https://example.com/source/098/2"", ""snippet"": ""よくある失敗と対策をケース別に解説している。""}]}, ""ts"": ""2026-02-23T13:38:00Z""}"
+99,user_input,社員家族に向けて「地域イベント参加レポート」の記事を書きたいです。継続参加につなげる観点で、すぐ実行できる内容にしてください。
+99,user_input,"Q(q1): 開催形式はオンラインですか？
+A: オンライン開催です
+
+Q(q2): 告知画像はありますか？
+InputType: image_upload
+A: uploaded:seminar-099.webp"
+99,source,参考情報: https://example.com/blog/reference-099 / 地域イベント参加レポート の基礎と実践例を確認。
+99,system_note,読者=社員家族。結論先出し・箇条書き中心・行動チェックリスト付きで構成する。
+99,assistant_output,導入: 地域イベント参加レポートの課題を明確化。本編: 3ステップ（準備/実行/振り返り）。終盤: 1週間の実践計画テンプレートを提示。
+99,final_summary,地域イベント参加レポート 実践ガイド 099 の要点: 学習目的を定義し、小さな実行単位に分解して継続することで成果につなげる。
+99,tool_result,"{""tool_name"": ""wp_get_post_types"", ""status"": ""ok"", ""input"": {""process_id"": ""__PROCESS_ID__"", ""q"": ""地域イベント参加レポート 社員家族 実例"", ""max_results"": 5}, ""output"": {""items"": [{""title"": ""地域イベント参加レポート の基本"", ""url"": ""https://example.com/source/099/1"", ""snippet"": ""要点整理と学習手順を簡潔に説明している。""}, {""title"": ""地域イベント参加レポート の失敗例"", ""url"": ""https://example.com/source/099/2"", ""snippet"": ""よくある失敗と対策をケース別に解説している。""}]}, ""ts"": ""2026-02-23T13:39:00Z""}"
+100,user_input,新入社員向けに「新入社員オンボーディング紹介」の説明記事を作りたいです。手順を箇条書きで明確にしてください。
+100,user_input,"Q(q1): 開催形式はオンラインですか？
+A: オフライン開催です
+
+Q(q2): 告知画像はありますか？
+InputType: image_upload
+A: uploaded:seminar-100.webp"
+100,source,参考情報: https://example.com/blog/reference-100 / 新入社員オンボーディング紹介 の基礎と実践例を確認。
+100,system_note,読者=新入社員。結論先出し・箇条書き中心・行動チェックリスト付きで構成する。
+100,assistant_output,導入: 新入社員オンボーディング紹介の課題を明確化。本編: 3ステップ（準備/実行/振り返り）。終盤: 1週間の実践計画テンプレートを提示。
+100,final_summary,新入社員オンボーディング紹介ガイド 100 の要点: 学習目的を定義し、小さな実行単位に分解して継続することで成果につなげる。
+100,tool_result,"{""tool_name"": ""wp_get_categories"", ""status"": ""ok"", ""input"": {""process_id"": ""__PROCESS_ID__"", ""q"": ""新入社員オンボーディング紹介 新入社員 実例"", ""max_results"": 5}, ""output"": {""items"": [{""title"": ""新入社員オンボーディング紹介 の基本"", ""url"": ""https://example.com/source/100/1"", ""snippet"": ""要点整理と学習手順を簡潔に説明している。""}, {""title"": ""新入社員オンボーディング紹介 の失敗例"", ""url"": ""https://example.com/source/100/2"", ""snippet"": ""よくある失敗と対策をケース別に解説している。""}]}, ""ts"": ""2026-02-23T13:40:00Z""}"
+101,user_input,高専1-2年生に向けて「高専生の勉強方法」の記事を書きたいです。継続できる仕組みを作る観点で、すぐ実行できる内容にしてください。
+101,user_input,"Q(q1): 開催形式はオンラインですか？
+A: オンライン開催です
+
+Q(q2): 告知画像はありますか？
+InputType: image_upload
+A: uploaded:seminar-101.webp"
+101,source,参考情報: https://example.com/blog/reference-101 / 高専生の勉強方法 の基礎と実践例を確認。
+101,system_note,読者=高専1-2年生。結論先出し・箇条書き中心・行動チェックリスト付きで構成する。
+101,assistant_output,導入: 高専生の勉強方法の課題を明確化。本編: 3ステップ（準備/実行/振り返り）。終盤: 1週間の実践計画テンプレートを提示。
+101,final_summary,高専生の勉強方法 実践ガイド 101 の要点: 学習目的を定義し、小さな実行単位に分解して継続することで成果につなげる。
+101,tool_result,"{""tool_name"": ""web_search"", ""status"": ""ok"", ""input"": {""process_id"": ""__PROCESS_ID__"", ""q"": ""高専生の勉強方法 高専1-2年生 実例"", ""max_results"": 5}, ""output"": {""items"": [{""title"": ""高専生の勉強方法 の基本"", ""url"": ""https://example.com/source/101/1"", ""snippet"": ""要点整理と学習手順を簡潔に説明している。""}, {""title"": ""高専生の勉強方法 の失敗例"", ""url"": ""https://example.com/source/101/2"", ""snippet"": ""よくある失敗と対策をケース別に解説している。""}]}, ""ts"": ""2026-02-23T13:41:00Z""}"
+102,user_input,既存顧客向けのイベント告知記事を作りたいです。テーマは「生成AI活用セミナー告知」。申込導線を改善するを重視してください。
+102,user_input,"Q(q1): 開催日時と会場を教えてください。
+A: 2026-03-03 19:00 / 東京会場
+
+Q(q2): 告知画像はありますか？
+InputType: image_upload
+A: uploaded:event-banner-102.webp"
+102,source,参考情報: https://example.com/blog/reference-102 / 生成AI活用セミナー告知 の開催概要、参加特典、申込導線を確認。
+102,system_note,読者=既存顧客。冒頭で開催概要を提示し、日時・場所・対象・申込方法を表形式か箇条書きで明記。
+102,assistant_output,導入: 参加者の課題に共感。本編: 開催概要・タイムテーブル・登壇内容・参加メリット。終盤: 申込ボタンと締切を明示。
+102,final_summary,生成AI活用セミナー告知｜開催案内 102 の要点: 誰向けに何が得られるイベントかを明確にし、申し込みまでの行動を迷わせない構成にした。
+102,tool_result,"{""tool_name"": ""wp_get_recent_posts"", ""status"": ""ok"", ""input"": {""process_id"": ""__PROCESS_ID__"", ""q"": ""生成AI活用セミナー告知 既存顧客 実例"", ""max_results"": 5}, ""output"": {""items"": [{""title"": ""生成AI活用セミナー告知 の基本"", ""url"": ""https://example.com/source/102/1"", ""snippet"": ""要点整理と学習手順を簡潔に説明している。""}, {""title"": ""生成AI活用セミナー告知 の失敗例"", ""url"": ""https://example.com/source/102/2"", ""snippet"": ""よくある失敗と対策をケース別に解説している。""}]}, ""ts"": ""2026-02-23T13:42:00Z""}"
+103,user_input,新規取引先向けに社員紹介記事を書きたいです。「社員紹介インタビュー」として、具体的なエピソードを入れてください。
+103,user_input,"Q(q1): 担当領域と最近の成果を教えてください。
+A: SaaS導入支援。直近四半期で解約率を4%改善しました。
+
+Q(q2): プロフィール写真はありますか？
+InputType: image_upload
+A: uploaded:employee-103.webp"
+103,source,参考情報: https://example.com/blog/reference-103 / 担当業務、経歴、価値観、プロジェクト実績を確認。
+103,system_note,読者=新規取引先。人物像が伝わるように、背景・現在・今後の挑戦の順で構成する。
+103,assistant_output,導入: 配属背景を紹介。本編: 担当業務・成功体験・チームでの工夫。終盤: 読者へのメッセージと採用/問い合わせ導線。
+103,final_summary,社員紹介インタビュー｜担当者インタビュー 103 の要点: 社員の人柄と専門性を具体エピソードで示し、組織理解につながる記事にした。
+103,tool_result,"{""tool_name"": ""wp_get_post_types"", ""status"": ""ok"", ""input"": {""process_id"": ""__PROCESS_ID__"", ""q"": ""社員紹介インタビュー 新規取引先 実例"", ""max_results"": 5}, ""output"": {""items"": [{""title"": ""社員紹介インタビュー の基本"", ""url"": ""https://example.com/source/103/1"", ""snippet"": ""要点整理と学習手順を簡潔に説明している。""}, {""title"": ""社員紹介インタビュー の失敗例"", ""url"": ""https://example.com/source/103/2"", ""snippet"": ""よくある失敗と対策をケース別に解説している。""}]}, ""ts"": ""2026-02-23T13:43:00Z""}"
+104,user_input,既存顧客向けに「導入事例レポート」の記事を作成したいです。ビフォーアフターと数値成果をわかりやすく入れてください。
+104,user_input,"Q(q1): 開催形式はオンラインですか？
+A: オフライン開催です
+
+Q(q2): 告知画像はありますか？
+InputType: image_upload
+A: uploaded:seminar-104.webp"
+104,source,参考情報: https://example.com/blog/reference-104 / 導入事例レポート の基礎と実践例を確認。
+104,system_note,読者=既存顧客。結論先出し・箇条書き中心・行動チェックリスト付きで構成する。
+104,assistant_output,導入: 導入事例レポートの課題を明確化。本編: 3ステップ（準備/実行/振り返り）。終盤: 1週間の実践計画テンプレートを提示。
+104,final_summary,導入事例レポート｜活用事例 104 の要点: 学習目的を定義し、小さな実行単位に分解して継続することで成果につなげる。
+104,tool_result,"{""tool_name"": ""wp_get_categories"", ""status"": ""ok"", ""input"": {""process_id"": ""__PROCESS_ID__"", ""q"": ""導入事例レポート 既存顧客 実例"", ""max_results"": 5}, ""output"": {""items"": [{""title"": ""導入事例レポート の基本"", ""url"": ""https://example.com/source/104/1"", ""snippet"": ""要点整理と学習手順を簡潔に説明している。""}, {""title"": ""導入事例レポート の失敗例"", ""url"": ""https://example.com/source/104/2"", ""snippet"": ""よくある失敗と対策をケース別に解説している。""}]}, ""ts"": ""2026-02-23T13:44:00Z""}"
+105,user_input,サポート担当者向けに「機能アップデート案内」の説明記事を作りたいです。手順を箇条書きで明確にしてください。
+105,user_input,"Q(q1): 開催形式はオンラインですか？
+A: オンライン開催です
+
+Q(q2): 告知画像はありますか？
+InputType: image_upload
+A: uploaded:seminar-105.webp"
+105,source,参考情報: https://example.com/blog/reference-105 / 機能アップデート案内 の基礎と実践例を確認。
+105,system_note,読者=サポート担当者。結論先出し・箇条書き中心・行動チェックリスト付きで構成する。
+105,assistant_output,導入: 機能アップデート案内の課題を明確化。本編: 3ステップ（準備/実行/振り返り）。終盤: 1週間の実践計画テンプレートを提示。
+105,final_summary,機能アップデート案内ガイド 105 の要点: 学習目的を定義し、小さな実行単位に分解して継続することで成果につなげる。
+105,tool_result,"{""tool_name"": ""web_search"", ""status"": ""ok"", ""input"": {""process_id"": ""__PROCESS_ID__"", ""q"": ""機能アップデート案内 サポート担当者 実例"", ""max_results"": 5}, ""output"": {""items"": [{""title"": ""機能アップデート案内 の基本"", ""url"": ""https://example.com/source/105/1"", ""snippet"": ""要点整理と学習手順を簡潔に説明している。""}, {""title"": ""機能アップデート案内 の失敗例"", ""url"": ""https://example.com/source/105/2"", ""snippet"": ""よくある失敗と対策をケース別に解説している。""}]}, ""ts"": ""2026-02-23T13:45:00Z""}"
+106,user_input,採用候補者に向けて「社内カルチャー紹介」の記事を書きたいです。価値観を伝える観点で、すぐ実行できる内容にしてください。
+106,user_input,"Q(q1): 開催形式はオンラインですか？
+A: オフライン開催です
+
+Q(q2): 告知画像はありますか？
+InputType: image_upload
+A: uploaded:seminar-106.webp"
+106,source,参考情報: https://example.com/blog/reference-106 / 社内カルチャー紹介 の基礎と実践例を確認。
+106,system_note,読者=採用候補者。結論先出し・箇条書き中心・行動チェックリスト付きで構成する。
+106,assistant_output,導入: 社内カルチャー紹介の課題を明確化。本編: 3ステップ（準備/実行/振り返り）。終盤: 1週間の実践計画テンプレートを提示。
+106,final_summary,社内カルチャー紹介 実践ガイド 106 の要点: 学習目的を定義し、小さな実行単位に分解して継続することで成果につなげる。
+106,tool_result,"{""tool_name"": ""wp_get_recent_posts"", ""status"": ""ok"", ""input"": {""process_id"": ""__PROCESS_ID__"", ""q"": ""社内カルチャー紹介 採用候補者 実例"", ""max_results"": 5}, ""output"": {""items"": [{""title"": ""社内カルチャー紹介 の基本"", ""url"": ""https://example.com/source/106/1"", ""snippet"": ""要点整理と学習手順を簡潔に説明している。""}, {""title"": ""社内カルチャー紹介 の失敗例"", ""url"": ""https://example.com/source/106/2"", ""snippet"": ""よくある失敗と対策をケース別に解説している。""}]}, ""ts"": ""2026-02-23T13:46:00Z""}"
+107,user_input,営業担当者に向けて「ウェビナー開催案内」の記事を書きたいです。内容を分かりやすくする観点で、すぐ実行できる内容にしてください。
+107,user_input,"Q(q1): 開催形式はオンラインですか？
+A: オンライン開催です
+
+Q(q2): 告知画像はありますか？
+InputType: image_upload
+A: uploaded:seminar-107.webp"
+107,source,参考情報: https://example.com/blog/reference-107 / ウェビナー開催案内 の基礎と実践例を確認。
+107,system_note,読者=営業担当者。結論先出し・箇条書き中心・行動チェックリスト付きで構成する。
+107,assistant_output,導入: ウェビナー開催案内の課題を明確化。本編: 3ステップ（準備/実行/振り返り）。終盤: 1週間の実践計画テンプレートを提示。
+107,final_summary,ウェビナー開催案内 実践ガイド 107 の要点: 学習目的を定義し、小さな実行単位に分解して継続することで成果につなげる。
+107,tool_result,"{""tool_name"": ""wp_get_post_types"", ""status"": ""ok"", ""input"": {""process_id"": ""__PROCESS_ID__"", ""q"": ""ウェビナー開催案内 営業担当者 実例"", ""max_results"": 5}, ""output"": {""items"": [{""title"": ""ウェビナー開催案内 の基本"", ""url"": ""https://example.com/source/107/1"", ""snippet"": ""要点整理と学習手順を簡潔に説明している。""}, {""title"": ""ウェビナー開催案内 の失敗例"", ""url"": ""https://example.com/source/107/2"", ""snippet"": ""よくある失敗と対策をケース別に解説している。""}]}, ""ts"": ""2026-02-23T13:47:00Z""}"
+108,user_input,提携候補企業に向けて「パートナー連携発表」の記事を書きたいです。信頼感を高める観点で、すぐ実行できる内容にしてください。
+108,user_input,"Q(q1): 開催形式はオンラインですか？
+A: オフライン開催です
+
+Q(q2): 告知画像はありますか？
+InputType: image_upload
+A: uploaded:seminar-108.webp"
+108,source,参考情報: https://example.com/blog/reference-108 / パートナー連携発表 の基礎と実践例を確認。
+108,system_note,読者=提携候補企業。結論先出し・箇条書き中心・行動チェックリスト付きで構成する。
+108,assistant_output,導入: パートナー連携発表の課題を明確化。本編: 3ステップ（準備/実行/振り返り）。終盤: 1週間の実践計画テンプレートを提示。
+108,final_summary,パートナー連携発表 実践ガイド 108 の要点: 学習目的を定義し、小さな実行単位に分解して継続することで成果につなげる。
+108,tool_result,"{""tool_name"": ""wp_get_categories"", ""status"": ""ok"", ""input"": {""process_id"": ""__PROCESS_ID__"", ""q"": ""パートナー連携発表 提携候補企業 実例"", ""max_results"": 5}, ""output"": {""items"": [{""title"": ""パートナー連携発表 の基本"", ""url"": ""https://example.com/source/108/1"", ""snippet"": ""要点整理と学習手順を簡潔に説明している。""}, {""title"": ""パートナー連携発表 の失敗例"", ""url"": ""https://example.com/source/108/2"", ""snippet"": ""よくある失敗と対策をケース別に解説している。""}]}, ""ts"": ""2026-02-23T13:48:00Z""}"
+109,user_input,地域住民に向けて「地域イベント参加レポート」の記事を書きたいです。活動内容を可視化する観点で、すぐ実行できる内容にしてください。
+109,user_input,"Q(q1): 開催形式はオンラインですか？
+A: オンライン開催です
+
+Q(q2): 告知画像はありますか？
+InputType: image_upload
+A: uploaded:seminar-109.webp"
+109,source,参考情報: https://example.com/blog/reference-109 / 地域イベント参加レポート の基礎と実践例を確認。
+109,system_note,読者=地域住民。結論先出し・箇条書き中心・行動チェックリスト付きで構成する。
+109,assistant_output,導入: 地域イベント参加レポートの課題を明確化。本編: 3ステップ（準備/実行/振り返り）。終盤: 1週間の実践計画テンプレートを提示。
+109,final_summary,地域イベント参加レポート 実践ガイド 109 の要点: 学習目的を定義し、小さな実行単位に分解して継続することで成果につなげる。
+109,tool_result,"{""tool_name"": ""web_search"", ""status"": ""ok"", ""input"": {""process_id"": ""__PROCESS_ID__"", ""q"": ""地域イベント参加レポート 地域住民 実例"", ""max_results"": 5}, ""output"": {""items"": [{""title"": ""地域イベント参加レポート の基本"", ""url"": ""https://example.com/source/109/1"", ""snippet"": ""要点整理と学習手順を簡潔に説明している。""}, {""title"": ""地域イベント参加レポート の失敗例"", ""url"": ""https://example.com/source/109/2"", ""snippet"": ""よくある失敗と対策をケース別に解説している。""}]}, ""ts"": ""2026-02-23T13:49:00Z""}"
+110,user_input,配属先マネージャー向けに「新入社員オンボーディング紹介」の説明記事を作りたいです。手順を箇条書きで明確にしてください。
+110,user_input,"Q(q1): 開催形式はオンラインですか？
+A: オフライン開催です
+
+Q(q2): 告知画像はありますか？
+InputType: image_upload
+A: uploaded:seminar-110.webp"
+110,source,参考情報: https://example.com/blog/reference-110 / 新入社員オンボーディング紹介 の基礎と実践例を確認。
+110,system_note,読者=配属先マネージャー。結論先出し・箇条書き中心・行動チェックリスト付きで構成する。
+110,assistant_output,導入: 新入社員オンボーディング紹介の課題を明確化。本編: 3ステップ（準備/実行/振り返り）。終盤: 1週間の実践計画テンプレートを提示。
+110,final_summary,新入社員オンボーディング紹介ガイド 110 の要点: 学習目的を定義し、小さな実行単位に分解して継続することで成果につなげる。
+110,tool_result,"{""tool_name"": ""wp_get_recent_posts"", ""status"": ""ok"", ""input"": {""process_id"": ""__PROCESS_ID__"", ""q"": ""新入社員オンボーディング紹介 配属先マネージャー 実例"", ""max_results"": 5}, ""output"": {""items"": [{""title"": ""新入社員オンボーディング紹介 の基本"", ""url"": ""https://example.com/source/110/1"", ""snippet"": ""要点整理と学習手順を簡潔に説明している。""}, {""title"": ""新入社員オンボーディング紹介 の失敗例"", ""url"": ""https://example.com/source/110/2"", ""snippet"": ""よくある失敗と対策をケース別に解説している。""}]}, ""ts"": ""2026-02-23T13:50:00Z""}"
+111,user_input,高専4-5年生に向けて「高専生の勉強方法」の記事を書きたいです。再現性を高める観点で、すぐ実行できる内容にしてください。
+111,user_input,"Q(q1): 開催形式はオンラインですか？
+A: オンライン開催です
+
+Q(q2): 告知画像はありますか？
+InputType: image_upload
+A: uploaded:seminar-111.webp"
+111,source,参考情報: https://example.com/blog/reference-111 / 高専生の勉強方法 の基礎と実践例を確認。
+111,system_note,読者=高専4-5年生。結論先出し・箇条書き中心・行動チェックリスト付きで構成する。
+111,assistant_output,導入: 高専生の勉強方法の課題を明確化。本編: 3ステップ（準備/実行/振り返り）。終盤: 1週間の実践計画テンプレートを提示。
+111,final_summary,高専生の勉強方法 実践ガイド 111 の要点: 学習目的を定義し、小さな実行単位に分解して継続することで成果につなげる。
+111,tool_result,"{""tool_name"": ""wp_get_post_types"", ""status"": ""ok"", ""input"": {""process_id"": ""__PROCESS_ID__"", ""q"": ""高専生の勉強方法 高専4-5年生 実例"", ""max_results"": 5}, ""output"": {""items"": [{""title"": ""高専生の勉強方法 の基本"", ""url"": ""https://example.com/source/111/1"", ""snippet"": ""要点整理と学習手順を簡潔に説明している。""}, {""title"": ""高専生の勉強方法 の失敗例"", ""url"": ""https://example.com/source/111/2"", ""snippet"": ""よくある失敗と対策をケース別に解説している。""}]}, ""ts"": ""2026-02-23T13:51:00Z""}"
+112,user_input,地域参加者向けのイベント告知記事を作りたいです。テーマは「生成AI活用セミナー告知」。参加率を上げるを重視してください。
+112,user_input,"Q(q1): 開催日時と会場を教えてください。
+A: 2026-03-13 19:00 / 東京会場
+
+Q(q2): 告知画像はありますか？
+InputType: image_upload
+A: uploaded:event-banner-112.webp"
+112,source,参考情報: https://example.com/blog/reference-112 / 生成AI活用セミナー告知 の開催概要、参加特典、申込導線を確認。
+112,system_note,読者=地域参加者。冒頭で開催概要を提示し、日時・場所・対象・申込方法を表形式か箇条書きで明記。
+112,assistant_output,導入: 参加者の課題に共感。本編: 開催概要・タイムテーブル・登壇内容・参加メリット。終盤: 申込ボタンと締切を明示。
+112,final_summary,生成AI活用セミナー告知｜開催案内 112 の要点: 誰向けに何が得られるイベントかを明確にし、申し込みまでの行動を迷わせない構成にした。
+112,tool_result,"{""tool_name"": ""wp_get_categories"", ""status"": ""ok"", ""input"": {""process_id"": ""__PROCESS_ID__"", ""q"": ""生成AI活用セミナー告知 地域参加者 実例"", ""max_results"": 5}, ""output"": {""items"": [{""title"": ""生成AI活用セミナー告知 の基本"", ""url"": ""https://example.com/source/112/1"", ""snippet"": ""要点整理と学習手順を簡潔に説明している。""}, {""title"": ""生成AI活用セミナー告知 の失敗例"", ""url"": ""https://example.com/source/112/2"", ""snippet"": ""よくある失敗と対策をケース別に解説している。""}]}, ""ts"": ""2026-02-23T13:52:00Z""}"
+113,user_input,採用候補者向けに社員紹介記事を書きたいです。「社員紹介インタビュー」として、具体的なエピソードを入れてください。
+113,user_input,"Q(q1): 担当領域と最近の成果を教えてください。
+A: SaaS導入支援。直近四半期で解約率を4%改善しました。
+
+Q(q2): プロフィール写真はありますか？
+InputType: image_upload
+A: uploaded:employee-113.webp"
+113,source,参考情報: https://example.com/blog/reference-113 / 担当業務、経歴、価値観、プロジェクト実績を確認。
+113,system_note,読者=採用候補者。人物像が伝わるように、背景・現在・今後の挑戦の順で構成する。
+113,assistant_output,導入: 配属背景を紹介。本編: 担当業務・成功体験・チームでの工夫。終盤: 読者へのメッセージと採用/問い合わせ導線。
+113,final_summary,社員紹介インタビュー｜担当者インタビュー 113 の要点: 社員の人柄と専門性を具体エピソードで示し、組織理解につながる記事にした。
+113,tool_result,"{""tool_name"": ""web_search"", ""status"": ""ok"", ""input"": {""process_id"": ""__PROCESS_ID__"", ""q"": ""社員紹介インタビュー 採用候補者 実例"", ""max_results"": 5}, ""output"": {""items"": [{""title"": ""社員紹介インタビュー の基本"", ""url"": ""https://example.com/source/113/1"", ""snippet"": ""要点整理と学習手順を簡潔に説明している。""}, {""title"": ""社員紹介インタビュー の失敗例"", ""url"": ""https://example.com/source/113/2"", ""snippet"": ""よくある失敗と対策をケース別に解説している。""}]}, ""ts"": ""2026-02-23T13:53:00Z""}"
+114,user_input,業界関係者向けに「導入事例レポート」の記事を作成したいです。ビフォーアフターと数値成果をわかりやすく入れてください。
+114,user_input,"Q(q1): 開催形式はオンラインですか？
+A: オフライン開催です
+
+Q(q2): 告知画像はありますか？
+InputType: image_upload
+A: uploaded:seminar-114.webp"
+114,source,参考情報: https://example.com/blog/reference-114 / 導入事例レポート の基礎と実践例を確認。
+114,system_note,読者=業界関係者。結論先出し・箇条書き中心・行動チェックリスト付きで構成する。
+114,assistant_output,導入: 導入事例レポートの課題を明確化。本編: 3ステップ（準備/実行/振り返り）。終盤: 1週間の実践計画テンプレートを提示。
+114,final_summary,導入事例レポート｜活用事例 114 の要点: 学習目的を定義し、小さな実行単位に分解して継続することで成果につなげる。
+114,tool_result,"{""tool_name"": ""wp_get_recent_posts"", ""status"": ""ok"", ""input"": {""process_id"": ""__PROCESS_ID__"", ""q"": ""導入事例レポート 業界関係者 実例"", ""max_results"": 5}, ""output"": {""items"": [{""title"": ""導入事例レポート の基本"", ""url"": ""https://example.com/source/114/1"", ""snippet"": ""要点整理と学習手順を簡潔に説明している。""}, {""title"": ""導入事例レポート の失敗例"", ""url"": ""https://example.com/source/114/2"", ""snippet"": ""よくある失敗と対策をケース別に解説している。""}]}, ""ts"": ""2026-02-23T13:54:00Z""}"
+115,user_input,既存ユーザー向けに「機能アップデート案内」の説明記事を作りたいです。手順を箇条書きで明確にしてください。
+115,user_input,"Q(q1): 開催形式はオンラインですか？
+A: オンライン開催です
+
+Q(q2): 告知画像はありますか？
+InputType: image_upload
+A: uploaded:seminar-115.webp"
+115,source,参考情報: https://example.com/blog/reference-115 / 機能アップデート案内 の基礎と実践例を確認。
+115,system_note,読者=既存ユーザー。結論先出し・箇条書き中心・行動チェックリスト付きで構成する。
+115,assistant_output,導入: 機能アップデート案内の課題を明確化。本編: 3ステップ（準備/実行/振り返り）。終盤: 1週間の実践計画テンプレートを提示。
+115,final_summary,機能アップデート案内ガイド 115 の要点: 学習目的を定義し、小さな実行単位に分解して継続することで成果につなげる。
+115,tool_result,"{""tool_name"": ""wp_get_post_types"", ""status"": ""ok"", ""input"": {""process_id"": ""__PROCESS_ID__"", ""q"": ""機能アップデート案内 既存ユーザー 実例"", ""max_results"": 5}, ""output"": {""items"": [{""title"": ""機能アップデート案内 の基本"", ""url"": ""https://example.com/source/115/1"", ""snippet"": ""要点整理と学習手順を簡潔に説明している。""}, {""title"": ""機能アップデート案内 の失敗例"", ""url"": ""https://example.com/source/115/2"", ""snippet"": ""よくある失敗と対策をケース別に解説している。""}]}, ""ts"": ""2026-02-23T13:55:00Z""}"
+116,user_input,新入社員に向けて「社内カルチャー紹介」の記事を書きたいです。働くイメージを持たせる観点で、すぐ実行できる内容にしてください。
+116,user_input,"Q(q1): 開催形式はオンラインですか？
+A: オフライン開催です
+
+Q(q2): 告知画像はありますか？
+InputType: image_upload
+A: uploaded:seminar-116.webp"
+116,source,参考情報: https://example.com/blog/reference-116 / 社内カルチャー紹介 の基礎と実践例を確認。
+116,system_note,読者=新入社員。結論先出し・箇条書き中心・行動チェックリスト付きで構成する。
+116,assistant_output,導入: 社内カルチャー紹介の課題を明確化。本編: 3ステップ（準備/実行/振り返り）。終盤: 1週間の実践計画テンプレートを提示。
+116,final_summary,社内カルチャー紹介 実践ガイド 116 の要点: 学習目的を定義し、小さな実行単位に分解して継続することで成果につなげる。
+116,tool_result,"{""tool_name"": ""wp_get_categories"", ""status"": ""ok"", ""input"": {""process_id"": ""__PROCESS_ID__"", ""q"": ""社内カルチャー紹介 新入社員 実例"", ""max_results"": 5}, ""output"": {""items"": [{""title"": ""社内カルチャー紹介 の基本"", ""url"": ""https://example.com/source/116/1"", ""snippet"": ""要点整理と学習手順を簡潔に説明している。""}, {""title"": ""社内カルチャー紹介 の失敗例"", ""url"": ""https://example.com/source/116/2"", ""snippet"": ""よくある失敗と対策をケース別に解説している。""}]}, ""ts"": ""2026-02-23T13:56:00Z""}"
+117,user_input,プロダクト担当者に向けて「ウェビナー開催案内」の記事を書きたいです。申込率を上げる観点で、すぐ実行できる内容にしてください。
+117,user_input,"Q(q1): 開催形式はオンラインですか？
+A: オンライン開催です
+
+Q(q2): 告知画像はありますか？
+InputType: image_upload
+A: uploaded:seminar-117.webp"
+117,source,参考情報: https://example.com/blog/reference-117 / ウェビナー開催案内 の基礎と実践例を確認。
+117,system_note,読者=プロダクト担当者。結論先出し・箇条書き中心・行動チェックリスト付きで構成する。
+117,assistant_output,導入: ウェビナー開催案内の課題を明確化。本編: 3ステップ（準備/実行/振り返り）。終盤: 1週間の実践計画テンプレートを提示。
+117,final_summary,ウェビナー開催案内 実践ガイド 117 の要点: 学習目的を定義し、小さな実行単位に分解して継続することで成果につなげる。
+117,tool_result,"{""tool_name"": ""web_search"", ""status"": ""ok"", ""input"": {""process_id"": ""__PROCESS_ID__"", ""q"": ""ウェビナー開催案内 プロダクト担当者 実例"", ""max_results"": 5}, ""output"": {""items"": [{""title"": ""ウェビナー開催案内 の基本"", ""url"": ""https://example.com/source/117/1"", ""snippet"": ""要点整理と学習手順を簡潔に説明している。""}, {""title"": ""ウェビナー開催案内 の失敗例"", ""url"": ""https://example.com/source/117/2"", ""snippet"": ""よくある失敗と対策をケース別に解説している。""}]}, ""ts"": ""2026-02-23T13:57:00Z""}"
+118,user_input,既存顧客に向けて「パートナー連携発表」の記事を書きたいです。提携価値を伝える観点で、すぐ実行できる内容にしてください。
+118,user_input,"Q(q1): 開催形式はオンラインですか？
+A: オフライン開催です
+
+Q(q2): 告知画像はありますか？
+InputType: image_upload
+A: uploaded:seminar-118.webp"
+118,source,参考情報: https://example.com/blog/reference-118 / パートナー連携発表 の基礎と実践例を確認。
+118,system_note,読者=既存顧客。結論先出し・箇条書き中心・行動チェックリスト付きで構成する。
+118,assistant_output,導入: パートナー連携発表の課題を明確化。本編: 3ステップ（準備/実行/振り返り）。終盤: 1週間の実践計画テンプレートを提示。
+118,final_summary,パートナー連携発表 実践ガイド 118 の要点: 学習目的を定義し、小さな実行単位に分解して継続することで成果につなげる。
+118,tool_result,"{""tool_name"": ""wp_get_recent_posts"", ""status"": ""ok"", ""input"": {""process_id"": ""__PROCESS_ID__"", ""q"": ""パートナー連携発表 既存顧客 実例"", ""max_results"": 5}, ""output"": {""items"": [{""title"": ""パートナー連携発表 の基本"", ""url"": ""https://example.com/source/118/1"", ""snippet"": ""要点整理と学習手順を簡潔に説明している。""}, {""title"": ""パートナー連携発表 の失敗例"", ""url"": ""https://example.com/source/118/2"", ""snippet"": ""よくある失敗と対策をケース別に解説している。""}]}, ""ts"": ""2026-02-23T13:58:00Z""}"
+119,user_input,自治体関係者に向けて「地域イベント参加レポート」の記事を書きたいです。社会的意義を伝える観点で、すぐ実行できる内容にしてください。
+119,user_input,"Q(q1): 開催形式はオンラインですか？
+A: オンライン開催です
+
+Q(q2): 告知画像はありますか？
+InputType: image_upload
+A: uploaded:seminar-119.webp"
+119,source,参考情報: https://example.com/blog/reference-119 / 地域イベント参加レポート の基礎と実践例を確認。
+119,system_note,読者=自治体関係者。結論先出し・箇条書き中心・行動チェックリスト付きで構成する。
+119,assistant_output,導入: 地域イベント参加レポートの課題を明確化。本編: 3ステップ（準備/実行/振り返り）。終盤: 1週間の実践計画テンプレートを提示。
+119,final_summary,地域イベント参加レポート 実践ガイド 119 の要点: 学習目的を定義し、小さな実行単位に分解して継続することで成果につなげる。
+119,tool_result,"{""tool_name"": ""wp_get_post_types"", ""status"": ""ok"", ""input"": {""process_id"": ""__PROCESS_ID__"", ""q"": ""地域イベント参加レポート 自治体関係者 実例"", ""max_results"": 5}, ""output"": {""items"": [{""title"": ""地域イベント参加レポート の基本"", ""url"": ""https://example.com/source/119/1"", ""snippet"": ""要点整理と学習手順を簡潔に説明している。""}, {""title"": ""地域イベント参加レポート の失敗例"", ""url"": ""https://example.com/source/119/2"", ""snippet"": ""よくある失敗と対策をケース別に解説している。""}]}, ""ts"": ""2026-02-23T13:59:00Z""}"
+120,user_input,人事担当者向けに「新入社員オンボーディング紹介」の説明記事を作りたいです。手順を箇条書きで明確にしてください。
+120,user_input,"Q(q1): 開催形式はオンラインですか？
+A: オフライン開催です
+
+Q(q2): 告知画像はありますか？
+InputType: image_upload
+A: uploaded:seminar-120.webp"
+120,source,参考情報: https://example.com/blog/reference-120 / 新入社員オンボーディング紹介 の基礎と実践例を確認。
+120,system_note,読者=人事担当者。結論先出し・箇条書き中心・行動チェックリスト付きで構成する。
+120,assistant_output,導入: 新入社員オンボーディング紹介の課題を明確化。本編: 3ステップ（準備/実行/振り返り）。終盤: 1週間の実践計画テンプレートを提示。
+120,final_summary,新入社員オンボーディング紹介ガイド 120 の要点: 学習目的を定義し、小さな実行単位に分解して継続することで成果につなげる。
+120,tool_result,"{""tool_name"": ""wp_get_categories"", ""status"": ""ok"", ""input"": {""process_id"": ""__PROCESS_ID__"", ""q"": ""新入社員オンボーディング紹介 人事担当者 実例"", ""max_results"": 5}, ""output"": {""items"": [{""title"": ""新入社員オンボーディング紹介 の基本"", ""url"": ""https://example.com/source/120/1"", ""snippet"": ""要点整理と学習手順を簡潔に説明している。""}, {""title"": ""新入社員オンボーディング紹介 の失敗例"", ""url"": ""https://example.com/source/120/2"", ""snippet"": ""よくある失敗と対策をケース別に解説している。""}]}, ""ts"": ""2026-02-23T14:00:00Z""}"
