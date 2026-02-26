@@ -28,42 +28,61 @@ logger = logging.getLogger(__name__)
 
 # ========== Memoryツール ==========
 
-def _ensure_process_context_for_memory(process_id: str) -> Optional[Dict[str, Any]]:
+def _resolve_process_id_for_memory(
+    process_id: Optional[str],
+) -> tuple[Optional[str], Optional[Dict[str, Any]]]:
+    """Memoryツール用process_idを解決する。
+
+    - process_id が未指定ならサーバー側コンテキストを使う
+    - 指定時は実行中プロセスと一致する場合のみ許可する
+    """
     current_process_id = get_current_process_id()
     if not current_process_id:
-        return {
+        return None, {
             "ok": False,
             "error": {
                 "code": "INVALID_ARGUMENT",
                 "message": "サーバー側の process_id コンテキストが未設定です",
             },
         }
-    if current_process_id != process_id:
-        return {
+
+    if process_id and current_process_id != process_id:
+        return None, {
             "ok": False,
             "error": {
                 "code": "FORBIDDEN",
                 "message": "実行中プロセスと引数 process_id が一致しません",
             },
         }
-    return None
+
+    return current_process_id, None
 
 
 @function_tool
 async def memory_append_item(
-    process_id: str,
     role: Literal["user_input", "assistant_output", "source", "system_note", "final_summary"],
     content: str,
+    process_id: Optional[str] = None,
 ) -> str:
-    """Blog Memoryへ明示的に情報を追記します。"""
-    context_error = _ensure_process_context_for_memory(process_id)
+    """Blog Memoryへ、次回再利用したい確定情報のみを追記します。
+
+    推奨:
+    - role は次の対応で使い分ける:
+      - user_input: ユーザー要件・追加回答
+      - source: 検索/参照で得た事実要点
+      - system_note: 方針・制約・判断ルール
+      - assistant_output: 本文方針や下書きの要点
+      - final_summary: 完了サマリ
+    - content は 1件1トピックで簡潔に書く（長文全文貼り付けは避ける）
+    """
+    resolved_process_id, context_error = _resolve_process_id_for_memory(process_id)
     if context_error:
         return json.dumps(context_error, ensure_ascii=False)
 
     try:
         memory_service = get_blog_memory_service()
         memory_item_id = await memory_service.append_item(
-            process_id=process_id,
+            process_id=str(resolved_process_id),
             role=role,
             content=content,
         )
@@ -84,35 +103,7 @@ async def memory_append_item(
 
 
 @function_tool
-async def memory_upsert_meta(
-    process_id: str,
-    title: str,
-    short_summary: str,
-) -> str:
-    """Blog Memoryメタ（タイトル・要約）をupsertします。"""
-    context_error = _ensure_process_context_for_memory(process_id)
-    if context_error:
-        return json.dumps(context_error, ensure_ascii=False)
-
-    try:
-        memory_service = get_blog_memory_service()
-        await memory_service.upsert_meta(
-            process_id=process_id,
-            title=title,
-            short_summary=short_summary,
-            draft_post_id=None,
-        )
-        return json.dumps({"ok": True, "data": {}}, ensure_ascii=False)
-    except BlogMemoryError as e:
-        return json.dumps(
-            {"ok": False, "error": {"code": e.code, "message": e.message}},
-            ensure_ascii=False,
-        )
-
-
-@function_tool
 async def memory_search(
-    process_id: str,
     query: str,
     k: int = 10,
     include_roles: Optional[List[Literal[
@@ -120,16 +111,26 @@ async def memory_search(
     ]]] = None,
     time_window_days: int = 365,
     per_process_item_limit: int = 20,
+    process_id: Optional[str] = None,
 ) -> str:
-    """Blog Memoryを意味検索して関連文脈を取得します。"""
-    context_error = _ensure_process_context_for_memory(process_id)
+    """Blog Memoryから類似プロセスを検索し、再利用候補を取得します。
+    
+    検索はタイトルと要約された記事内容を対象に行われます。
+    クエリは記事固有の単語や状況を端的に絞って3~5個の単語で行う。少ないほうがより関連性の高い結果が得られやすい。
+
+    既定値の目安:
+    - k=3〜5（必要に応じて増減）
+    - per_process_item_limit=3〜8
+    - include_roles は必要最小限に絞る（例: ["user_input","final_summary","source"]）
+    """
+    resolved_process_id, context_error = _resolve_process_id_for_memory(process_id)
     if context_error:
         return json.dumps(context_error, ensure_ascii=False)
 
     try:
         memory_service = get_blog_memory_service()
         hits = await memory_service.search(
-            process_id=process_id,
+            process_id=str(resolved_process_id),
             query=query,
             k=k,
             include_roles=include_roles,
@@ -803,7 +804,6 @@ web_search_tool = WebSearchTool(
 ALL_WORDPRESS_TOOLS = [
     # Memory系
     memory_search,
-    memory_upsert_meta,
     memory_append_item,
     # Web検索
     web_search_tool,

@@ -11,6 +11,7 @@ from fastapi import BackgroundTasks
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.domains.blog import endpoints as blog_endpoints
+from app.domains.blog.agents import tools as agent_tools
 from app.domains.blog.schemas import BlogCompletionOutput, BlogMemoryAppendItemRequest
 from app.domains.blog.services.generation_service import BlogGenerationService
 from app.domains.blog.services.memory_service import BlogMemoryError, BlogMemoryService
@@ -206,6 +207,33 @@ async def test_memory_service_maps_invalid_uuid_error_to_invalid_argument():
     assert err.http_status == 400
 
 
+def test_format_user_answers_for_memory_includes_questions():
+    text = BlogGenerationService._format_user_answers_for_memory(
+        user_answers={
+            "q1": "東京で開催します",
+            "q2": "uploaded:seminar-banner.webp",
+        },
+        ai_questions=[
+            {
+                "question_id": "q1",
+                "question": "開催場所はどこですか？",
+                "input_type": "textarea",
+            },
+            {
+                "question_id": "q2",
+                "question": "告知画像をアップロードしてください",
+                "input_type": "image_upload",
+            },
+        ],
+    )
+
+    assert "Q(q1): 開催場所はどこですか？" in text
+    assert "A: 東京で開催します" in text
+    assert "Q(q2): 告知画像をアップロードしてください" in text
+    assert "InputType: image_upload" in text
+    assert "A: uploaded:seminar-banner.webp" in text
+
+
 @pytest.mark.asyncio
 async def test_process_result_uses_process_fixed_org_id(monkeypatch):
     monkeypatch.setattr(
@@ -318,3 +346,22 @@ async def test_run_embedding_batch_handles_stale_rows_without_column_compare_fil
 
     assert updated == 2
     assert updates == ["p1", "p2"]
+
+
+def test_resolve_process_id_for_memory_uses_current_context(monkeypatch):
+    monkeypatch.setattr(agent_tools, "get_current_process_id", lambda: "proc-1")
+
+    resolved, err = agent_tools._resolve_process_id_for_memory(None)
+
+    assert err is None
+    assert resolved == "proc-1"
+
+
+def test_resolve_process_id_for_memory_rejects_mismatch(monkeypatch):
+    monkeypatch.setattr(agent_tools, "get_current_process_id", lambda: "proc-1")
+
+    resolved, err = agent_tools._resolve_process_id_for_memory("proc-2")
+
+    assert resolved is None
+    assert err is not None
+    assert err["error"]["code"] == "FORBIDDEN"

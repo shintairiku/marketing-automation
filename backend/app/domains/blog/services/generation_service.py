@@ -333,7 +333,10 @@ class BlogGenerationService:
             await self._append_memory_item_safe(
                 process_id=process_id,
                 role="user_input",
-                content=self._format_user_answers_for_memory(user_answers),
+                content=self._format_user_answers_for_memory(
+                    user_answers,
+                    blog_context.get("ai_questions", []),
+                ),
             )
 
             # RunConfig設定（group_id で初回トレースと紐付け）
@@ -878,7 +881,7 @@ class BlogGenerationService:
             parts.append(
                 "\n## 実行コンテキスト\n\n"
                 f"- process_id: {process_id}\n"
-                "- memory_search / memory_append_item / memory_upsert_meta を使う場合はこの process_id を使用してください。"
+                "- memory_search / memory_append_item を使う場合はこの process_id を使用してください。"
             )
 
         if reference_url:
@@ -918,12 +921,14 @@ class BlogGenerationService:
 
         parts.append(
             "\n## 指示\n\n"
-            "開始時に必要なら `memory_search` で過去文脈を確認し、重要な情報を記事に反映してください。\n"
+            "開始時に `memory_search` を実行し、過去文脈を確認して重要な情報を記事に反映してください。\n"
+            "`memory_search` の query は具体語で作成してください（記事タイプ/主題/ターゲット/目的/制約）。\n"
+            "重要な確定情報は `memory_append_item` で短く要約して保存してください（roleは用途に応じて選択）。\n"
             "上記のリクエストに基づいて、WordPressブログ記事を作成してください。\n"
             "`wp_get_post_types` は未取得の場合のみ実行し、取得済みなら再利用してください。\n"
             "投稿タイプエラー（`invalid_post_type`）時のみ `wp_get_post_types` を再取得してください。\n"
             "`wp_create_draft_post` で `post_type` を指定して下書きを保存してください。\n"
-            "完了時には `memory_upsert_meta(process_id, title, short_summary)` を呼んでメタ更新してください。"
+            "完了時のメタ更新はサーバー側で自動実行されます。"
         )
 
         text_content = "\n".join(parts)
@@ -1121,7 +1126,20 @@ class BlogGenerationService:
             logger.warning("Memory upsert failed (process_id=%s): %s", process_id, e)
 
     @staticmethod
-    def _format_user_answers_for_memory(user_answers: Dict[str, Any]) -> str:
+    def _format_user_answers_for_memory(
+        user_answers: Dict[str, Any],
+        ai_questions: Optional[List[Dict[str, Any]]] = None,
+    ) -> str:
+        question_map: Dict[str, Dict[str, str]] = {}
+        for q in ai_questions or []:
+            qid = str(q.get("question_id") or "").strip()
+            if not qid:
+                continue
+            question_map[qid] = {
+                "question": str(q.get("question") or "").strip(),
+                "input_type": str(q.get("input_type") or "textarea").strip() or "textarea",
+            }
+
         lines: List[str] = []
         for key, value in user_answers.items():
             if value is None:
@@ -1129,8 +1147,20 @@ class BlogGenerationService:
             text = str(value).strip()
             if not text:
                 continue
-            lines.append(f"{key}: {text}")
-        return "\n".join(lines)
+
+            q_info = question_map.get(key)
+            if q_info and q_info.get("question"):
+                lines.append(f"Q({key}): {q_info['question']}")
+            else:
+                lines.append(f"Q({key}): (question text unavailable)")
+
+            if q_info and q_info.get("input_type") and q_info["input_type"] != "textarea":
+                lines.append(f"InputType: {q_info['input_type']}")
+
+            lines.append(f"A: {text}")
+            lines.append("")
+
+        return "\n".join(lines).strip()
 
     @staticmethod
     def _build_memory_title(output: Optional[BlogCompletionOutput]) -> str:
