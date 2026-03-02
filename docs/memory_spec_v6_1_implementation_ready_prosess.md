@@ -60,7 +60,118 @@
   - 仕様との対応: 7.4, 7.5, 13.1
   - 影響範囲: Blog Memory APIエラーハンドリング / テスト
   - 検証結果: `uv run pytest tests/test_blog_memory_tdd.py -q` で `8 passed`。
-
+- 2026-02-23 23:35
+  - 対象: `test/blog_memory_seed/generate_seed_csv.py`, `test/blog_memory_seed/blog_memory_meta_seed.csv`, `test/blog_memory_seed/blog_memory_items_seed.csv`, `test/blog_memory_seed/load_seed_to_local.sql`, `test/blog_memory_seed/README.md`
+  - 実施内容: ローカル検証用の大量シードデータ（120記事分）をCSVで追加。`title/short_summary` に加えて `user_input/source/system_note/assistant_output/final_summary/tool_result` を準備し、DB投入SQLを作成。
+  - 仕様との対応: 7.5, 8.1, 13.1, 13.2
+  - 影響範囲: ローカルE2E検証データ作成フロー
+  - 検証結果: `python3 test/blog_memory_seed/generate_seed_csv.py` で `meta=120`, `items=720` を生成確認。
+- 2026-02-24 00:05
+  - 対象: `backend/app/domains/blog/services/generation_service.py`, `backend/tests/test_blog_memory_tdd.py`
+  - 実施内容: 追加質問フェーズのMemory保存を改善。`user_answers` のみではなく `ai_questions` の質問本文・input_typeを参照し、`Q(question)+A(answer)` 形式で保存するよう変更。
+  - 仕様との対応: 7.5, 13.1
+  - 影響範囲: Blog Memory `user_input` 保存内容（継続生成時）
+  - 検証結果: `uv run pytest tests/test_blog_memory_tdd.py -q` で `9 passed`。
+- 2026-02-24 00:20
+  - 対象: `test/blog_memory_seed/generate_seed_csv.py`, `test/blog_memory_seed/blog_memory_items_seed.csv`, `test/blog_memory_seed/README.md`
+  - 実施内容: seedデータにQ/A保存検証用の `user_input` 行を追加（`Q(q1)... A...` + `InputType`）。  
+  - 仕様との対応: 7.5, 13.1
+  - 影響範囲: ローカル検証用CSVデータ
+  - 検証結果: CSV再生成で `meta=120`, `items=840` を確認。
+- 2026-02-24 00:35
+  - 対象: `test/blog_memory_seed/generate_seed_csv.py`, `test/blog_memory_seed/blog_memory_meta_seed.csv`, `test/blog_memory_seed/README.md`
+  - 実施内容: seedデータの題材を多様化。学生向け中心から、イベント告知・社員紹介・導入事例・機能アップデート・カルチャー紹介などを含む構成へ変更。
+  - 仕様との対応: 13.1, 13.2
+  - 影響範囲: ローカル検証用CSVデータ（検索ヒットのバリエーション）
+  - 検証結果: CSV再生成後、`meta=120`, `items=840` を維持しつつ多様なタイトルを確認。
+- 2026-02-24 00:50
+  - 対象: `backend/app/domains/blog/agents/tools.py`, `backend/app/domains/blog/agents/definitions.py`, `backend/app/domains/blog/services/generation_service.py`
+  - 実施内容: `memory_upsert_meta` をLLM公開ツール一覧から除外。エージェント指示文を「完了時メタ更新はサーバー側自動実行」に変更。
+  - 仕様との対応: 9.1, 12.1
+  - 影響範囲: Agentツール公開面 / プロンプト指示
+  - 検証結果: `uv run pytest tests/test_blog_memory_tdd.py -q` で `9 passed`。
+- 2026-02-24 01:00
+  - 対象: `backend/app/domains/blog/agents/tools.py`
+  - 実施内容: `memory_upsert_meta` のツール関数本体を削除（サーバー側 `upsert_meta` のみを正とする方針に統一）。
+  - 仕様との対応: 9.1
+  - 影響範囲: Agent公開ツール実装
+  - 検証結果: `uv run pytest tests/test_blog_memory_tdd.py -q` で `9 passed`。
+- 2026-02-24 01:25
+  - 対象: `backend/app/domains/blog/agents/tools.py`, `backend/app/domains/blog/agents/definitions.py`, `backend/app/domains/blog/services/generation_service.py`, `backend/tests/test_blog_memory_tdd.py`
+  - 実施内容: Memoryツール説明を具体化。`memory_search` クエリ作成指針・`memory_append_item` role運用・保存粒度を明文化。加えて `memory_*` の `process_id` を省略可能にし、未指定時は実行中コンテキストを自動利用するよう改善。
+  - 仕様との対応: 2.9, 9.1, 12.1, 13.1
+  - 影響範囲: Agentのツール選択精度 / Memory append成功率（process_id指定ミス耐性）
+  - 検証結果: `uv run pytest tests/test_blog_memory_tdd.py -q` で `11 passed`。
+- 2026-02-27 21:40
+  - 対象: `backend/app/domains/blog/services/generation_service.py`, `backend/app/domains/blog/services/memory_service.py`, `backend/tests/test_blog_memory_tdd.py`
+  - 実施内容: 検索系ツール結果（`memory_search`, `web_search`）を `tool_result` として自動保存する処理を追加。`ToolCallOutputItem` から call_id→tool_name を解決し、`blog_memory_append_tool_result` RPCで保存するよう変更。
+  - 仕様との対応: 7.5, 9.1, 13.1
+  - 影響範囲: Memory保存内容（検索系ツール出力の蓄積）
+  - 検証結果: `uv run pytest tests/test_blog_memory_tdd.py -q` で `14 passed`。
+- 2026-02-27 22:05
+  - 対象: `backend/app/domains/blog/services/generation_service.py`, `backend/app/domains/blog/agents/tools.py`, `backend/tests/test_blog_memory_tdd.py`
+  - 実施内容: tool_result保存ポリシーを変更。`memory_search` / `web_search` は保存対象から除外し、それ以外のツール結果を保存するブラックリスト方式へ変更。`memory_search.include_roles` に `qa` を追加しスキーマと整合。
+  - 仕様との対応: 7.5, 9.1, 13.1
+  - 影響範囲: tool_result保存対象 / Memory検索ロール整合性
+  - 検証結果: `uv run pytest tests/test_blog_memory_tdd.py -q` で `14 passed`。
+- 2026-02-27 21:50
+  - 対象: `backend/app/domains/blog/schemas.py`, `backend/app/domains/blog/services/generation_service.py`, `backend/app/domains/blog/services/memory_service.py`, `backend/app/domains/blog/agents/tools.py`, `backend/app/domains/blog/agents/definitions.py`, `supabase/migrations/20260227143000_add_blog_memory_qa_role.sql`
+  - 実施内容: 追加質問回答を `user_input` から `qa` roleへ分離。`blog_memory_items` 制約へ `qa` を追加するマイグレーションを作成。Memory運用文言を「必須保存」から「品質向上に効く任意メモ保存」へ変更。
+  - 仕様との対応: 7.5, 9.1, 13.1
+  - 影響範囲: Memory role運用 / DB制約 / プロンプト運用方針
+  - 検証結果: `uv run pytest tests/test_blog_memory_tdd.py -q` で `14 passed`。
+- 2026-03-02 13:40
+  - 対象: `backend/app/domains/blog/services/generation_service.py`, `backend/app/domains/blog/endpoints.py`, `backend/app/domains/blog/schemas.py`, `backend/tests/test_blog_memory_tdd.py`
+  - 実施内容: Memory強化を追加。
+    - `memory_search` 実行時に軽量ログ（query / top_hits / score）を `system_note` として自動保存
+    - 完了時に意思決定メモ（target_audience / tone / cta_type / must_include）を `system_note` として自動保存
+    - 完了時に WordPress 下書きスナップショット（title / excerpt / headings / hash）を `assistant_output` として自動保存
+    - 編集後の再同期用API `POST /blog/generation/{process_id}/memory/sync-post` を追加（差分があれば `system_note` に保存）
+  - 仕様との対応: 7.5, 9.1, 13.1
+  - 影響範囲: Memory保存内容の拡張 / 運用時の再現性向上
+  - 検証結果: `uv run pytest tests/test_blog_memory_tdd.py -q` で `17 passed`、`uv run ruff check ...` で All checks passed。
+- 2026-03-02 13:45
+  - 対象: 既存ログ（2026-02-27 21:40）
+  - 実施内容: 検索系ツール保存方針の履歴補足。現行は `memory_search`/`web_search` を `tool_result` としては保存せず、`memory_search` のみ軽量ログを `system_note` で保存する方式が最新。
+  - 仕様との対応: 7.5, 9.1
+  - 影響範囲: 運用理解
+  - 検証結果: generation_service の保存分岐を確認。
+- 2026-03-02 13:55
+  - 対象: `backend/app/domains/blog/agents/definitions.py`, `backend/app/domains/blog/agents/tools.py`, `backend/app/domains/blog/services/generation_service.py`
+  - 実施内容: ツール説明文を更新。`memory_search` 軽量ログ自動保存、完了時の `decision_memo`/`post_snapshot` 自動保存、`memory_append_item` は重複回避して任意メモ用途に限定する方針を明記。
+  - 仕様との対応: 9.1, 13.1
+  - 影響範囲: Agentのツール利用方針
+  - 検証結果: 変更箇所の静的確認を実施。
+- 2026-03-02 14:25
+  - 対象: `backend/app/domains/blog/services/memory_service.py`, `backend/tests/test_blog_memory_tdd.py`
+  - 実施内容: 類似度閾値を**ユーザー引数ではなくサーバー内部設定**に変更。現時点は `None`（実質無効）で運用し、必要時のみ `memory_service` 側の固定値で有効化する方針に統一。
+  - 仕様との対応: 9.1, 13.1
+  - 影響範囲: Memory検索パラメータ簡素化（Top-K中心、DBマイグレーション不要）
+  - 検証結果: `uv run pytest tests/test_blog_memory_tdd.py -q` で `19 passed`、`uv run ruff check ...` で `All checks passed`。
+- 2026-03-02 14:45
+  - 対象: `backend/app/domains/blog/services/memory_service.py`, `backend/tests/test_blog_memory_tdd.py`
+  - 実施内容: `upsert_meta` 実行時に embedding を即時生成し、`blog_memory_meta.embedding` と `embedding_updated_at` をその場で更新するよう変更（後段バッチ待ちを回避）。
+  - 仕様との対応: 9.1, 13.1
+  - 影響範囲: Memory検索の即時性向上（要約保存直後に検索可能）
+  - 検証結果: `uv run pytest tests/test_blog_memory_tdd.py -q` で確認予定。
+- 2026-03-02 15:00
+  - 対象: `backend/app/domains/blog/agents/tools.py`, `backend/app/domains/blog/agents/definitions.py`, `backend/app/domains/blog/services/generation_service.py`
+  - 実施内容: エージェント向けツール説明を具体化。`memory_search` の取得可能データ（hits/meta/items/score）と意味、`hits=[]` の主因、`memory_append_item` の戻り値を明記。
+  - 仕様との対応: 9.1, 13.1
+  - 影響範囲: ツール選択精度・クエリ生成精度の向上
+  - 検証結果: 変更箇所の静的確認を実施。
+- 2026-03-02 15:10
+  - 対象: `backend/app/domains/blog/agents/tools.py`, `backend/app/domains/blog/agents/definitions.py`, `backend/app/domains/blog/services/generation_service.py`
+  - 実施内容: role説明を再精緻化。`user_input` と `qa` の分離基準、`source/system_note/assistant_output` の使い分け、`include_roles=tool_result` の扱い（通常は必要時のみ）を追記。
+  - 仕様との対応: 9.1, 13.1
+  - 影響範囲: メモ保存ロールの一貫性向上、ツール説明の曖昧さ低減
+  - 検証結果: 変更箇所の静的確認を実施。
+- 2026-03-02 15:20
+  - 対象: `backend/app/domains/blog/agents/tools.py`, `backend/app/domains/blog/agents/definitions.py`
+  - 実施内容: `memory_search` の説明に `include_roles` 各ロールの定義（user_input/qa/source/system_note/assistant_output/final_summary/tool_result）を追記。
+  - 仕様との対応: 9.1, 13.1
+  - 影響範囲: 検索時のロール選択ミスの低減
+  - 検証結果: 変更箇所の静的確認を実施。
 ### ログ追記テンプレート
 - YYYY-MM-DD HH:MM
   - 対象: `path/to/file`

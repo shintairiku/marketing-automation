@@ -1962,6 +1962,137 @@ CONTACT_NOTIFICATION_EMAIL=admin@yourdomain.com
 - `backend/tests/test_blog_memory_tdd.py`
   - malformed `process_id` と UUID例外マッピングのテストケースを追加（計8ケース）
 
+**追加修正 (2026-02-24)**
+- `backend/app/domains/blog/services/generation_service.py`
+  - 継続生成時の Memory 保存形式を改善
+  - これまでの `question_id: answer` 形式から、`ai_questions` を参照した `Q(question text) + A(answer)` 形式へ変更
+  - `image_upload` など textarea 以外は `InputType` も記録
+- `backend/tests/test_blog_memory_tdd.py`
+  - 質問本文つきで保存されることのテストを追加（計9ケース）
+- `backend/app/domains/blog/agents/tools.py`
+  - `memory_upsert_meta` を `ALL_WORDPRESS_TOOLS` から除外（LLM公開停止）
+- `backend/app/domains/blog/agents/tools.py`
+  - `memory_upsert_meta` ツール関数本体も削除し、要約メタ更新はサーバー側実装のみに統一
+- `backend/app/domains/blog/agents/definitions.py`
+  - 完了時 `memory_upsert_meta` 呼び出し指示を削除し、サーバー側自動更新に統一
+- `backend/app/domains/blog/services/generation_service.py`
+  - 入力メッセージの実行コンテキスト説明から `memory_upsert_meta` を除外
+- `backend/app/domains/blog/services/generation_service.py`
+  - `ToolCallOutputItem` から検索系ツール（`memory_search`, `web_search`）の出力を検出し、`tool_result` として Memory に自動保存する処理を追加
+- `backend/app/domains/blog/services/memory_service.py`
+  - `append_tool_result(process_id, content)` を追加し、`blog_memory_append_tool_result` RPCを利用可能にした
+- `backend/app/domains/blog/schemas.py`
+  - Memory roleに `qa` を追加（追加質問回答を `user_input` と分離）
+- `backend/app/domains/blog/services/generation_service.py`
+  - 継続回答の保存 role を `user_input` から `qa` へ変更
+  - 事前Memory注入の検索対象roleへ `qa` を追加
+- `backend/app/domains/blog/agents/tools.py`, `backend/app/domains/blog/agents/definitions.py`, `backend/app/domains/blog/services/generation_service.py`
+  - `memory_append_item` は「必須保存」ではなく「品質向上に効く任意メモ保存」とする運用文言へ変更
+- `supabase/migrations/20260227143000_add_blog_memory_qa_role.sql`（新規）
+  - `blog_memory_items.role` の check 制約に `qa` を追加
+- `backend/tests/test_blog_memory_tdd.py`
+  - `append_tool_result` RPC利用テスト、検索系ツール判定テストを追加（計14ケース）
+- `backend/app/domains/blog/services/generation_service.py`
+  - tool_result保存判定をブラックリスト方式へ変更
+  - `memory_search` / `web_search` は保存対象外、その他ツール結果を保存
+- `backend/app/domains/blog/agents/tools.py`
+  - `memory_search.include_roles` に `qa` を追加し、スキーマと整合
+- `backend/tests/test_blog_memory_tdd.py`
+  - 保存判定テストを新仕様（検索系除外・その他保存）へ更新
+- `backend/app/domains/blog/agents/tools.py`
+  - `memory_search` / `memory_append_item` の説明を具体化（クエリ作成指針、role運用、保存粒度）
+  - `process_id` を省略可能に変更し、未指定時は実行中コンテキストの `process_id` を自動利用
+- `backend/app/domains/blog/agents/definitions.py`
+  - Memory利用ルールを追加（具体クエリ例、append対象、`tool_result` の扱い）
+- `backend/app/domains/blog/services/generation_service.py`
+  - 初回入力メッセージのMemory指示を具体化（検索クエリ構成とappend方針）
+- `backend/tests/test_blog_memory_tdd.py`
+  - Memory process解決ヘルパーの挙動テストを追加（省略時コンテキスト利用 / 不一致時FORBIDDEN）
+
+**ローカル検証データ追加 (2026-02-23 深夜)**
+- `test/blog_memory_seed/generate_seed_csv.py`（新規）
+  - Blog Memory検証用CSVを自動生成（120記事分）
+- `test/blog_memory_seed/blog_memory_meta_seed.csv`（新規）
+  - `title`, `short_summary`, `user_prompt`, `reference_url`, `topic`, `audience` を収録
+- `test/blog_memory_seed/blog_memory_items_seed.csv`（新規）
+  - `user_input`, `source`, `system_note`, `assistant_output`, `final_summary`, `tool_result` を収録
+  - `tool_result` は `process_id` プレースホルダ `__PROCESS_ID__` を含むJSON文字列
+- `test/blog_memory_seed/load_seed_to_local.sql`（新規）
+  - `base_pid` の user/org/site をコピーして seed process を作成し、meta/items を一括投入
+- `test/blog_memory_seed/README.md`（新規）
+  - 生成・投入・埋め込み・検索確認コマンドを記載
+
+**ローカル検証データ更新 (2026-02-24)**
+- `test/blog_memory_seed/generate_seed_csv.py`
+  - `user_input` に `Q(question)+A(answer)` 形式の検証用行を追加
+  - テーマを多様化（イベント告知 / 社員紹介 / 導入事例 / 機能アップデート / カルチャー紹介 等）
+- `test/blog_memory_seed/blog_memory_items_seed.csv`
+  - 720行 -> 840行に増加（Q/A検証行を追加）
+- `test/blog_memory_seed/README.md`
+  - Q/A形式行を含む旨を追記
+
+**Memory保存拡張 (2026-03-02)**
+- `backend/app/domains/blog/services/generation_service.py`
+  - `memory_search` のツール出力を全文保存せず、`query / k / top_hits(score付き)` の軽量ログを `system_note` として自動保存
+  - 完了時に `decision_memo`（target_audience / tone / cta_type / must_include / reference_url）を `system_note` として自動保存
+  - 完了時に WordPress 投稿スナップショット（title / excerpt / headings / content_hash）を `assistant_output` として自動保存
+- `backend/app/domains/blog/endpoints.py`, `backend/app/domains/blog/schemas.py`
+  - `POST /blog/generation/{process_id}/memory/sync-post` を追加
+  - 編集後の投稿内容を再同期して `post_snapshot` を保存し、前回スナップショットとの差分があれば `system_note` に保存
+- `backend/tests/test_blog_memory_tdd.py`
+  - memory_search軽量ログ、decision memo抽出、post_snapshot抽出のテストを追加（17ケース）
+- 補足
+  - 検索系ツール保存方針は「`memory_search` / `web_search` を `tool_result` としては保存しない」が現行。
+  - `memory_search` は軽量ログのみ `system_note` で保存する。
+
+**ツール説明更新 (2026-03-02)**
+- `backend/app/domains/blog/agents/definitions.py`
+  - Memory利用ルールに「`memory_search` 軽量ログ自動保存」「完了時 `decision_memo`/`post_snapshot` 自動保存」「重複保存回避」を追記
+- `backend/app/domains/blog/agents/tools.py`
+  - `memory_search` / `memory_append_item` のdocstringへ、サーバー側自動保存の範囲と推奨運用を追記
+- `backend/app/domains/blog/services/generation_service.py`
+  - エージェント入力の「指示」テキストにも同内容を追記し、運用と実装の齟齬を解消
+
+**Memory検索閾値追加 (2026-03-02)**
+- `backend/app/domains/blog/services/memory_service.py`
+  - 類似度閾値はサーバー内部設定 (`_search_score_threshold`) で管理する方式に統一
+  - 現時点は `None`（閾値無効）で運用し、必要時のみサーバー側固定値で有効化
+  - DB関数は変更せず、必要時は `blog_memory_search_meta` の結果をバックエンド側で後段フィルタ
+- `backend/app/domains/blog/schemas.py`, `backend/app/domains/blog/endpoints.py`, `backend/app/domains/blog/agents/tools.py`, `backend/app/domains/blog/agents/definitions.py`, `backend/app/domains/blog/services/generation_service.py`
+  - `score_threshold` の外部引数/説明を削除（ユーザー指定不可）
+- `backend/tests/test_blog_memory_tdd.py`
+  - サーバー側閾値運用（現状無効）に合わせた検索テストへ更新（`19 passed`）
+
+**Meta保存時の即時埋め込み (2026-03-02)**
+- `backend/app/domains/blog/services/memory_service.py`
+  - `upsert_meta` 実行時に embedding を即時生成し、`blog_memory_meta.embedding` と `embedding_updated_at` を更新するよう変更
+  - これにより `run_blog_memory_embedding_job` 実行前でも、要約保存直後に検索対象となる
+- `backend/tests/test_blog_memory_tdd.py`
+  - `upsert_meta` が RPC保存後に embedding 更新を実行することを検証するテストを追加
+
+**Memoryツール説明の具体化 (2026-03-02)**
+- `backend/app/domains/blog/agents/tools.py`
+  - `memory_search` のdocstringに、取得可能データ（`hits[].process_id/score/meta/items`）と各パラメータの効き方、`hits=[]` の主因を追記
+  - `memory_append_item` のdocstringに戻り値形式（成功/失敗）を追記
+- `backend/app/domains/blog/agents/definitions.py`
+  - Memory利用ルールへ、`memory_search` で取れるデータ項目と `score` の意味（cosine distance）を追記
+- `backend/app/domains/blog/services/generation_service.py`
+  - エージェント入力指示に、`memory_search` 結果から参照すべき項目（meta/items）を追記
+
+**Memory role説明の再精緻化 (2026-03-02)**
+- `backend/app/domains/blog/agents/tools.py`
+  - `memory_append_item` の role 説明を詳細化（`user_input` と `qa` の分離、`source/system_note/assistant_output` の使い分け）
+  - `memory_search` の注意事項に `tool_result` は通常ノイズとなるため必要時のみ include する旨を追記
+- `backend/app/domains/blog/agents/definitions.py`
+  - Memory利用ルールの role 運用を具体化し、役割ごとの保存基準を追記
+- `backend/app/domains/blog/services/generation_service.py`
+  - 実行指示文へ role 選択の具体例（初回要求/追加回答/事実要点/判断メモ）を追記
+
+**Memory検索ロール定義の明示 (2026-03-02)**
+- `backend/app/domains/blog/agents/tools.py`, `backend/app/domains/blog/agents/definitions.py`
+  - `memory_search.include_roles` で指定可能な各ロールの定義を追記
+  - `user_input/qa/source/system_note/assistant_output/final_summary/tool_result` の意味を検索ツール文脈で明文化
+
 ### 2026-02-10 自己改善
 - **再検証の重要性**: 実装完了後のユーザー再検証要求で、`useArticles.ts` と `admin/plans/page.tsx` に `USE_PROXY` パターンが欠けているバグを発見した。最初の実装時にサーバーサイドAPI Routes (9ファイル) のみに注力し、クライアントサイドhooksの直接fetch呼び出しを見落としていた。**サーバーサイド→バックエンド通信だけでなく、ブラウザ→バックエンド通信パスも全て確認すべき。**
 - **FastAPI末尾スラッシュ + Cloud Run scheme 変換の複合問題**: `frontend/src/app/api/proxy/[...path]/route.ts` の `ensureTrailingSlash()` が `/blog/sites` を `/blog/sites/` に変換し、FastAPI (`redirect_slashes=True`) が 307 で `/blog/sites` へ戻す。さらに Cloud Run の `Location` が `http://...run.app/...` になり、プロキシがそれを手動追従すると Cloud Run 側で 302/307 が連鎖する。**手動リダイレクト追従を使う場合は、(1) 末尾スラッシュ強制をしない、(2) `Location` が `http://` でも `https://` に正規化する、の両方を実施すべき。**
