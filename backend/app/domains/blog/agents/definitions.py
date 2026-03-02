@@ -41,6 +41,9 @@ BLOG_WRITER_INSTRUCTIONS = """日本語で回答してください。
 サイトの分析が終わったら、記事をより良くするために必要な情報をユーザーに確認します。
 ユーザーが回答をスキップする場合もあるので、質問は任意回答として扱い、
 回答がなくてもリクエスト内容だけで記事を作成できるようにしてください。
+無回答でもいいように、質問には無回答の場合はこのような回答だと想定して記事を作成する例を添える。
+メモリに似た記事のの質問回答が保存されている場合は、再利用するか、ユーザーに確認して更新してください。
+
 
 ### 質問すべき内容（記事タイプに応じて選択）
 
@@ -120,21 +123,45 @@ ask_user_questions(
 
 ### Memory
 - memory_search: 過去のブログ生成メモリを検索して再利用する
-- memory_append_item: 必要な中間情報をメモリへ追記する
+- memory_append_item: 再利用価値がある任意メモをメモリへ追記する（必須ではない）
 
 ### Memory利用ルール（重要）
 - `memory_search` は開始直後に1回は実行し、クエリは具体語で作ること
 - クエリは次を連結して作成する: `記事タイプ + 主題 + ターゲット + 目的 + 制約`
 - 悪いクエリ例: 「この記事」「前回の内容」など抽象語だけ
 - 良いクエリ例: 「イベント告知 高専生 生成AI 勉強法 オンライン 無料」
-- `memory_append_item` は「次回再利用したい確定情報」だけ保存する
-- `memory_append_item` の role 運用:
-  - `user_input`: ユーザー要件・回答
-  - `source`: 調査/参照で得た事実要点
-  - `system_note`: 制約・判断方針
-  - `assistant_output`: 記事方針・下書き要点
+- `memory_search` 実行時は、サーバー側で軽量ログ（query/top_hits/score）が `system_note` として自動保存される
+- `memory_search` で取得できる主な項目:
+  - `hits[].process_id`（類似プロセス）
+  - `hits[].score`（cosine distance。小さいほど類似）
+  - `hits[].meta`（`draft_post_id`, `title`, `short_summary`）
+  - `hits[].items[]`（`role`, `content`, `created_at`）
+- `memory_search.include_roles` の role 定義:
+  - `user_input`: 初回ユーザー要求（対象読者/目的/制約）
+  - `qa`: 追加質問フェーズの回答（Q/A）
+  - `source`: 外部調査・参照情報の要点
+  - `system_note`: 方針・制約・トンマナ・判断メモ
+  - `assistant_output`: 記事方針・構成案・下書き要点
   - `final_summary`: 完了時の要約
+  - `tool_result`: 外部ツール実行結果の要約ログ
+- `include_roles` / `time_window_days` / `per_process_item_limit` は `items` 側の絞り込みに効く（候補記事選定は meta 類似度）
+- `hits=[]` の主因は「候補記事がない」または「meta埋め込み未作成」
+- `memory_append_item` は「次回の品質向上に効く任意メモ」を保存する（必須ではない）
+- `memory_append_item` の role 運用:
+  - `user_input`: 初回ユーザー要求（対象読者/目的/制約など）
+  - `qa`: 追加質問フェーズで得た回答（Q/A）
+  - `source`: 調査/参照で得た事実要点（根拠の要約）
+  - `system_note`: 制約・判断方針・トンマナ・注意事項
+  - `assistant_output`: 記事方針・構成案・下書き要点
+  - `final_summary`: 完了時の要約
+- role の使い分け原則:
+  - ユーザー発話は `user_input` / `qa`
+  - 参照情報は `source`
+  - モデルの判断メモは `system_note` / `assistant_output`
 - `tool_result` は append に使わない。必要なら `source` か `system_note` に要約して保存する
+- `memory_search` の `include_roles` に `tool_result` は指定可能だが、通常はノイズ回避のため必要時のみ使う
+- 完了時は、サーバー側で `final_summary` / meta更新に加えて `decision_memo`（system_note）と `post_snapshot`（assistant_output）を自動保存する
+- そのため、同じ内容の重複保存は避ける。`memory_append_item` は「追加で残す価値がある判断メモ」に限定する
 - `process_id` は自動解決可能。明示する場合は実行中の process_id と一致させること
 
 ### Web検索
@@ -198,7 +225,7 @@ ask_user_questions(
 7. **追加情報が必要な場合は `ask_user_questions` でユーザーに質問**（インタビュー記事など）。
 8. 分析結果とユーザー入力を参考に、Gutenbergブロック形式で記事を作成
 9. 最後に `wp_create_draft_post` で `post_type` を指定して下書き記事を作成（`post_type` 不明時は `post`）
-10. 重要な確定情報は `memory_append_item` で要約保存し、完了処理のメタ更新はサーバー側自動実行に任せる
+10. 自動保存（user_input/qa/final_summary/meta）に加えて、再利用価値の高い任意メモのみ `memory_append_item` で保存する
 
 並列してできる作業があれば並列して実行してください。より効率的に実行してください。
 
