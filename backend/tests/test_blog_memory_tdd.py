@@ -207,6 +207,11 @@ async def test_memory_service_maps_invalid_uuid_error_to_invalid_argument():
     assert err.http_status == 400
 
 
+def test_memory_service_normalize_roles_accepts_qa():
+    roles = BlogMemoryService._normalize_roles(["qa", "user_input"])
+    assert roles == ["qa", "user_input"]
+
+
 def test_format_user_answers_for_memory_includes_questions():
     text = BlogGenerationService._format_user_answers_for_memory(
         user_answers={
@@ -348,6 +353,74 @@ async def test_run_embedding_batch_handles_stale_rows_without_column_compare_fil
     assert updates == ["p1", "p2"]
 
 
+@pytest.mark.asyncio
+async def test_memory_service_upsert_meta_generates_embedding_immediately(monkeypatch):
+    class _UpsertTable:
+        def __init__(self, owner):
+            self.owner = owner
+            self.payload = None
+            self.eq_key = None
+            self.eq_value = None
+
+        def update(self, payload):
+            self.payload = payload
+            self.owner.update_payload = payload
+            return self
+
+        def eq(self, key, value):
+            self.eq_key = key
+            self.eq_value = value
+            self.owner.update_eq = (key, value)
+            return self
+
+        def execute(self):
+            return _FakeResult([{"process_id": self.eq_value}])
+
+    class _UpsertSupabase:
+        def __init__(self):
+            self.rpc_fn = None
+            self.rpc_params = None
+            self.update_payload = None
+            self.update_eq = None
+
+        def rpc(self, fn, params):
+            self.rpc_fn = fn
+            self.rpc_params = params
+            return self
+
+        def execute(self):
+            return _FakeResult([])
+
+        def table(self, name):
+            assert name == "blog_memory_meta"
+            return _UpsertTable(self)
+
+    fake = _UpsertSupabase()
+    monkeypatch.setattr(memory_service_module, "supabase", fake)
+    service = BlogMemoryService()
+
+    async def _fake_embed_text(text: str):
+        assert "タイトル" in text
+        assert "要約" in text
+        return [0.1] * 1536
+
+    monkeypatch.setattr(service, "embed_text", _fake_embed_text)
+
+    await service.upsert_meta(
+        process_id="11111111-1111-1111-1111-111111111111",
+        title="タイトル",
+        short_summary="要約",
+        draft_post_id=123,
+    )
+
+    assert fake.rpc_fn == "blog_memory_upsert_meta"
+    assert fake.rpc_params["p_process_id"] == "11111111-1111-1111-1111-111111111111"
+    assert fake.update_eq == ("process_id", "11111111-1111-1111-1111-111111111111")
+    assert fake.update_payload is not None
+    assert isinstance(fake.update_payload.get("embedding"), str)
+    assert fake.update_payload.get("embedding_updated_at")
+
+
 def test_resolve_process_id_for_memory_uses_current_context(monkeypatch):
     monkeypatch.setattr(agent_tools, "get_current_process_id", lambda: "proc-1")
 
@@ -365,3 +438,193 @@ def test_resolve_process_id_for_memory_rejects_mismatch(monkeypatch):
     assert resolved is None
     assert err is not None
     assert err["error"]["code"] == "FORBIDDEN"
+
+
+@pytest.mark.asyncio
+async def test_memory_service_append_tool_result_uses_rpc(monkeypatch):
+    class _RpcSupabase:
+        def __init__(self):
+            self.fn = None
+            self.params = None
+
+        def rpc(self, fn, params):
+            self.fn = fn
+            self.params = params
+            return self
+
+        def execute(self):
+            return _FakeResult([{"blog_memory_append_tool_result": "tool-memory-1"}])
+
+    fake = _RpcSupabase()
+    monkeypatch.setattr(memory_service_module, "supabase", fake)
+    service = BlogMemoryService()
+
+    memory_id = await service.append_tool_result(
+        process_id="11111111-1111-1111-1111-111111111111",
+        content='{"query":"test"}',
+    )
+
+    assert fake.fn == "blog_memory_append_tool_result"
+    assert fake.params["p_process_id"] == "11111111-1111-1111-1111-111111111111"
+    assert fake.params["p_content"] == '{"query":"test"}'
+    assert memory_id == "tool-memory-1"
+
+
+@pytest.mark.asyncio
+async def test_memory_service_search_uses_server_side_threshold_setting(monkeypatch):
+    class _SearchSupabase:
+        def __init__(self):
+            self.calls = []
+            self.fn = None
+            self.params = None
+
+        def rpc(self, fn, params):
+            self.calls.append((fn, params))
+            self.fn = fn
+            self.params = params
+            return self
+
+        def execute(self):
+            if self.fn == "blog_memory_search_meta":
+                return _FakeResult(
+                    [
+                        {
+                            "hit_process_id": "11111111-1111-1111-1111-111111111111",
+                            "score": 0.12,
+                            "draft_post_id": 123,
+                            "title": "類似記事",
+                            "short_summary": "要約",
+                        },
+                        {
+                            "hit_process_id": "33333333-3333-3333-3333-333333333333",
+                            "score": 0.67,
+                            "draft_post_id": 456,
+                            "title": "遠い記事",
+                            "short_summary": "要約2",
+                        }
+                    ]
+                )
+            if self.fn == "blog_memory_get_items":
+                return _FakeResult([])
+            return _FakeResult([])
+
+    fake = _SearchSupabase()
+    monkeypatch.setattr(memory_service_module, "supabase", fake)
+
+    service = BlogMemoryService()
+
+    async def _fake_embed_text(_query: str):
+        return [0.1] * 1536
+
+    monkeypatch.setattr(service, "embed_text", _fake_embed_text)
+
+    hits = await service.search(
+        process_id="22222222-2222-2222-2222-222222222222",
+        query="営業 AI セミナー",
+        k=5,
+    )
+
+    assert hits
+    assert len(hits) == 2
+    first_call = fake.calls[0]
+    assert first_call[0] == "blog_memory_search_meta"
+    assert "p_score_threshold" not in first_call[1]
+
+
+def test_should_persist_tool_result_excludes_search_tools():
+    assert BlogGenerationService._should_persist_tool_result("memory_search") is False
+    assert BlogGenerationService._should_persist_tool_result("web_search") is False
+    assert BlogGenerationService._should_persist_tool_result("wp_get_recent_posts") is True
+    assert BlogGenerationService._should_persist_tool_result("unknown_tool") is False
+
+
+def test_build_memory_search_log_content_compacts_hits(monkeypatch):
+    monkeypatch.setattr(
+        "app.domains.blog.services.generation_service.build_blog_writer_agent",
+        lambda: SimpleNamespace(name="dummy-agent"),
+    )
+    service = BlogGenerationService()
+    output = json.dumps(
+        {
+            "ok": True,
+            "data": {
+                "hits": [
+                    {"process_id": "p1", "score": 0.11, "meta": {"title": "記事1"}},
+                    {"process_id": "p2", "score": 0.22, "meta": {"title": "記事2"}},
+                    {"process_id": "p3", "score": 0.33, "meta": {"title": "記事3"}},
+                    {"process_id": "p4", "score": 0.44, "meta": {"title": "記事4"}},
+                ]
+            },
+        },
+        ensure_ascii=False,
+    )
+
+    content = service._build_memory_search_log_content(
+        tool_args={"query": "営業 AI セミナー", "k": 5},
+        output=output,
+    )
+    payload = json.loads(content)
+
+    assert payload["type"] == "memory_search_log"
+    assert payload["query"] == "営業 AI セミナー"
+    assert payload["k"] == 5
+    assert payload["hit_count"] == 4
+    assert len(payload["top_hits"]) == 3
+    assert payload["top_hits"][0]["process_id"] == "p1"
+
+
+def test_extract_answer_by_question_keywords():
+    blog_context = {
+        "ai_questions": [
+            {"question_id": "q1", "question": "この記事のターゲット読者は誰ですか？"},
+            {"question_id": "q2", "question": "トーンはどうしますか？"},
+            {"question_id": "q3", "question": "含めたいキーワードはありますか？"},
+        ],
+        "user_answers": {
+            "q1": "営業マネージャー",
+            "q2": "フォーマル",
+            "q3": "生成AI, セミナー, 導入事例",
+        },
+    }
+
+    audience = BlogGenerationService._extract_answer_by_question_keywords(
+        blog_context, ["ターゲット", "読者"]
+    )
+    tone = BlogGenerationService._extract_answer_by_question_keywords(
+        blog_context, ["トーン", "文体"]
+    )
+    must_include = BlogGenerationService._extract_must_include_keywords(blog_context)
+
+    assert audience == "営業マネージャー"
+    assert tone == "フォーマル"
+    assert must_include == ["生成AI", "セミナー", "導入事例"]
+
+
+def test_extract_post_snapshot_payload_from_wp_raw_content():
+    raw_output = json.dumps(
+        {
+            "ok": True,
+            "data": {
+                "post": {
+                    "title": "営業向けAIセミナー告知",
+                    "raw_content": (
+                        "<h2>開催概要</h2><p>営業部門向けの実践セミナーです。</p>"
+                        "<h3>申し込み方法</h3><p>フォームから登録してください。</p>"
+                    ),
+                }
+            },
+        },
+        ensure_ascii=False,
+    )
+
+    payload = BlogGenerationService._extract_post_snapshot_payload(
+        raw_output=raw_output,
+        post_id=123,
+        excerpt_max_chars=80,
+    )
+
+    assert payload["type"] == "post_snapshot"
+    assert payload["post_id"] == 123
+    assert payload["title"] == "営業向けAIセミナー告知"
+    assert payload["headings"] == ["開催概要", "申し込み方法"]
+    assert payload["content_hash"]

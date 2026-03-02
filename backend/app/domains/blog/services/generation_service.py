@@ -8,8 +8,10 @@ Blog AI Domain - Generation Service
 """
 
 import json
+import hashlib
 import time
 from datetime import datetime
+import re
 from typing import Any, Dict, List, Optional
 
 from agents import Runner, RunConfig
@@ -34,6 +36,7 @@ from app.core.config import settings
 from app.domains.blog.agents.definitions import build_blog_writer_agent
 from app.domains.blog.schemas import BlogCompletionOutput
 from app.domains.blog.services.wordpress_mcp_service import (
+    call_wordpress_mcp_tool,
     clear_mcp_client_cache,
     set_mcp_context,
 )
@@ -108,6 +111,12 @@ _BUILTIN_TOOL_TYPE_MAP: Dict[str, str] = {
     "image_generation_call": "image_generation",
     "computer_call": "computer_use",
     "mcp_call": "mcp_call",
+}
+
+# 外部検索系ツール結果は保存せず、それ以外のツール結果を保存する
+TOOL_RESULT_PERSIST_EXCLUDE = {
+    "memory_search",
+    "web_search",
 }
 
 
@@ -332,7 +341,7 @@ class BlogGenerationService:
             # 継続時のユーザー回答をMemoryへ保存
             await self._append_memory_item_safe(
                 process_id=process_id,
-                role="user_input",
+                role="qa",
                 content=self._format_user_answers_for_memory(
                     user_answers,
                     blog_context.get("ai_questions", []),
@@ -481,6 +490,7 @@ class BlogGenerationService:
         execution_id: Optional[str] = None
         tool_call_log_ids: Dict[str, str] = {}
         tool_call_start_times: Dict[str, float] = {}
+        tool_call_names: Dict[str, str] = {}
 
         if log_session_id and logging_service:
             try:
@@ -519,10 +529,11 @@ class BlogGenerationService:
             total_estimated_tools = 10
             # ask_user_questions のツール呼び出し引数をキャプチャ
             pending_user_questions: Optional[Dict[str, Any]] = None
+            memory_search_args_by_call_id: Dict[str, Dict[str, Any]] = {}
 
             async for event in result.stream_events():
                 # ツール呼び出しログ
-                if execution_id and logging_service and isinstance(event, RunItemStreamEvent):
+                if isinstance(event, RunItemStreamEvent):
                     if isinstance(event.item, ToolCallItem):
                         tool_name = _resolve_tool_name(event.item.raw_item)
                         call_id = (
@@ -530,34 +541,57 @@ class BlogGenerationService:
                             or getattr(event.item.raw_item, "id", None)
                             or f"{tool_name}:{tool_call_count + 1}"
                         )
-                        tool_call_start_times[call_id] = time.time()
-                        raw_args = getattr(event.item.raw_item, "arguments", None)
-                        parsed_args: Dict[str, Any] | str | None
-                        if isinstance(raw_args, str):
-                            try:
-                                parsed_args = json.loads(raw_args)
-                            except json.JSONDecodeError:
+                        tool_call_names[call_id] = tool_name
+
+                        if execution_id and logging_service:
+                            tool_call_start_times[call_id] = time.time()
+                            raw_args = getattr(event.item.raw_item, "arguments", None)
+                            parsed_args: Dict[str, Any] | str | None
+                            if isinstance(raw_args, str):
+                                try:
+                                    parsed_args = json.loads(raw_args)
+                                except json.JSONDecodeError:
+                                    parsed_args = raw_args
+                            else:
                                 parsed_args = raw_args
-                        else:
-                            parsed_args = raw_args
-                        try:
-                            tool_call_log_id = logging_service.create_tool_call_log(
-                                execution_id=execution_id,
-                                tool_name=tool_name,
-                                tool_function=tool_name,
-                                call_sequence=tool_call_count + 1,
-                                input_parameters=parsed_args if isinstance(parsed_args, dict) else {"raw": parsed_args},
-                                status="started",
-                                tool_metadata={
-                                    "call_id": call_id,
-                                },
-                            )
-                            tool_call_log_ids[call_id] = tool_call_log_id
-                        except Exception as log_err:
-                            logger.debug(f"Failed to log tool call start: {log_err}")
+                            if tool_name == "memory_search" and isinstance(parsed_args, dict):
+                                memory_search_args_by_call_id[call_id] = parsed_args
+                            try:
+                                tool_call_log_id = logging_service.create_tool_call_log(
+                                    execution_id=execution_id,
+                                    tool_name=tool_name,
+                                    tool_function=tool_name,
+                                    call_sequence=tool_call_count + 1,
+                                    input_parameters=parsed_args if isinstance(parsed_args, dict) else {"raw": parsed_args},
+                                    status="started",
+                                    tool_metadata={
+                                        "call_id": call_id,
+                                    },
+                                )
+                                tool_call_log_ids[call_id] = tool_call_log_id
+                            except Exception as log_err:
+                                logger.debug(f"Failed to log tool call start: {log_err}")
                     elif isinstance(event.item, ToolCallOutputItem):
-                        call_id = getattr(event.item.raw_item, "call_id", None)
-                        if call_id and call_id in tool_call_log_ids:
+                        call_id = (
+                            getattr(event.item.raw_item, "call_id", None)
+                            or getattr(event.item.raw_item, "id", None)
+                        )
+                        if call_id:
+                            tool_name = tool_call_names.get(call_id)
+                            if tool_name == "memory_search":
+                                await self._append_memory_search_log_safe(
+                                    process_id=process_id,
+                                    tool_args=memory_search_args_by_call_id.get(call_id),
+                                    output=event.item.output,
+                                )
+                            if tool_name and self._should_persist_tool_result(tool_name):
+                                await self._append_memory_tool_result_safe(
+                                    process_id=process_id,
+                                    tool_name=tool_name,
+                                    output=event.item.output,
+                                )
+
+                        if execution_id and logging_service and call_id and call_id in tool_call_log_ids:
                             duration_ms = None
                             if call_id in tool_call_start_times:
                                 duration_ms = int((time.time() - tool_call_start_times[call_id]) * 1000)
@@ -923,7 +957,10 @@ class BlogGenerationService:
             "\n## 指示\n\n"
             "開始時に `memory_search` を実行し、過去文脈を確認して重要な情報を記事に反映してください。\n"
             "`memory_search` の query は具体語で作成してください（記事タイプ/主題/ターゲット/目的/制約）。\n"
-            "重要な確定情報は `memory_append_item` で短く要約して保存してください（roleは用途に応じて選択）。\n"
+            "`memory_search` の結果では `hits[].meta(title/short_summary)` と `hits[].items(role/content/created_at)` を確認し、必要情報だけ再利用してください。\n"
+            "`memory_search` 実行ログ（query/top_hits/score）はサーバー側で自動保存されます。結果全文を重複保存しないでください。\n"
+            "`memory_append_item` は任意です。次回の品質向上に効くメモがある時だけ短く要約して保存してください（初回要求は user_input、追加回答は qa、事実要点は source、判断メモは system_note/assistant_output）。\n"
+            "完了時の `final_summary` / meta / decision_memo / post_snapshot はサーバー側で自動保存されます。\n"
             "上記のリクエストに基づいて、WordPressブログ記事を作成してください。\n"
             "`wp_get_post_types` は未取得の場合のみ実行し、取得済みなら再利用してください。\n"
             "投稿タイプエラー（`invalid_post_type`）時のみ `wp_get_post_types` を再取得してください。\n"
@@ -1053,6 +1090,7 @@ class BlogGenerationService:
                 k=3,
                 include_roles=[
                     "user_input",
+                    "qa",
                     "assistant_output",
                     "source",
                     "system_note",
@@ -1106,6 +1144,110 @@ class BlogGenerationService:
                 e,
             )
 
+    @staticmethod
+    def _parse_json_maybe(value: Any) -> Any:
+        if isinstance(value, (dict, list)):
+            return value
+        if isinstance(value, str):
+            try:
+                return json.loads(value)
+            except json.JSONDecodeError:
+                return None
+        return None
+
+    def _build_memory_search_log_content(
+        self,
+        tool_args: Optional[Dict[str, Any]],
+        output: Any,
+    ) -> str:
+        parsed_output = self._parse_json_maybe(output)
+        hits: List[Dict[str, Any]] = []
+        if isinstance(parsed_output, dict):
+            data_obj = parsed_output.get("data")
+            if isinstance(data_obj, dict) and isinstance(data_obj.get("hits"), list):
+                hits = [h for h in data_obj["hits"] if isinstance(h, dict)]
+
+        compact_hits = []
+        for hit in hits[:3]:
+            meta = hit.get("meta") if isinstance(hit.get("meta"), dict) else {}
+            compact_hits.append(
+                {
+                    "process_id": hit.get("process_id"),
+                    "score": hit.get("score"),
+                    "title": meta.get("title"),
+                }
+            )
+
+        payload = {
+            "type": "memory_search_log",
+            "query": (tool_args or {}).get("query"),
+            "k": (tool_args or {}).get("k"),
+            "hit_count": len(hits),
+            "top_hits": compact_hits,
+            "captured_at": datetime.utcnow().isoformat(),
+        }
+        return json.dumps(payload, ensure_ascii=False)
+
+    async def _append_memory_search_log_safe(
+        self,
+        process_id: str,
+        tool_args: Optional[Dict[str, Any]],
+        output: Any,
+    ) -> None:
+        try:
+            content = self._build_memory_search_log_content(tool_args=tool_args, output=output)
+            await self._append_memory_item_safe(
+                process_id=process_id,
+                role="system_note",
+                content=content,
+            )
+        except Exception as e:
+            logger.warning(
+                "Memory search log append failed (process_id=%s): %s",
+                process_id,
+                e,
+            )
+
+    @staticmethod
+    def _should_persist_tool_result(tool_name: str) -> bool:
+        if not tool_name or tool_name == "unknown_tool":
+            return False
+        return tool_name not in TOOL_RESULT_PERSIST_EXCLUDE
+
+    @staticmethod
+    def _build_tool_result_content(tool_name: str, output: Any) -> str:
+        text = str(output or "").strip()
+        if len(text) > 8000:
+            text = text[:8000] + "..."
+        return json.dumps(
+            {
+                "tool_name": tool_name,
+                "output": text,
+            },
+            ensure_ascii=False,
+        )
+
+    async def _append_memory_tool_result_safe(
+        self,
+        process_id: str,
+        tool_name: str,
+        output: Any,
+    ) -> None:
+        """検索系ツール結果の保存失敗で本処理を止めない。"""
+        try:
+            memory_service = get_blog_memory_service()
+            await memory_service.append_tool_result(
+                process_id=process_id,
+                content=self._build_tool_result_content(tool_name, output),
+            )
+        except Exception as e:
+            logger.warning(
+                "Memory tool_result append failed (process_id=%s, tool=%s): %s",
+                process_id,
+                tool_name,
+                e,
+            )
+
     async def _upsert_memory_meta_safe(
         self,
         process_id: str,
@@ -1124,6 +1266,193 @@ class BlogGenerationService:
             )
         except Exception as e:
             logger.warning("Memory upsert failed (process_id=%s): %s", process_id, e)
+
+    @staticmethod
+    def _extract_answer_by_question_keywords(
+        blog_context: Dict[str, Any],
+        keywords: List[str],
+    ) -> Optional[str]:
+        questions = blog_context.get("ai_questions") or []
+        answers = blog_context.get("user_answers") or {}
+        if not isinstance(questions, list) or not isinstance(answers, dict):
+            return None
+
+        for q in questions:
+            if not isinstance(q, dict):
+                continue
+            qid = str(q.get("question_id") or "").strip()
+            qtext = str(q.get("question") or "").strip()
+            if not qid or not qtext:
+                continue
+            if any(k in qtext for k in keywords):
+                value = answers.get(qid)
+                if value is None:
+                    continue
+                text = str(value).strip()
+                if text:
+                    return text[:500]
+        return None
+
+    @staticmethod
+    def _extract_must_include_keywords(blog_context: Dict[str, Any]) -> List[str]:
+        value = BlogGenerationService._extract_answer_by_question_keywords(
+            blog_context,
+            keywords=["キーワード", "必ず触れて", "含めたい"],
+        )
+        if not value:
+            return []
+        raw_parts = re.split(r"[,\n、，/]+", value)
+        cleaned = []
+        for part in raw_parts:
+            text = part.strip()
+            if text:
+                cleaned.append(text[:80])
+        return cleaned[:20]
+
+    async def _append_decision_memo_safe(
+        self,
+        process_id: str,
+        output: Optional[BlogCompletionOutput],
+    ) -> None:
+        try:
+            state_result = supabase.table("blog_generation_state").select(
+                "user_prompt, reference_url, blog_context"
+            ).eq("id", process_id).maybe_single().execute()
+            state_row = state_result.data or {}
+            blog_context = state_row.get("blog_context") or {}
+            if not isinstance(blog_context, dict):
+                blog_context = {}
+
+            summary_text = (output.summary if output else "") or ""
+            cta_type = "none"
+            if "申し込" in summary_text or "申込" in summary_text:
+                cta_type = "apply"
+            elif "問い合わせ" in summary_text or "相談" in summary_text:
+                cta_type = "contact"
+
+            memo = {
+                "type": "decision_memo",
+                "post_id": (output.post_id if output else None),
+                "post_type": None,
+                "target_audience": self._extract_answer_by_question_keywords(
+                    blog_context,
+                    keywords=["ターゲット", "読者", "誰に向け"],
+                ),
+                "tone": self._extract_answer_by_question_keywords(
+                    blog_context,
+                    keywords=["トーン", "文体"],
+                ),
+                "cta_type": cta_type,
+                "must_include": self._extract_must_include_keywords(blog_context),
+                "reference_url": state_row.get("reference_url"),
+                "captured_at": datetime.utcnow().isoformat(),
+            }
+            await self._append_memory_item_safe(
+                process_id=process_id,
+                role="system_note",
+                content=json.dumps(memo, ensure_ascii=False),
+            )
+        except Exception as e:
+            logger.warning("Decision memo append failed (process_id=%s): %s", process_id, e)
+
+    @staticmethod
+    def _extract_post_snapshot_payload(
+        raw_output: Any,
+        post_id: int,
+        excerpt_max_chars: int = 2000,
+    ) -> Dict[str, Any]:
+        parsed = BlogGenerationService._parse_json_maybe(raw_output)
+        source_obj: Dict[str, Any] = {}
+
+        if isinstance(parsed, dict):
+            candidate = parsed
+            for key in ("data", "result", "post"):
+                if isinstance(candidate.get(key), dict):
+                    candidate = candidate[key]
+            if isinstance(candidate.get("post"), dict):
+                candidate = candidate["post"]
+            source_obj = candidate if isinstance(candidate, dict) else {}
+
+        title = str(
+            source_obj.get("title")
+            or source_obj.get("post_title")
+            or source_obj.get("name")
+            or ""
+        ).strip()
+
+        content_raw = (
+            source_obj.get("raw_content")
+            or source_obj.get("content")
+            or source_obj.get("post_content")
+            or source_obj.get("html")
+            or ""
+        )
+        if isinstance(content_raw, dict):
+            content_text = str(content_raw.get("raw") or content_raw.get("rendered") or "")
+        else:
+            content_text = str(content_raw or "")
+
+        if not content_text and isinstance(raw_output, str):
+            content_text = raw_output
+
+        headings = re.findall(r"<h[1-3][^>]*>(.*?)</h[1-3]>", content_text, flags=re.IGNORECASE | re.DOTALL)
+        normalized_headings = [
+            re.sub(r"\s+", " ", re.sub(r"<[^>]+>", "", h or "")).strip()[:120]
+            for h in headings
+        ]
+        normalized_headings = [h for h in normalized_headings if h]
+
+        excerpt = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", "", content_text)).strip()
+        if len(excerpt) > excerpt_max_chars:
+            excerpt = excerpt[:excerpt_max_chars] + "..."
+
+        content_hash = hashlib.sha256(content_text.encode("utf-8", errors="ignore")).hexdigest()
+        return {
+            "type": "post_snapshot",
+            "post_id": post_id,
+            "title": title[:300],
+            "excerpt": excerpt,
+            "headings": normalized_headings[:30],
+            "content_hash": content_hash,
+            "captured_at": datetime.utcnow().isoformat(),
+            "source": "wp_get_post_raw_content",
+            "capture_reason": "auto_on_completion",
+        }
+
+    async def _append_post_snapshot_safe(
+        self,
+        process_id: str,
+        user_id: str,
+        post_id: Optional[int],
+    ) -> None:
+        if not post_id:
+            return
+        try:
+            state_result = supabase.table("blog_generation_state").select(
+                "wordpress_site_id"
+            ).eq("id", process_id).maybe_single().execute()
+            state_row = state_result.data or {}
+            wordpress_site_id = state_row.get("wordpress_site_id")
+            if not wordpress_site_id:
+                return
+
+            set_mcp_context(
+                site_id=wordpress_site_id,
+                user_id=user_id,
+                process_id=process_id,
+            )
+            raw_output = await call_wordpress_mcp_tool(
+                "wp-mcp-get-post-raw-content",
+                {"post_id": int(post_id)},
+            )
+            payload = self._extract_post_snapshot_payload(raw_output, int(post_id))
+            await self._append_memory_item_safe(
+                process_id=process_id,
+                role="assistant_output",
+                content=json.dumps(payload, ensure_ascii=False),
+            )
+        except Exception as e:
+            logger.warning("Post snapshot append failed (process_id=%s): %s", process_id, e)
 
     @staticmethod
     def _format_user_answers_for_memory(
@@ -1643,6 +1972,15 @@ class BlogGenerationService:
             title=title_for_meta,
             short_summary=summary_for_meta,
             draft_post_id=(output.post_id if output else None),
+        )
+        await self._append_decision_memo_safe(
+            process_id=process_id,
+            output=output,
+        )
+        await self._append_post_snapshot_safe(
+            process_id=process_id,
+            user_id=user_id,
+            post_id=(output.post_id if output else None),
         )
 
         # 生成成功時に使用量をカウント

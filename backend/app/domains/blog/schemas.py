@@ -199,6 +199,7 @@ class BlogDraftResult(BaseModel):
 
 BlogMemoryRole = Literal[
     "user_input",
+    "qa",
     "assistant_output",
     "source",
     "system_note",
@@ -208,6 +209,7 @@ BlogMemoryRole = Literal[
 
 BlogMemoryAppendRole = Literal[
     "user_input",
+    "qa",
     "assistant_output",
     "source",
     "system_note",
@@ -231,6 +233,20 @@ class BlogMemorySearchRequest(BaseModel):
     include_roles: Optional[List[BlogMemoryRole]] = None
     time_window_days: Optional[int] = Field(default=365, ge=1, le=3650)
     per_process_item_limit: int = Field(default=20, ge=1, le=100)
+
+
+class BlogMemorySyncPostRequest(BaseModel):
+    post_id: Optional[int] = Field(
+        default=None,
+        ge=1,
+        description="同期対象のWordPress投稿ID（未指定時は process の draft_post_id を使用）",
+    )
+    excerpt_max_chars: int = Field(
+        default=2000,
+        ge=200,
+        le=20000,
+        description="保存する本文抜粋の最大文字数",
+    )
 
 
 class BlogMemoryItem(BaseModel):

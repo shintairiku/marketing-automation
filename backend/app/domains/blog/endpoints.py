@@ -8,7 +8,10 @@ Blog AI Domain - API Endpoints
 - 画像アップロード
 """
 
+import hashlib
+import json
 import os
+import re
 import uuid
 from datetime import datetime
 from typing import Any, Dict, List, Optional
@@ -34,6 +37,7 @@ import logging
 from app.domains.blog.schemas import (
     BlogMemoryAppendItemRequest,
     BlogMemorySearchRequest,
+    BlogMemorySyncPostRequest,
     BlogMemoryUpsertMetaRequest,
     BlogGenerationHistoryItem,
     BlogGenerationStateResponse,
@@ -45,7 +49,9 @@ from app.domains.blog.services.crypto_service import get_crypto_service
 from app.domains.blog.services.image_utils import convert_and_save_as_webp
 from app.domains.blog.services.wordpress_mcp_service import (
     WordPressMcpClient,
+    call_wordpress_mcp_tool,
     clear_mcp_client_cache,
+    set_mcp_context,
 )
 from app.domains.blog.services.generation_service import BlogGenerationService
 from app.domains.blog.services.memory_service import (
@@ -148,6 +154,105 @@ def _build_memory_error_response(code: str, message: str) -> Dict[str, Any]:
             "code": code,
             "message": message,
         },
+    }
+
+
+def _safe_json_loads(value: Any) -> Any:
+    if isinstance(value, (dict, list)):
+        return value
+    if isinstance(value, str):
+        try:
+            return json.loads(value)
+        except json.JSONDecodeError:
+            return None
+    return None
+
+
+def _strip_html_tags(text: str) -> str:
+    no_tags = re.sub(r"<[^>]+>", "", text or "")
+    return re.sub(r"\s+", " ", no_tags).strip()
+
+
+def _extract_post_snapshot(
+    raw_output: Any,
+    post_id: int,
+    excerpt_max_chars: int,
+) -> Dict[str, Any]:
+    parsed = _safe_json_loads(raw_output)
+    source_obj: Dict[str, Any] = {}
+    content_text = ""
+
+    if isinstance(parsed, dict):
+        candidate = parsed
+        for key in ("data", "result", "post"):
+            if isinstance(candidate.get(key), dict):
+                candidate = candidate[key]
+        if isinstance(candidate.get("post"), dict):
+            candidate = candidate["post"]
+        source_obj = candidate if isinstance(candidate, dict) else {}
+
+    title = str(
+        source_obj.get("title")
+        or source_obj.get("post_title")
+        or source_obj.get("name")
+        or ""
+    ).strip()
+
+    content_raw = (
+        source_obj.get("raw_content")
+        or source_obj.get("content")
+        or source_obj.get("post_content")
+        or source_obj.get("html")
+        or ""
+    )
+    if isinstance(content_raw, dict):
+        content_text = str(content_raw.get("raw") or content_raw.get("rendered") or "")
+    else:
+        content_text = str(content_raw or "")
+
+    if not content_text and isinstance(raw_output, str):
+        content_text = raw_output
+
+    headings = re.findall(r"<h[1-3][^>]*>(.*?)</h[1-3]>", content_text, flags=re.IGNORECASE | re.DOTALL)
+    normalized_headings = [_strip_html_tags(h)[:120] for h in headings if _strip_html_tags(h)]
+
+    excerpt = _strip_html_tags(content_text)
+    if len(excerpt) > excerpt_max_chars:
+        excerpt = excerpt[:excerpt_max_chars] + "..."
+
+    content_hash = hashlib.sha256(content_text.encode("utf-8", errors="ignore")).hexdigest()
+
+    return {
+        "type": "post_snapshot",
+        "post_id": post_id,
+        "title": title[:300],
+        "excerpt": excerpt,
+        "headings": normalized_headings[:30],
+        "content_hash": content_hash,
+        "captured_at": datetime.utcnow().isoformat(),
+        "source": "wp_get_post_raw_content",
+    }
+
+
+def _build_post_snapshot_diff(previous: Dict[str, Any], current: Dict[str, Any]) -> Dict[str, Any]:
+    changed_fields: List[str] = []
+    if (previous.get("title") or "") != (current.get("title") or ""):
+        changed_fields.append("title")
+    if (previous.get("excerpt") or "") != (current.get("excerpt") or ""):
+        changed_fields.append("excerpt")
+    if (previous.get("content_hash") or "") != (current.get("content_hash") or ""):
+        changed_fields.append("content_hash")
+    if (previous.get("headings") or []) != (current.get("headings") or []):
+        changed_fields.append("headings")
+
+    return {
+        "type": "post_snapshot_diff",
+        "post_id": current.get("post_id"),
+        "changed": bool(changed_fields),
+        "changed_fields": changed_fields,
+        "previous_hash": previous.get("content_hash"),
+        "current_hash": current.get("content_hash"),
+        "captured_at": datetime.utcnow().isoformat(),
     }
 
 
@@ -1358,6 +1463,103 @@ async def search_memory(
         )
     except Exception as e:
         logger.error(f"search_memory error: {e}", exc_info=True)
+        return JSONResponse(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            content=_build_memory_error_response("INTERNAL_ERROR", "予期しないエラーが発生しました"),
+        )
+
+
+@router.post(
+    "/generation/{process_id}/memory/sync-post",
+    summary="Blog Memory 投稿同期",
+    description="WordPress投稿の最新内容を取得し、Memoryへスナップショット保存する",
+)
+async def sync_memory_post(
+    process_id: str,
+    request: BlogMemorySyncPostRequest,
+    user_id: str = Depends(get_current_user),
+):
+    supabase_client = get_supabase_client()
+    memory_service = get_blog_memory_service()
+
+    try:
+        process_row = _get_owned_process_or_raise(supabase_client, process_id, user_id)
+        post_id = request.post_id or process_row.get("draft_post_id")
+        if not post_id:
+            raise BlogMemoryError(
+                code="INVALID_ARGUMENT",
+                message="post_id が指定されておらず、process の draft_post_id も空です",
+                http_status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        wordpress_site_id = process_row.get("wordpress_site_id")
+        if not wordpress_site_id:
+            raise BlogMemoryError(
+                code="INVALID_ARGUMENT",
+                message="この process は wordpress_site_id を持っていません",
+                http_status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        set_mcp_context(
+            site_id=wordpress_site_id,
+            user_id=user_id,
+            process_id=process_id,
+        )
+        raw_output = await call_wordpress_mcp_tool(
+            "wp-mcp-get-post-raw-content",
+            {"post_id": int(post_id)},
+        )
+
+        snapshot = _extract_post_snapshot(
+            raw_output=raw_output,
+            post_id=int(post_id),
+            excerpt_max_chars=request.excerpt_max_chars,
+        )
+
+        previous_snapshot: Optional[Dict[str, Any]] = None
+        prev_result = supabase_client.table("blog_memory_items").select(
+            "content, created_at"
+        ).eq("process_id", process_id).eq("role", "assistant_output").order(
+            "created_at", desc=True
+        ).limit(50).execute()
+        for row in (prev_result.data or []):
+            parsed = _safe_json_loads(row.get("content"))
+            if isinstance(parsed, dict) and parsed.get("type") == "post_snapshot":
+                previous_snapshot = parsed
+                break
+
+        await memory_service.append_item(
+            process_id=process_id,
+            role="assistant_output",
+            content=json.dumps(snapshot, ensure_ascii=False),
+        )
+
+        diff_logged = False
+        if previous_snapshot:
+            diff_payload = _build_post_snapshot_diff(previous_snapshot, snapshot)
+            if diff_payload["changed"]:
+                await memory_service.append_item(
+                    process_id=process_id,
+                    role="system_note",
+                    content=json.dumps(diff_payload, ensure_ascii=False),
+                )
+                diff_logged = True
+
+        return {
+            "ok": True,
+            "data": {
+                "post_id": int(post_id),
+                "captured": True,
+                "diff_logged": diff_logged,
+            },
+        }
+    except BlogMemoryError as e:
+        return JSONResponse(
+            status_code=e.http_status,
+            content=_build_memory_error_response(e.code, e.message),
+        )
+    except Exception as e:
+        logger.error(f"sync_memory_post error: {e}", exc_info=True)
         return JSONResponse(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             content=_build_memory_error_response("INTERNAL_ERROR", "予期しないエラーが発生しました"),

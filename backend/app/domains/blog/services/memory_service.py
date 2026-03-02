@@ -27,6 +27,7 @@ logger = logging.getLogger(__name__)
 
 ALLOWED_APPEND_ROLES = {
     "user_input",
+    "qa",
     "assistant_output",
     "source",
     "system_note",
@@ -35,6 +36,7 @@ ALLOWED_APPEND_ROLES = {
 
 ALLOWED_SEARCH_ROLES = {
     "user_input",
+    "qa",
     "assistant_output",
     "source",
     "system_note",
@@ -62,6 +64,8 @@ class BlogMemoryService:
         self._embed_max_retries = settings.memory_embed_max_retries
         self._embed_retry_base_sec = settings.memory_embed_retry_base_sec
         self._openai_client = AsyncOpenAI(api_key=settings.openai_api_key)
+        # 類似度閾値はサーバー側で固定管理する（現時点は無効）
+        self._search_score_threshold: Optional[float] = None
 
     async def append_item(
         self,
@@ -108,6 +112,36 @@ class BlogMemoryService:
         except Exception as e:
             raise self._map_db_exception(e) from e
 
+    async def append_tool_result(
+        self,
+        process_id: str,
+        content: str,
+    ) -> str:
+        """検索系ツール結果を tool_result として追記する。"""
+        if not content or not content.strip():
+            raise BlogMemoryError(
+                code="INVALID_ARGUMENT",
+                message="content は必須です",
+                http_status=400,
+            )
+
+        try:
+            result = supabase.rpc(
+                "blog_memory_append_tool_result",
+                {
+                    "p_process_id": process_id,
+                    "p_content": content,
+                },
+            ).execute()
+            memory_item_id = self._extract_scalar_from_rpc_result(
+                result.data, "blog_memory_append_tool_result"
+            )
+            return str(memory_item_id)
+        except BlogMemoryError:
+            raise
+        except Exception as e:
+            raise self._map_db_exception(e) from e
+
     async def upsert_meta(
         self,
         process_id: str,
@@ -142,6 +176,16 @@ class BlogMemoryService:
                     "p_draft_post_id": draft_post_id,
                 },
             ).execute()
+            embedding = await self.embed_text(embedding_input)
+            vector_literal = self._to_pgvector_literal(embedding)
+            supabase.table("blog_memory_meta").update(
+                {
+                    "embedding": vector_literal,
+                    "embedding_updated_at": datetime.now(timezone.utc).isoformat(),
+                }
+            ).eq("process_id", process_id).execute()
+        except BlogMemoryError:
+            raise
         except Exception as e:
             raise self._map_db_exception(e) from e
 
@@ -196,8 +240,18 @@ class BlogMemoryService:
         except Exception as e:
             raise self._map_db_exception(e) from e
 
+        score_threshold = self._search_score_threshold
         hits: List[Dict[str, Any]] = []
         for row in (search_result.data or []):
+            if score_threshold is not None:
+                raw_score = row.get("score")
+                try:
+                    normalized_score = float(raw_score)
+                except (TypeError, ValueError):
+                    continue
+                if normalized_score > score_threshold:
+                    continue
+
             hit_process_id = row.get("hit_process_id")
             if not hit_process_id:
                 continue
