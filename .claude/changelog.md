@@ -2,6 +2,20 @@
 
 > 新しい変更はこのファイルに追記する。古い項目は @.claude/changelog-archive.md を参照。
 
+### 42. ヘッダー削除・Clerkアカウントパネルをサイドバー下部へ移動 (2026-03-03)
+
+**概要**: アプリ全体のヘッダーを廃止し、Clerk の UserButton をサイドバー下部に移動。
+
+**変更ファイル**:
+- `frontend/src/components/layout/AppLayoutClient.tsx`
+  - `Header` コンポーネントの import・表示を削除
+  - `mt-[45px]` を削除（モバイルは `pt-14` のみ）
+  - モバイル用フローティングハンバーガーボタンを追加（`fixed top-3 left-3`、`md:hidden`）
+- `frontend/src/components/display/sidebar.tsx`
+  - `UserButton` を `@clerk/nextjs` から追加 import
+  - サイドバー下部（ScrollArea の下）にアカウントパネルを追加
+  - 展開時: `showName` で名前付き表示、折り畳み時: アバターのみ + Tooltip
+
 ### 41. Blog AIトレースの精査・動的詳細ページ化・delta保存抑制 (2026-02-21)
 
 **概要**: 管理者向け Blog Usage トレースを「モーダル閲覧」だけでなく **動的ルートページ** でも確認できるように拡張。あわせて実DBを直接検証し、`blog_agent_trace_events` が初期実装では delta 系イベントを大量保存していたことを確認し、今後の新規実行では保存しないよう修正。
