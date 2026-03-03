@@ -953,21 +953,6 @@ class BlogGenerationService:
                 f"{memory_context}\n"
             )
 
-        parts.append(
-            "\n## 指示\n\n"
-            "開始時に `memory_search` を実行し、過去文脈を確認して重要な情報を記事に反映してください。\n"
-            "`memory_search` の query は具体語で作成してください（記事タイプ/主題/ターゲット/目的/制約）。\n"
-            "`memory_search` の結果では `hits[].meta(title/short_summary)` と `hits[].items(role/content/created_at)` を確認し、必要情報だけ再利用してください。\n"
-            "`memory_search` 実行ログ（query/top_hits/score）はサーバー側で自動保存されます。結果全文を重複保存しないでください。\n"
-            "`memory_append_item` は任意です。次回の品質向上に効くメモがある時だけ短く要約して保存してください（初回要求は user_input、追加回答は qa、事実要点は source、判断メモは system_note/assistant_output）。\n"
-            "完了時の `final_summary` / meta / decision_memo / post_snapshot はサーバー側で自動保存されます。\n"
-            "上記のリクエストに基づいて、WordPressブログ記事を作成してください。\n"
-            "`wp_get_post_types` は未取得の場合のみ実行し、取得済みなら再利用してください。\n"
-            "投稿タイプエラー（`invalid_post_type`）時のみ `wp_get_post_types` を再取得してください。\n"
-            "`wp_create_draft_post` で `post_type` を指定して下書きを保存してください。\n"
-            "完了時のメタ更新はサーバー側で自動実行されます。"
-        )
-
         text_content = "\n".join(parts)
 
         # 画像がない場合は従来通り string を返す
@@ -1063,12 +1048,6 @@ class BlogGenerationService:
                 "（ユーザーは質問をスキップしました。"
                 "リクエスト内容と参考記事の分析結果のみで記事を作成してください。）"
             )
-
-        text_parts.append(
-            "\n上記の情報をもとに、`wp_get_post_types` は未取得の場合のみ実行し、取得済みなら再利用してください。\n"
-            "投稿タイプエラー（`invalid_post_type`）時のみ `wp_get_post_types` を再取得してください。\n"
-            "`wp_create_draft_post` で `post_type` を指定して下書き保存してください。"
-        )
 
         text_content = "\n".join(text_parts)
 

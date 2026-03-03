@@ -57,38 +57,19 @@ def _resolve_process_id_for_memory(
 
     return current_process_id, None
 
-
+# 将来ほかに保存したいものがあればここに追加可能
 @function_tool
 async def memory_append_item(
-    role: Literal["user_input", "qa", "assistant_output", "source", "system_note", "final_summary"],
+    role: Literal["system_note"],
     content: str,
     process_id: Optional[str] = None,
 ) -> str:
-    """Blog Memoryへ、次回の品質向上に効く任意メモを追記します。
+    """Blog Memoryに任意メモを1件追加します（保存は任意）。
 
-    補足:
-    - サーバー側で `user_input` / `qa` / `final_summary` / meta は自動保存されます
-    - 完了時には `decision_memo`（system_note）と `post_snapshot`（assistant_output）も自動保存されます
-    - このツールは自動保存で不足する「追加で残す価値があるメモ」に絞って使ってください
+    自動保存で不足する情報だけを短く保存してください。
+    - `system_noteb : 判断・構成メモ（トンマナやNG表現、必須表現など）
 
-    推奨:
-    - role は次の対応で使い分ける:
-      - user_input: 初回ユーザー要求（記事タイプ/目的/制約/対象読者など）
-      - qa: 追加質問フェーズで得た回答（Q/A）。初回要求とは分けて保存する
-      - source: 検索/参照で得た再利用価値の高い事実要点（URLや根拠の要約）
-      - system_note: 方針・制約・判断ルール・トンマナ指示
-      - assistant_output: 本文方針、構成案、見出し案、下書き要点
-      - final_summary: 完了時の要約（最終成果の要点）
-    - 迷ったら:
-      - ユーザー発話そのものは `user_input` / `qa`
-      - モデルの判断や制作メモは `system_note` / `assistant_output`
-      - 外部情報の要約は `source`
-    - content は 1件1トピックで簡潔に書く（長文全文貼り付けは避ける）
-    - 保存は必須ではなく任意。再利用価値がある時だけ保存する
-
-    戻り値:
-    - 成功時: `{"ok": true, "data": {"memory_item_id": "<uuid>"}}`
-    - 失敗時: `{"ok": false, "error": {"code": "...", "message": "..."}}`
+    戻り値は `ok=true` で `memory_item_id`、失敗時は `ok=false` で `error`。
     """
     resolved_process_id, context_error = _resolve_process_id_for_memory(process_id)
     if context_error:
@@ -131,7 +112,7 @@ async def memory_search(
     """Blog Memoryから類似記事を検索し、関連情報を取得します。
     
     検索対象は `blog_memory_meta` の title/short_summary（埋め込み済みメタ）です。
-    クエリは記事固有の単語や状況を端的に絞って3~5個の単語で行う。少ないほうがより関連性の高い結果が得られやすい。
+    クエリは「短い具体文」または「具体キーワード列」で指定します（抽象語だけは避ける）。
     `score` は cosine distance（小さいほど近い）です。
 
     - `include_roles` で指定できる role:
@@ -142,10 +123,6 @@ async def memory_search(
       - `assistant_output`: 記事方針・構成案・下書き要点
       - `final_summary`: 完了時の要約
       - `tool_result`: ツール実行結果の要約ログ
-
-    注意:
-    - 候補記事の選定自体は meta の埋め込み類似度で行われる
-    - `hits=[]` は「候補記事なし」または「埋め込み未作成」の可能性が高い
     """
     resolved_process_id, context_error = _resolve_process_id_for_memory(process_id)
     if context_error:
