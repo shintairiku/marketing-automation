@@ -375,6 +375,19 @@ export default function Sidebar() {
           )}
         </div>
 
+        {/* 法務リンク */}
+        {effectiveOpen && (
+          <div className="shrink-0 px-5 pb-3 flex items-center gap-2 text-[11px] text-stone-400">
+            <Link href="/legal/terms" className="hover:text-stone-600 transition-colors" target="_blank">
+              利用規約
+            </Link>
+            <span>|</span>
+            <Link href="/legal/privacy" className="hover:text-stone-600 transition-colors" target="_blank">
+              プライバシー
+            </Link>
+          </div>
+        )}
+
       </aside>
     </TooltipProvider>
   );
