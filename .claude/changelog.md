@@ -2,6 +2,27 @@
 
 > 新しい変更はこのファイルに追記する。古い項目は @.claude/changelog-archive.md を参照。
 
+### 51. 利用規約・プライバシーポリシーページ追加 (2026-03-04)
+
+**概要**: SaaSとして必要な法務ページ（利用規約・プライバシーポリシー）を追加。認証不要のパブリックページとして実装。
+
+**新規ファイル**:
+- `frontend/src/app/legal/layout.tsx` — 法務ページ共通レイアウト（ロゴヘッダー、ナビ、フッター、stone-50背景、max-w-3xl）
+- `frontend/src/app/legal/terms/page.tsx` — 利用規約ページ（全17条、Tailwind prose typography）
+- `frontend/src/app/legal/privacy/page.tsx` — プライバシーポリシーページ（全13条、外部サービス連携一覧含む）
+
+**変更ファイル**:
+- `frontend/src/middleware.ts` — `/legal(.*)` をパブリックルートに追加
+- `frontend/src/app/auth/page.tsx` — フッターに利用規約・プライバシーポリシーへのリンク追加
+- `frontend/src/components/display/sidebar.tsx` — アカウントパネル下部に法務リンク追加（展開時のみ表示、target="_blank"）
+
+**設計ポイント**:
+- `/legal/terms` と `/legal/privacy` は認証不要（middleware.ts で `/legal(.*)` をパブリック化）
+- `@tailwindcss/typography` の `prose` クラスで法務文書を読みやすくレンダリング
+- 利用規約の第14条（解約・退会）からプライバシーポリシーへの内部リンク（`/legal/privacy`）
+- SEO対応: `robots: 'index, follow'`、各ページに metadata (title, description) を設定
+- サイドバーの法務リンクは `target="_blank"` で別タブ遷移（アプリの操作を中断しない）
+
 ### 42. ヘッダー削除・Clerkアカウントパネルをサイドバー下部へ移動 (2026-03-03)
 
 **概要**: アプリ全体のヘッダーを廃止し、Clerk の UserButton をサイドバー下部に移動。
