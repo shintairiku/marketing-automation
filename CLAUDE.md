@@ -2093,6 +2093,11 @@ CONTACT_NOTIFICATION_EMAIL=admin@yourdomain.com
   - `memory_search.include_roles` で指定可能な各ロールの定義を追記
   - `user_input/qa/source/system_note/assistant_output/final_summary/tool_result` の意味を検索ツール文脈で明文化
 
+**Memory検索クエリ方針の調整 (2026-03-02)**
+- `backend/app/domains/blog/agents/definitions.py`, `backend/app/domains/blog/agents/tools.py`, `backend/app/domains/blog/services/generation_service.py`
+  - `memory_search` のクエリ説明を「3~5単語」から「短い具体文 or 具体キーワード列」へ変更
+  - 抽象語のみを避ける方針は維持し、埋め込み検索に合う文言へ統一
+
 ### 2026-02-10 自己改善
 - **再検証の重要性**: 実装完了後のユーザー再検証要求で、`useArticles.ts` と `admin/plans/page.tsx` に `USE_PROXY` パターンが欠けているバグを発見した。最初の実装時にサーバーサイドAPI Routes (9ファイル) のみに注力し、クライアントサイドhooksの直接fetch呼び出しを見落としていた。**サーバーサイド→バックエンド通信だけでなく、ブラウザ→バックエンド通信パスも全て確認すべき。**
 - **FastAPI末尾スラッシュ + Cloud Run scheme 変換の複合問題**: `frontend/src/app/api/proxy/[...path]/route.ts` の `ensureTrailingSlash()` が `/blog/sites` を `/blog/sites/` に変換し、FastAPI (`redirect_slashes=True`) が 307 で `/blog/sites` へ戻す。さらに Cloud Run の `Location` が `http://...run.app/...` になり、プロキシがそれを手動追従すると Cloud Run 側で 302/307 が連鎖する。**手動リダイレクト追従を使う場合は、(1) 末尾スラッシュ強制をしない、(2) `Location` が `http://` でも `https://` に正規化する、の両方を実施すべき。**

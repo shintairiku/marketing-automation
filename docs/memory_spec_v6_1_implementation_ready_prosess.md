@@ -172,6 +172,12 @@
   - 仕様との対応: 9.1, 13.1
   - 影響範囲: 検索時のロール選択ミスの低減
   - 検証結果: 変更箇所の静的確認を実施。
+- 2026-03-02 15:45
+  - 対象: `backend/app/domains/blog/agents/definitions.py`, `backend/app/domains/blog/agents/tools.py`, `backend/app/domains/blog/services/generation_service.py`
+  - 実施内容: Memory検索クエリ方針を調整。`3~5単語` 前提を廃止し、「短い具体文 or 具体キーワード列」を推奨する文言へ統一。
+  - 仕様との対応: 9.1, 13.1
+  - 影響範囲: エージェントのクエリ生成方針
+  - 検証結果: `uv run ruff check ...` で `All checks passed`。
 ### ログ追記テンプレート
 - YYYY-MM-DD HH:MM
   - 対象: `path/to/file`

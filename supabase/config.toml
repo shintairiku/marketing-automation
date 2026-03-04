@@ -134,7 +134,7 @@ max_frequency = "5s"
 # domain は Clerk Dashboard > API Keys から取得
 # 例: "your-app-name.clerk.accounts.dev"
 [auth.third_party.clerk]
-enabled = true
+enabled = false
 domain = "env(CLERK_DOMAIN)"
 
 [auth.third_party.firebase]
