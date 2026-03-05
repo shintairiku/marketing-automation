@@ -92,9 +92,11 @@ const CHART_COLORS = [
 ];
 
 const MODEL_PRICING_REF = [
+  { category: 'GPT-5', model: 'gpt-5.4', input: 2.50, cached: 0.25, output: 15.00 },
+  { category: 'GPT-5', model: 'gpt-5.3', input: 1.75, cached: 0.175, output: 14.00 },
+  { category: 'GPT-5', model: 'gpt-5.2', input: 1.75, cached: 0.175, output: 14.00 },
   { category: 'GPT-5', model: 'gpt-5', input: 1.25, cached: 0.125, output: 10.00 },
   { category: 'GPT-5', model: 'gpt-5.1', input: 1.25, cached: 0.125, output: 10.00 },
-  { category: 'GPT-5', model: 'gpt-5.2', input: 1.75, cached: 0.175, output: 14.00 },
   { category: 'GPT-5', model: 'gpt-5-mini', input: 0.25, cached: 0.025, output: 2.00 },
   { category: 'GPT-5', model: 'gpt-5-nano', input: 0.05, cached: 0.005, output: 0.40 },
   { category: 'GPT-4.1', model: 'gpt-4.1', input: 2.00, cached: 0.50, output: 8.00 },
@@ -678,7 +680,7 @@ export default function AdminBlogUsagePage() {
                 </TableBody>
               </Table>
               <p className="text-[11px] text-muted-foreground mt-3">
-                最終更新: 2026-02 — 公式価格は OpenAI / Google AI / Anthropic の各 Pricing ページを参照
+                最終更新: 2026-03 — 公式価格は OpenAI / Google AI / Anthropic の各 Pricing ページを参照
               </p>
             </div>
           </CollapsibleContent>

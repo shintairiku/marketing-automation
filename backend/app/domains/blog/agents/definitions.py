@@ -241,7 +241,7 @@ def build_blog_writer_agent() -> Agent:
     return Agent(
         name="BlogWriter",
         instructions=BLOG_WRITER_INSTRUCTIONS,
-        model=settings.blog_generation_model,  # gpt-5.2
+        model=settings.blog_generation_model,  # gpt-5.4
         model_settings=ModelSettings(
             reasoning=Reasoning(effort=settings.blog_generation_reasoning_effort, summary=settings.blog_generation_reasoning_summary)
         ),

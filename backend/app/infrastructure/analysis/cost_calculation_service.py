@@ -12,9 +12,43 @@ logger = logging.getLogger(__name__)
 class CostCalculationService:
     """OpenAI モデル別コスト計算サービス"""
     
-    # OpenAI 料金表 (2026-02-01 時点)
+    # OpenAI 料金表 (2026-03-05 時点)
     # 価格は1Mトークンあたりの料金 (USD)
     MODEL_PRICING = {
+        # GPT-5.4 (https://developers.openai.com/api/docs/pricing)
+        "gpt-5.4": {
+            "input_tokens": 2.50,
+            "output_tokens": 15.00,
+            "cached_tokens": 0.25,
+            "reasoning_tokens": 0.0,
+            "supports_cache": True,
+            "supports_reasoning": False
+        },
+        "gpt-5.4-pro": {
+            "input_tokens": 30.00,
+            "output_tokens": 180.00,
+            "cached_tokens": 0.0,
+            "reasoning_tokens": 0.0,
+            "supports_cache": False,
+            "supports_reasoning": False
+        },
+        # GPT-5.3 (chat / codex)
+        "gpt-5.3-chat-latest": {
+            "input_tokens": 1.75,
+            "output_tokens": 14.00,
+            "cached_tokens": 0.175,
+            "reasoning_tokens": 0.0,
+            "supports_cache": True,
+            "supports_reasoning": False
+        },
+        "gpt-5.3-codex": {
+            "input_tokens": 1.75,
+            "output_tokens": 14.00,
+            "cached_tokens": 0.175,
+            "reasoning_tokens": 0.0,
+            "supports_cache": True,
+            "supports_reasoning": False
+        },
         # GPT-5 models (OpenAI pricing page)
         "gpt-5": {
             "input_tokens": 1.25,

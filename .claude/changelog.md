@@ -2,6 +2,39 @@
 
 > 新しい変更はこのファイルに追記する。古い項目は @.claude/changelog-archive.md を参照。
 
+### 52. Blog AI GPT-5.4 移行 (2026-03-05)
+
+**概要**: Blog AIのデフォルトモデルをGPT-5.2からGPT-5.4へ移行。1M+トークンコンテキスト、サーバーサイドコンパクション、allowed_tools等の新機能を統合。
+
+**変更ファイル**:
+
+| ファイル | 変更内容 |
+|---------|---------|
+| `backend/app/core/config.py` | デフォルトモデルを `gpt-5.4` に変更、`BLOG_COMPACTION_ENABLED`/`BLOG_COMPACTION_THRESHOLD`/`BLOG_ALLOWED_TOOLS_ENABLED` 設定追加 |
+| `backend/app/domains/blog/services/generation_service.py` | `ModelSettings.extra_body` に `context_management` (compaction) を注入、キャッシュメタデータに compaction 情報追加 |
+| `backend/app/domains/blog/agents/definitions.py` | コメントを gpt-5.4 に更新 |
+| `backend/app/infrastructure/analysis/cost_calculation_service.py` | GPT-5.4/5.4-pro/5.3 の料金エントリ追加 |
+| `frontend/src/app/(admin)/admin/blog-usage/page.tsx` | MODEL_PRICING_REF に GPT-5.4/5.3 追加、最終更新日を 2026-03 に |
+| `backend/.env.example` | `BLOG_GENERATION_MODEL=gpt-5.4`、compaction/allowed_tools 環境変数追加 |
+| `.claude/docs/environment-variables.md` | GPT-5.4 関連環境変数を反映 |
+| `.claude/docs/openai-sdk-knowledge.md` | GPT-5.4 新機能テーブル追加、モデル設定テーブル更新 |
+| `.claude/rules/blog-ai-domain.md` | GPT-5.4 コンテキスト管理セクション追加 |
+
+**GPT-5.4 新機能**:
+- **1M+ トークンコンテキスト**: GPT-5.2の400Kから大幅拡張
+- **サーバーサイドコンパクション**: `context_management=[{"type":"compaction","compact_threshold":400000}]` で自動圧縮。閾値超過時にサーバー側で自動的にコンテキストを圧縮し、tools+instructionsプレフィックスのキャッシュは維持
+- **allowed_tools**: `tool_choice.allowed_tools` でフェーズ別ツール制限（設定のみ、ランタイム実装は将来対応）
+- **料金**: input=$2.50/M, cached=$0.25/M (90%割引), output=$15.00/M
+- **prompt_cache_key**: GPT-5.4でも必須（自動キャッシュなし）
+
+**環境変数** (backend/.env):
+```env
+BLOG_GENERATION_MODEL=gpt-5.4
+BLOG_COMPACTION_ENABLED=true
+BLOG_COMPACTION_THRESHOLD=400000
+BLOG_ALLOWED_TOOLS_ENABLED=true
+```
+
 ### 51. 利用規約・プライバシーポリシーページ追加 (2026-03-04)
 
 **概要**: SaaSとして必要な法務ページ（利用規約・プライバシーポリシー）を追加。認証不要のパブリックページとして実装。

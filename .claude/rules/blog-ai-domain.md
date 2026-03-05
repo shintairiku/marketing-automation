@@ -37,8 +37,15 @@ class BlogCompletionOutput(BaseModel):
 ## Prompt Caching 最適化
 - `prompt_cache_key`: グローバルスコープ (`bai:v1:<model>:g:<hash>`)
 - `prompt_cache_retention='24h'`
-- gpt-5.2 は `prompt_cache_key` 必須 (自動キャッシュされない)
+- gpt-5.4 は `prompt_cache_key` 必須 (自動キャッシュされない)
 - キー上限64文字 → SHA-256ハッシュ方式
+
+## GPT-5.4 コンテキスト管理 (2026-03-05~)
+- **サーバーサイドコンパクション**: `context_management=[{"type":"compaction","compact_threshold":400000}]`
+  - コンテキストが閾値を超えると自動圧縮。暗号化compaction itemが返される
+  - `extra_body` 経由で ModelSettings に注入
+- **1Mトークンコンテキスト**: GPT-5.4で対応 (GPT-5.2は400K)
+- **allowed_tools**: `tool_choice.allowed_tools` でフェーズ別にツール制限可能（将来対応予定）
 
 ## ストリーミングリトライ
 - `httpx.RemoteProtocolError`, `APIConnectionError`, `APITimeoutError` を自動リトライ

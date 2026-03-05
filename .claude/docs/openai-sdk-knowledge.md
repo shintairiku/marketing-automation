@@ -56,6 +56,20 @@ client.responses.create(
 - `nest_handoff_history` デフォルトが `True`→`False` に変更
 - GPT-5.1/5.2 のデフォルト reasoning effort が `'none'` に変更
 
+## GPT-5.4 新機能 (2026-03-05 移行)
+
+| 機能 | 詳細 |
+|------|------|
+| コンテキスト | 1M+ トークン（GPT-5.2の400Kから大幅拡張） |
+| 料金 | input=$2.50/M, cached=$0.25/M (90%割引), output=$15.00/M |
+| コンパクション | `context_management=[{"type":"compaction","compact_threshold":400000}]` でサーバーサイド自動圧縮 |
+| allowed_tools | `tool_choice.allowed_tools` でフェーズ別ツール制限、トークン削減 |
+| ツール検索 | 検索可能ツール定義の遅延ロード（関連定義のみロードしてトークン削減） |
+| reasoning effort | none(デフォルト), low, medium, high, xhigh |
+| verbosity | text.verbosity: low/medium/high で出力長制御 |
+| `prompt_cache_key` | GPT-5.4でも必須（自動キャッシュなし） |
+| コンパクションとキャッシュ | compaction後もtools+instructionsプレフィックスはキャッシュ対象 |
+
 ## AI Models Configuration
 | 用途 | 環境変数 | デフォルト値 |
 |------|---------|------------|
@@ -67,6 +81,6 @@ client.responses.create(
 | Agents SDK | `MODEL_FOR_AGENTS` | gpt-4o-mini |
 | AI記事編集 | `ARTICLE_EDIT_AGENT_MODEL` | gpt-5-mini |
 | AIコンテンツ生成 | `AI_CONTENT_GENERATION_MODEL` | gpt-5-mini |
-| ブログ生成 | `BLOG_GENERATION_MODEL` | gpt-5.2 |
+| ブログ生成 | `BLOG_GENERATION_MODEL` | gpt-5.4 |
 | 画像生成 | `IMAGEN_MODEL_NAME` | imagen-4.0-generate-preview-06-06 |
 | 翻訳 | `reasoning_translate_model` | gpt-5-nano |

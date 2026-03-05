@@ -99,7 +99,7 @@ class Settings(BaseSettings):
     )
 
     # Blog AI設定
-    blog_generation_model: str = Field(default_factory=lambda: os.getenv("BLOG_GENERATION_MODEL", "gpt-5.2"))
+    blog_generation_model: str = Field(default_factory=lambda: os.getenv("BLOG_GENERATION_MODEL", "gpt-5.4"))
     blog_generation_reasoning_effort: str = Field(default_factory=lambda: os.getenv("BLOG_GENERATION_REASONING_EFFORT", "medium"))
     blog_generation_reasoning_summary: str = Field(default_factory=lambda: os.getenv("BLOG_GENERATION_REASONING_SUMMARY", "detailed"))
     blog_generation_max_turns: int = Field(default_factory=lambda: int(os.getenv("BLOG_GENERATION_MAX_TURNS", "100")))
@@ -108,6 +108,14 @@ class Settings(BaseSettings):
     blog_prompt_cache_scope: str = Field(default_factory=lambda: os.getenv("BLOG_PROMPT_CACHE_SCOPE", "global"))
     blog_prompt_cache_key_version: str = Field(default_factory=lambda: os.getenv("BLOG_PROMPT_CACHE_KEY_VERSION", "v1"))
     blog_prompt_cache_retention_24h: bool = Field(default_factory=lambda: os.getenv("BLOG_PROMPT_CACHE_RETENTION_24H", "true").lower() == "true")
+
+    # GPT-5.4 Compaction (サーバーサイドコンテキスト圧縮)
+    blog_compaction_enabled: bool = Field(default_factory=lambda: os.getenv("BLOG_COMPACTION_ENABLED", "true").lower() == "true")
+    blog_compaction_threshold: int = Field(default_factory=lambda: int(os.getenv("BLOG_COMPACTION_THRESHOLD", "400000")))
+
+    # GPT-5.4 allowed_tools (フェーズ別ツール制限でトークン節約)
+    blog_allowed_tools_enabled: bool = Field(default_factory=lambda: os.getenv("BLOG_ALLOWED_TOOLS_ENABLED", "true").lower() == "true")
+
     credential_encryption_key: str = Field(default_factory=lambda: os.getenv("CREDENTIAL_ENCRYPTION_KEY", ""))
 
     # SMTP / Contact notification settings

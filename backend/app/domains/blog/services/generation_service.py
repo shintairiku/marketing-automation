@@ -221,13 +221,23 @@ class BlogGenerationService:
         process_id: str,
         site_id: Optional[str],
     ) -> ModelSettings:
-        """RunConfigに注入するモデル設定を構築（キャッシュ/並列ツール）。"""
+        """RunConfigに注入するモデル設定を構築（キャッシュ/並列ツール/コンパクション）。"""
         extra_body: Dict[str, Any] = {}
         if settings.blog_prompt_cache_enabled:
             extra_body["prompt_cache_key"] = self._build_prompt_cache_key(
                 process_id=process_id,
                 site_id=site_id,
             )
+
+        # GPT-5.4 サーバーサイドコンパクション
+        # コンテキストが compact_threshold トークンを超えると自動的に圧縮される
+        if settings.blog_compaction_enabled:
+            extra_body["context_management"] = [
+                {
+                    "type": "compaction",
+                    "compact_threshold": settings.blog_compaction_threshold,
+                }
+            ]
 
         prompt_cache_retention: Optional[str] = (
             "24h" if settings.blog_prompt_cache_retention_24h else None
@@ -268,8 +278,10 @@ class BlogGenerationService:
         model_settings = getattr(run_config, "model_settings", None)
         extra_body = getattr(model_settings, "extra_body", None) if model_settings else None
         prompt_cache_key = None
+        context_management = None
         if isinstance(extra_body, dict):
             prompt_cache_key = extra_body.get("prompt_cache_key")
+            context_management = extra_body.get("context_management")
         return {
             "prompt_cache_key": prompt_cache_key,
             "prompt_cache_retention": getattr(
@@ -280,6 +292,7 @@ class BlogGenerationService:
             "parallel_tool_calls": getattr(model_settings, "parallel_tool_calls", None)
             if model_settings
             else None,
+            "context_management": context_management,
         }
 
     # ===========================================================
