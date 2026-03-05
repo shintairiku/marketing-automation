@@ -45,7 +45,9 @@ class BlogCompletionOutput(BaseModel):
   - コンテキストが閾値を超えると自動圧縮。暗号化compaction itemが返される
   - `extra_body` 経由で ModelSettings に注入
 - **1Mトークンコンテキスト**: GPT-5.4で対応 (GPT-5.2は400K)
-- **allowed_tools**: `tool_choice.allowed_tools` でフェーズ別にツール制限可能（将来対応予定）
+- **長文料金**: 入力272K超で2倍料金（$5.00/M input, $0.50/M cached）
+- **allowed_tools**: `tool_choice={"type":"allowed_tools",...}` でフェーズ別ツール制限可能（将来対応予定）
+- **ツール検索**: API レベルでは `{"type":"tool_search"}` + `defer_loading=True` で47%トークン削減。**openai-agents SDK v0.10.4 では未対応**（Tool union に含まれない）。SDK アップデート待ち
 
 ## ストリーミングリトライ
 - `httpx.RemoteProtocolError`, `APIConnectionError`, `APITimeoutError` を自動リトライ

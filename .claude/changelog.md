@@ -2,6 +2,32 @@
 
 > 新しい変更はこのファイルに追記する。古い項目は @.claude/changelog-archive.md を参照。
 
+### 53. OpenAI SDK v2.25.0 + Agents SDK v0.10.4 アップグレード (2026-03-05)
+
+**概要**: GPT-5.4移行に合わせてSDKを最新版にアップグレード。Tool Search API の調査を実施し、Agents SDK の制限事項を文書化。
+
+**変更ファイル**:
+
+| ファイル | 変更内容 |
+|---------|---------|
+| `backend/pyproject.toml` | `openai` 2.16.0→2.25.0, `openai-agents` 0.7.0→0.10.4 |
+| `backend/uv.lock` | 依存関係ロックファイル更新 |
+| `.claude/docs/openai-sdk-knowledge.md` | agents v0.10.4 注意点、Tool Search API 詳細、SDK制限事項を追加 |
+| `.claude/rules/blog-ai-domain.md` | ツール検索のSDK制限事項を追記 |
+
+**SDK アップグレード内容**:
+- **openai v2.25.0**: GPT-5.4 API サポート、`context_management` パラメータ、ToolSearchToolParam/NamespaceToolParam/FunctionToolParam.defer_loading 型追加
+- **openai-agents v0.10.4**: WebSocket トランスポート、ModelSettings.verbosity、HostedMCPTool/ShellTool/ImageGenerationTool/CodeInterpreterTool 追加
+
+**Tool Search 調査結果**:
+- API レベル（openai SDK）: `{"type":"tool_search"}` + `defer_loading=True` で47%トークン削減。v2.25.0 で型定義あり
+- Agents SDK レベル: **v0.10.4 では未対応**
+  - `Tool` union に ToolSearchTool/NamespaceTool が含まれない
+  - `FunctionTool` dataclass に `defer_loading` フィールドなし
+  - `_convert_tool()` が `defer_loading` を出力しない
+  - `extra_body` 経由では `tools` キーが SDK 自身の tools と競合するため注入不可
+- **結論**: Agents SDK のアップデートを待つ必要あり。現行の22ツール構成は compaction + prompt caching で十分カバー
+
 ### 52. Blog AI GPT-5.4 移行 (2026-03-05)
 
 **概要**: Blog AIのデフォルトモデルをGPT-5.2からGPT-5.4へ移行。1M+トークンコンテキスト、サーバーサイドコンパクション、allowed_tools等の新機能を統合。
@@ -25,6 +51,7 @@
 - **サーバーサイドコンパクション**: `context_management=[{"type":"compaction","compact_threshold":400000}]` で自動圧縮。閾値超過時にサーバー側で自動的にコンテキストを圧縮し、tools+instructionsプレフィックスのキャッシュは維持
 - **allowed_tools**: `tool_choice.allowed_tools` でフェーズ別ツール制限（設定のみ、ランタイム実装は将来対応）
 - **料金**: input=$2.50/M, cached=$0.25/M (90%割引), output=$15.00/M
+- **長文料金**: 入力272K超で2倍（input=$5.00/M, cached=$0.50/M）
 - **prompt_cache_key**: GPT-5.4でも必須（自動キャッシュなし）
 
 **環境変数** (backend/.env):
