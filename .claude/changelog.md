@@ -2,15 +2,15 @@
 
 > 新しい変更はこのファイルに追記する。古い項目は @.claude/changelog-archive.md を参照。
 
-### 53. OpenAI SDK v2.25.0 + Agents SDK v0.10.4 アップグレード (2026-03-05)
+### 53. OpenAI SDK v2.25.0 + Agents SDK v0.10.5 アップグレード (2026-03-06)
 
-**概要**: GPT-5.4移行に合わせてSDKを最新版にアップグレード。Tool Search API の調査を実施し、Agents SDK の制限事項を文書化。
+**概要**: GPT-5.4移行に合わせてSDKを最新版にアップグレード。Tool Search API の調査を実施し、Agents SDK の制限事項を文書化。v0.10.5 で MCP エラーハンドリング改善。
 
 **変更ファイル**:
 
 | ファイル | 変更内容 |
 |---------|---------|
-| `backend/pyproject.toml` | `openai` 2.16.0→2.25.0, `openai-agents` 0.7.0→0.10.4 |
+| `backend/pyproject.toml` | `openai` 2.16.0→2.25.0, `openai-agents` 0.7.0→0.10.5 |
 | `backend/uv.lock` | 依存関係ロックファイル更新 |
 | `.claude/docs/openai-sdk-knowledge.md` | agents v0.10.4 注意点、Tool Search API 詳細、SDK制限事項を追加 |
 | `.claude/rules/blog-ai-domain.md` | ツール検索のSDK制限事項を追記 |

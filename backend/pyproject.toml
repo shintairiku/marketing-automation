@@ -8,7 +8,7 @@ dependencies = [
     "fastapi",
     "uvicorn[standard]",
     "openai>=2.25.0",
-    "openai-agents>=0.10.4",
+    "openai-agents>=0.10.5",
     "python-dotenv",
     "rich",
     "sse-starlette",

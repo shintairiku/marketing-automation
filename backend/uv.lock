@@ -1352,7 +1352,7 @@ wheels = [
 
 [[package]]
 name = "openai-agents"
-version = "0.10.4"
+version = "0.10.5"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "griffe" },
@@ -1363,9 +1363,9 @@ dependencies = [
     { name = "types-requests" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/76/d1/38a8c0ee294b862f5d96df40976a0252d07a4b4d0a6ec5dc193c05b68dc7/openai_agents-0.10.4.tar.gz", hash = "sha256:32259275b6d42d50e35e29439d35bd8fd0946c9e78bb9f14fe05f019fddb7ea9", size = 2477179, upload-time = "2026-03-03T21:20:29.39Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/10/38/f47644c5de02f1853483d1a16d1fb7d12cc2c219c5548ec26a3e9aee1c29/openai_agents-0.10.5.tar.gz", hash = "sha256:73cef5263eeb98437b874b29c800694617af7d9626be19514b4ed6f434874c1e", size = 2511640, upload-time = "2026-03-05T20:43:59.308Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/b0/ea/32d22f8cff78532816d0d6086c0cb3cdc74b13c8717fcf7f79cdf1cd74c3/openai_agents-0.10.4-py3-none-any.whl", hash = "sha256:95a781428fe50eb30823a25dbf169ec95750407cf649c075d9ee0c2fc4f1ba73", size = 411399, upload-time = "2026-03-03T21:20:27.217Z" },
+    { url = "https://files.pythonhosted.org/packages/e2/07/ad27018fb42d6f1e70f471a5ca3f6398a2159575b623edf86e1ddde66ce4/openai_agents-0.10.5-py3-none-any.whl", hash = "sha256:6c92491c61ba85b4790d76562b4af2e6e230c8844f9c12fed8a721400a320c86", size = 413046, upload-time = "2026-03-05T20:43:57.874Z" },
 ]
 
 [[package]]
@@ -2214,7 +2214,7 @@ requires-dist = [
     { name = "httpx" },
     { name = "numpy" },
     { name = "openai", specifier = ">=2.25.0" },
-    { name = "openai-agents", specifier = ">=0.10.4" },
+    { name = "openai-agents", specifier = ">=0.10.5" },
     { name = "pillow" },
     { name = "psycopg2-binary" },
     { name = "pydantic", extras = ["email"] },

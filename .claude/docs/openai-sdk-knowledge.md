@@ -1,6 +1,6 @@
 # OpenAI Responses API / SDK 知見
 
-> **情報ソース**: openai SDK v2.25.0, openai-agents v0.10.4, 実機テスト 2026-02-02
+> **情報ソース**: openai SDK v2.25.0, openai-agents v0.10.5, 実機テスト 2026-02-02
 
 ## SDK 型定義の確認方法
 ```bash
@@ -59,8 +59,9 @@ client.responses.create(
 - v0.10.4: WebSocket トランスポートサポート追加
 - v0.10.4: HostedMCPTool, ShellTool, ApplyPatchTool, ImageGenerationTool, CodeInterpreterTool 追加
 - v0.10.4: `ModelSettings.verbosity` フィールド追加（`Literal['low', 'medium', 'high'] | None`）
-- v0.10.4: **Tool Search/Namespace 未対応** — `Tool` union に ToolSearchTool/NamespaceTool がない
-- v0.10.4: `FunctionTool` に `defer_loading` フィールドなし、`_convert_tool()` も未対応
+- v0.10.5: MultiProvider prefix modes、MCP エラーをクラッシュではなく構造化エラー結果として返すように改善
+- v0.10.5: **Tool Search/Namespace は依然未対応** — `Tool` union に ToolSearchTool/NamespaceTool がない
+- v0.10.5: `FunctionTool` に `defer_loading` フィールドなし、`_convert_tool()` も未対応
 
 ## GPT-5.4 新機能 (2026-03-05 移行)
 
