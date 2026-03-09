@@ -52,7 +52,7 @@ client.responses.create(
 - `ToolCallOutputItem.raw_item` が dict の場合があり `getattr` ではなく dict アクセスが必要
 - `to_input_list()` は元入力 + 新規アイテム。`previous_response_id` 運用時は履歴マージ必要
 
-## openai-agents v0.10.4 注意点
+## openai-agents v0.10.4/v0.10.5 注意点
 - v0.7.0: `nest_handoff_history` デフォルトが `True`→`False` に変更
 - v0.7.0: GPT-5.1/5.2 のデフォルト reasoning effort が `'none'` に変更
 - v0.10.4: Python 3.9 サポート終了（3.10+ 必須）
@@ -60,8 +60,28 @@ client.responses.create(
 - v0.10.4: HostedMCPTool, ShellTool, ApplyPatchTool, ImageGenerationTool, CodeInterpreterTool 追加
 - v0.10.4: `ModelSettings.verbosity` フィールド追加（`Literal['low', 'medium', 'high'] | None`）
 - v0.10.5: MultiProvider prefix modes、MCP エラーをクラッシュではなく構造化エラー結果として返すように改善
+- v0.10.5: `ToolOutputTrimmer` 追加（`agents.extensions`）— 古いターンの大きなツール出力を自動トリミング
+- v0.10.5: `FunctionTool` にタイムアウト設定 (`timeout_seconds`, `timeout_behavior`) 追加
+- v0.10.5: トレースメタデータをスパンに伝搬するよう修正
 - v0.10.5: **Tool Search/Namespace は依然未対応** — `Tool` union に ToolSearchTool/NamespaceTool がない
 - v0.10.5: `FunctionTool` に `defer_loading` フィールドなし、`_convert_tool()` も未対応
+
+## ToolOutputTrimmer（v0.10.5 新機能）
+```python
+from agents.extensions import ToolOutputTrimmer
+from agents import RunConfig
+
+trimmer = ToolOutputTrimmer(
+    recent_turns=2,        # 直近2ターンは対象外
+    max_output_chars=800,  # 800文字超のツール出力をトリミング
+    preview_chars=300,     # 先頭300文字をプレビューとして残す
+)
+run_config = RunConfig(call_model_input_filter=trimmer)
+```
+- `CallModelInputFilter` プロトコルを実装。`RunConfig.call_model_input_filter` に渡す
+- 古いターンの `function_call_output` を `[Trimmed: tool_name output — N chars → M char preview]` に置換
+- 元データは変更しない（shallow copy）
+- Blog AI で WordPress ツール出力（数千文字）のトークン削減に有効
 
 ## GPT-5.4 新機能 (2026-03-05 移行)
 

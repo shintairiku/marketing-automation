@@ -2,9 +2,9 @@
 
 > 新しい変更はこのファイルに追記する。古い項目は @.claude/changelog-archive.md を参照。
 
-### 53. OpenAI SDK v2.25.0 + Agents SDK v0.10.5 アップグレード (2026-03-06)
+### 53. OpenAI SDK v2.25.0 + Agents SDK v0.10.5 アップグレード (2026-03-09)
 
-**概要**: GPT-5.4移行に合わせてSDKを最新版にアップグレード。Tool Search API の調査を実施し、Agents SDK の制限事項を文書化。v0.10.5 で MCP エラーハンドリング改善。
+**概要**: GPT-5.4移行に合わせてSDKを最新版にアップグレード。Tool Search API の調査を実施し、Agents SDK の制限事項を文書化。v0.10.5 の `ToolOutputTrimmer` を Blog AI に統合。
 
 **変更ファイル**:
 
@@ -12,21 +12,28 @@
 |---------|---------|
 | `backend/pyproject.toml` | `openai` 2.16.0→2.25.0, `openai-agents` 0.7.0→0.10.5 |
 | `backend/uv.lock` | 依存関係ロックファイル更新 |
-| `.claude/docs/openai-sdk-knowledge.md` | agents v0.10.4 注意点、Tool Search API 詳細、SDK制限事項を追加 |
+| `backend/app/domains/blog/services/generation_service.py` | `ToolOutputTrimmer` を `RunConfig.call_model_input_filter` に統合 |
+| `.claude/docs/openai-sdk-knowledge.md` | agents v0.10.5 注意点、ToolOutputTrimmer、Tool Search API 詳細、SDK制限事項を追加 |
 | `.claude/rules/blog-ai-domain.md` | ツール検索のSDK制限事項を追記 |
 
 **SDK アップグレード内容**:
 - **openai v2.25.0**: GPT-5.4 API サポート、`context_management` パラメータ、ToolSearchToolParam/NamespaceToolParam/FunctionToolParam.defer_loading 型追加
-- **openai-agents v0.10.4**: WebSocket トランスポート、ModelSettings.verbosity、HostedMCPTool/ShellTool/ImageGenerationTool/CodeInterpreterTool 追加
+- **openai-agents v0.10.5**: ToolOutputTrimmer、FunctionToolタイムアウト設定、MCP エラーハンドリング改善、トレースメタデータ伝搬修正
+
+**ToolOutputTrimmer 統合**:
+- `agents.extensions.ToolOutputTrimmer` を `_build_blog_run_config()` に追加
+- 古いターン（直近2ターン以前）の800文字超のツール出力を300文字プレビューに自動圧縮
+- WordPress MCP ツール出力（数千文字）のトークン削減に有効
+- `RunConfig.call_model_input_filter` に渡すことでモデル呼び出し前に自動適用
 
 **Tool Search 調査結果**:
 - API レベル（openai SDK）: `{"type":"tool_search"}` + `defer_loading=True` で47%トークン削減。v2.25.0 で型定義あり
-- Agents SDK レベル: **v0.10.4 では未対応**
+- Agents SDK レベル: **v0.10.5 でも未対応**
   - `Tool` union に ToolSearchTool/NamespaceTool が含まれない
   - `FunctionTool` dataclass に `defer_loading` フィールドなし
   - `_convert_tool()` が `defer_loading` を出力しない
   - `extra_body` 経由では `tools` キーが SDK 自身の tools と競合するため注入不可
-- **結論**: Agents SDK のアップデートを待つ必要あり。現行の22ツール構成は compaction + prompt caching で十分カバー
+- **結論**: Agents SDK のアップデートを待つ必要あり。現行の22ツール構成は compaction + prompt caching + ToolOutputTrimmer で十分カバー
 
 ### 52. Blog AI GPT-5.4 移行 (2026-03-05)
 

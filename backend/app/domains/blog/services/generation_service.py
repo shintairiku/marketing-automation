@@ -17,6 +17,7 @@ from typing import Any, Dict, List, Optional
 import httpx
 
 from agents import ModelSettings, Runner, RunConfig
+from agents.extensions import ToolOutputTrimmer
 from agents.stream_events import (
     AgentUpdatedStreamEvent,
     RawResponsesStreamEvent,
@@ -261,6 +262,14 @@ class BlogGenerationService:
             process_id=process_id,
             site_id=site_id,
         )
+        # ToolOutputTrimmer: 古いターンの大きなツール出力をプレビューに圧縮
+        # WordPress MCP ツール出力は数千文字になるため、トークン削減に有効
+        tool_output_trimmer = ToolOutputTrimmer(
+            recent_turns=2,
+            max_output_chars=800,
+            preview_chars=300,
+        )
+
         return RunConfig(
             group_id=process_id,
             workflow_name=workflow_name,
@@ -271,6 +280,7 @@ class BlogGenerationService:
                 "is_continuation": str(is_continuation).lower(),
             },
             model_settings=model_settings,
+            call_model_input_filter=tool_output_trimmer,
         )
 
     @staticmethod
