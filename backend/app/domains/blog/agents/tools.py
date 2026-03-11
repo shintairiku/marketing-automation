@@ -10,7 +10,8 @@ import json
 import logging
 from typing import Any, Dict, List, Literal, Optional
 
-from agents import function_tool, WebSearchTool
+from agents import function_tool, WebSearchTool, ToolSearchTool
+from agents.tool import tool_namespace
 
 from app.domains.blog.services.wordpress_mcp_service import (
     call_wordpress_mcp_tool,
@@ -101,7 +102,7 @@ async def ask_user_questions(
 
 # ========== 記事取得系ツール ==========
 
-@function_tool
+@function_tool(defer_loading=True)
 async def wp_get_posts_by_category(
     category_id: int,
     limit: Optional[int] = None,
@@ -126,7 +127,7 @@ async def wp_get_posts_by_category(
     return await call_wordpress_mcp_tool("wp-mcp-get-posts-by-category", args)
 
 
-@function_tool
+@function_tool(defer_loading=True)
 async def wp_get_post_block_structure(
     post_id: int,
     compact: Optional[bool] = True,
@@ -165,7 +166,7 @@ async def wp_get_post_block_structure(
     )
 
 
-@function_tool
+@function_tool(defer_loading=True)
 async def wp_get_post_raw_content(
     post_id: int,
     include_rendered: Optional[bool] = False,
@@ -199,7 +200,7 @@ async def wp_get_post_raw_content(
     return _dump_compact_json(compact_payload)
 
 
-@function_tool
+@function_tool(defer_loading=True)
 async def wp_get_recent_posts(
     limit: Optional[int] = None,
     post_type: Optional[str] = None,
@@ -218,7 +219,7 @@ async def wp_get_recent_posts(
     return await call_wordpress_mcp_tool("wp-mcp-get-recent-posts", args)
 
 
-@function_tool
+@function_tool(defer_loading=True)
 async def wp_get_post_by_url(url: str) -> str:
     """URLから記事を取得します。
 
@@ -228,7 +229,7 @@ async def wp_get_post_by_url(url: str) -> str:
     return await call_wordpress_mcp_tool("wp-mcp-get-post-by-url", {"url": url})
 
 
-@function_tool
+@function_tool(defer_loading=True)
 async def wp_analyze_category_format_patterns(
     category_id: int,
     sample_count: Optional[int] = None,
@@ -247,7 +248,7 @@ async def wp_analyze_category_format_patterns(
 
 # ========== ブロック・テーマ系ツール ==========
 
-@function_tool
+@function_tool(defer_loading=True)
 async def wp_extract_used_blocks(
     post_type: Optional[str] = None,
     limit: Optional[int] = None,
@@ -266,13 +267,13 @@ async def wp_extract_used_blocks(
     return await call_wordpress_mcp_tool("wp-mcp-extract-used-blocks", args)
 
 
-@function_tool
+@function_tool(defer_loading=True)
 async def wp_get_theme_styles() -> str:
     """テーマのグローバルスタイル設定を取得します。"""
     return await call_wordpress_mcp_tool("wp-mcp-get-theme-styles", {})
 
 
-@function_tool
+@function_tool(defer_loading=True)
 async def wp_get_block_patterns(category: Optional[str] = None) -> str:
     """登録済みのブロックパターン一覧を取得します。
 
@@ -285,7 +286,7 @@ async def wp_get_block_patterns(category: Optional[str] = None) -> str:
     return await call_wordpress_mcp_tool("wp-mcp-get-block-patterns", args)
 
 
-@function_tool
+@function_tool(defer_loading=True)
 async def wp_get_reusable_blocks(per_page: Optional[int] = None) -> str:
     """再利用ブロック一覧を取得します。
 
@@ -300,7 +301,7 @@ async def wp_get_reusable_blocks(per_page: Optional[int] = None) -> str:
 
 # ========== 記事作成・更新系ツール ==========
 
-@function_tool
+@function_tool(defer_loading=True)
 async def wp_create_draft_post(
     title: str,
     content: str,
@@ -357,7 +358,7 @@ async def wp_create_draft_post(
         raise
 
 
-@function_tool
+@function_tool(defer_loading=True)
 async def wp_update_post_content(
     post_id: int,
     content: str,
@@ -376,7 +377,7 @@ async def wp_update_post_content(
     return await call_wordpress_mcp_tool("wp-mcp-update-post-content", args)
 
 
-@function_tool
+@function_tool(defer_loading=True)
 async def wp_update_post_meta(
     post_id: int,
     meta_key: str,
@@ -398,7 +399,7 @@ async def wp_update_post_meta(
 
 # ========== メディア系ツール ==========
 
-@function_tool
+@function_tool(defer_loading=True)
 async def wp_get_media_library(
     search: Optional[str] = None,
     mime_type: Optional[str] = None,
@@ -421,7 +422,7 @@ async def wp_get_media_library(
     return await call_wordpress_mcp_tool("wp-mcp-get-media-library", args)
 
 
-@function_tool
+@function_tool(defer_loading=True)
 async def wp_upload_media(
     source: str,
     filename: str,
@@ -448,7 +449,7 @@ async def wp_upload_media(
     return await call_wordpress_mcp_tool("wp-mcp-upload-media", args, timeout=MCP_LONG_TIMEOUT)
 
 
-@function_tool
+@function_tool(defer_loading=True)
 async def wp_set_featured_image(post_id: int, media_id: int) -> str:
     """記事のアイキャッチ画像を設定します。
 
@@ -464,7 +465,7 @@ async def wp_set_featured_image(post_id: int, media_id: int) -> str:
 
 # ========== タクソノミー・サイト情報系ツール ==========
 
-@function_tool
+@function_tool(defer_loading=True)
 async def wp_get_categories(
     parent: Optional[int] = None,
     hide_empty: Optional[bool] = None,
@@ -483,7 +484,7 @@ async def wp_get_categories(
     return await call_wordpress_mcp_tool("wp-mcp-get-categories", args)
 
 
-@function_tool
+@function_tool(defer_loading=True)
 async def wp_get_tags(
     search: Optional[str] = None,
     per_page: Optional[int] = None,
@@ -502,7 +503,7 @@ async def wp_get_tags(
     return await call_wordpress_mcp_tool("wp-mcp-get-tags", args)
 
 
-@function_tool
+@function_tool(defer_loading=True)
 async def wp_create_term(
     taxonomy: Literal["category", "post_tag"],
     name: str,
@@ -525,13 +526,13 @@ async def wp_create_term(
     return await call_wordpress_mcp_tool("wp-mcp-create-term", args)
 
 
-@function_tool
+@function_tool(defer_loading=True)
 async def wp_get_site_info() -> str:
     """サイトの基本情報を取得します。"""
     return await call_wordpress_mcp_tool("wp-mcp-get-site-info", {})
 
 
-@function_tool
+@function_tool(defer_loading=True)
 async def wp_get_post_types(public_only: Optional[bool] = None) -> str:
     """利用可能な投稿タイプ一覧を取得します。
 
@@ -544,7 +545,7 @@ async def wp_get_post_types(public_only: Optional[bool] = None) -> str:
     return await call_wordpress_mcp_tool("wp-mcp-get-post-types", args)
 
 
-@function_tool
+@function_tool(defer_loading=True)
 async def wp_get_article_regulations(category_id: Optional[int] = None) -> str:
     """カテゴリ別のレギュレーション設定を取得します。
 
@@ -559,7 +560,7 @@ async def wp_get_article_regulations(category_id: Optional[int] = None) -> str:
 
 # ========== ユーザー画像 WordPress アップロードツール ==========
 
-@function_tool
+@function_tool(defer_loading=True)
 async def upload_user_image_to_wordpress(
     image_index: int,
     alt: str,
@@ -706,40 +707,86 @@ web_search_tool = WebSearchTool(
 )
 
 
+# ========== ツール検索 ==========
+
+tool_search = ToolSearchTool()
+
+# ========== Namespace グループ化 ==========
+# tool_namespace() で論理グループにまとめ、ToolSearchTool と defer_loading で
+# 必要なツールのみロードしてトークンを削減（最大47%）
+
+_ns_content_read = tool_namespace(
+    name="wp_content_read",
+    description="WordPress記事の取得・分析（一覧、ブロック構造、生コンテンツ、URL検索、フォーマット分析）",
+    tools=[
+        wp_get_posts_by_category,
+        wp_get_post_block_structure,
+        wp_get_post_raw_content,
+        wp_get_recent_posts,
+        wp_get_post_by_url,
+        wp_analyze_category_format_patterns,
+    ],
+)
+
+_ns_theme_blocks = tool_namespace(
+    name="wp_theme_blocks",
+    description="WordPressテーマ・ブロック情報（使用ブロック、テーマスタイル、パターン、再利用ブロック）",
+    tools=[
+        wp_extract_used_blocks,
+        wp_get_theme_styles,
+        wp_get_block_patterns,
+        wp_get_reusable_blocks,
+    ],
+)
+
+_ns_content_write = tool_namespace(
+    name="wp_content_write",
+    description="WordPress記事の作成・更新（下書き作成、コンテンツ更新、メタ情報更新）",
+    tools=[
+        wp_create_draft_post,
+        wp_update_post_content,
+        wp_update_post_meta,
+    ],
+)
+
+_ns_media = tool_namespace(
+    name="wp_media",
+    description="WordPressメディア管理（ライブラリ検索、アップロード、アイキャッチ設定、ユーザー画像アップロード）",
+    tools=[
+        wp_get_media_library,
+        wp_upload_media,
+        wp_set_featured_image,
+        upload_user_image_to_wordpress,
+    ],
+)
+
+_ns_taxonomy = tool_namespace(
+    name="wp_taxonomy_site",
+    description="WordPressタクソノミー・サイト情報（カテゴリ、タグ、投稿タイプ、サイト情報、レギュレーション）",
+    tools=[
+        wp_get_categories,
+        wp_get_tags,
+        wp_create_term,
+        wp_get_site_info,
+        wp_get_post_types,
+        wp_get_article_regulations,
+    ],
+)
+
+
 # ========== 全ツールをエクスポート ==========
 
 ALL_WORDPRESS_TOOLS = [
-    # Web検索
+    # ツール検索（モデルが必要なツールを自動選択）
+    tool_search,
+    # Web検索（常時ロード）
     web_search_tool,
-    # ユーザー対話系
+    # ユーザー対話（常時ロード、defer_loading なし）
     ask_user_questions,
-    # 記事取得系
-    wp_get_posts_by_category,
-    wp_get_post_block_structure,
-    wp_get_post_raw_content,
-    wp_get_recent_posts,
-    wp_get_post_by_url,
-    wp_analyze_category_format_patterns,
-    # ブロック・テーマ系
-    wp_extract_used_blocks,
-    wp_get_theme_styles,
-    wp_get_block_patterns,
-    wp_get_reusable_blocks,
-    # 記事作成・更新系
-    wp_create_draft_post,
-    wp_update_post_content,
-    wp_update_post_meta,
-    # メディア系
-    wp_get_media_library,
-    wp_upload_media,
-    wp_set_featured_image,
-    # ユーザー画像アップロード
-    upload_user_image_to_wordpress,
-    # タクソノミー・サイト情報系
-    wp_get_categories,
-    wp_get_tags,
-    wp_create_term,
-    wp_get_site_info,
-    wp_get_post_types,
-    wp_get_article_regulations,
+    # WordPress ツール（namespace グループ化 + defer_loading）
+    *_ns_content_read,
+    *_ns_theme_blocks,
+    *_ns_content_write,
+    *_ns_media,
+    *_ns_taxonomy,
 ]

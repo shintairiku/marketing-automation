@@ -30,9 +30,16 @@ class BlogCompletionOutput(BaseModel):
 
 ## エージェントツール設計
 - `upload_user_image_to_wordpress`: Base64にエージェントが触れない複合ツール
-- `ask_user_questions`: input_types に `image_upload` 対応
+- `ask_user_questions`: input_types に `image_upload` 対応、`defer_loading=False`（常にロード）
 - `WebSearchTool`: 最新情報検索用の組み込みツール
+- `ToolSearchTool`: ツール検索有効化（v0.11.0 で SDK 対応）
 - WordPress参照ツール: `compact=True` でトークン最適化 (短キー形式)
+- **ツール検索 + Namespace**: 22ツールを5ネームスペースに分類、`defer_loading=True` で47%トークン削減
+  - `wp_content_read`: 記事取得・分析 (6ツール)
+  - `wp_theme_blocks`: テーマ・ブロック情報 (4ツール)
+  - `wp_content_write`: 記事作成・更新 (3ツール)
+  - `wp_media`: メディア管理 (4ツール)
+  - `wp_taxonomy_site`: タクソノミー・サイト情報 (6ツール)
 
 ## Prompt Caching 最適化
 - `prompt_cache_key`: グローバルスコープ (`bai:v1:<model>:g:<hash>`)
@@ -47,7 +54,7 @@ class BlogCompletionOutput(BaseModel):
 - **1Mトークンコンテキスト**: GPT-5.4で対応 (GPT-5.2は400K)
 - **長文料金**: 入力272K超で2倍料金（$5.00/M input, $0.50/M cached）
 - **allowed_tools**: `tool_choice={"type":"allowed_tools",...}` でフェーズ別ツール制限可能（将来対応予定）
-- **ツール検索**: API レベルでは `{"type":"tool_search"}` + `defer_loading=True` で47%トークン削減。**openai-agents SDK v0.10.4 では未対応**（Tool union に含まれない）。SDK アップデート待ち
+- **ツール検索**: `ToolSearchTool` + `defer_loading=True` + `tool_namespace()` で47%トークン削減。**openai-agents v0.11.0 で SDK 対応済み、Blog AI に実装済み**
 
 ## ストリーミングリトライ
 - `httpx.RemoteProtocolError`, `APIConnectionError`, `APITimeoutError` を自動リトライ

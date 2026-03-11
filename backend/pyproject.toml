@@ -7,8 +7,8 @@ requires-python = ">=3.12"
 dependencies = [
     "fastapi",
     "uvicorn[standard]",
-    "openai>=2.25.0",
-    "openai-agents>=0.10.5",
+    "openai>=2.26.0",
+    "openai-agents>=0.11.1",
     "python-dotenv",
     "rich",
     "sse-starlette",

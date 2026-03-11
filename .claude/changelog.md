@@ -2,6 +2,42 @@
 
 > 新しい変更はこのファイルに追記する。古い項目は @.claude/changelog-archive.md を参照。
 
+### 54. Agents SDK v0.11.1 アップグレード + Tool Search/Namespace 実装 (2026-03-11)
+
+**概要**: openai-agents SDK を v0.10.5 → v0.11.1 にアップグレードし、v0.11.0 で追加された ToolSearchTool / defer_loading / tool_namespace() を Blog AI に統合。22ツールを5ネームスペースに分類し、ツール検索による最大47%のトークン削減を実現。
+
+**変更ファイル**:
+
+| ファイル | 変更内容 |
+|---------|---------|
+| `backend/pyproject.toml` | `openai` 2.25.0→2.26.0, `openai-agents` 0.10.5→0.11.1 |
+| `backend/uv.lock` | 依存関係ロックファイル更新 |
+| `backend/app/domains/blog/agents/tools.py` | `ToolSearchTool` + `tool_namespace()` 統合、全WordPress ツールに `defer_loading=True` 設定、5ネームスペースに分類 |
+| `.claude/docs/openai-sdk-knowledge.md` | v0.11.0/v0.11.1 変更点追加、Tool Search セクションをSDK対応済みに更新 |
+| `.claude/rules/blog-ai-domain.md` | ツール検索を「SDK対応済み・実装済み」に更新、ネームスペース構成を追記 |
+
+**SDK v0.11.0 新機能（Blog AI で使用）**:
+- **`ToolSearchTool`**: `Tool` union に追加。`from agents import ToolSearchTool` で利用可能
+- **`FunctionTool.defer_loading`**: `@function_tool(defer_loading=True)` で初期ロードを抑制。ツール検索で必要時のみロード
+- **`tool_namespace()`**: `from agents.tool import tool_namespace` でツールを論理グループに分類。`convert_tools()` が自動的に `{"type":"namespace",...}` API ペイロードに変換
+
+**Blog AI ツール検索構成**:
+- `ToolSearchTool()` — ツール検索エンジン
+- `ask_user_questions` — `defer_loading=False`（常にロード、ユーザー対話に必須）
+- `wp_content_read` (6ツール) — 記事取得・分析
+- `wp_theme_blocks` (4ツール) — テーマ・ブロック情報
+- `wp_content_write` (3ツール) — 記事作成・更新
+- `wp_media` (4ツール) — メディア管理
+- `wp_taxonomy_site` (6ツール) — タクソノミー・サイト情報
+
+**トークン効率スタック（GPT-5.4 完全構成）**:
+1. サーバーサイドコンパクション（400Kトークン閾値）
+2. Prompt Caching（グローバルスコープ、24h保持）
+3. ToolOutputTrimmer（古いターンのツール出力圧縮）
+4. **ToolSearchTool + defer_loading**（最大47%トークン削減）← NEW
+5. **tool_namespace()**（ツールのグループ化で検索精度向上）← NEW
+6. WordPress参照ツールの compact モード
+
 ### 53. OpenAI SDK v2.25.0 + Agents SDK v0.10.5 アップグレード (2026-03-09)
 
 **概要**: GPT-5.4移行に合わせてSDKを最新版にアップグレード。Tool Search API の調査を実施し、Agents SDK の制限事項を文書化。v0.10.5 の `ToolOutputTrimmer` を Blog AI に統合。

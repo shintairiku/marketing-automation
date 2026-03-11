@@ -1,6 +1,6 @@
 # OpenAI Responses API / SDK 知見
 
-> **情報ソース**: openai SDK v2.25.0, openai-agents v0.10.5, 実機テスト 2026-02-02
+> **情報ソース**: openai SDK v2.26.0, openai-agents v0.11.1, 実機テスト 2026-02-02
 
 ## SDK 型定義の確認方法
 ```bash
@@ -52,7 +52,7 @@ client.responses.create(
 - `ToolCallOutputItem.raw_item` が dict の場合があり `getattr` ではなく dict アクセスが必要
 - `to_input_list()` は元入力 + 新規アイテム。`previous_response_id` 運用時は履歴マージ必要
 
-## openai-agents v0.10.4/v0.10.5 注意点
+## openai-agents SDK バージョン別変更点
 - v0.7.0: `nest_handoff_history` デフォルトが `True`→`False` に変更
 - v0.7.0: GPT-5.1/5.2 のデフォルト reasoning effort が `'none'` に変更
 - v0.10.4: Python 3.9 サポート終了（3.10+ 必須）
@@ -63,8 +63,12 @@ client.responses.create(
 - v0.10.5: `ToolOutputTrimmer` 追加（`agents.extensions`）— 古いターンの大きなツール出力を自動トリミング
 - v0.10.5: `FunctionTool` にタイムアウト設定 (`timeout_seconds`, `timeout_behavior`) 追加
 - v0.10.5: トレースメタデータをスパンに伝搬するよう修正
-- v0.10.5: **Tool Search/Namespace は依然未対応** — `Tool` union に ToolSearchTool/NamespaceTool がない
-- v0.10.5: `FunctionTool` に `defer_loading` フィールドなし、`_convert_tool()` も未対応
+- v0.11.0: **ToolSearchTool を `Tool` union に追加** — `from agents import ToolSearchTool` で利用可能
+- v0.11.0: **`FunctionTool.defer_loading`** フィールド追加（`bool`, default `False`）。`@function_tool(defer_loading=True)` で設定
+- v0.11.0: **`tool_namespace()`** ヘルパー追加 — `from agents.tool import tool_namespace` でツールをネームスペースにグループ化
+- v0.11.0: `_convert_function_tool()` が `defer_loading=True` を API ペイロードに出力するように対応
+- v0.11.0: `convert_tools()` が `_tool_namespace` 付きツールを自動的に `{"type":"namespace",...}` に集約
+- v0.11.1: バグ修正リリース
 
 ## ToolOutputTrimmer（v0.10.5 新機能）
 ```python
@@ -93,32 +97,59 @@ run_config = RunConfig(call_model_input_filter=trimmer)
 | コンパクション | `context_management=[{"type":"compaction","compact_threshold":400000}]` でサーバーサイド自動圧縮 |
 | allowed_tools | `tool_choice={"type":"allowed_tools","mode":"auto","tools":[...]}` でフェーズ別ツール制限 |
 | ツール検索 (API) | `{"type":"tool_search"}` + `defer_loading=True` で関連ツールのみロード（47%トークン削減） |
-| ツール検索 (SDK) | **openai-agents v0.10.4 では未対応**。SDK の Tool union に含まれない |
+| ツール検索 (SDK) | **openai-agents v0.11.0 で対応**。`ToolSearchTool` + `defer_loading` + `tool_namespace()` |
 | namespace | `{"type":"namespace","name":"...","tools":[...]}` でツールグループ化 |
 | reasoning effort | none(デフォルト), low, medium, high, xhigh |
 | verbosity | text.verbosity: low/medium/high で出力長制御 |
 | `prompt_cache_key` | GPT-5.4でも必須（自動キャッシュなし） |
 | コンパクションとキャッシュ | compaction後もtools+instructionsプレフィックスはキャッシュ対象 |
 
-## Tool Search API 詳細（openai SDK v2.25.0）
+## Tool Search + Namespace（v0.11.0 で SDK 対応済み）
 
+### Agents SDK での使用方法
 ```python
-# Responses API レベルでの Tool Search 使用方法
-# ※ openai-agents SDK v0.10.4 では未対応
+from agents import Agent, ToolSearchTool, function_tool
+from agents.tool import tool_namespace
+
+# defer_loading=True でツール検索時のみロード
+@function_tool(defer_loading=True)
+def my_tool(arg: str) -> str:
+    ...
+
+# tool_namespace() でグループ化
+ns_tools = tool_namespace(
+    name="my_namespace",
+    description="ツールグループの説明",
+    tools=[my_tool, another_tool],
+)
+
+agent = Agent(
+    tools=[
+        ToolSearchTool(),       # ツール検索を有効化
+        *ns_tools,              # ネームスペースツール（展開して渡す）
+        always_needed_tool,     # defer_loading=False のツールは常にロード
+    ],
+)
+```
+
+### Responses API レベルでの使用方法
+```python
 client.responses.create(
     model="gpt-5.4",
     tools=[
-        {"type": "tool_search"},  # ツール検索を有効化
-        {"type": "function", "name": "tool_a", "defer_loading": True, ...},
+        {"type": "tool_search"},
+        {"type": "namespace", "name": "wp_content", "tools": [
+            {"type": "function", "name": "tool_a", "defer_loading": True, ...},
+        ]},
         {"type": "function", "name": "tool_b", "defer_loading": True, ...},
     ],
-    ...
 )
 ```
 
 - `defer_loading=True`: 初期ロードせず、ツール検索で必要になった時のみロード
+- `tool_namespace()`: `FunctionTool` に `_tool_namespace` / `_tool_namespace_description` を設定。`convert_tools()` が API ペイロードで自動的に `{"type":"namespace",...}` に集約
 - 効果: ツール数が多い場合に入力トークンを最大47%削減
-- **Agents SDK 制限**: `Agent.tools` は `list[Tool]` 型で、ToolSearchTool/NamespaceTool が union に含まれない。`FunctionTool` dataclass にも `defer_loading` フィールドがない。`_convert_tool()` は `defer_loading` を出力しない。将来の agents SDK アップデートで対応予定
+- **Blog AI 実装**: 22ツールを5ネームスペース（content_read, theme_blocks, content_write, media, taxonomy_site）に分類。`ask_user_questions` は `defer_loading=False`（常に利用可能）
 
 ## AI Models Configuration
 | 用途 | 環境変数 | デフォルト値 |
