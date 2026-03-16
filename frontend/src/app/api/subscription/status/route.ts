@@ -75,7 +75,7 @@ export async function GET() {
       }
     } else if (subscription.status === 'none' && !subscription.stripe_subscription_id) {
       // Webhook が先に status:'none' で作成済みの場合: フリープランにアップグレード
-      const isPrivileged = isPrivilegedEmail(userEmail);
+      const isPrivileged = hasPrivilegedRole(user.publicMetadata as Record<string, unknown>) || isPrivilegedEmail(userEmail);
 
       const { data: updated, error: updateError } = await supabase
         .from('user_subscriptions')
