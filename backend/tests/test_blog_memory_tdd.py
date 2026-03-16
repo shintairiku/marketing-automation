@@ -227,20 +227,13 @@ async def test_start_blog_generation_sets_organization_id_from_site(monkeypatch)
             "site_name": "Example",
         }
     )
-    captured: Dict[str, Any] = {}
 
     class _DummyGenerationService:
         async def run_generation(self, **_kwargs):
             return None
 
-    def _fake_check_can_generate(user_id: str, organization_id: Optional[str] = None):
-        captured["user_id"] = user_id
-        captured["organization_id"] = organization_id
-        return SimpleNamespace(allowed=True, current=0, limit=10)
-
     monkeypatch.setattr(blog_endpoints, "get_supabase_client", lambda: fake_db)
     monkeypatch.setattr(blog_endpoints, "BlogGenerationService", _DummyGenerationService)
-    monkeypatch.setattr(blog_endpoints.usage_service, "check_can_generate", _fake_check_can_generate)
 
     _ = await blog_endpoints.start_blog_generation(
         background_tasks=BackgroundTasks(),
@@ -253,7 +246,6 @@ async def test_start_blog_generation_sets_organization_id_from_site(monkeypatch)
 
     assert fake_db.inserted_process is not None
     assert fake_db.inserted_process["organization_id"] == "org-123"
-    assert captured["organization_id"] == "org-123"
 
 
 @pytest.mark.asyncio

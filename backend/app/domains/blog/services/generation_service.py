@@ -2703,45 +2703,6 @@ class BlogGenerationService:
         except Exception as e:
             logger.error(f"Failed to record usage for process {process_id}: {e}")
 
-    @staticmethod
-    def _get_user_org_for_usage(user_id: str) -> Optional[str]:
-        """ユーザーの使用量追跡対象の組織IDを取得"""
-        try:
-            # 1. upgraded_to_org_id を確認
-            sub = (
-                supabase.table("user_subscriptions")
-                .select("upgraded_to_org_id")
-                .eq("user_id", user_id)
-                .maybe_single()
-                .execute()
-            )
-            if sub.data and sub.data.get("upgraded_to_org_id"):
-                return sub.data["upgraded_to_org_id"]
-
-            # 2. organization_members でアクティブな組織サブスクを探す
-            memberships = (
-                supabase.table("organization_members")
-                .select("organization_id")
-                .eq("user_id", user_id)
-                .execute()
-            )
-            if memberships.data:
-                org_ids = [m["organization_id"] for m in memberships.data]
-                org_subs = (
-                    supabase.table("organization_subscriptions")
-                    .select("organization_id")
-                    .in_("organization_id", org_ids)
-                    .eq("status", "active")
-                    .limit(1)
-                    .execute()
-                )
-                if org_subs.data:
-                    return org_subs.data[0]["organization_id"]
-
-            return None
-        except Exception:
-            return None
-
 
     # ===========================================================
     # DB操作
