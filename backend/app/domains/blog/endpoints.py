@@ -11,7 +11,7 @@ Blog AI Domain - API Endpoints
 import os
 import uuid
 from datetime import datetime
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 from fastapi import (
     APIRouter,
@@ -24,6 +24,7 @@ from fastapi import (
     UploadFile,
     status,
 )
+from fastapi.responses import JSONResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
 
@@ -31,6 +32,8 @@ from app.common.auth import get_current_user_id_from_token
 from app.core.config import settings
 import logging
 from app.domains.blog.schemas import (
+    BlogMemorySearchRequest,
+    BlogMemoryUpsertMetaRequest,
     BlogGenerationHistoryItem,
     BlogGenerationStateResponse,
     WordPressConnectionTestResult,
@@ -44,6 +47,10 @@ from app.domains.blog.services.wordpress_mcp_service import (
     clear_mcp_client_cache,
 )
 from app.domains.blog.services.generation_service import BlogGenerationService
+from app.domains.blog.services.memory_service import (
+    BlogMemoryError,
+    get_blog_memory_service,
+)
 from app.domains.usage.service import usage_service
 
 logger = logging.getLogger(__name__)
@@ -131,6 +138,48 @@ async def get_current_user(
             detail="認証が必要です",
         )
     return get_current_user_id_from_token(credentials)
+
+
+def _build_memory_error_response(code: str, message: str) -> Dict[str, Any]:
+    return {
+        "ok": False,
+        "error": {
+            "code": code,
+            "message": message,
+        },
+    }
+
+def _get_owned_process_or_raise(supabase_client, process_id: str, user_id: str) -> Dict[str, Any]:
+    """process_id の所有確認。存在しない場合404、他ユーザー所有なら403。"""
+    try:
+        uuid.UUID(process_id)
+    except ValueError as e:
+        raise BlogMemoryError(
+            code="INVALID_ARGUMENT",
+            message="process_id の形式が不正です",
+            http_status=status.HTTP_400_BAD_REQUEST,
+        ) from e
+
+    result = supabase_client.table("blog_generation_state").select(
+        "id, user_id, organization_id, wordpress_site_id, draft_post_id"
+    ).eq("id", process_id).maybe_single().execute()
+    process_row = result.data
+
+    if not process_row:
+        raise BlogMemoryError(
+            code="BLOG_PROCESS_NOT_FOUND",
+            message="指定された process_id が存在しません",
+            http_status=status.HTTP_404_NOT_FOUND,
+        )
+
+    if process_row["user_id"] != user_id:
+        raise BlogMemoryError(
+            code="FORBIDDEN",
+            message="この process_id へアクセスする権限がありません",
+            http_status=status.HTTP_403_FORBIDDEN,
+        )
+
+    return process_row
 
 
 def _build_site_response(site: dict, org_name_map: Optional[Dict[str, str]] = None) -> WordPressSiteResponse:
@@ -919,20 +968,6 @@ async def start_blog_generation(
             detail="画像は最大5枚までです",
         )
 
-    # 使用量プリチェック
-    org_id = _get_user_org_for_usage(user_id)
-    usage_result = usage_service.check_can_generate(user_id=user_id, organization_id=org_id)
-    if not usage_result.allowed:
-        raise HTTPException(
-            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail={
-                "error": "monthly_limit_exceeded",
-                "current": usage_result.current,
-                "limit": usage_result.limit,
-                "message": f"月間記事生成上限（{usage_result.limit}記事）に達しました",
-            },
-        )
-
     supabase = get_supabase_client()
 
     # WordPressサイトを確認（ユーザー自身 or 組織メンバー）
@@ -951,6 +986,23 @@ async def start_blog_generation(
         )
 
     site = site_result.data[0]
+    site_org_id = site.get("organization_id")
+
+    # 使用量プリチェック（サイトに紐づく organization_id を優先）
+    usage_result = usage_service.check_can_generate(
+        user_id=user_id,
+        organization_id=site_org_id,
+    )
+    if not usage_result.allowed:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail={
+                "error": "monthly_limit_exceeded",
+                "current": usage_result.current,
+                "limit": usage_result.limit,
+                "message": f"月間記事生成上限（{usage_result.limit}記事）に達しました",
+            },
+        )
 
     # 生成プロセスを作成
     process_id = str(uuid.uuid4())
@@ -987,6 +1039,7 @@ async def start_blog_generation(
     process_data = {
         "id": process_id,
         "user_id": user_id,
+        "organization_id": site_org_id,
         "wordpress_site_id": wordpress_site_id,
         "status": "pending",
         "current_step_name": "初期化中",
@@ -1188,6 +1241,89 @@ async def get_generation_events(
 
     return result.data or []
 
+
+# =====================================================
+# Blog Memory API
+# =====================================================
+
+@router.post(
+    "/generation/{process_id}/memory/meta/upsert",
+    summary="Blog Memory メタ更新",
+    description="Blog Memoryメタ（title/summary/post_type/category_ids）をupsertする",
+)
+async def upsert_memory_meta(
+    process_id: str,
+    request: BlogMemoryUpsertMetaRequest,
+    user_id: str = Depends(get_current_user),
+):
+    supabase_client = get_supabase_client()
+    memory_service = get_blog_memory_service()
+
+    try:
+        process_row = _get_owned_process_or_raise(supabase_client, process_id, user_id)
+        await memory_service.upsert_meta(
+            process_id=process_id,
+            title=request.title,
+            summary=request.summary,
+            draft_post_id=request.draft_post_id or process_row.get("draft_post_id"),
+            post_type=request.post_type,
+            category_ids=request.category_ids,
+        )
+        return {"ok": True, "data": {}}
+    except BlogMemoryError as e:
+        return JSONResponse(
+            status_code=e.http_status,
+            content=_build_memory_error_response(e.code, e.message),
+        )
+    except Exception as e:
+        logger.error(f"upsert_memory_meta error: {e}", exc_info=True)
+        return JSONResponse(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            content=_build_memory_error_response("INTERNAL_ERROR", "予期しないエラーが発生しました"),
+        )
+
+
+@router.post(
+    "/generation/{process_id}/memory/search",
+    summary="Blog Memory 検索",
+    description="query を埋め込み化して Blog Memory を検索する",
+)
+async def search_memory(
+    process_id: str,
+    request: BlogMemorySearchRequest,
+    user_id: str = Depends(get_current_user),
+):
+    supabase_client = get_supabase_client()
+    memory_service = get_blog_memory_service()
+
+    try:
+        _get_owned_process_or_raise(supabase_client, process_id, user_id)
+        hits = await memory_service.search(
+            process_id=process_id,
+            query=request.query,
+            k=request.k,
+            need=request.need,
+            time_window_days=request.time_window_days,
+            post_type=request.post_type,
+            category_ids=request.category_ids,
+        )
+        return {
+            "ok": True,
+            "data": {
+                "hits": hits,
+            },
+        }
+    except BlogMemoryError as e:
+        return JSONResponse(
+            status_code=e.http_status,
+            content=_build_memory_error_response(e.code, e.message),
+        )
+    except Exception as e:
+        logger.error(f"search_memory error: {e}", exc_info=True)
+        return JSONResponse(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            content=_build_memory_error_response("INTERNAL_ERROR", "予期しないエラーが発生しました"),
+        )
 
 @router.post(
     "/generation/{process_id}/user-input",
@@ -1410,7 +1546,6 @@ async def upload_image(
         local_path=local_path,
         message="画像がアップロードされました（WebP形式）",
     )
-
 
 # =====================================================
 # ヘルパー関数

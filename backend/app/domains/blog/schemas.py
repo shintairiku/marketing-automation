@@ -182,6 +182,10 @@ class BlogCompletionOutput(BaseModel):
     preview_url: Optional[str] = Field(None, description="下書きプレビューURL")
     edit_url: Optional[str] = Field(None, description="WordPress管理画面の編集URL")
     summary: str = Field(..., description="ユーザーへの完了メッセージ（日本語）。記事の概要・ポイント等を含む")
+    note: str = Field(
+        ...,
+        description="次回再利用用の重要事項メモ。ターゲット、重視点、注意点、確認済み事項を簡潔にまとめる",
+    )
 
 
 class BlogDraftResult(BaseModel):
@@ -191,6 +195,114 @@ class BlogDraftResult(BaseModel):
     preview_url: Optional[str] = None
     edit_url: Optional[str] = None
     error_message: Optional[str] = None
+
+
+# =====================================================
+# Blog Memory関連
+# =====================================================
+
+BlogMemoryNeed = Literal[
+    "overview",
+    "request",
+    "qa",
+    "tools",
+    "trace",
+    "references",
+]
+
+
+class BlogMemoryUpsertMetaRequest(BaseModel):
+    title: str = Field(..., min_length=1, max_length=200)
+    summary: str = Field(..., min_length=1, max_length=4000)
+    draft_post_id: Optional[int] = Field(default=None, ge=1)
+    post_type: Optional[str] = Field(default=None, max_length=80)
+    category_ids: Optional[List[int]] = None
+
+
+class BlogMemorySearchRequest(BaseModel):
+    query: str = Field(..., min_length=1, max_length=4000)
+    k: int = Field(default=10, ge=1, le=50)
+    need: Optional[List[BlogMemoryNeed]] = None
+    post_type: Optional[str] = Field(default=None, max_length=80)
+    category_ids: Optional[List[int]] = None
+    time_window_days: Optional[int] = Field(default=365, ge=1, le=3650)
+
+
+class BlogMemoryQAEntry(BaseModel):
+    question: Optional[str] = None
+    answer: Optional[str] = None
+    payload: Dict[str, Any] = Field(default_factory=dict)
+
+
+class BlogMemoryTextEntry(BaseModel):
+    text: str
+    payload: Dict[str, Any] = Field(default_factory=dict)
+
+
+class BlogMemoryMeta(BaseModel):
+    draft_post_id: Optional[int] = None
+    title: str
+    summary: str
+    post_type: Optional[str] = None
+    category_ids: List[int] = Field(default_factory=list)
+
+
+class BlogMemoryOverview(BaseModel):
+    title: str
+    summary: str
+    note: Optional[str] = None
+
+
+class BlogMemoryReferenceEntry(BaseModel):
+    type: Optional[str] = None
+    id: Optional[str] = None
+    post_id: Optional[int] = None
+    url: Optional[str] = None
+    title: Optional[str] = None
+
+
+class BlogMemoryToolResultEntry(BaseModel):
+    tool_name: str
+    input: Dict[str, Any] = Field(default_factory=dict)
+    output_preview: Optional[str] = None
+    references: List[BlogMemoryReferenceEntry] = Field(default_factory=list)
+    captured_at: Optional[str] = None
+
+
+class BlogMemoryExecutionTrace(BaseModel):
+    tools: List[str] = Field(default_factory=list)
+    flow: List[str] = Field(default_factory=list)
+    updated_at: Optional[str] = None
+
+
+class BlogMemoryHit(BaseModel):
+    process_id: str
+    score: Optional[float] = None
+    overview: Optional[BlogMemoryOverview] = None
+    request: Optional[str] = None
+    qa: List[BlogMemoryQAEntry] = Field(default_factory=list)
+    tools: List[BlogMemoryToolResultEntry] = Field(default_factory=list)
+    trace: Optional[BlogMemoryExecutionTrace] = None
+    references: List[BlogMemoryReferenceEntry] = Field(default_factory=list)
+
+
+class BlogMemorySearchData(BaseModel):
+    hits: List[BlogMemoryHit] = Field(default_factory=list)
+
+
+class BlogMemorySuccessResponse(BaseModel):
+    ok: Literal[True] = True
+    data: Dict[str, Any] = Field(default_factory=dict)
+
+
+class BlogMemoryErrorDetail(BaseModel):
+    code: str
+    message: str
+
+
+class BlogMemoryErrorResponse(BaseModel):
+    ok: Literal[False] = False
+    error: BlogMemoryErrorDetail
 
 
 # =====================================================

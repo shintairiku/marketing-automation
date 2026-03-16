@@ -18,6 +18,10 @@ from app.domains.blog.services.wordpress_mcp_service import (
     MCP_LONG_TIMEOUT,
     MCPError,
 )
+from app.domains.blog.services.memory_service import (
+    BlogMemoryError,
+    get_blog_memory_service,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -62,6 +66,69 @@ def _compact_block_node(node: Dict[str, Any]) -> Dict[str, Any]:
     return compact
 
 
+# ========== Memoryツール ==========
+
+def _resolve_process_id_for_memory() -> tuple[Optional[str], Optional[Dict[str, Any]]]:
+    """Memoryツール用の実行中 process_id を解決する。"""
+    current_process_id = get_current_process_id()
+    if not current_process_id:
+        return None, {
+            "ok": False,
+            "error": {
+                "code": "INVALID_ARGUMENT",
+                "message": "サーバー側の process_id コンテキストが未設定です",
+            },
+        }
+
+    return current_process_id, None
+
+@function_tool
+async def memory_search(
+    query: str,
+    k: int = 10,
+    need: Optional[List[Literal[
+        "overview", "request", "qa", "tools", "trace", "references"
+    ]]] = None,
+    post_type: Optional[str] = None,
+    category_ids: Optional[List[int]] = None,
+    time_window_days: int = 365,
+) -> str:
+    """Blog Memoryから類似記事を検索し、必要な情報だけ取得します。
+    類似記事の検索のため、情報などは検索できません。あくまで過去の類似事例を探すためのツールです。
+
+    検索対象は、実行中プロセスと同じスコープ
+    （同じ organization、organization が無ければ同じ user）の Memory のみです。
+
+    初手は `need=["overview"]` を使ってください。
+    `overview` には `title / summary / note` が入ります。
+    詳細が必要な時だけ `request / qa / tools / trace / references` を追加取得します。
+
+    `query` には記事タイプ、主題、ターゲット、重視点が分かる具体文を入れてください。
+    `score` は cosine distance で、小さいほど近いです。
+    """
+    resolved_process_id, context_error = _resolve_process_id_for_memory()
+    if context_error:
+        return json.dumps(context_error, ensure_ascii=False)
+
+    try:
+        memory_service = get_blog_memory_service()
+        hits = await memory_service.search(
+            process_id=str(resolved_process_id),
+            query=query,
+            k=k,
+            need=need,
+            time_window_days=time_window_days,
+            post_type=post_type,
+            category_ids=category_ids,
+        )
+        return json.dumps({"ok": True, "data": {"hits": hits}}, ensure_ascii=False)
+    except BlogMemoryError as e:
+        return json.dumps(
+            {"ok": False, "error": {"code": e.code, "message": e.message}},
+            ensure_ascii=False,
+        )
+
+
 # ========== ユーザー質問ツール ==========
 
 @function_tool
@@ -91,7 +158,20 @@ async def ask_user_questions(
         処理は一時停止しユーザーの回答を待ちます。
         回答が届き次第、その情報を使って記事生成を続行します。
     """
+    process_id = get_current_process_id()
+    if not process_id:
+        return json.dumps(
+            {
+                "ok": False,
+                "error": {
+                    "code": "INVALID_ARGUMENT",
+                    "message": "process_id コンテキストが未設定のため質問を送信できません。",
+                },
+            },
+            ensure_ascii=False,
+        )
     return json.dumps({
+        "ok": True,
         "status": "questions_sent",
         "question_count": len(questions),
         "input_types": input_types or (["textarea"] * len(questions)),
@@ -709,6 +789,8 @@ web_search_tool = WebSearchTool(
 # ========== 全ツールをエクスポート ==========
 
 ALL_WORDPRESS_TOOLS = [
+    # Memory系
+    memory_search,
     # Web検索
     web_search_tool,
     # ユーザー対話系

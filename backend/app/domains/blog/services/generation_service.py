@@ -42,7 +42,7 @@ from app.domains.blog.services.wordpress_mcp_service import (
     clear_mcp_client_cache,
     set_mcp_context,
 )
-
+from app.domains.blog.services.memory_service import get_blog_memory_service
 try:
     from app.infrastructure.logging.service import LoggingService
 
@@ -126,6 +126,11 @@ _BUILTIN_TOOL_TYPE_MAP: Dict[str, str] = {
     "mcp_call": "mcp_call",
 }
 
+# 外部検索系ツール結果は保存せず、それ以外のツール結果を保存する
+TOOL_RESULT_PERSIST_EXCLUDE = {
+    "memory_search",
+    "web_search",
+}
 _TRACE_TEXT_LIMIT = 12000
 _TRACE_IO_LIMIT = 20000
 
@@ -328,23 +333,26 @@ class BlogGenerationService:
             )
 
             # アップロード済み画像を取得
-            db_images = (
-                supabase.table("blog_generation_state")
-                .select("uploaded_images")
-                .eq("id", process_id)
-                .single()
-                .execute()
-            )
+            db_images = supabase.table("blog_generation_state").select(
+                "uploaded_images, organization_id"
+            ).eq("id", process_id).single().execute()
             uploaded_images = (
                 db_images.data.get("uploaded_images", []) if db_images.data else []
             )
+            process_org_id = db_images.data.get("organization_id") if db_images.data else None
 
             # 入力メッセージを構築（画像対応）
             input_message = self._build_input_message(
-                user_prompt,
-                reference_url,
-                wordpress_site,
-                uploaded_images,
+                user_prompt=user_prompt,
+                reference_url=reference_url,
+                wordpress_site=wordpress_site,
+                uploaded_images=uploaded_images,
+            )
+
+            # 初回入力をMemoryへ保存
+            await self._record_memory_user_input_safe(
+                process_id=process_id,
+                user_input=user_prompt,
             )
 
             # RunConfig設定（group_id で同一プロセスのトレースを紐付け）
@@ -360,7 +368,7 @@ class BlogGenerationService:
             log_session_id = self._get_or_create_log_session(
                 process_id=process_id,
                 user_id=user_id,
-                organization_id=self._get_user_org_for_usage(user_id),
+                organization_id=process_org_id,
                 wordpress_site_id=wordpress_site.get("id"),
                 initial_input={
                     "user_prompt": user_prompt,
@@ -412,18 +420,15 @@ class BlogGenerationService:
         """
         try:
             # 現在の状態を取得
-            db_result = (
-                supabase.table("blog_generation_state")
-                .select("blog_context")
-                .eq("id", process_id)
-                .single()
-                .execute()
-            )
+            db_result = supabase.table("blog_generation_state").select(
+                "blog_context, organization_id"
+            ).eq("id", process_id).single().execute()
 
             if not db_result.data:
                 raise Exception("プロセスが見つかりません")
 
             blog_context = db_result.data.get("blog_context", {})
+            process_org_id = db_result.data.get("organization_id")
             conversation_history = blog_context.get("conversation_history")
             previous_response_id = blog_context.get("last_response_id")
 
@@ -462,6 +467,13 @@ class BlogGenerationService:
                 process_id=process_id,
             )
 
+            # 継続時のユーザー回答をMemoryへ保存
+            await self._append_memory_qa_safe(
+                process_id=process_id,
+                questions=blog_context.get("ai_questions", []),
+                answers=user_answers,
+            )
+
             # RunConfig設定（group_id で初回トレースと紐付け）
             run_config = self._build_blog_run_config(
                 process_id=process_id,
@@ -475,7 +487,7 @@ class BlogGenerationService:
             log_session_id = self._get_or_create_log_session(
                 process_id=process_id,
                 user_id=user_id,
-                organization_id=self._get_user_org_for_usage(user_id),
+                organization_id=process_org_id,
                 wordpress_site_id=wordpress_site.get("id"),
                 initial_input={
                     "user_prompt": blog_context.get("user_prompt"),
@@ -712,6 +724,7 @@ class BlogGenerationService:
         tool_call_log_ids: Dict[str, str] = {}
         tool_call_start_times: Dict[str, float] = {}
         tool_call_id_to_name: Dict[str, str] = {}
+        tool_call_id_to_input: Dict[str, Dict[str, Any]] = {}
         pending_output_call_ids: deque[str] = deque()
         trace_events: List[Dict[str, Any]] = []
         trace_sequence = 1
@@ -776,6 +789,8 @@ class BlogGenerationService:
             total_estimated_tools = 10
             # ask_user_questions のツール呼び出し引数をキャプチャ
             pending_user_questions: Optional[Dict[str, Any]] = None
+            latest_draft_post_args: Optional[Dict[str, Any]] = None
+            tool_sequence: List[str] = []
 
             async for event in result.stream_events():
                 if (
@@ -846,13 +861,11 @@ class BlogGenerationService:
                         response_usage_entries.append(usage_entry)
 
                 # ツール呼び出しログ
-                if (
-                    execution_id
-                    and logging_service
-                    and isinstance(event, RunItemStreamEvent)
-                ):
+                if isinstance(event, RunItemStreamEvent):
                     if isinstance(event.item, ToolCallItem):
                         tool_name = _resolve_tool_name(event.item.raw_item)
+                        if tool_name and tool_name != "unknown_tool":
+                            tool_sequence.append(tool_name)
                         call_id = (
                             self._safe_get(event.item.raw_item, "call_id")
                             or self._safe_get(event.item.raw_item, "id")
@@ -869,25 +882,32 @@ class BlogGenerationService:
                                 parsed_args = raw_args
                         else:
                             parsed_args = raw_args
+                        if isinstance(parsed_args, dict):
+                            tool_call_id_to_input[call_id] = parsed_args
+                        elif parsed_args is not None:
+                            tool_call_id_to_input[call_id] = {"raw": parsed_args}
+                        if tool_name == "wp_create_draft_post" and isinstance(parsed_args, dict):
+                            latest_draft_post_args = parsed_args
                         try:
-                            tool_call_log_id = logging_service.create_tool_call_log(
-                                execution_id=execution_id,
-                                tool_name=tool_name,
-                                tool_function=tool_name,
-                                call_sequence=tool_call_count + 1,
-                                input_parameters=parsed_args
-                                if isinstance(parsed_args, dict)
-                                else {"raw": parsed_args},
-                                status="started",
-                                tool_metadata={
-                                    "call_id": call_id,
-                                },
-                            )
-                            tool_call_log_ids[call_id] = tool_call_log_id
+                            if execution_id and logging_service:
+                                tool_call_log_id = logging_service.create_tool_call_log(
+                                    execution_id=execution_id,
+                                    tool_name=tool_name,
+                                    tool_function=tool_name,
+                                    call_sequence=tool_call_count + 1,
+                                    input_parameters=parsed_args
+                                    if isinstance(parsed_args, dict)
+                                    else {"raw": parsed_args},
+                                    status="started",
+                                    tool_metadata={
+                                        "call_id": call_id,
+                                    },
+                                )
+                                tool_call_log_ids[call_id] = tool_call_log_id
                         except Exception as log_err:
                             logger.debug(f"Failed to log tool call start: {log_err}")
 
-                        if log_session_id:
+                        if execution_id and log_session_id:
                             trace_events.append(
                                 self._make_trace_event(
                                     process_id=process_id,
@@ -933,6 +953,14 @@ class BlogGenerationService:
                             if maybe_name != "unknown_tool":
                                 tool_name = maybe_name
 
+                        if tool_name and self._should_persist_tool_result(tool_name):
+                            await self._append_memory_tool_result_safe(
+                                process_id=process_id,
+                                tool_name=tool_name,
+                                input_data=tool_call_id_to_input.get(call_id or "", {}),
+                                output=event.item.output,
+                            )
+
                         output_value = self._to_jsonable(event.item.output)
                         output_preview = self._truncate_text(
                             output_value, _TRACE_IO_LIMIT
@@ -956,7 +984,7 @@ class BlogGenerationService:
                                     f"Failed to update tool call log: {log_err}"
                                 )
 
-                        if log_session_id:
+                        if execution_id and log_session_id:
                             trace_events.append(
                                 self._make_trace_event(
                                     process_id=process_id,
@@ -1187,6 +1215,8 @@ class BlogGenerationService:
                 output=final_result,
                 conversation_history=conversation_history,
                 last_response_id=last_response_id,
+                draft_post_args=latest_draft_post_args,
+                tool_sequence=tool_sequence,
             )
             if log_session_id and logging_service:
                 try:
@@ -1468,14 +1498,6 @@ class BlogGenerationService:
                 )
                 parts.append(f"- 画像{i}: {original}")
 
-        parts.append(
-            "\n## 指示\n\n"
-            "上記のリクエストに基づいて、WordPressブログ記事を作成してください。\n"
-            "`wp_get_post_types` は未取得の場合のみ実行し、取得済みなら再利用してください。\n"
-            "投稿タイプエラー（`invalid_post_type`）時のみ `wp_get_post_types` を再取得してください。\n"
-            "`wp_create_draft_post` で `post_type` を指定して下書きを保存してください。"
-        )
-
         text_content = "\n".join(parts)
 
         # 画像がない場合は従来通り string を返す
@@ -1579,12 +1601,6 @@ class BlogGenerationService:
                 "リクエスト内容と参考記事の分析結果のみで記事を作成してください。）"
             )
 
-        text_parts.append(
-            "\n上記の情報をもとに、`wp_get_post_types` は未取得の場合のみ実行し、取得済みなら再利用してください。\n"
-            "投稿タイプエラー（`invalid_post_type`）時のみ `wp_get_post_types` を再取得してください。\n"
-            "`wp_create_draft_post` で `post_type` を指定して下書き保存してください。"
-        )
-
         text_content = "\n".join(text_parts)
 
         # 画像がない場合は従来通り string を返す
@@ -1594,6 +1610,198 @@ class BlogGenerationService:
         # 画像がある場合はマルチモーダル入力を構築
         content_parts = [{"type": "input_text", "text": text_content}] + image_parts
         return [{"role": "user", "content": content_parts}]
+
+    async def _record_memory_user_input_safe(
+        self,
+        process_id: str,
+        user_input: str,
+    ) -> None:
+        """Memory user_input 保存失敗で本処理を止めない。"""
+        try:
+            if not user_input or not user_input.strip():
+                return
+            memory_service = get_blog_memory_service()
+            await memory_service.record_user_input(
+                process_id=process_id,
+                user_input=user_input,
+            )
+        except Exception as e:
+            logger.warning(
+                "Memory user_input append failed (process_id=%s): %s",
+                process_id,
+                e,
+            )
+
+    async def _append_memory_qa_safe(
+        self,
+        process_id: str,
+        questions: List[Dict[str, Any]],
+        answers: Dict[str, Any],
+    ) -> None:
+        """Memory QA保存失敗で本処理を止めない。"""
+        try:
+            if not questions and not answers:
+                return
+            memory_service = get_blog_memory_service()
+            await memory_service.append_qa(
+                process_id=process_id,
+                questions=questions,
+                answers=answers,
+            )
+        except Exception as e:
+            logger.warning("Memory QA append failed (process_id=%s): %s", process_id, e)
+
+    async def _record_memory_summary_safe(
+        self,
+        process_id: str,
+        summary: str,
+    ) -> None:
+        """Memory summary 保存失敗で本処理を止めない。"""
+        try:
+            if not summary or not summary.strip():
+                return
+            memory_service = get_blog_memory_service()
+            await memory_service.record_summary(
+                process_id=process_id,
+                summary=summary,
+            )
+        except Exception as e:
+            logger.warning(
+                "Memory summary append failed (process_id=%s): %s",
+                process_id,
+                e,
+            )
+
+    async def _record_memory_note_safe(
+        self,
+        process_id: str,
+        note: str,
+    ) -> None:
+        """Memory note 保存失敗で本処理を止めない。"""
+        try:
+            if not note or not note.strip():
+                return
+            memory_service = get_blog_memory_service()
+            await memory_service.record_note(
+                process_id=process_id,
+                note=note,
+            )
+        except Exception as e:
+            logger.warning(
+                "Memory note append failed (process_id=%s): %s",
+                process_id,
+                e,
+            )
+
+    @staticmethod
+    def _should_persist_tool_result(tool_name: str) -> bool:
+        if not tool_name or tool_name == "unknown_tool":
+            return False
+        return tool_name not in TOOL_RESULT_PERSIST_EXCLUDE
+
+    async def _append_memory_tool_result_safe(
+        self,
+        process_id: str,
+        tool_name: str,
+        input_data: Optional[Dict[str, Any]],
+        output: Any,
+    ) -> None:
+        """検索系ツール結果の保存失敗で本処理を止めない。"""
+        try:
+            memory_service = get_blog_memory_service()
+            await memory_service.append_tool_result(
+                process_id=process_id,
+                tool_name=tool_name,
+                input_data=input_data,
+                output=output,
+            )
+        except Exception as e:
+            logger.warning(
+                "Memory tool_result append failed (process_id=%s, tool=%s): %s",
+                process_id,
+                tool_name,
+                e,
+            )
+
+    async def _set_memory_execution_trace_safe(
+        self,
+        process_id: str,
+        tool_sequence: List[str],
+    ) -> None:
+        try:
+            memory_service = get_blog_memory_service()
+            await memory_service.set_execution_trace(
+                process_id=process_id,
+                tool_sequence=tool_sequence,
+            )
+        except Exception as e:
+            logger.warning(
+                "Memory execution trace upsert failed (process_id=%s): %s",
+                process_id,
+                e,
+            )
+
+    async def _upsert_memory_meta_safe(
+        self,
+        process_id: str,
+        title: str,
+        summary: str,
+        draft_post_id: Optional[int],
+        post_type: Optional[str] = None,
+        category_ids: Optional[List[int]] = None,
+    ) -> None:
+        """Memory meta upsert失敗で本処理を止めない。"""
+        try:
+            memory_service = get_blog_memory_service()
+            await memory_service.upsert_meta(
+                process_id=process_id,
+                title=title,
+                summary=summary,
+                draft_post_id=draft_post_id,
+                post_type=post_type,
+                category_ids=category_ids,
+            )
+        except Exception as e:
+            logger.warning("Memory upsert failed (process_id=%s): %s", process_id, e)
+
+    @staticmethod
+    def _normalize_category_ids(category_ids: Optional[List[Any]]) -> List[int]:
+        if not category_ids:
+            return []
+        normalized: set[int] = set()
+        for category_id in category_ids:
+            try:
+                normalized.add(int(category_id))
+            except (TypeError, ValueError):
+                continue
+        return sorted(normalized)
+
+    @staticmethod
+    def _build_memory_title(output: Optional[BlogCompletionOutput]) -> str:
+        """メタ用タイトルを構造化出力から安全に生成する。"""
+        if not output or not output.summary:
+            return "ブログ生成結果"
+
+        first_line = output.summary.strip().splitlines()[0] if output.summary.strip() else "ブログ生成結果"
+        title = first_line.strip()
+        if title.startswith("#"):
+            title = title.lstrip("#").strip()
+        if len(title) > 200:
+            title = title[:200]
+        return title or "ブログ生成結果"
+
+    @staticmethod
+    def _get_process_organization_id(process_id: str) -> Optional[str]:
+        """process開始時に確定した organization_id を取得する。"""
+        try:
+            result = supabase.table("blog_generation_state").select(
+                "organization_id"
+            ).eq("id", process_id).maybe_single().execute()
+            if result.data:
+                return result.data.get("organization_id")
+            return None
+        except Exception:
+            return None
 
     # ===========================================================
     # Logging helpers
@@ -2370,6 +2578,8 @@ class BlogGenerationService:
         output: Optional[BlogCompletionOutput],
         conversation_history: Optional[List[Dict[str, Any]]] = None,
         last_response_id: Optional[str] = None,
+        draft_post_args: Optional[Dict[str, Any]] = None,
+        tool_sequence: Optional[List[str]] = None,
     ) -> None:
         """
         Agent実行結果を処理（構造化出力から直接プレビューURL等を取得）
@@ -2377,6 +2587,16 @@ class BlogGenerationService:
         blog_ctx: Dict[str, Any] = {}
         if output and output.summary:
             blog_ctx["agent_message"] = output.summary
+        normalized_category_ids = self._normalize_category_ids(
+            (draft_post_args or {}).get("category_ids")
+            if isinstance(draft_post_args, dict)
+            else None
+        )
+        if isinstance(draft_post_args, dict):
+            if draft_post_args.get("post_type"):
+                blog_ctx["post_type"] = draft_post_args.get("post_type")
+            if normalized_category_ids:
+                blog_ctx["category_ids"] = normalized_category_ids
         if conversation_history is not None:
             blog_ctx["conversation_history"] = conversation_history
         if last_response_id:
@@ -2435,9 +2655,45 @@ class BlogGenerationService:
                 },
             )
 
+        # 完了メッセージと note を Memory detail へ保存し、メタを upsert
+        if output and output.summary:
+            await self._record_memory_summary_safe(
+                process_id=process_id,
+                summary=output.summary,
+            )
+        if output and output.note:
+            await self._record_memory_note_safe(
+                process_id=process_id,
+                note=output.note,
+            )
+        if tool_sequence:
+            await self._set_memory_execution_trace_safe(
+                process_id=process_id,
+                tool_sequence=tool_sequence,
+            )
+
+        draft_title = ""
+        if isinstance(draft_post_args, dict):
+            draft_title = str(draft_post_args.get("title") or "").strip()
+        title_for_meta = (
+            draft_title[:200] if draft_title else self._build_memory_title(output)
+        )
+        summary_for_meta = (output.summary or "生成完了").strip()
+        if len(summary_for_meta) > 4000:
+            summary_for_meta = summary_for_meta[:4000]
+
+        await self._upsert_memory_meta_safe(
+            process_id=process_id,
+            title=title_for_meta,
+            summary=summary_for_meta,
+            draft_post_id=(output.post_id if output else None),
+            post_type=(draft_post_args or {}).get("post_type") if isinstance(draft_post_args, dict) else None,
+            category_ids=normalized_category_ids,
+        )
+
         # 生成成功時に使用量をカウント
         try:
-            org_id = self._get_user_org_for_usage(user_id)
+            org_id = self._get_process_organization_id(process_id)
             usage_service.record_success(
                 user_id=user_id,
                 process_id=process_id,
@@ -2485,6 +2741,7 @@ class BlogGenerationService:
             return None
         except Exception:
             return None
+
 
     # ===========================================================
     # DB操作
