@@ -75,13 +75,33 @@ TOOL_STEP_MAPPING: Dict[str, tuple[str, str]] = {
         "参考記事分析中",
         "カテゴリの記事一覧を取得しています",
     ),
+    "wp_get_posts_by_category_normalized": (
+        "参考記事分析中",
+        "カテゴリの記事一覧を整形して取得しています",
+    ),
     "wp_get_post_block_structure": (
         "参考記事分析中",
         "記事のブロック構造を分析しています",
     ),
+    "wp_get_post_block_structure_normalized": (
+        "参考記事分析中",
+        "記事のブロック構造を整形して分析しています",
+    ),
     "wp_get_post_raw_content": ("参考記事分析中", "記事のコンテンツを読み込んでいます"),
+    "wp_get_post_raw_content_normalized": (
+        "参考記事分析中",
+        "記事のコンテンツを整形して読み込んでいます",
+    ),
     "wp_get_recent_posts": ("参考記事分析中", "最近の記事一覧を取得しています"),
+    "wp_get_recent_posts_normalized": (
+        "参考記事分析中",
+        "最近の記事一覧を整形して取得しています",
+    ),
     "wp_get_post_by_url": ("参考記事分析中", "URLから記事を取得しています"),
+    "wp_get_post_by_url_normalized": (
+        "参考記事分析中",
+        "URLから記事を整形して取得しています",
+    ),
     "wp_analyze_category_format_patterns": (
         "参考記事分析中",
         "カテゴリの記事パターンを分析しています",

@@ -125,10 +125,15 @@ ask_user_questions(
 
 ### 記事取得系
 - wp_get_posts_by_category: カテゴリの記事一覧取得
+- wp_get_posts_by_category_normalized: カテゴリの記事一覧取得（HTML フィールドをトークン削減向けに整形）
 - wp_get_post_block_structure: 記事のブロック構造を取得（デフォルトはcompact形式）
+- wp_get_post_block_structure_normalized: 記事のブロック構造を取得（innerHTML をトークン削減向けに整形）
 - wp_get_post_raw_content: 記事の生コンテンツ取得（デフォルトはrawのみ、renderedは省略）
+- wp_get_post_raw_content_normalized: 記事の生コンテンツ取得（HTML をトークン削減向けに整形）
 - wp_get_recent_posts: 最近の記事一覧取得
+- wp_get_recent_posts_normalized: 最近の記事一覧取得（HTML フィールドをトークン削減向けに整形）
 - wp_get_post_by_url: URLから記事を取得
+- wp_get_post_by_url_normalized: URLから記事を取得（HTML をトークン削減向けに整形）
 - wp_analyze_category_format_patterns: カテゴリの記事パターン分析
 
 ### ブロック・テーマ系
@@ -173,6 +178,9 @@ ask_user_questions(
 
 - `wp_get_post_raw_content` は **必要になるまで `include_rendered=false` のまま**使用すること
   - `rendered_content` は重いので、表示HTMLが本当に必要な場合のみ `include_rendered=true` を使う
+- HTML ノイズが分析の邪魔になる場合は、対応する `*_normalized` ツールを優先してよい
+  - 既存ツールは原文確認用、normalized 版は分析用として使い分ける
+  - normalized 版はトークン削減向けに整形した返り値である
 - `wp_get_post_block_structure` は `compact=true` を維持すること
   - 返却JSONの `keys` マップで短キーを展開して解釈する
   - `b=blockName`, `a=attrs`, `i=innerBlocks`, `h=innerHTML`
