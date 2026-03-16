@@ -333,20 +333,23 @@ class BlogGenerationService:
             )
 
             # アップロード済み画像を取得
-            db_images = supabase.table("blog_generation_state").select(
-                "uploaded_images, organization_id"
-            ).eq("id", process_id).single().execute()
+            db_images = (
+                supabase.table("blog_generation_state")
+                .select("uploaded_images")
+                .eq("id", process_id)
+                .single()
+                .execute()
+            )
             uploaded_images = (
                 db_images.data.get("uploaded_images", []) if db_images.data else []
             )
-            process_org_id = db_images.data.get("organization_id") if db_images.data else None
 
             # 入力メッセージを構築（画像対応）
             input_message = self._build_input_message(
-                user_prompt=user_prompt,
-                reference_url=reference_url,
-                wordpress_site=wordpress_site,
-                uploaded_images=uploaded_images,
+                user_prompt,
+                reference_url,
+                wordpress_site,
+                uploaded_images,
             )
 
             # 初回入力をMemoryへ保存
@@ -368,7 +371,7 @@ class BlogGenerationService:
             log_session_id = self._get_or_create_log_session(
                 process_id=process_id,
                 user_id=user_id,
-                organization_id=process_org_id,
+                organization_id=self._get_user_org_for_usage(user_id),
                 wordpress_site_id=wordpress_site.get("id"),
                 initial_input={
                     "user_prompt": user_prompt,
@@ -420,15 +423,18 @@ class BlogGenerationService:
         """
         try:
             # 現在の状態を取得
-            db_result = supabase.table("blog_generation_state").select(
-                "blog_context, organization_id"
-            ).eq("id", process_id).single().execute()
+            db_result = (
+                supabase.table("blog_generation_state")
+                .select("blog_context")
+                .eq("id", process_id)
+                .single()
+                .execute()
+            )
 
             if not db_result.data:
                 raise Exception("プロセスが見つかりません")
 
             blog_context = db_result.data.get("blog_context", {})
-            process_org_id = db_result.data.get("organization_id")
             conversation_history = blog_context.get("conversation_history")
             previous_response_id = blog_context.get("last_response_id")
 
@@ -487,7 +493,7 @@ class BlogGenerationService:
             log_session_id = self._get_or_create_log_session(
                 process_id=process_id,
                 user_id=user_id,
-                organization_id=process_org_id,
+                organization_id=self._get_user_org_for_usage(user_id),
                 wordpress_site_id=wordpress_site.get("id"),
                 initial_input={
                     "user_prompt": blog_context.get("user_prompt"),
@@ -1498,6 +1504,14 @@ class BlogGenerationService:
                 )
                 parts.append(f"- 画像{i}: {original}")
 
+        parts.append(
+            "\n## 指示\n\n"
+            "上記のリクエストに基づいて、WordPressブログ記事を作成してください。\n"
+            "`wp_get_post_types` は未取得の場合のみ実行し、取得済みなら再利用してください。\n"
+            "投稿タイプエラー（`invalid_post_type`）時のみ `wp_get_post_types` を再取得してください。\n"
+            "`wp_create_draft_post` で `post_type` を指定して下書きを保存してください。"
+        )
+
         text_content = "\n".join(parts)
 
         # 画像がない場合は従来通り string を返す
@@ -1600,6 +1614,12 @@ class BlogGenerationService:
                 "（ユーザーは質問をスキップしました。"
                 "リクエスト内容と参考記事の分析結果のみで記事を作成してください。）"
             )
+
+        text_parts.append(
+            "\n上記の情報をもとに、`wp_get_post_types` は未取得の場合のみ実行し、取得済みなら再利用してください。\n"
+            "投稿タイプエラー（`invalid_post_type`）時のみ `wp_get_post_types` を再取得してください。\n"
+            "`wp_create_draft_post` で `post_type` を指定して下書き保存してください。"
+        )
 
         text_content = "\n".join(text_parts)
 
@@ -1791,14 +1811,40 @@ class BlogGenerationService:
         return title or "ブログ生成結果"
 
     @staticmethod
-    def _get_process_organization_id(process_id: str) -> Optional[str]:
-        """process開始時に確定した organization_id を取得する。"""
+    def _get_user_org_for_usage(user_id: str) -> Optional[str]:
+        """ユーザーの使用量追跡対象の組織IDを取得"""
         try:
-            result = supabase.table("blog_generation_state").select(
-                "organization_id"
-            ).eq("id", process_id).maybe_single().execute()
-            if result.data:
-                return result.data.get("organization_id")
+            # 1. upgraded_to_org_id を確認
+            sub = (
+                supabase.table("user_subscriptions")
+                .select("upgraded_to_org_id")
+                .eq("user_id", user_id)
+                .maybe_single()
+                .execute()
+            )
+            if sub.data and sub.data.get("upgraded_to_org_id"):
+                return sub.data["upgraded_to_org_id"]
+
+            # 2. organization_members でアクティブな組織サブスクを探す
+            memberships = (
+                supabase.table("organization_members")
+                .select("organization_id")
+                .eq("user_id", user_id)
+                .execute()
+            )
+            if memberships.data:
+                org_ids = [m["organization_id"] for m in memberships.data]
+                org_subs = (
+                    supabase.table("organization_subscriptions")
+                    .select("organization_id")
+                    .in_("organization_id", org_ids)
+                    .eq("status", "active")
+                    .limit(1)
+                    .execute()
+                )
+                if org_subs.data:
+                    return org_subs.data[0]["organization_id"]
+
             return None
         except Exception:
             return None
@@ -2693,7 +2739,7 @@ class BlogGenerationService:
 
         # 生成成功時に使用量をカウント
         try:
-            org_id = self._get_process_organization_id(process_id)
+            org_id = self._get_user_org_for_usage(user_id)
             usage_service.record_success(
                 user_id=user_id,
                 process_id=process_id,

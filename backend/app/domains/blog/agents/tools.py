@@ -158,20 +158,7 @@ async def ask_user_questions(
         処理は一時停止しユーザーの回答を待ちます。
         回答が届き次第、その情報を使って記事生成を続行します。
     """
-    process_id = get_current_process_id()
-    if not process_id:
-        return json.dumps(
-            {
-                "ok": False,
-                "error": {
-                    "code": "INVALID_ARGUMENT",
-                    "message": "process_id コンテキストが未設定のため質問を送信できません。",
-                },
-            },
-            ensure_ascii=False,
-        )
     return json.dumps({
-        "ok": True,
         "status": "questions_sent",
         "question_count": len(questions),
         "input_types": input_types or (["textarea"] * len(questions)),

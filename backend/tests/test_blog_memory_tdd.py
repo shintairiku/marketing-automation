@@ -232,8 +232,12 @@ async def test_start_blog_generation_sets_organization_id_from_site(monkeypatch)
         async def run_generation(self, **_kwargs):
             return None
 
+    def _fake_check_can_generate(user_id: str, organization_id: Optional[str] = None):
+        return SimpleNamespace(allowed=True, current=0, limit=10)
+
     monkeypatch.setattr(blog_endpoints, "get_supabase_client", lambda: fake_db)
     monkeypatch.setattr(blog_endpoints, "BlogGenerationService", _DummyGenerationService)
+    monkeypatch.setattr(blog_endpoints.usage_service, "check_can_generate", _fake_check_can_generate)
 
     _ = await blog_endpoints.start_blog_generation(
         background_tasks=BackgroundTasks(),
@@ -498,7 +502,7 @@ async def test_process_result_saves_summary_note_and_execution_trace(monkeypatch
     monkeypatch.setattr(service, "_record_memory_note_safe", _fake_record_memory_note_safe)
     monkeypatch.setattr(service, "_upsert_memory_meta_safe", _fake_upsert_memory_meta_safe)
     monkeypatch.setattr(service, "_set_memory_execution_trace_safe", _fake_set_memory_execution_trace_safe)
-    monkeypatch.setattr(service, "_get_process_organization_id", lambda _pid: "org-fixed")
+    monkeypatch.setattr(service, "_get_user_org_for_usage", lambda _uid: "org-fixed")
     monkeypatch.setattr("app.domains.blog.services.generation_service.usage_service.record_success", _fake_record_success)
 
     await service._process_result(
