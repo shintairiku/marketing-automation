@@ -47,6 +47,7 @@ import {
 import { useAuth } from '@clerk/nextjs';
 
 type SubscriptionStatus = 'active' | 'past_due' | 'canceled' | 'expired' | 'none';
+type UserRole = 'admin' | 'privileged' | null;
 
 interface UserData {
   id: string;
@@ -54,6 +55,7 @@ interface UserData {
   email: string | null;
   created_at: string | null;
   avatar_url: string | null;
+  role: UserRole;
   subscription_status: SubscriptionStatus;
   is_privileged: boolean;
   stripe_customer_id: string | null;
@@ -74,6 +76,12 @@ const statusConfig: Record<
   none: { label: 'なし', variant: 'outline', icon: Clock },
 };
 
+// ロールの表示設定
+const roleConfig: Record<string, { label: string; variant: 'default' | 'secondary' | 'outline'; className?: string }> = {
+  admin: { label: '管理者', variant: 'default', className: 'bg-red-500 hover:bg-red-600' },
+  privileged: { label: '特権', variant: 'default', className: 'bg-amber-500 hover:bg-amber-600' },
+};
+
 export default function AdminUsersPage() {
   const { getToken } = useAuth();
   const [users, setUsers] = useState<UserData[]>([]);
@@ -89,7 +97,6 @@ export default function AdminUsersPage() {
   const [updating, setUpdating] = useState(false);
   const [editForm, setEditForm] = useState({
     role: 'none' as 'admin' | 'privileged' | 'none',
-    subscription_status: 'none' as SubscriptionStatus,
   });
 
   const fetchUsers = useCallback(async () => {
@@ -153,11 +160,8 @@ export default function AdminUsersPage() {
   // ユーザー編集ダイアログを開く
   const openEditDialog = (user: UserData) => {
     setEditingUser(user);
-    // is_privileged から推定（後方互換）
-    const currentRole = user.is_privileged ? 'privileged' : 'none';
     setEditForm({
-      role: currentRole as 'admin' | 'privileged' | 'none',
-      subscription_status: user.subscription_status,
+      role: user.role || 'none',
     });
     setEditDialogOpen(true);
   };
@@ -173,8 +177,8 @@ export default function AdminUsersPage() {
       const USE_PROXY = process.env.NODE_ENV === 'production';
       const baseURL = USE_PROXY ? '/api/proxy' : API_BASE_URL;
 
-      // ロール変更（Clerk publicMetadata + DB is_privileged を同時更新）
-      const currentRole = editingUser.is_privileged ? 'privileged' : 'none';
+      // ロール変更
+      const currentRole = editingUser.role || 'none';
       if (editForm.role !== currentRole) {
         const roleResponse = await fetch(
           `${baseURL}/admin/users/${editingUser.id}/role`,
@@ -196,25 +200,6 @@ export default function AdminUsersPage() {
         }
       }
 
-      // サブスクリプション更新
-      if (editForm.subscription_status !== editingUser.subscription_status) {
-        const subscriptionResponse = await fetch(
-          `${baseURL}/admin/users/${editingUser.id}/subscription`,
-          {
-            method: 'PATCH',
-            headers: {
-              'Content-Type': 'application/json',
-              ...(token && { Authorization: `Bearer ${token}` }),
-            },
-            body: JSON.stringify({ status: editForm.subscription_status }),
-          }
-        );
-
-        if (!subscriptionResponse.ok) {
-          throw new Error('サブスクリプションステータスの更新に失敗しました');
-        }
-      }
-
       // リストを再読み込み
       await fetchUsers();
       setEditDialogOpen(false);
@@ -230,7 +215,8 @@ export default function AdminUsersPage() {
   const stats = {
     total: users.length,
     active: users.filter((u) => u.subscription_status === 'active').length,
-    privileged: users.filter((u) => u.is_privileged).length,
+    admin: users.filter((u) => u.role === 'admin').length,
+    privileged: users.filter((u) => u.role === 'privileged').length,
     none: users.filter((u) => u.subscription_status === 'none').length,
   };
 
@@ -306,10 +292,10 @@ export default function AdminUsersPage() {
         <Card>
           <CardContent className="pt-6">
             <div className="flex items-center gap-2">
-              <Crown className="h-5 w-5 text-amber-500" />
+              <Shield className="h-5 w-5 text-red-500" />
               <div>
-                <p className="text-2xl font-bold">{stats.privileged}</p>
-                <p className="text-sm text-muted-foreground">特権ユーザー</p>
+                <p className="text-2xl font-bold">{stats.admin}</p>
+                <p className="text-sm text-muted-foreground">管理者</p>
               </div>
             </div>
           </CardContent>
@@ -317,10 +303,10 @@ export default function AdminUsersPage() {
         <Card>
           <CardContent className="pt-6">
             <div className="flex items-center gap-2">
-              <Clock className="h-5 w-5 text-muted-foreground" />
+              <Crown className="h-5 w-5 text-amber-500" />
               <div>
-                <p className="text-2xl font-bold">{stats.none}</p>
-                <p className="text-sm text-muted-foreground">未登録</p>
+                <p className="text-2xl font-bold">{stats.privileged}</p>
+                <p className="text-sm text-muted-foreground">特権</p>
               </div>
             </div>
           </CardContent>
@@ -376,7 +362,7 @@ export default function AdminUsersPage() {
                   <TableHead className="min-w-[160px]">ユーザー</TableHead>
                   <TableHead className="min-w-[140px]">メールアドレス</TableHead>
                   <TableHead>ステータス</TableHead>
-                  <TableHead>特権</TableHead>
+                  <TableHead>ロール</TableHead>
                   <TableHead className="whitespace-nowrap">期間終了</TableHead>
                   <TableHead className="whitespace-nowrap">登録日</TableHead>
                   <TableHead className="text-right">操作</TableHead>
@@ -393,6 +379,7 @@ export default function AdminUsersPage() {
                   filteredUsers.map((user) => {
                     const statusInfo = statusConfig[user.subscription_status];
                     const StatusIcon = statusInfo.icon;
+                    const roleInfo = user.role ? roleConfig[user.role] : null;
 
                     return (
                       <TableRow key={user.id}>
@@ -428,10 +415,10 @@ export default function AdminUsersPage() {
                           </Badge>
                         </TableCell>
                         <TableCell>
-                          {user.is_privileged ? (
-                            <Badge variant="default" className="gap-1 bg-amber-500 hover:bg-amber-600">
-                              <Crown className="h-3 w-3" />
-                              特権
+                          {roleInfo ? (
+                            <Badge variant={roleInfo.variant} className={`gap-1 ${roleInfo.className || ''}`}>
+                              {user.role === 'admin' ? <Shield className="h-3 w-3" /> : <Crown className="h-3 w-3" />}
+                              {roleInfo.label}
                             </Badge>
                           ) : (
                             <span className="text-sm text-muted-foreground">-</span>
@@ -483,97 +470,38 @@ export default function AdminUsersPage() {
         </CardContent>
       </Card>
 
-      {/* 編集ダイアログ */}
+      {/* ロール編集ダイアログ */}
       <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>ユーザー設定の編集</DialogTitle>
+            <DialogTitle>ロール設定</DialogTitle>
             <DialogDescription>
-              {editingUser?.email || editingUser?.full_name || editingUser?.id}
+              {editingUser?.full_name || editingUser?.email || editingUser?.id}
             </DialogDescription>
           </DialogHeader>
 
-          <div className="space-y-6 py-4">
-            {/* ロール設定 */}
+          <div className="space-y-4 py-4">
             <div className="space-y-2">
-              <Label htmlFor="user_role" className="flex items-center gap-2">
-                <Crown className="h-4 w-4 text-amber-500" />
-                ロール
-              </Label>
+              <Label htmlFor="user_role">ロール</Label>
               <Select
                 value={editForm.role}
                 onValueChange={(v) =>
-                  setEditForm((prev) => ({
-                    ...prev,
-                    role: v as 'admin' | 'privileged' | 'none',
-                  }))
+                  setEditForm({ role: v as 'admin' | 'privileged' | 'none' })
                 }
               >
                 <SelectTrigger id="user_role">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="admin">管理者 (admin)</SelectItem>
-                  <SelectItem value="privileged">特権 (privileged)</SelectItem>
+                  <SelectItem value="admin">管理者 — 管理画面にアクセス可能 + 全機能利用可</SelectItem>
+                  <SelectItem value="privileged">特権 — 全機能利用可（管理画面アクセスなし）</SelectItem>
                   <SelectItem value="none">一般ユーザー</SelectItem>
                 </SelectContent>
               </Select>
-              <p className="text-sm text-muted-foreground">
-                管理者: 管理画面にアクセス可能。特権: サブスク不要で全機能利用可。
-                変更はClerk publicMetadataに反映されます。
+              <p className="text-xs text-muted-foreground">
+                変更は Clerk に即時反映されます。ユーザーの次回アクセス時（最大60秒）に適用されます。
               </p>
             </div>
-
-            {/* サブスクリプションステータス */}
-            <div className="space-y-2">
-              <Label htmlFor="subscription_status">サブスクリプションステータス</Label>
-              <Select
-                value={editForm.subscription_status}
-                onValueChange={(v) =>
-                  setEditForm((prev) => ({
-                    ...prev,
-                    subscription_status: v as SubscriptionStatus,
-                  }))
-                }
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="active">アクティブ</SelectItem>
-                  <SelectItem value="past_due">支払い遅延</SelectItem>
-                  <SelectItem value="canceled">キャンセル済み</SelectItem>
-                  <SelectItem value="expired">期限切れ</SelectItem>
-                  <SelectItem value="none">なし</SelectItem>
-                </SelectContent>
-              </Select>
-              <p className="text-sm text-muted-foreground">
-                手動でステータスを変更できます。通常はStripe Webhookで自動更新されます。
-              </p>
-            </div>
-
-            {/* Stripe情報（読み取り専用） */}
-            {editingUser?.stripe_customer_id && (
-              <div className="space-y-2 pt-4 border-t">
-                <Label className="text-muted-foreground">Stripe情報</Label>
-                <div className="text-sm space-y-1">
-                  <p>
-                    <span className="text-muted-foreground">顧客ID: </span>
-                    <code className="bg-muted px-1 rounded">
-                      {editingUser.stripe_customer_id}
-                    </code>
-                  </p>
-                  {editingUser.stripe_subscription_id && (
-                    <p>
-                      <span className="text-muted-foreground">サブスクリプションID: </span>
-                      <code className="bg-muted px-1 rounded">
-                        {editingUser.stripe_subscription_id}
-                      </code>
-                    </p>
-                  )}
-                </div>
-              </div>
-            )}
           </div>
 
           <DialogFooter>

@@ -22,6 +22,9 @@ class UserRead(BaseModel):
     avatar_url: Optional[str] = None
     created_at: Optional[datetime] = None
 
+    # ロール (Clerk publicMetadata.role)
+    role: Optional[str] = None  # "admin" | "privileged" | None
+
     # サブスクリプション関連
     subscription_status: SubscriptionStatusType = "none"
     is_privileged: bool = False
