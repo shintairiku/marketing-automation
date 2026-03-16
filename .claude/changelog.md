@@ -2,6 +2,55 @@
 
 > 新しい変更はこのファイルに追記する。古い項目は @.claude/changelog-archive.md を参照。
 
+### 53. RBAC実装 + セキュリティ監査・修正 (2026-03-16)
+
+**概要**: Clerk `publicMetadata.role` ベースのロールベースアクセス制御(RBAC)を全層に実装。3並列エージェントによる大規模セキュリティ監査を実施し、CRITICAL2件を即時修正。
+
+**Clerkセッショントークン設定**:
+- Development / Production 両方で `{ "metadata": "{{user.public_metadata}}" }` を設定
+- これにより JWT の `metadata.role` でロールにアクセス可能
+
+**フロントエンド変更**:
+- `frontend/src/middleware.ts` — `sessionClaims.metadata.role` でルートベースのアクセス制御
+  - admin ルート (`/admin/*`): `admin` ロールのみ
+  - 特権ルート (`/dashboard/*`, `/seo/*` 等): `admin` or `privileged`
+  - 一般保護ルート (`/blog/*`, `/settings/*`): 認証のみ
+- `frontend/src/types/globals.d.ts` — `CustomJwtSessionClaims` 型定義を追加
+- `frontend/src/lib/subscription/index.ts` — `getUserRole()`, `hasAdminRole()`, `hasPrivilegedRole()` ヘルパー追加、`isPrivilegedEmail()` を `@deprecated` に
+- `frontend/src/components/subscription/subscription-guard.tsx` — `hasPrivilegedRole(user.publicMetadata)` でアクセス判定
+- `frontend/src/app/(admin)/admin/layout.tsx` — クライアントサイド `hasAdminRole()` チェック追加
+- `frontend/src/app/(admin)/admin/users/page.tsx` — ロール変更UI追加（`PATCH /admin/users/{user_id}/role` 呼び出し）
+
+**バックエンド変更**:
+- `backend/app/common/admin_auth.py` — 全面リライト
+  - `_extract_role_from_jwt()`: JWT claims から `metadata.role` を抽出
+  - `get_admin_user_from_token()`: admin ロール要求 + メールドメインフォールバック
+  - `get_privileged_user_from_token()`: admin or privileged 要求
+  - `get_admin_user_email_from_token()`: 後方互換ラッパー
+- `backend/app/domains/admin/endpoints.py` — `PATCH /admin/users/{user_id}/role` エンドポイント追加
+  - Clerk Backend API で `publicMetadata.role` を更新
+  - DB `is_privileged` も同期（後方互換）
+- `backend/app/domains/admin/schemas.py` — `RoleType`, `UpdateUserRoleRequest`, `UpdateUserRoleResponse` 追加
+
+**セキュリティ監査で発見・修正した問題**:
+
+| 重要度 | 問題 | 対応 |
+|--------|------|------|
+| **CRITICAL** | `auth.py` に `validate_token_without_signature()` 残存（署名なしJWTデコード） | **削除済み** |
+| **CRITICAL** | `status/route.ts:78` の `status==='none'` パスで `hasPrivilegedRole()` 未チェック | **修正済み** |
+| HIGH | `GET /images/serve/{filename}` に認証なし | 未対応 |
+| HIGH | admin layout が `isLoaded` 完了前に `{children}` をレンダリング | 未対応 |
+| HIGH | admin users ページがロール表示にDB `is_privileged` boolean を使用（admin/privileged 区別不可） | 未対応 |
+| MEDIUM | `isPrivilegedEmail()` がまだ7ファイルで使用中（移行期フォールバック） | 意図的残存、将来統一 |
+| MEDIUM | `get_privileged_user_from_token()` が定義済みだが未使用 | 将来のエンドポイント制限用 |
+| MEDIUM | ロール変更後のClerk JWTキャッシュ（最大60秒）タイムラグ | Clerk仕様上の制約 |
+
+**防御層（4層）**:
+1. **middleware** (`sessionClaims.metadata.role`) — ルートレベルのアクセス制御
+2. **Layout** (`useUser().publicMetadata`) — クライアントサイドのフォールバック
+3. **API Route** — サーバーサイドの認証ヘッダー転送
+4. **Backend** (`JWT claims` + `@shintairiku.jp` メールフォールバック) — 最終認可
+
 ### 51. 利用規約・プライバシーポリシーページ追加 (2026-03-04)
 
 **概要**: SaaSとして必要な法務ページ（利用規約・プライバシーポリシー）を追加。認証不要のパブリックページとして実装。

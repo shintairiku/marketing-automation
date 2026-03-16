@@ -376,6 +376,12 @@ class AdminService:
                 )
                 cancel_at_period_end = sub_data.get("cancel_at_period_end", False)
 
+                # Clerk publicMetadata からロールを取得
+                public_metadata = clerk_user.get("public_metadata") or {}
+                role = public_metadata.get("role") if isinstance(public_metadata, dict) else None
+                if role not in ("admin", "privileged"):
+                    role = None
+
                 # Check if email domain is @shintairiku.jp (auto-privileged)
                 if email and email.lower().endswith("@shintairiku.jp"):
                     is_privileged = True
@@ -386,6 +392,7 @@ class AdminService:
                     email=email,
                     avatar_url=avatar_url,
                     created_at=created_at,
+                    role=role,
                     subscription_status=subscription_status,
                     is_privileged=is_privileged,
                     stripe_customer_id=stripe_customer_id,
@@ -452,6 +459,12 @@ class AdminService:
             )
             cancel_at_period_end = sub_data.get("cancel_at_period_end", False)
 
+            # Clerk publicMetadata からロールを取得
+            public_metadata = clerk_user.get("public_metadata") or {}
+            role = public_metadata.get("role") if isinstance(public_metadata, dict) else None
+            if role not in ("admin", "privileged"):
+                role = None
+
             # Check if email domain is @shintairiku.jp
             if email and email.lower().endswith("@shintairiku.jp"):
                 is_privileged = True
@@ -462,6 +475,7 @@ class AdminService:
                 email=email,
                 avatar_url=avatar_url,
                 created_at=created_at,
+                role=role,
                 subscription_status=subscription_status,
                 is_privileged=is_privileged,
                 stripe_customer_id=stripe_customer_id,

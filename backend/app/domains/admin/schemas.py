@@ -10,6 +10,8 @@ from datetime import datetime
 # サブスクリプションステータスの型定義
 SubscriptionStatusType = Literal["active", "past_due", "canceled", "expired", "none"]
 
+# ロールの型定義
+RoleType = Literal["admin", "privileged"]
 
 class UserRead(BaseModel):
     """User read schema with subscription info"""
@@ -19,6 +21,9 @@ class UserRead(BaseModel):
     email: Optional[str] = None
     avatar_url: Optional[str] = None
     created_at: Optional[datetime] = None
+
+    # ロール (Clerk publicMetadata.role)
+    role: Optional[str] = None  # "admin" | "privileged" | None
 
     # サブスクリプション関連
     subscription_status: SubscriptionStatusType = "none"
@@ -189,6 +194,18 @@ class ApplyLimitsResult(BaseModel):
     """Result of applying tier limits to active users"""
 
     updated_count: int
+    message: str
+
+
+class UpdateUserRoleRequest(BaseModel):
+    """Request to update user role via Clerk publicMetadata"""
+    role: Optional[RoleType] = None  # None で一般ユーザーに戻す
+
+class UpdateUserRoleResponse(BaseModel):
+    """Response after updating user role"""
+    success: bool
+    user_id: str
+    role: Optional[str] = None
     message: str
 
 

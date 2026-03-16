@@ -108,9 +108,20 @@ marketing-automation/
 ## 認証 & サブスクリプション
 
 ### 認証フロー
-- Clerk → Next.js middleware → Backend (Clerk JWT RS256 + JWKS)
-- 管理者: `@shintairiku.jp` ドメイン → 全機能アクセス可能（サブスク不要）
-- 非特権: `/blog/*`, `/settings/*`, `/help/*` のみ
+1. **Clerk** がフロントエンドのユーザー認証を管理 (Social Login, Email/Password, MFA)
+2. **Next.js middleware** が `sessionClaims.metadata.role` でルート保護・特権チェックを実行（API呼び出し不要）
+3. バックエンドは **Clerk JWT** (RS256) をJWKSエンドポイント経由で検証
+4. 管理者エンドポイントは JWT claims の `metadata.role` を確認（フォールバック: Clerk API でメールドメインチェック）
+
+### ロールベースアクセス制御 (RBAC)
+- **Clerk publicMetadata.role** でロールを管理（`admin` / `privileged` / null）
+- Clerk Dashboard のセッショントークンカスタマイズ: `{ "metadata": "{{user.public_metadata}}" }`
+- **admin**: 管理者ダッシュボード + 全特権機能
+- **privileged**: 未公開機能（SEO/Dashboard等）、サブスク不要
+- **null/未設定**: 一般ユーザー（Blog AI + Settings のみ）
+- 防御層: middleware (sessionClaims) → Layout (publicMetadata) → API Route → Backend (JWT claims + fallback)
+- ロール変更: 管理者ページ (`/admin/users`) または Clerk Dashboard から設定可能
+- **移行期間フォールバック**: JWT に role がない場合、Clerk API でメールドメイン (`@shintairiku.jp`) を検証（検証済みメールのみ）
 
 ### サブスクリプション
 - **フリープラン**: 月10記事、クレカ不要、登録時自動付与 (`plan_tier_id: 'free'`)
