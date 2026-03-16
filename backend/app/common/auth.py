@@ -286,14 +286,3 @@ def get_current_user_id_from_header(authorization: Optional[str] = None) -> str:
     except Exception as e:
         logger.error(f"🔒 [AUTH] Error extracting user ID from header: {e}")
         raise ValueError(f"Authentication error: {e}")
-
-
-# Optional: トークン検証ユーティリティ（テスト用）
-def validate_token_without_signature(token: str) -> dict:
-    """
-    署名検証なしでトークンをデコード（デバッグ・テスト用）
-
-    ⚠️ 本番環境では使用しないこと
-    """
-    logger.warning("⚠️ [AUTH] validate_token_without_signature called - FOR TESTING ONLY")
-    return jwt.decode(token, options={"verify_signature": False})

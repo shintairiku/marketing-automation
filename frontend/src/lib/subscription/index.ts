@@ -3,7 +3,7 @@
  *
  * シンプルな1プラン構成のサブスクリプションシステム
  * - 月額プラン（Stripeで事前設定）
- * - @shintairiku.jp ユーザーは特権アクセス
+ * - ロールベースの特権アクセス (admin / privileged)
  */
 
 import Stripe from 'stripe';
@@ -74,7 +74,32 @@ export function hasActiveAccess(subscription: UserSubscription | null): boolean 
   return false;
 }
 
-// @shintairiku.jp ドメインかどうかをチェック
+// ロールの型定義
+export type UserRole = 'admin' | 'privileged' | null;
+
+// Clerk publicMetadata からロールを取得
+export function getUserRole(publicMetadata: Record<string, unknown> | undefined | null): UserRole {
+  if (!publicMetadata) return null;
+  const role = publicMetadata.role;
+  if (role === 'admin' || role === 'privileged') return role;
+  return null;
+}
+
+// admin ロールかどうか
+export function hasAdminRole(publicMetadata: Record<string, unknown> | undefined | null): boolean {
+  return getUserRole(publicMetadata) === 'admin';
+}
+
+// admin または privileged ロールかどうか
+export function hasPrivilegedRole(publicMetadata: Record<string, unknown> | undefined | null): boolean {
+  const role = getUserRole(publicMetadata);
+  return role === 'admin' || role === 'privileged';
+}
+
+/**
+ * @deprecated ロールベース認証に移行済み。hasPrivilegedRole() を使用してください。
+ * 後方互換性のために残存。DB の is_privileged フラグとの互換用。
+ */
 export function isPrivilegedEmail(email: string | null | undefined): boolean {
   if (!email) return false;
   return email.toLowerCase().endsWith('@shintairiku.jp');
