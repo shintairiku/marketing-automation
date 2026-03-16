@@ -190,6 +190,65 @@ CLERK_DOMAIN=your-clerk-domain.clerk.accounts.dev
 
 ---
 
+## Clerk 認証設定
+
+### セッショントークンのカスタマイズ（必須）
+
+Clerk Dashboard → **Configure** → **Sessions** → **Customize session token** で以下を設定:
+
+```json
+{
+  "role": "authenticated",
+  "metadata": "{{user.public_metadata}}",
+  "twoFactorEnabled": "{{user.two_factor_enabled}}"
+}
+```
+
+**Development と Production の両方で設定が必要。**
+
+| フィールド | 用途 | 必須 |
+|-----------|------|------|
+| `role` | Supabase RLS 用。`"authenticated"` 固定。**削除禁止** |  必須 |
+| `metadata` | RBAC 用。`publicMetadata.role` (`"admin"` / `"privileged"`) を JWT に含める | 必須 |
+| `twoFactorEnabled` | 管理者ページの MFA 強制チェック用 | 推奨 |
+
+### ロールベースアクセス制御 (RBAC)
+
+ユーザーのロールは Clerk の `publicMetadata.role` で管理:
+
+| ロール | 管理画面 | 全機能利用 | 記事生成無制限 | 設定方法 |
+|--------|---------|-----------|--------------|---------|
+| `admin` | アクセス可 | 可 | 可 | 管理画面 `/admin/users` or Clerk Dashboard |
+| `privileged` | アクセス不可 | 可 | 可 | 管理画面 `/admin/users` or Clerk Dashboard |
+| なし (一般) | アクセス不可 | サブスク必要 | プラン上限 | デフォルト |
+
+**初回の管理者設定**: Clerk Dashboard → Users → 対象ユーザー → Metadata → **Public** に `{"role": "admin"}` を設定。以降は管理画面から設定可能。
+
+### Supabase Third-Party Auth 連携
+
+`supabase/config.toml` で Clerk Third-Party Auth を設定済み:
+
+```toml
+[auth.third_party.clerk]
+enabled = true
+domain = "env(CLERK_DOMAIN)"
+```
+
+`supabase/.env` に Clerk ドメインを設定:
+
+```env
+CLERK_DOMAIN=your-clerk-domain.clerk.accounts.dev
+```
+
+### Multi-Factor Authentication (MFA)
+
+管理者ページ (`/admin/*`) アクセス時に MFA を強制（middleware で制御）:
+
+1. Clerk Dashboard → **Configure** → **Multi-factor** → TOTP（認証アプリ）を有効化
+2. admin ロールのユーザーが MFA 未設定で `/admin` にアクセス → MFA 設定ページにリダイレクト
+
+---
+
 ## Git ブランチ戦略
 
 ```

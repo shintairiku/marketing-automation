@@ -50,9 +50,11 @@ const isPublicRoute = createRouteMatcher([
  * JWT sessionClaims からロールを取得。
  *
  * Clerk Dashboard の Sessions → Customize session token で設定:
- * { "metadata": "{{user.public_metadata}}" }
- *
- * これにより sessionClaims.metadata.role でロールにアクセス可能。
+ * {
+ *   "role": "authenticated",
+ *   "metadata": "{{user.public_metadata}}",
+ *   "twoFactorEnabled": "{{user.two_factor_enabled}}"
+ * }
  */
 function getUserRole(sessionClaims: CustomJwtSessionClaims | null | undefined): string | null {
   if (!sessionClaims?.metadata?.role) return null;
@@ -96,10 +98,14 @@ export default clerkMiddleware(async (authObject, req) => {
 
     // ロールベースのアクセス制御
     if (isPrivilegedOnlyRoute(req)) {
-      // admin ルートは admin ロールのみ
+      // admin ルートは admin ロールのみ + MFA 必須
       if (isAdminRoute(req)) {
         if (!isAdmin(sessionClaims)) {
           return NextResponse.redirect(new URL('/blog/new', req.url));
+        }
+        // admin ユーザーの MFA チェック（MFA 未設定なら設定ページへ）
+        if (!sessionClaims?.twoFactorEnabled) {
+          return NextResponse.redirect(new URL('/settings/account/mfa-setup', req.url));
         }
       } else {
         // その他の特権ルートは admin or privileged

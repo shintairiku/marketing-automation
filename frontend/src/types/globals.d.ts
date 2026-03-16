@@ -3,11 +3,14 @@
  *
  * Clerk Dashboard の Sessions → Customize session token で以下を設定:
  * {
- *   "metadata": "{{user.public_metadata}}"
+ *   "role": "authenticated",
+ *   "metadata": "{{user.public_metadata}}",
+ *   "twoFactorEnabled": "{{user.two_factor_enabled}}"
  * }
  *
- * これにより sessionClaims.metadata に publicMetadata が含まれる。
- * role: "admin" | "privileged" | undefined
+ * - role: Supabase RLS 用 ("authenticated" 固定、削除禁止)
+ * - metadata: RBAC 用 (publicMetadata.role = "admin" | "privileged")
+ * - twoFactorEnabled: 管理者ページの MFA 強制チェック用
  */
 export {};
 
@@ -16,5 +19,6 @@ declare global {
     metadata?: {
       role?: 'admin' | 'privileged';
     };
+    twoFactorEnabled?: boolean;
   }
 }
