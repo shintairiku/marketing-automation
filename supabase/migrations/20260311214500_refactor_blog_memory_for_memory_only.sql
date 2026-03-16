@@ -8,7 +8,46 @@
 create extension if not exists pgcrypto;
 create extension if not exists vector;
 
+create or replace function public.is_owner_in_scope(
+  p_scope_type text,
+  p_organization_id uuid,
+  p_user_id text
+) returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select case
+    when coalesce((current_setting('request.jwt.claims', true))::json ->> 'role', '') = 'service_role' then true
+    when p_scope_type = 'org' then exists (
+      select 1
+      from public.organization_members om
+      where om.organization_id = p_organization_id
+        and om.user_id = ((current_setting('request.jwt.claims', true))::json ->> 'sub')
+    )
+    else p_user_id = ((current_setting('request.jwt.claims', true))::json ->> 'sub')
+  end;
+$$;
+
 -- blog_memory_meta adjustments
+
+create table if not exists public.blog_memory_meta (
+  process_id uuid primary key references public.blog_generation_state(id) on delete cascade,
+  user_id text not null,
+  organization_id uuid null references public.organizations(id) on delete set null,
+  scope_type text not null check (scope_type in ('org', 'user')),
+  draft_post_id integer null,
+  title text not null,
+  summary text not null,
+  post_type text null,
+  category_ids integer[] not null default '{}'::integer[],
+  embedding_input text not null default '',
+  embedding vector(1536),
+  embedding_updated_at timestamptz null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
 
 do $$
 begin
@@ -44,6 +83,31 @@ create index if not exists idx_blog_memory_meta_post_type
 
 create index if not exists idx_blog_memory_meta_category_ids_gin
   on public.blog_memory_meta using gin(category_ids);
+
+create index if not exists idx_blog_memory_meta_scope
+  on public.blog_memory_meta(scope_type, organization_id, user_id);
+
+create index if not exists idx_blog_memory_meta_embedding
+  on public.blog_memory_meta using ivfflat (embedding vector_cosine_ops)
+  with (lists = 100);
+
+alter table public.blog_memory_meta enable row level security;
+
+drop policy if exists blog_memory_meta_select_own_scope on public.blog_memory_meta;
+create policy blog_memory_meta_select_own_scope
+  on public.blog_memory_meta for select
+  using (public.is_owner_in_scope(scope_type, organization_id, user_id));
+
+drop policy if exists blog_memory_meta_insert_own_scope on public.blog_memory_meta;
+create policy blog_memory_meta_insert_own_scope
+  on public.blog_memory_meta for insert
+  with check (public.is_owner_in_scope(scope_type, organization_id, user_id));
+
+drop policy if exists blog_memory_meta_update_own_scope on public.blog_memory_meta;
+create policy blog_memory_meta_update_own_scope
+  on public.blog_memory_meta for update
+  using (public.is_owner_in_scope(scope_type, organization_id, user_id))
+  with check (public.is_owner_in_scope(scope_type, organization_id, user_id));
 
 -- detail table
 create table if not exists public.blog_memory_detail (

@@ -163,7 +163,7 @@ def _get_owned_process_or_raise(supabase_client, process_id: str, user_id: str) 
     result = supabase_client.table("blog_generation_state").select(
         "id, user_id, organization_id, wordpress_site_id, draft_post_id"
     ).eq("id", process_id).maybe_single().execute()
-    process_row = result.data
+    process_row = getattr(result, "data", None) if result is not None else None
 
     if not process_row:
         raise BlogMemoryError(
@@ -1560,8 +1560,9 @@ def _get_user_org_for_usage(user_id: str) -> Optional[str]:
         sub = db.table("user_subscriptions").select(
             "upgraded_to_org_id"
         ).eq("user_id", user_id).maybe_single().execute()
-        if sub.data and sub.data.get("upgraded_to_org_id"):
-            return sub.data["upgraded_to_org_id"]
+        sub_row = getattr(sub, "data", None) if sub is not None else None
+        if sub_row and sub_row.get("upgraded_to_org_id"):
+            return sub_row["upgraded_to_org_id"]
 
         # 2. organization_members でアクティブな組織サブスクを探す
         memberships = db.table("organization_members").select(

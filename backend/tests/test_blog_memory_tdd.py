@@ -13,6 +13,7 @@ from app.domains.blog import endpoints as blog_endpoints
 from app.domains.blog.schemas import BlogCompletionOutput
 from app.domains.blog.services.generation_service import BlogGenerationService
 from app.domains.blog.services.memory_service import BlogMemoryService
+from app.domains.usage.service import UsageLimitService
 import app.domains.blog.services.memory_service as memory_service_module
 
 
@@ -190,6 +191,31 @@ class _MemorySupabase:
         return _FakeResult([])
 
 
+class _MaybeSingleNoneTable:
+    def select(self, *_args, **_kwargs):
+        return self
+
+    def eq(self, *_args, **_kwargs):
+        return self
+
+    def lte(self, *_args, **_kwargs):
+        return self
+
+    def gte(self, *_args, **_kwargs):
+        return self
+
+    def maybe_single(self):
+        return self
+
+    def execute(self):
+        return None
+
+
+class _MaybeSingleNoneSupabase:
+    def table(self, _name: str):
+        return _MaybeSingleNoneTable()
+
+
 @pytest.mark.asyncio
 async def test_start_blog_generation_sets_organization_id_from_site(monkeypatch):
     fake_db = _EndpointSupabase(
@@ -306,6 +332,24 @@ async def test_memory_service_upsert_detail_patch_merges_existing_memory_json(mo
     assert len(memory_json["qa"]) == 2
     assert memory_json["qa"][1]["question"] == "Q2"
     assert memory_json["references"][0]["post_id"] == 123
+
+
+@pytest.mark.asyncio
+async def test_memory_service_get_detail_memory_returns_empty_when_maybe_single_is_none(monkeypatch):
+    monkeypatch.setattr(memory_service_module, "supabase", _MaybeSingleNoneSupabase())
+
+    service = BlogMemoryService()
+    detail = await service.get_detail_memory("11111111-1111-1111-1111-111111111111")
+
+    assert detail == {
+        "user_input": None,
+        "qa": [],
+        "summary": None,
+        "note": None,
+        "tool_results": [],
+        "execution_trace": {},
+        "references": [],
+    }
 
 
 @pytest.mark.asyncio
@@ -495,3 +539,13 @@ async def test_process_result_saves_summary_note_and_execution_trace(monkeypatch
         "tool_sequence": ["wp_get_site_info", "memory_search", "wp_create_draft_post"],
     }
     assert captured["organization_id"] == "org-fixed"
+
+
+def test_usage_limit_service_handles_maybe_single_none():
+    service = UsageLimitService()
+    service.db = _MaybeSingleNoneSupabase()
+
+    assert service._is_privileged("user-1") is False
+    assert service._get_current_tracking("user-1") is None
+    assert service._create_tracking_from_subscription("user-1") is None
+    assert service._get_plan_tier("free") is None

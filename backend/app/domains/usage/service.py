@@ -24,6 +24,10 @@ class UsageLimitService:
     def __init__(self):
         self.db = supabase
 
+    @staticmethod
+    def _result_data(result):
+        return getattr(result, "data", None) if result is not None else None
+
     def check_can_generate(
         self,
         user_id: str,
@@ -247,7 +251,8 @@ class UsageLimitService:
             result = self.db.table("user_subscriptions").select(
                 "is_privileged"
             ).eq("user_id", user_id).maybe_single().execute()
-            return result.data.get("is_privileged", False) if result.data else False
+            row = self._result_data(result)
+            return row.get("is_privileged", False) if row else False
         except Exception:
             return False
 
@@ -273,7 +278,8 @@ class UsageLimitService:
                     "billing_period_end", now
                 ).maybe_single().execute()
 
-            return result.data if result.data else None
+            row = self._result_data(result)
+            return row if row else None
         except Exception as e:
             logger.error(f"Failed to get tracking: {e}")
             return None
@@ -292,37 +298,39 @@ class UsageLimitService:
                     "status", "active"
                 ).maybe_single().execute()
 
-                if not sub.data:
+                sub_row = self._result_data(sub)
+                if not sub_row:
                     return None
 
                 return self.create_tracking_for_period(
                     user_id=None,
                     organization_id=organization_id,
-                    billing_period_start=sub.data["current_period_start"],
-                    billing_period_end=sub.data["current_period_end"],
-                    plan_tier_id=sub.data.get("plan_tier_id") or "default",
-                    quantity=sub.data.get("quantity", 1),
-                    addon_quantity=sub.data.get("addon_quantity", 0),
+                    billing_period_start=sub_row["current_period_start"],
+                    billing_period_end=sub_row["current_period_end"],
+                    plan_tier_id=sub_row.get("plan_tier_id") or "default",
+                    quantity=sub_row.get("quantity", 1),
+                    addon_quantity=sub_row.get("addon_quantity", 0),
                 )
             else:
                 sub = self.db.table("user_subscriptions").select(
                     "plan_tier_id, current_period_end, status, stripe_subscription_id, addon_quantity"
                 ).eq("user_id", user_id).maybe_single().execute()
 
-                if not sub.data:
+                sub_row = self._result_data(sub)
+                if not sub_row:
                     return None
 
-                plan_tier_id = sub.data.get("plan_tier_id") or "free"
+                plan_tier_id = sub_row.get("plan_tier_id") or "free"
 
                 # フリープランユーザー（Stripeサブスクなし）
-                if plan_tier_id == "free" or (sub.data.get("status") in ("none", None) and not sub.data.get("stripe_subscription_id")):
+                if plan_tier_id == "free" or (sub_row.get("status") in ("none", None) and not sub_row.get("stripe_subscription_id")):
                     return self._create_tracking_for_free_plan(user_id, plan_tier_id)
 
-                if sub.data.get("status") not in ("active", "past_due", "canceled"):
+                if sub_row.get("status") not in ("active", "past_due", "canceled"):
                     return None
 
                 # current_period_end から期間を推定（1ヶ月前をstartとする）
-                period_end = sub.data.get("current_period_end")
+                period_end = sub_row.get("current_period_end")
                 if not period_end:
                     return None
 
@@ -335,9 +343,9 @@ class UsageLimitService:
                     organization_id=None,
                     billing_period_start=start_dt.isoformat(),
                     billing_period_end=end_dt.isoformat(),
-                    plan_tier_id=sub.data.get("plan_tier_id") or "default",
+                    plan_tier_id=sub_row.get("plan_tier_id") or "default",
                     quantity=1,
-                    addon_quantity=sub.data.get("addon_quantity", 0),
+                    addon_quantity=sub_row.get("addon_quantity", 0),
                 )
         except Exception as e:
             logger.error(f"Failed to create tracking from subscription: {e}")
@@ -420,7 +428,8 @@ class UsageLimitService:
             result = self.db.table("plan_tiers").select("*").eq(
                 "id", plan_tier_id
             ).maybe_single().execute()
-            return result.data if result.data else None
+            row = self._result_data(result)
+            return row if row else None
         except Exception:
             return None
 

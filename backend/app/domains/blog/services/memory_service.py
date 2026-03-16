@@ -34,6 +34,11 @@ ALLOWED_NEEDS = {
     "references",
 }
 
+
+def _result_data(result: Any) -> Any:
+    """Supabase maybe_single() が None を返すケースを吸収する。"""
+    return getattr(result, "data", None) if result is not None else None
+
 @dataclass
 class BlogMemoryError(Exception):
     code: str
@@ -230,7 +235,7 @@ class BlogMemoryService:
         except Exception as e:
             raise self._map_db_exception(e) from e
 
-        data = result.data or {}
+        data = _result_data(result) or {}
         memory_json = data.get("memory_json") if isinstance(data, dict) else {}
         return self._normalize_memory_json(memory_json)
 
@@ -409,7 +414,7 @@ class BlogMemoryService:
         except Exception as e:
             raise self._map_db_exception(e) from e
 
-        row = result.data or {}
+        row = _result_data(result) or {}
         user_id = row.get("user_id")
         if not user_id:
             raise BlogMemoryError(
