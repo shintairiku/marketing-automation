@@ -55,5 +55,8 @@ cd frontend && bun run lint && bun run build
 ```
 
 ## 注意点
-- `AppLayoutClient` が `mt-[45px]` + `p-3` を適用 → 子ページで `min-h-screen` を使うとビューポート超過。全高が必要な場合は `calc(100dvh - 57px)` を使う
+- `AppLayoutClient` はヘッダーなし。デスクトップは `ml-[240px]` or `ml-[64px]`、モバイルは `pt-14` のみ
+- Clerk `UserButton` はサイドバー下部に配置（`showName` で展開時は名前表示、折り畳み時はアバターのみ）
+- モバイルのサイドバー開閉はフローティングハンバーガーボタン（`fixed top-3 left-3`）で行う
+- 子ページで全高が必要な場合は `calc(100dvh)` をそのまま使える（ヘッダー分のオフセット不要）
 - `next/font/google` は使わない (ネットワーク依存)。`@fontsource-variable/noto-sans-jp` でセルフホスト

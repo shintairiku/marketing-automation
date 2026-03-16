@@ -1,4 +1,5 @@
 import { Metadata } from 'next';
+import Link from 'next/link';
 
 import { SignUp } from '@clerk/nextjs';
 
@@ -9,10 +10,13 @@ export const metadata: Metadata = {
 
 export default function SignUpPage() {
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center bg-gradient-to-br from-slate-900 to-slate-800 p-4">
-      <div className="w-full max-w-md">
+    <div className="flex min-h-screen flex-col items-center justify-center bg-stone-50 p-4">
+      <div className="w-full max-w-md space-y-4">
         <SignUp path="/sign-up" routing="path" signInUrl="/sign-in" afterSignUpUrl="/blog/new" />
+        <p className="text-center text-xs text-stone-500 leading-relaxed">
+          アカウントを作成することで、<Link href="/legal/terms" target="_blank" className="underline hover:text-stone-700">利用規約</Link>および<Link href="/legal/privacy" target="_blank" className="underline hover:text-stone-700">プライバシーポリシー</Link>に同意したものとみなされます。
+        </p>
       </div>
     </div>
   );
-} 
+}

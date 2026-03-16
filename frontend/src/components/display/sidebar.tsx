@@ -41,7 +41,7 @@ import {
 import { useSidebar } from '@/contexts/SidebarContext';
 import { hasPrivilegedRole } from '@/lib/subscription';
 import { cn } from '@/utils/cn';
-import { useUser } from '@clerk/nextjs';
+import { UserButton, useUser } from '@clerk/nextjs';
 
 export const iconMap: Record<string, React.ReactElement<{ size?: number }>> = {
   '/dashboard':                        <IoHome size={20} />,
@@ -187,7 +187,7 @@ export default function Sidebar() {
         </div>
 
         {/* Navigation */}
-        <ScrollArea className="flex-1">
+        <ScrollArea className="flex-1 min-h-0">
           <nav className="py-2">
             {filteredGroups.map((group) => (
               <div key={group.title} className="mb-1">
@@ -337,6 +337,56 @@ export default function Sidebar() {
             ))}
           </nav>
         </ScrollArea>
+
+        {/* アカウントパネル */}
+        <div className={cn(
+          'shrink-0 border-t border-stone-100',
+          effectiveOpen ? 'px-3 py-3' : 'flex justify-center py-3'
+        )}>
+          {effectiveOpen ? (
+            <div className="flex items-center gap-2.5 px-2 py-1.5 rounded-lg hover:bg-stone-50 transition-colors">
+              <UserButton afterSignOutUrl="/" />
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium text-stone-700 truncate leading-tight">
+                  {user?.lastName && user?.firstName
+                    ? `${user.lastName} ${user.firstName}`
+                    : (user?.fullName ?? user?.firstName ?? 'ユーザー')}
+                </p>
+                <p className="text-xs text-stone-400 truncate leading-tight">
+                  {user?.primaryEmailAddress?.emailAddress}
+                </p>
+              </div>
+            </div>
+          ) : (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <div>
+                  <UserButton afterSignOutUrl="/" />
+                </div>
+              </TooltipTrigger>
+              <TooltipContent side="right" sideOffset={8}>
+                <p className="font-medium">
+                  {user?.lastName && user?.firstName
+                    ? `${user.lastName} ${user.firstName}`
+                    : (user?.fullName ?? 'アカウント')}
+                </p>
+              </TooltipContent>
+            </Tooltip>
+          )}
+        </div>
+
+        {/* 法務リンク */}
+        {effectiveOpen && (
+          <div className="shrink-0 px-5 pb-3 flex items-center gap-2 text-[11px] text-stone-400">
+            <Link href="/legal/terms" className="hover:text-stone-600 transition-colors" target="_blank">
+              利用規約
+            </Link>
+            <span>|</span>
+            <Link href="/legal/privacy" className="hover:text-stone-600 transition-colors" target="_blank">
+              プライバシー
+            </Link>
+          </div>
+        )}
 
       </aside>
     </TooltipProvider>

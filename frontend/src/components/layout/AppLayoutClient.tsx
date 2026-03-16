@@ -2,8 +2,8 @@
 
 import { PropsWithChildren, useEffect } from 'react';
 import { usePathname } from 'next/navigation';
+import { LuMenu } from 'react-icons/lu';
 
-import Header from '@/components/display/header';
 import Sidebar from '@/components/display/sidebar';
 import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet';
 import { SidebarProvider, useSidebar } from '@/contexts/SidebarContext';
@@ -43,18 +43,23 @@ function AppLayoutContent({ children }: PropsWithChildren) {
               <Sidebar />
             </SheetContent>
           </Sheet>
+
+          {/* モバイル: フローティングハンバーガーボタン */}
+          <button
+            onClick={() => setMobileMenuOpen(true)}
+            className="md:hidden fixed top-3 left-3 z-30 p-2 rounded-lg bg-white border border-stone-200 shadow-sm text-stone-600 hover:bg-stone-50 transition-colors"
+            aria-label="メニューを開く"
+          >
+            <LuMenu size={20} />
+          </button>
         </>
       )}
-      {showSidebar && <Header />}
       <main className={cn(
         "flex-1 p-3 md:p-5 transition-all duration-300 ease-in-out",
         showSidebar
-          ? cn(
-              "mt-[45px]",
-              isMobile
-                ? "ml-0"
-                : isSidebarOpen ? "ml-[240px]" : "ml-[64px]"
-            )
+          ? isMobile
+            ? "pt-14"
+            : isSidebarOpen ? "ml-[240px]" : "ml-[64px]"
           : ""
       )}>
         {children}
