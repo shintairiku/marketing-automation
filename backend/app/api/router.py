@@ -11,6 +11,7 @@ from app.domains.admin.endpoints import router as admin_router
 from app.domains.blog.endpoints import router as blog_router
 from app.domains.usage.endpoints import router as usage_router
 from app.domains.contact.endpoints import router as contact_router
+from app.domains.admin.mfa.endpoints import router as admin_mfa_router
 
 api_router = APIRouter()
 
@@ -26,6 +27,7 @@ api_router.include_router(usage_router, prefix="/usage", tags=["Usage"])
 api_router.include_router(contact_router, prefix="/contact", tags=["Contact"])
 # Admin router (requires @shintairiku.jp email domain)
 api_router.include_router(admin_router)
+api_router.include_router(admin_mfa_router)
 
 # 今後、Instagram機能などを追加する場合は、ここに一行追加するだけでよい
 # from app.domains.instagram.endpoints import router as instagram_router

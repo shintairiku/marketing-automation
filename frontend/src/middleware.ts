@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { jwtVerify } from 'jose';
 
 import { clerkMiddleware, createRouteMatcher } from '@clerk/nextjs/server';
 
@@ -72,8 +73,26 @@ function isAdmin(sessionClaims: CustomJwtSessionClaims | null | undefined): bool
   return getUserRole(sessionClaims) === 'admin';
 }
 
+/**
+ * カスタム TOTP セッション JWT を検証 (Edge Runtime 対応)
+ */
+async function verifyMfaSession(token: string, userId: string): Promise<boolean> {
+  try {
+    const secret = new TextEncoder().encode(
+      process.env.ADMIN_MFA_SESSION_SECRET || 'dev-mfa-secret-change-in-production'
+    );
+    const { payload } = await jwtVerify(token, secret);
+    return payload.sub === userId;
+  } catch {
+    return false;
+  }
+}
+
 // ルートパス `/` のマッチャー
 const isRootRoute = createRouteMatcher(['/']);
+
+// MFA 検証ページ自体のマッチャー（無限リダイレクト防止）
+const isMfaVerifyRoute = createRouteMatcher(['/admin/mfa-verify']);
 
 export default clerkMiddleware(async (authObject, req) => {
   // ルート `/` へのアクセス: 認証状態に応じてリダイレクト
@@ -98,14 +117,37 @@ export default clerkMiddleware(async (authObject, req) => {
 
     // ロールベースのアクセス制御
     if (isPrivilegedOnlyRoute(req)) {
-      // admin ルートは admin ロールのみ + MFA 必須
+      // admin ルートは admin ロールのみ + カスタム TOTP MFA 必須
       if (isAdminRoute(req)) {
         if (!isAdmin(sessionClaims)) {
           return NextResponse.redirect(new URL('/blog/new', req.url));
         }
-        // admin ユーザーの MFA チェック（MFA 未設定なら設定ページへ）
-        if (!sessionClaims?.twoFactorEnabled) {
-          return NextResponse.redirect(new URL('/settings/account/mfa-setup', req.url));
+
+        // MFA 検証ページ自体は MFA チェック不要（無限ループ防止）
+        if (!isMfaVerifyRoute(req)) {
+          // カスタム TOTP セッションクッキーを確認
+          const mfaCookie = req.cookies.get('admin_mfa_session')?.value;
+          let mfaVerified = false;
+          if (mfaCookie) {
+            mfaVerified = await verifyMfaSession(mfaCookie, userId);
+          }
+
+          if (!mfaVerified) {
+            // TOTP 設定済みかのヒントクッキーを確認
+            const totpConfigured =
+              req.cookies.get('admin_totp_configured')?.value === 'true';
+            if (totpConfigured) {
+              // 設定済み → 検証ページへ
+              const verifyUrl = new URL('/admin/mfa-verify', req.url);
+              verifyUrl.searchParams.set('redirect', req.nextUrl.pathname);
+              return NextResponse.redirect(verifyUrl);
+            } else {
+              // 未設定 → セットアップページへ
+              return NextResponse.redirect(
+                new URL('/settings/account/mfa-setup', req.url)
+              );
+            }
+          }
         }
       } else {
         // その他の特権ルートは admin or privileged

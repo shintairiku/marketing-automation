@@ -31,6 +31,7 @@ dependencies = [
     "numpy",
     "httpx",
     "resend>=2.22.0",
+    "pyotp>=2.9.0",
 ]
 
 [tool.ruff]

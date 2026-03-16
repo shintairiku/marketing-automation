@@ -122,6 +122,11 @@ class Settings(BaseSettings):
     resend_api_key: str = Field(default_factory=lambda: os.getenv("RESEND_API_KEY", ""))
     resend_from_email: str = Field(default_factory=lambda: os.getenv("RESEND_FROM_EMAIL", "BlogAI <noreply@yourdomain.com>"))
 
+    # Admin MFA (TOTP)
+    admin_mfa_session_secret: str = Field(default_factory=lambda: os.getenv("ADMIN_MFA_SESSION_SECRET", "dev-mfa-secret-change-in-production"))
+    admin_mfa_session_ttl_hours: int = Field(default_factory=lambda: int(os.getenv("ADMIN_MFA_SESSION_TTL_HOURS", "8")))
+    admin_mfa_issuer_name: str = Field(default_factory=lambda: os.getenv("ADMIN_MFA_ISSUER_NAME", "BlogAI"))
+
     model_config = SettingsConfigDict(
         env_file=[
             '.env',
