@@ -18,6 +18,7 @@ import {
   Upload,
 } from "lucide-react";
 
+import { WordPressGuideSlides } from "@/components/blog/wordpress-guide-slides";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { PLUGIN_DOWNLOAD_URL } from "@/lib/wordpress";
@@ -201,6 +202,11 @@ export function WordPressOnboarding({ onConnected }: WordPressOnboardingProps) {
           <br className="hidden sm:block" />
           あなたのWordPressサイトにAIがブログ記事を書きます。
         </p>
+      </div>
+
+      {/* Guide slides */}
+      <div className="mb-6">
+        <WordPressGuideSlides variant="inline" />
       </div>
 
       {/* Steps */}

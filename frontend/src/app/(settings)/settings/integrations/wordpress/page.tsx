@@ -20,6 +20,7 @@ import {
   XCircle,
 } from "lucide-react";
 
+import { WordPressGuideSlides } from "@/components/blog/wordpress-guide-slides";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -400,6 +401,8 @@ export default function WordPressIntegrationPage() {
           WordPressサイトとMCPプラグインを連携して、ブログAI機能を利用できます。
         </p>
       </div>
+
+      <WordPressGuideSlides variant="collapsible" defaultOpen={false} />
 
       <Card>
         <CardHeader>
