@@ -300,7 +300,7 @@ def save_company_memory_update(
 
     if decision == "no_change":
         logger.info("company_memory_update: no_change process_id=%s", process_id)
-        logger.info("company_memory current=%s", json.dumps(current_content, ensure_ascii=False))
+        logger.debug("company_memory current=%s", json.dumps(current_content, ensure_ascii=False))
         return {"status": "no_change"}
 
     try:
@@ -322,9 +322,9 @@ def save_company_memory_update(
             "message": f"fields の正規化に失敗しました: {exc}",
         }
 
-    logger.info("company_memory current=%s", json.dumps(current_content, ensure_ascii=False))
-    logger.info("company_memory fields=%s", json.dumps(normalized_fields, ensure_ascii=False))
-    logger.info("company_memory proposed=%s", json.dumps(next_content, ensure_ascii=False))
+    logger.debug("company_memory current=%s", json.dumps(current_content, ensure_ascii=False))
+    logger.debug("company_memory fields=%s", json.dumps(normalized_fields, ensure_ascii=False))
+    logger.debug("company_memory proposed=%s", json.dumps(next_content, ensure_ascii=False))
 
     if next_content == current_content:
         logger.info("company_memory_update: effective no_change process_id=%s", process_id)
@@ -348,7 +348,7 @@ def save_company_memory_update(
         if not updated_rows:
             logger.warning("company_memory_update: conflict process_id=%s", process_id)
             return {"status": "conflict"}
-        logger.info("company_memory updated=%s", json.dumps(next_content, ensure_ascii=False))
+        logger.debug("company_memory updated=%s", json.dumps(next_content, ensure_ascii=False))
         return {"status": "saved"}
     except Exception as exc:
         logger.warning("company_memory_update validation/save failed: %s", exc)
