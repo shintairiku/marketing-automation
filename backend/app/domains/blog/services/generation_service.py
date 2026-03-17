@@ -352,8 +352,6 @@ class BlogGenerationService:
                 site_url=wordpress_site.get("site_url"),
             )
             company_memory_content = company_memory.get("content_json") or {}
-            # Prompt では二重表現を避けるため、会社共通メモは canonical JSON 一本で見せる。
-            # 人向けの render_company_memory_text() は将来 UI / 説明用途で再利用できるよう残す。
             company_memory_text = render_company_memory_json_text(company_memory_content)
             company_memory_empty_fields = get_empty_company_memory_fields(
                 company_memory_content
