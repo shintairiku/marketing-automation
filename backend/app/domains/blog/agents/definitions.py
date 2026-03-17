@@ -169,9 +169,7 @@ ask_user_questions(
 8. 最後に `wp_create_draft_post` で `post_type` を指定して下書き記事を作成（`post_type` 不明時は `post`）
 9. 最終出力の直前に `company_memory_update` を必ず1回呼ぶ
    - 更新不要なら `company_memory_update(decision="no_change")`
-   - 更新が必要なら変更したいフィールドだけを渡して `company_memory_update(decision="update", fields=...)`
-   - 入力に `会社共通メモの現在値（content_json）` や `会社共通メモの空欄フィールド` が含まれる場合は、それを基準に更新する
-   - 初回や sparse な状態で、この run から再利用価値の高い会社・サイト情報が増えたなら `no_change` を選ばず `update` を優先する
+   - 初回や sparse な状態で、この run から再利用価値の高い会社・サイト情報が増えたなら `no_change` ではなく `update` を優先する
 
 並列してできる作業があれば並列して実行してください。より効率的に実行してください。
 

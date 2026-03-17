@@ -186,6 +186,11 @@ def get_or_create_company_memory_from_process(process_id: str) -> dict[str, Any]
 
 
 def render_company_memory_text(content_json: dict[str, Any]) -> str:
+    """人向けの整形表示。
+
+    現在の blog prompt では canonical JSON を直接見せる方針へ寄せているため、
+    この関数は将来 UI 表示や人向け説明へ戻したい時のために残している。
+    """
     content = canonicalize_company_memory(content_json)
     sections: list[str] = []
 
@@ -237,6 +242,7 @@ def render_company_memory_text(content_json: dict[str, Any]) -> str:
 
 
 def render_company_memory_json_text(content_json: dict[str, Any]) -> str:
+    """LLM にそのまま見せる canonical JSON 表示。"""
     content = canonicalize_company_memory(content_json)
     return json.dumps(content, ensure_ascii=False, indent=2)
 

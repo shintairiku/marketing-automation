@@ -102,7 +102,7 @@ async def ask_user_questions(
     }, ensure_ascii=False)
 
 
-# ========== 記事取得系ツール ==========
+# ========== 会社共通メモツール ==========
 
 
 @function_tool(strict_mode=False)

@@ -42,7 +42,6 @@ from app.domains.blog.services.company_memory_service import (
     get_empty_company_memory_fields,
     get_or_create_company_memory,
     render_company_memory_json_text,
-    render_company_memory_text,
 )
 from app.domains.blog.services.wordpress_mcp_service import (
     clear_mcp_client_cache,
@@ -353,10 +352,9 @@ class BlogGenerationService:
                 site_url=wordpress_site.get("site_url"),
             )
             company_memory_content = company_memory.get("content_json") or {}
-            company_memory_text = render_company_memory_text(company_memory_content)
-            company_memory_json_text = render_company_memory_json_text(
-                company_memory_content
-            )
+            # Prompt では二重表現を避けるため、会社共通メモは canonical JSON 一本で見せる。
+            # 人向けの render_company_memory_text() は将来 UI / 説明用途で再利用できるよう残す。
+            company_memory_text = render_company_memory_json_text(company_memory_content)
             company_memory_empty_fields = get_empty_company_memory_fields(
                 company_memory_content
             )
@@ -368,7 +366,6 @@ class BlogGenerationService:
                 wordpress_site,
                 uploaded_images,
                 company_memory_text,
-                company_memory_json_text,
                 company_memory_empty_fields,
             )
 
@@ -1443,7 +1440,6 @@ class BlogGenerationService:
         wordpress_site: Dict[str, Any],
         uploaded_images: Optional[List[Dict[str, Any]]] = None,
         company_memory_text: Optional[str] = None,
-        company_memory_json_text: Optional[str] = None,
         company_memory_empty_fields: Optional[List[str]] = None,
     ) -> Any:
         """初回入力メッセージを構築（画像対応）
@@ -1479,17 +1475,11 @@ class BlogGenerationService:
                 "以下はこの会社・サイトで継続的に参照する補助文脈です。矛盾がない限り、会社・サイトの基本前提として活用してください。\n"
                 "現在のユーザー指示と矛盾する場合はユーザー指示を優先してください。\n"
                 "WordPress の最新状態が必要な場合はツールで再確認してください。\n\n"
-                f"{company_memory_text}"
-            )
-        if company_memory_json_text:
-            parts.append(
-                "\n## 会社共通メモの現在値（content_json）\n\n"
-                "以下は company_memory の canonical JSON です。"
                 " `company_memory_update(decision=\"update\", fields=...)` を呼ぶ時は、"
-                "この shape を基準に変更したいフィールドだけを渡してください。\n"
+                "以下の JSON shape を基準に変更したいフィールドだけを渡してください。\n"
                 "初回や sparse な状態で、この run から再利用価値の高い会社・サイト情報が増えた場合は"
                 " `no_change` ではなく `update` を優先してください。\n\n"
-                f"```json\n{company_memory_json_text}\n```"
+                f"```json\n{company_memory_text}\n```"
             )
         if company_memory_empty_fields:
             parts.append(
