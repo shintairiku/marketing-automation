@@ -38,6 +38,11 @@ import logging
 from app.core.config import settings
 from app.domains.blog.agents.definitions import build_blog_writer_agent
 from app.domains.blog.schemas import BlogCompletionOutput
+from app.domains.blog.services.company_memory_service import (
+    get_empty_company_memory_fields,
+    get_or_create_company_memory,
+    render_company_memory_json_text,
+)
 from app.domains.blog.services.wordpress_mcp_service import (
     clear_mcp_client_cache,
     set_mcp_context,
@@ -109,6 +114,7 @@ TOOL_STEP_MAPPING: Dict[str, tuple[str, str]] = {
         "情報収集中",
         "レギュレーション設定を取得しています",
     ),
+    "company_memory_update": ("下書き作成中", "会社共通メモを更新しています"),
     # ユーザー質問
     "ask_user_questions": ("情報収集中", "ユーザーに追加情報を確認しています"),
     # Web検索
@@ -339,12 +345,39 @@ class BlogGenerationService:
                 db_images.data.get("uploaded_images", []) if db_images.data else []
             )
 
+            try:
+                company_memory = get_or_create_company_memory(
+                    user_id=user_id,
+                    organization_id=wordpress_site.get("organization_id"),
+                    site_name=wordpress_site.get("site_name"),
+                    site_url=wordpress_site.get("site_url"),
+                )
+                company_memory_content = (
+                    company_memory.get("content_json") or {} if company_memory else {}
+                )
+                company_memory_text = render_company_memory_json_text(
+                    company_memory_content
+                )
+                company_memory_empty_fields = get_empty_company_memory_fields(
+                    company_memory_content
+                )
+            except Exception as e:
+                logging.warning(
+                    "Failed to get or create company memory for process %s: %s",
+                    process_id,
+                    e,
+                )
+                company_memory_text = None
+                company_memory_empty_fields = None
+
             # 入力メッセージを構築（画像対応）
             input_message = self._build_input_message(
                 user_prompt,
                 reference_url,
                 wordpress_site,
                 uploaded_images,
+                company_memory_text,
+                company_memory_empty_fields,
             )
 
             # RunConfig設定（group_id で同一プロセスのトレースを紐付け）
@@ -1417,6 +1450,8 @@ class BlogGenerationService:
         reference_url: Optional[str],
         wordpress_site: Dict[str, Any],
         uploaded_images: Optional[List[Dict[str, Any]]] = None,
+        company_memory_text: Optional[str] = None,
+        company_memory_empty_fields: Optional[List[str]] = None,
     ) -> Any:
         """初回入力メッセージを構築（画像対応）
 
@@ -1444,6 +1479,27 @@ class BlogGenerationService:
             f"- サイトURL: {wordpress_site.get('site_url', '不明')}\n"
             f"- サイト名: {wordpress_site.get('site_name', '不明')}"
         )
+
+        if company_memory_text:
+            parts.append(
+                "\n## 会社共通メモ\n\n"
+                "以下はこの会社・サイトで継続的に参照する補助文脈です。矛盾がない限り、会社・サイトの基本前提として活用してください。\n"
+                "現在のユーザー指示と矛盾する場合はユーザー指示を優先してください。\n"
+                "WordPress の最新状態が必要な場合はツールで再確認してください。\n\n"
+                " `company_memory_update(decision=\"update\", fields=...)` を呼ぶ時は、"
+                "以下の JSON shape を基準に変更したいフィールドだけを渡してください。\n"
+                "初回や sparse な状態で、この run から再利用価値の高い会社・サイト情報が増えた場合は"
+                " `no_change` ではなく `update` を優先してください。\n\n"
+                f"```json\n{company_memory_text}\n```"
+            )
+        if company_memory_empty_fields:
+            parts.append(
+                "\n## 会社共通メモの空欄フィールド\n\n"
+                "現在未入力のフィールドです。"
+                "今回の run で長期的に再利用価値がある情報を得たなら、"
+                "最終的に `company_memory_update` で埋めてください。\n\n"
+                + "\n".join(f"- {field}" for field in company_memory_empty_fields)
+            )
 
         valid_images = []
         if uploaded_images:
