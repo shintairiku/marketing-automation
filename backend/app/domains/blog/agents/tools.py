@@ -182,8 +182,13 @@ def _normalize_json_result_string(raw_result: str) -> str:
     except (TypeError, json.JSONDecodeError):
         return raw_result
 
-    normalized = _normalize_json_html_fields(parsed)
-    return _dump_compact_json(normalized)
+    try:
+        normalized = _normalize_json_html_fields(parsed)
+        return _dump_compact_json(normalized)
+    except Exception:
+        # 正規化処理で例外が発生した場合は仕様どおり元の MCP 返り値を返す
+        logger.exception("Failed to normalize HTML fields in JSON result; returning raw_result.")
+        return raw_result
 
 
 # ========== ユーザー質問ツール ==========
