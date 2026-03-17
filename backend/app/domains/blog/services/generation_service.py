@@ -345,17 +345,30 @@ class BlogGenerationService:
                 db_images.data.get("uploaded_images", []) if db_images.data else []
             )
 
-            company_memory = get_or_create_company_memory(
-                user_id=user_id,
-                organization_id=wordpress_site.get("organization_id"),
-                site_name=wordpress_site.get("site_name"),
-                site_url=wordpress_site.get("site_url"),
-            )
-            company_memory_content = company_memory.get("content_json") or {}
-            company_memory_text = render_company_memory_json_text(company_memory_content)
-            company_memory_empty_fields = get_empty_company_memory_fields(
-                company_memory_content
-            )
+            try:
+                company_memory = get_or_create_company_memory(
+                    user_id=user_id,
+                    organization_id=wordpress_site.get("organization_id"),
+                    site_name=wordpress_site.get("site_name"),
+                    site_url=wordpress_site.get("site_url"),
+                )
+                company_memory_content = (
+                    company_memory.get("content_json") or {} if company_memory else {}
+                )
+                company_memory_text = render_company_memory_json_text(
+                    company_memory_content
+                )
+                company_memory_empty_fields = get_empty_company_memory_fields(
+                    company_memory_content
+                )
+            except Exception as e:
+                logging.warning(
+                    "Failed to get or create company memory for process %s: %s",
+                    process_id,
+                    e,
+                )
+                company_memory_text = None
+                company_memory_empty_fields = None
 
             # 入力メッセージを構築（画像対応）
             input_message = self._build_input_message(
