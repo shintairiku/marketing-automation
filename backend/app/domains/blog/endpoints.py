@@ -987,6 +987,7 @@ async def start_blog_generation(
     process_data = {
         "id": process_id,
         "user_id": user_id,
+        "organization_id": site.get("organization_id"),
         "wordpress_site_id": wordpress_site_id,
         "status": "pending",
         "current_step_name": "初期化中",
