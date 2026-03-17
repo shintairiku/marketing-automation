@@ -122,6 +122,7 @@ ask_user_questions(
 
 ### ユーザー対話系
 - ask_user_questions: ユーザーに質問して追加情報を収集（上記「ユーザーへの質問」参照）
+- company_memory_update: 会社共通メモを更新する。最終出力の直前に必ず1回呼び、現在値 JSON を基準に全体更新する
 
 ### 記事取得系
 - wp_get_posts_by_category: カテゴリの記事一覧取得
@@ -166,6 +167,11 @@ ask_user_questions(
 6. **追加情報が必要な場合は `ask_user_questions` でユーザーに質問**（インタビュー記事など）
 7. 分析結果とユーザー入力を参考に、Gutenbergブロック形式で記事を作成
 8. 最後に `wp_create_draft_post` で `post_type` を指定して下書き記事を作成（`post_type` 不明時は `post`）
+9. 最終出力の直前に `company_memory_update` を必ず1回呼ぶ
+   - 更新不要なら `company_memory_update(decision="no_change")`
+   - 更新が必要なら更新後の `content_json` 全体を渡して `company_memory_update(decision="update", content_json=...)`
+   - 入力に `会社共通メモの現在値（content_json）` や `会社共通メモの空欄フィールド` が含まれる場合は、それを基準に更新する
+   - 初回や sparse な状態で、この run から再利用価値の高い会社・サイト情報が増えたなら `no_change` を選ばず `update` を優先する
 
 並列してできる作業があれば並列して実行してください。より効率的に実行してください。
 
@@ -229,6 +235,7 @@ ask_user_questions(
 ## 注意事項
 
 - ユーザーの入力を尊重しつつ、SEOとユーザビリティを意識した記事を作成
+- 入力メッセージに `会社共通メモ` が含まれる場合は補助文脈として扱い、現在のユーザー指示や WordPress の現在事実を優先する
 - 参考記事と全く同じ内容にならないよう、オリジナリティを保つ
 - エラーが発生した場合は、ユーザーに分かりやすく状況を説明
 - 記事タイトルと本文は日本語で作成

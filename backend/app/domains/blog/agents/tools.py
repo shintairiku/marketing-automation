@@ -18,6 +18,10 @@ from app.domains.blog.services.wordpress_mcp_service import (
     MCP_LONG_TIMEOUT,
     MCPError,
 )
+from app.domains.blog.company_memory_schemas import CompanyMemoryContent
+from app.domains.blog.services.company_memory_service import (
+    save_company_memory_update,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -97,6 +101,32 @@ async def ask_user_questions(
         "input_types": input_types or (["textarea"] * len(questions)),
         "message": "質問をユーザーに送信しました。ユーザーの回答を待っています。これ以上の処理は行わないでください。",
     }, ensure_ascii=False)
+
+
+# ========== 記事取得系ツール ==========
+
+
+@function_tool
+async def company_memory_update(
+    decision: Literal["update", "no_change"],
+    content_json: Optional[CompanyMemoryContent] = None,
+) -> str:
+    """会社共通メモを更新します。入力に含まれる current content_json を基準に、最終出力の直前に1回だけ呼び出してください。"""
+    process_id = get_current_process_id()
+    if not process_id:
+        return _dump_compact_json(
+            {
+                "status": "validation_error",
+                "message": "process_id が設定されていません。",
+            }
+        )
+
+    result = save_company_memory_update(
+        process_id=process_id,
+        decision=decision,
+        content_json=content_json.model_dump() if content_json is not None else None,
+    )
+    return _dump_compact_json(result)
 
 
 # ========== 記事取得系ツール ==========
@@ -713,6 +743,7 @@ ALL_WORDPRESS_TOOLS = [
     web_search_tool,
     # ユーザー対話系
     ask_user_questions,
+    company_memory_update,
     # 記事取得系
     wp_get_posts_by_category,
     wp_get_post_block_structure,
