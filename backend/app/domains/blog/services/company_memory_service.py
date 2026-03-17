@@ -13,6 +13,7 @@ from app.common.database import supabase
 from app.domains.blog.company_memory_schemas import (
     CURRENT_COMPANY_MEMORY_SCHEMA_VERSION,
     canonicalize_company_memory,
+    normalize_company_memory_update_fields,
 )
 
 logger = logging.getLogger(__name__)
@@ -280,12 +281,12 @@ def save_company_memory_update(
     *,
     process_id: str,
     decision: Literal["update", "no_change"],
-    content_json: Optional[dict[str, Any]],
+    fields: Optional[dict[str, Any]],
 ) -> dict[str, Any]:
-    if decision == "update" and content_json is None:
+    if decision == "update" and fields is None:
         return {
             "status": "validation_error",
-            "message": "decision=update の場合は content_json が必要です",
+            "message": "decision=update の場合は fields が必要です",
         }
 
     current_row = get_or_create_company_memory_from_process(process_id)
@@ -297,14 +298,26 @@ def save_company_memory_update(
         return {"status": "no_change"}
 
     try:
-        next_content = canonicalize_company_memory(content_json)
+        normalized_fields = normalize_company_memory_update_fields(fields)
+        if not normalized_fields:
+            return {
+                "status": "validation_error",
+                "message": "fields には少なくとも1つの更新対象が必要です",
+            }
+        next_content = canonicalize_company_memory(
+            {
+                **current_content,
+                **normalized_fields,
+            }
+        )
     except Exception as exc:
         return {
             "status": "validation_error",
-            "message": f"content_json の正規化に失敗しました: {exc}",
+            "message": f"fields の正規化に失敗しました: {exc}",
         }
 
     logger.info("company_memory current=%s", json.dumps(current_content, ensure_ascii=False))
+    logger.info("company_memory fields=%s", json.dumps(normalized_fields, ensure_ascii=False))
     logger.info("company_memory proposed=%s", json.dumps(next_content, ensure_ascii=False))
 
     if next_content == current_content:

@@ -108,8 +108,19 @@ class CompanyMemoryContent(BaseModel):
         return max(version, 1)
 
 
+COMPANY_MEMORY_MUTABLE_FIELDS = frozenset(
+    field_name
+    for field_name in CompanyMemoryContent.model_fields
+    if field_name != "schema_version"
+)
+
+
 def normalize_company_memory(raw_json: Mapping[str, Any] | None) -> CompanyMemoryContent:
-    """DBの raw JSON を最新 schema へ寄せる。"""
+    """DBの raw JSON を最新 schema へ寄せる。
+
+    将来 shape を変更した際は、この関数で旧キー吸収や型変換を行う。
+    既存 row は read 時にここを通し、次回保存時に最新 shape へ自然更新する。
+    """
     payload = dict(raw_json or {})
     payload["schema_version"] = CURRENT_COMPANY_MEMORY_SCHEMA_VERSION
     return CompanyMemoryContent.model_validate(payload)
@@ -119,3 +130,31 @@ def canonicalize_company_memory(raw_json: Mapping[str, Any] | None) -> dict[str,
     """保存用の canonical JSON に正規化する。"""
     normalized = normalize_company_memory(raw_json)
     return normalized.model_dump()
+
+
+def normalize_company_memory_update_fields(
+    raw_fields: Mapping[str, Any] | None,
+) -> dict[str, Any]:
+    """部分更新用 fields を正規化する。
+
+    許可キーだけを受け付け、未指定キーは保存時に current JSON を保持する。
+    将来フィールド追加時は CompanyMemoryContent の定義更新だけで許可対象へ追従できる。
+    """
+    if raw_fields is None:
+        return {}
+    if not isinstance(raw_fields, Mapping):
+        raise ValueError("fields はオブジェクトである必要があります")
+
+    normalized_fields: dict[str, Any] = {}
+    unknown_keys: list[str] = []
+    for key, value in raw_fields.items():
+        if key not in COMPANY_MEMORY_MUTABLE_FIELDS:
+            unknown_keys.append(str(key))
+            continue
+        normalized_fields[str(key)] = value
+
+    if unknown_keys:
+        joined = ", ".join(sorted(unknown_keys))
+        raise ValueError(f"未知の fields キーが含まれています: {joined}")
+
+    return normalized_fields

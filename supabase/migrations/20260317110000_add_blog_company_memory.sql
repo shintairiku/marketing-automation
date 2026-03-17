@@ -14,7 +14,7 @@ create table if not exists public.company_memory (
 comment on table public.company_memory is 'ブログ生成で毎回参照する会社共通メモ';
 comment on column public.company_memory.scope_type is 'org または user';
 comment on column public.company_memory.content_json is 'company memory の canonical JSON';
-comment on column public.company_memory.content_md is '将来の表示用Markdown。v1では未使用';
+comment on column public.company_memory.content_md is '将来の表示用・編集用・エクスポート用Markdown。v1では未使用だが、Markdownベースの参照文脈にも転用できるよう保持する';
 comment on column public.company_memory.schema_version is 'content_json の schema version';
 comment on column public.company_memory.version is '楽観ロック用 version';
 

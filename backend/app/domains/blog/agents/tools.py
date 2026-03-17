@@ -18,7 +18,6 @@ from app.domains.blog.services.wordpress_mcp_service import (
     MCP_LONG_TIMEOUT,
     MCPError,
 )
-from app.domains.blog.company_memory_schemas import CompanyMemoryContent
 from app.domains.blog.services.company_memory_service import (
     save_company_memory_update,
 )
@@ -106,12 +105,12 @@ async def ask_user_questions(
 # ========== 記事取得系ツール ==========
 
 
-@function_tool
+@function_tool(strict_mode=False)
 async def company_memory_update(
     decision: Literal["update", "no_change"],
-    content_json: Optional[CompanyMemoryContent] = None,
+    fields: Optional[Dict[str, Any]] = None,
 ) -> str:
-    """会社共通メモを更新します。入力に含まれる current content_json を基準に、最終出力の直前に1回だけ呼び出してください。"""
+    """会社共通メモを更新します。current content_json を基準に、変更したい fields だけを渡してください。"""
     process_id = get_current_process_id()
     if not process_id:
         return _dump_compact_json(
@@ -124,7 +123,7 @@ async def company_memory_update(
     result = save_company_memory_update(
         process_id=process_id,
         decision=decision,
-        content_json=content_json.model_dump() if content_json is not None else None,
+        fields=fields,
     )
     return _dump_compact_json(result)
 
