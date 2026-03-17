@@ -1,14 +1,19 @@
 create table if not exists public.company_memory (
   id uuid primary key default gen_random_uuid(),
   user_id text not null,
-  organization_id uuid null references public.organizations(id) on delete set null,
+  organization_id uuid null references public.organizations(id) on delete cascade,
   scope_type text not null check (scope_type in ('org', 'user')),
   content_json jsonb not null default '{"schema_version":1,"company_name":"","site_name":"","site_url":"","language":"ja","business_summary":"","company_positioning":"","site_positioning":"","core_services":[],"strengths":[],"target_customers":[],"brand_voice":[],"avoid_expressions":[],"preferred_messages":[],"style_rules":[],"primary_post_types":[],"primary_categories":[],"site_operational_notes":[]}'::jsonb,
   content_md text null,
   schema_version integer not null default 1,
   version integer not null default 1,
   created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
+  updated_at timestamptz not null default now(),
+  constraint company_memory_scope_org_user_chk
+    check (
+      (scope_type = 'org' and organization_id is not null)
+      or (scope_type = 'user' and organization_id is null)
+    )
 );
 
 comment on table public.company_memory is 'ブログ生成で毎回参照する会社共通メモ';
