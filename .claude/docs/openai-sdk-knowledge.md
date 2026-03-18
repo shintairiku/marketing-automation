@@ -1,6 +1,6 @@
 # OpenAI Responses API / SDK 知見
 
-> **情報ソース**: openai SDK v2.26.0, openai-agents v0.11.1, 実機テスト 2026-02-02
+> **情報ソース**: openai SDK v2.29.0, openai-agents v0.12.3, 実機テスト 2026-02-02
 
 ## SDK 型定義の確認方法
 ```bash
@@ -69,6 +69,9 @@ client.responses.create(
 - v0.11.0: `_convert_function_tool()` が `defer_loading=True` を API ペイロードに出力するように対応
 - v0.11.0: `convert_tools()` が `_tool_namespace` 付きツールを自動的に `{"type":"namespace",...}` に集約
 - v0.11.1: バグ修正リリース
+- v0.12.0: `ModelRetrySettings` 追加（ネイティブリトライ設定: `max_retries`, `initial_delay`, `max_delay`, `backoff_factor`）
+- v0.12.0: MCP キャンセルエラーハンドリング改善
+- v0.12.3: バグ修正リリース（最新安定版）
 
 ## ToolOutputTrimmer（v0.10.5 新機能）
 ```python

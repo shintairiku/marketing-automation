@@ -2,6 +2,38 @@
 
 > 新しい変更はこのファイルに追記する。古い項目は @.claude/changelog-archive.md を参照。
 
+### 55. SDK v0.12.3 アップグレード + GPT-5.4 プロンプト最適化 (2026-03-18)
+
+**概要**: openai SDK v2.29.0 + openai-agents v0.12.3 にアップグレード。GPT-5.4 公式プロンプティングガイドに基づき Blog AI プロンプトを全面最適化。
+
+**変更ファイル**:
+
+| ファイル | 変更内容 |
+|---------|---------|
+| `backend/pyproject.toml` | `openai` 2.26.0→2.29.0, `openai-agents` 0.11.1→0.12.3 |
+| `backend/uv.lock` | 依存関係ロックファイル更新 |
+| `backend/app/domains/blog/agents/definitions.py` | BLOG_WRITER_INSTRUCTIONS を GPT-5.4 ベストプラクティスに基づき全面リライト |
+| `.claude/docs/openai-sdk-knowledge.md` | v0.12.x 変更点追加、バージョン情報更新 |
+
+**SDK v0.12.0 新機能**:
+- **`ModelRetrySettings`**: ネイティブリトライ設定（`max_retries`, `initial_delay`, `max_delay`, `backoff_factor`）
+- MCP キャンセルエラーハンドリング改善
+
+**プロンプト最適化（GPT-5.4 公式ガイド準拠）**:
+- **構造化順序**: Identity → 作業フロー(Step 1-6) → 制約 → 出力仕様（OpenAI推奨: Identity→Instructions→Examples→Context）
+- **ツール一覧セクション削除**: ToolSearchTool が動的にツールを検索するため、プロンプト内の個別ツール説明は不要に
+- **並列実行の明示**: Step 1 を「並列実行可」と明記し、GPT-5.4 の parallel_tool_calls を活用
+- **冗長性の排除**: 236行 → 約90行（約60%削減）。繰り返しの説明・例を集約
+- **制約の分離**: ルール群を「制約」セクションに集約（GPT-5.4 の instructions 優先度を活用）
+- **トークン効率向上**: プロンプト自体のトークン数が約60%減 → Prompt Caching のキャッシュ対象プレフィックスがコンパクトに
+
+**GPT-5.4 プロンプティング知見（公式ドキュメントから）**:
+- `instructions` パラメータは `input` より優先される — 高レベルルールは instructions に
+- developer メッセージ > user メッセージの優先度階層（chain of command）
+- Markdown + XML タグの併用で構造を明確化
+- reasoning モデルは multi-step planning に優れるが、明確なステップ指示が重要
+- 出力配列は複数アイテムを含む可能性あり — `output_text` プロパティで安全に取得
+
 ### 54. Agents SDK v0.11.1 アップグレード + Tool Search/Namespace 実装 (2026-03-11)
 
 **概要**: openai-agents SDK を v0.10.5 → v0.11.1 にアップグレードし、v0.11.0 で追加された ToolSearchTool / defer_loading / tool_namespace() を Blog AI に統合。22ツールを5ネームスペースに分類し、ツール検索による最大47%のトークン削減を実現。
